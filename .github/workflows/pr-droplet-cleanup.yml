@@ -1,0 +1,186 @@
+name: Cleanup PR Droplets
+
+on:
+    # pull_request:
+    #     types: [unlabeled, closed]
+    # schedule:
+    #     # Run every 6 hours to cleanup inactive droplets
+    #     - cron: '0 */6 * * *'
+    workflow_dispatch:
+
+env:
+    DROPLET_NAME_PREFIX: 'pr-preview'
+    MAX_INACTIVE_HOURS: 24
+
+jobs:
+    cleanup-on-pr-event:
+        # Only run on PR events (unlabeled or closed), not on schedule
+        if: github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check if should cleanup
+              id: should-cleanup
+              run: |
+                  if [ "${{ github.event.action }}" == "unlabeled" ] && [ "${{ github.event.label.name }}" != "deploy-preview" ]; then
+                    echo "Label removed was not deploy-preview, skipping cleanup"
+                    echo "cleanup=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "cleanup=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Set droplet name
+              if: steps.should-cleanup.outputs.cleanup == 'true'
+              id: droplet-info
+              run: |
+                  DROPLET_NAME="${{ env.DROPLET_NAME_PREFIX }}-${{ github.event.pull_request.number }}"
+                  echo "name=${DROPLET_NAME}" >> $GITHUB_OUTPUT
+
+            - name: Install doctl
+              if: steps.should-cleanup.outputs.cleanup == 'true'
+              uses: digitalocean/action-doctl@v2
+              with:
+                  token: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+
+            - name: Delete droplet
+              if: steps.should-cleanup.outputs.cleanup == 'true'
+              run: |
+                  if doctl compute droplet get ${{ steps.droplet-info.outputs.name }} --format ID --no-header 2>/dev/null; then
+                    echo "Deleting droplet ${{ steps.droplet-info.outputs.name }}..."
+                    doctl compute droplet delete ${{ steps.droplet-info.outputs.name }} --force
+                    echo "Droplet deleted successfully"
+                  else
+                    echo "Droplet does not exist, nothing to clean up"
+                  fi
+
+            - name: Comment on PR
+              if: steps.should-cleanup.outputs.cleanup == 'true'
+              uses: actions/github-script@v7
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const action = context.payload.action;
+                      let message = '';
+
+                      if (action === 'closed') {
+                        if (context.payload.pull_request.merged) {
+                          message = 'Preview environment has been destroyed after PR merge. 🎉';
+                        } else {
+                          message = 'Preview environment has been destroyed after PR closure. 🗑️';
+                        }
+                      } else if (action === 'unlabeled') {
+                        message = 'Preview environment has been destroyed after removing the `deploy-preview` label. 🗑️';
+                      }
+
+                      if (message) {
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                          body: message,
+                        });
+                      }
+
+    cleanup-inactive-droplets:
+        # Only run on schedule or manual trigger
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Install doctl
+              uses: digitalocean/action-doctl@v2
+              with:
+                  token: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+
+            - name: Find and delete inactive droplets
+              id: cleanup
+              run: |
+                  echo "Looking for droplets inactive for more than ${{ env.MAX_INACTIVE_HOURS }} hours..."
+
+                  CURRENT_TIME=$(date +%s)
+                  CUTOFF_TIME=$((CURRENT_TIME - (${{ env.MAX_INACTIVE_HOURS }} * 3600)))
+
+                  # Get all droplets with the pr-preview tag
+                  DROPLET_IDS=$(doctl compute droplet list \
+                    --tag-name pr-preview \
+                    --format ID \
+                    --no-header)
+
+                  if [ -z "$DROPLET_IDS" ]; then
+                    echo "No preview droplets found"
+                    echo "deleted=" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  DELETED_DROPLETS=""
+
+                  for DROPLET_ID in $DROPLET_IDS; do
+                    DROPLET_NAME=$(doctl compute droplet get $DROPLET_ID --format Name --no-header)
+                    DROPLET_TAGS=$(doctl compute droplet get $DROPLET_ID --format Tags --no-header)
+
+                    # Find the last-updated timestamp from tags
+                    LAST_UPDATED=""
+                    for tag in $(echo $DROPLET_TAGS | tr ',' ' '); do
+                      if [[ $tag == last-updated-* ]]; then
+                        LAST_UPDATED=${tag#last-updated-}
+                        break
+                      fi
+                    done
+
+                    if [ -z "$LAST_UPDATED" ]; then
+                      echo "Warning: Droplet $DROPLET_NAME has no last-updated tag, skipping"
+                      continue
+                    fi
+
+                    INACTIVE_HOURS=$(( (CURRENT_TIME - LAST_UPDATED) / 3600 ))
+
+                    if [ $LAST_UPDATED -lt $CUTOFF_TIME ]; then
+                      echo "Deleting inactive droplet: $DROPLET_NAME (inactive for ${INACTIVE_HOURS}h)"
+                      doctl compute droplet delete $DROPLET_ID --force
+                      DELETED_DROPLETS="${DELETED_DROPLETS}${DROPLET_NAME}\n"
+                    else
+                      echo "Keeping active droplet: $DROPLET_NAME (last activity: ${INACTIVE_HOURS}h ago)"
+                    fi
+                  done
+
+                  if [ -n "$DELETED_DROPLETS" ]; then
+                    echo "deleted<<EOF" >> $GITHUB_OUTPUT
+                    echo -e "$DELETED_DROPLETS" >> $GITHUB_OUTPUT
+                    echo "EOF" >> $GITHUB_OUTPUT
+                  else
+                    echo "deleted=" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Comment on PRs for deleted droplets
+              if: steps.cleanup.outputs.deleted != ''
+              uses: actions/github-script@v7
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const deletedDroplets = `${{ steps.cleanup.outputs.deleted }}`.split('\n').filter(Boolean);
+
+                      for (const dropletName of deletedDroplets) {
+                        const match = dropletName.match(/pr-preview-(\d+)/);
+                        if (!match) continue;
+
+                        const prNumber = parseInt(match[1]);
+
+                        try {
+                          const { data: pr } = await github.rest.pulls.get({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            pull_number: prNumber,
+                          });
+
+                          if (pr.state === 'open') {
+                            await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: prNumber,
+                              body: `⏰ Preview environment has been automatically destroyed after ${{ env.MAX_INACTIVE_HOURS }} hours of inactivity.\n\nTo redeploy, remove and re-add the \`deploy-preview\` label, or push a new commit.`,
+                            });
+                          }
+                        } catch (error) {
+                          console.log(`Could not comment on PR #${prNumber}: ${error.message}`);
+                        }
+                      }

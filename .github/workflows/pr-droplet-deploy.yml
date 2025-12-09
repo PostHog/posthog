@@ -1,0 +1,354 @@
+name: Deploy PR to DigitalOcean
+
+on:
+    pull_request:
+        types: [labeled, synchronize]
+
+env:
+    DROPLET_NAME_PREFIX: 'pr-preview'
+    SSH_KEY_NAME: 'github-actions-key'
+    REGION: 'nyc3'
+    SIZE: 's-4vcpu-16gb-amd'
+    IMAGE: 'ubuntu-22-04-x64'
+
+jobs:
+    deploy:
+        if: contains(github.event.pull_request.labels.*.name, 'deploy-preview')
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Set droplet name
+              id: droplet-info
+              run: |
+                  DROPLET_NAME="${{ env.DROPLET_NAME_PREFIX }}-${{ github.event.pull_request.number }}"
+                  echo "name=${DROPLET_NAME}" >> $GITHUB_OUTPUT
+                  echo "Droplet name: ${DROPLET_NAME}"
+
+            - name: Install doctl
+              uses: digitalocean/action-doctl@v2
+              with:
+                  token: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+
+            - name: Check if droplet exists
+              id: check-droplet
+              run: |
+                  if doctl compute droplet get ${{ steps.droplet-info.outputs.name }} --format ID --no-header 2>/dev/null; then
+                    echo "exists=true" >> $GITHUB_OUTPUT
+                    DROPLET_ID=$(doctl compute droplet get ${{ steps.droplet-info.outputs.name }} --format ID --no-header)
+                    DROPLET_IP=$(doctl compute droplet get ${{ steps.droplet-info.outputs.name }} --format PublicIPv4 --no-header)
+                    echo "id=${DROPLET_ID}" >> $GITHUB_OUTPUT
+                    echo "ip=${DROPLET_IP}" >> $GITHUB_OUTPUT
+                    echo "Droplet already exists with IP: ${DROPLET_IP}"
+                  else
+                    echo "exists=false" >> $GITHUB_OUTPUT
+                    echo "Droplet does not exist"
+                  fi
+
+            - name: Update droplet timestamp (if exists)
+              if: steps.check-droplet.outputs.exists == 'true'
+              run: |
+                  DROPLET_ID="${{ steps.check-droplet.outputs.id }}"
+                  TIMESTAMP=$(date -u +%s)
+
+                  echo "Updating last-updated timestamp for existing droplet..."
+
+                  # Get current tags
+                  CURRENT_TAGS=$(doctl compute droplet get $DROPLET_ID --format Tags --no-header | tr ',' '\n')
+
+                  # Remove old last-updated-* tags
+                  for tag in $CURRENT_TAGS; do
+                    if [[ $tag == last-updated-* ]]; then
+                      echo "Removing old tag: $tag"
+                      doctl compute droplet untag $DROPLET_ID --tag-name "$tag"
+                    fi
+                  done
+
+                  # Add new timestamp tag
+                  NEW_TAG="last-updated-${TIMESTAMP}"
+                  echo "Adding new tag: $NEW_TAG"
+                  doctl compute droplet tag $DROPLET_ID --tag-name "$NEW_TAG"
+
+            - name: Create SSH key if needed
+              if: steps.check-droplet.outputs.exists == 'false'
+              run: |
+                  if ! doctl compute ssh-key get ${{ env.SSH_KEY_NAME }} --format ID --no-header 2>/dev/null; then
+                    echo "Creating SSH key in DigitalOcean..."
+                    doctl compute ssh-key create ${{ env.SSH_KEY_NAME }} \
+                      --public-key "${{ secrets.DO_SSH_PUBLIC_KEY }}"
+                  fi
+
+            - name: Create droplet
+              if: steps.check-droplet.outputs.exists == 'false'
+              id: create-droplet
+              run: |
+                  echo "Creating droplet..."
+                  TIMESTAMP=$(date -u +%s)
+
+                  doctl compute droplet create ${{ steps.droplet-info.outputs.name }} \
+                    --region ${{ env.REGION }} \
+                    --size ${{ env.SIZE }} \
+                    --image ${{ env.IMAGE }} \
+                    --ssh-keys $(doctl compute ssh-key get ${{ env.SSH_KEY_NAME }} --format ID --no-header) \
+                    --tag-names "pr-preview,pr-${{ github.event.pull_request.number }},last-updated-${TIMESTAMP}" \
+                    --wait
+
+                  DROPLET_IP=$(doctl compute droplet get ${{ steps.droplet-info.outputs.name }} --format PublicIPv4 --no-header)
+                  echo "ip=${DROPLET_IP}" >> $GITHUB_OUTPUT
+                  echo "Droplet created with IP: ${DROPLET_IP} at timestamp: ${TIMESTAMP}"
+
+                  # Wait for SSH to be available
+                  echo "Waiting for SSH to be available..."
+                  for i in {1..30}; do
+                    if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@${DROPLET_IP} echo "SSH ready" 2>/dev/null; then
+                      echo "SSH is ready!"
+                      break
+                    fi
+                    echo "Attempt $i: SSH not ready yet, waiting..."
+                    sleep 10
+                  done
+
+            - name: Get droplet IP
+              id: get-ip
+              run: |
+                  if [ "${{ steps.check-droplet.outputs.exists }}" == "true" ]; then
+                    echo "ip=${{ steps.check-droplet.outputs.ip }}" >> $GITHUB_OUTPUT
+                  else
+                    echo "ip=${{ steps.create-droplet.outputs.ip }}" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Setup SSH key for connection
+              run: |
+                  mkdir -p ~/.ssh
+                  echo "${{ secrets.DO_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+                  chmod 600 ~/.ssh/id_rsa
+                  ssh-keyscan -H ${{ steps.get-ip.outputs.ip }} >> ~/.ssh/known_hosts
+
+            - name: Install dependencies and deploy
+              env:
+                  DROPLET_IP: ${{ steps.get-ip.outputs.ip }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPO_URL: ${{ github.event.pull_request.head.repo.clone_url }}
+                  BRANCH: ${{ github.event.pull_request.head.ref }}
+              run: |
+                  ssh root@${DROPLET_IP} bash -s << 'EOF'
+                    set -e
+
+                    # Update system
+                    export DEBIAN_FRONTEND=noninteractive
+                    apt-get update
+
+                    # Install flox
+                    if ! command -v flox &> /dev/null; then
+                      echo "Installing flox..."
+                      curl -fsSL https://downloads.flox.dev/by-env/stable/install | bash
+                      export PATH="${HOME}/.local/bin:${PATH}"
+                    fi
+
+                    # Clone or update repository
+                    REPO_DIR="/opt/pr-${{ env.PR_NUMBER }}"
+                    if [ -d "${REPO_DIR}" ]; then
+                      echo "Updating existing repository..."
+                      cd ${REPO_DIR}
+                      git fetch origin
+                      git checkout ${{ env.BRANCH }}
+                      # Use reset --hard to handle force pushes
+                      git reset --hard origin/${{ env.BRANCH }}
+                      # Clean up any untracked files
+                      git clean -fd
+                    else
+                      echo "Cloning repository..."
+                      git clone -b ${{ env.BRANCH }} ${{ env.REPO_URL }} ${REPO_DIR}
+                      cd ${REPO_DIR}
+                    fi
+
+                    # Activate flox environment and start services
+                    echo "Activating flox environment..."
+                    cd ${REPO_DIR}
+
+                    # Create logs directory
+                    mkdir -p ${REPO_DIR}/logs
+
+                    # Stop any existing services
+                    if [ -f ${REPO_DIR}/hogli.pid ]; then
+                      OLD_PID=$(cat ${REPO_DIR}/hogli.pid)
+                      if ps -p $OLD_PID > /dev/null 2>&1; then
+                        echo "Stopping existing process (PID: $OLD_PID)..."
+                        kill $OLD_PID || true
+                        sleep 30
+                        # Force kill if still running
+                        if ps -p $OLD_PID > /dev/null 2>&1; then
+                          kill -9 $OLD_PID || true
+                        fi
+                      fi
+                      rm -f ${REPO_DIR}/hogli.pid
+                    fi
+                    flox activate -- bash -c "hogli stop || true"
+
+                    # Start services in background using nohup
+                    # This keeps the process running after SSH session ends
+                    # Alternative: use screen/tmux for interactive session management
+                    echo "Starting application stack..."
+                    nohup flox activate -- bash -c "hogli start" > ${REPO_DIR}/logs/hogli.log 2>&1 &
+
+                    # Save the PID
+                    echo $! > ${REPO_DIR}/hogli.pid
+
+                    # Give it a moment to start
+                    sleep 5
+
+                    # Check if process is still running
+                    if ps -p $(cat ${REPO_DIR}/hogli.pid) > /dev/null 2>&1; then
+                      echo "Deployment complete! Process running with PID $(cat ${REPO_DIR}/hogli.pid)"
+                    else
+                      echo "Warning: Process may have failed to start. Check logs:"
+                      tail -n 50 ${REPO_DIR}/logs/hogli.log
+                      exit 1
+                    fi
+                  EOF
+
+            - name: Wait for application to be ready
+              env:
+                  DROPLET_IP: ${{ steps.get-ip.outputs.ip }}
+              run: |
+                  echo "Waiting for application to be ready..."
+                  MAX_ATTEMPTS=60
+                  ATTEMPT=0
+
+                  # Adjust the port and path as needed for your application
+                  HEALTH_URL="http://${DROPLET_IP}:8010"
+
+                  while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+                    if curl -f -s -o /dev/null -w "%{http_code}" "${HEALTH_URL}" | grep -q "200\|302"; then
+                      echo "Application is ready!"
+                      echo "url=${HEALTH_URL}" >> $GITHUB_ENV
+                      exit 0
+                    fi
+
+                    ATTEMPT=$((ATTEMPT + 1))
+                    echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}: Application not ready yet..."
+                    sleep 10
+                  done
+
+                  echo "Application failed to become ready in time"
+                  exit 1
+
+            - name: Download logs on failure
+              if: failure()
+              env:
+                  DROPLET_IP: ${{ steps.get-ip.outputs.ip }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  echo "Downloading logs from droplet..."
+                  mkdir -p /tmp/droplet-logs
+
+                  # Download logs via SCP
+                  scp -o StrictHostKeyChecking=no root@${DROPLET_IP}:/opt/pr-${PR_NUMBER}/logs/hogli.log /tmp/droplet-logs/hogli.log || echo "Could not download hogli.log"
+
+                  # Also get system logs if available
+                  ssh root@${DROPLET_IP} "journalctl -n 200" > /tmp/droplet-logs/system.log 2>&1 || echo "Could not download system logs"
+
+                  # Get process status
+                  ssh root@${DROPLET_IP} "ps aux | head -50" > /tmp/droplet-logs/processes.txt 2>&1 || echo "Could not get process list"
+
+                  # Get disk usage
+                  ssh root@${DROPLET_IP} "df -h" > /tmp/droplet-logs/disk-usage.txt 2>&1 || echo "Could not get disk usage"
+
+                  echo "Logs downloaded to /tmp/droplet-logs"
+                  ls -lah /tmp/droplet-logs
+
+            - name: Upload logs as artifact
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: deployment-logs-pr-${{ github.event.pull_request.number }}
+                  path: /tmp/droplet-logs
+                  retention-days: 7
+
+            - name: Comment on PR (failure)
+              if: failure()
+              uses: actions/github-script@v7
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const runId = context.runId;
+                      const logsUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
+
+                      await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.issue.number,
+                        body: `## Preview deployment failed ❌
+
+                      The deployment to DigitalOcean failed. Please check the logs for details.
+
+                      **[View workflow logs and download artifacts](${logsUrl})**
+
+                      Common issues:
+                      - Application failed to start (check hogli.log in artifacts)
+                      - Health check endpoint not responding within timeout
+                      - Resource constraints on droplet
+
+                      The droplet may still be running. You can SSH to it at: \`${{ steps.get-ip.outputs.ip }}\``,
+                      });
+
+            - name: Comment on PR (success)
+              if: success()
+              uses: actions/github-script@v7
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const dropletIp = '${{ steps.get-ip.outputs.ip }}';
+                      const appUrl = process.env.url;
+                      const isNewDeployment = '${{ steps.check-droplet.outputs.exists }}' === 'false';
+
+                      // Check if we already commented
+                      const comments = await github.rest.issues.listComments({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.issue.number,
+                      });
+
+                      const botComment = comments.data.find(comment =>
+                        comment.user.type === 'Bot' &&
+                        comment.body.includes('Preview deployment')
+                      );
+
+                      let commentBody;
+                      if (isNewDeployment) {
+                        commentBody = `## Preview deployment ready! 🚀
+
+                      Your PR preview is deployed and ready to test:
+
+                      **URL:** ${appUrl}
+                      **Droplet IP:** ${dropletIp}
+                      **Droplet name:** ${{ steps.droplet-info.outputs.name }}
+
+                      The preview environment will remain active as long as there's activity. It will be automatically cleaned up after 24 hours of inactivity.`;
+                      } else {
+                        commentBody = `## Preview deployment updated! 🔄
+
+                      Your PR preview has been updated with the latest changes:
+
+                      **URL:** ${appUrl}
+                      **Droplet IP:** ${dropletIp}
+                      **Droplet name:** ${{ steps.droplet-info.outputs.name }}
+                      **Last updated:** ${new Date().toUTCString()}
+
+                      The preview environment will remain active as long as there's activity. It will be automatically cleaned up after 24 hours of inactivity.`;
+                      }
+
+                      if (botComment) {
+                        await github.rest.issues.updateComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: botComment.id,
+                          body: commentBody,
+                        });
+                      } else {
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                          body: commentBody,
+                        });
+                      }
