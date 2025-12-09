@@ -14,8 +14,8 @@ from temporalio.testing import WorkflowEnvironment
 import posthog.ducklake.verification.config as verification_config
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ducklake import ducklake_copy_workflow as ducklake_module
-from posthog.temporal.ducklake.ducklake_copy_workflow import (
+from posthog.temporal.ducklake import ducklake_copy_data_modeling_workflow as ducklake_module
+from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
     DuckLakeCopyActivityInputs,
     DuckLakeCopyModelMetadata,
     DuckLakeCopyVerificationResult,

@@ -1,5 +1,5 @@
 from posthog.temporal.ducklake.compaction_workflow import DucklakeCompactionWorkflow, run_ducklake_compaction
-from posthog.temporal.ducklake.ducklake_copy_workflow import (
+from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
     DuckLakeCopyDataModelingWorkflow,
     copy_data_modeling_model_to_ducklake_activity,
     ducklake_copy_workflow_gate_activity,
