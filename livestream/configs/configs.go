@@ -2,7 +2,6 @@ package configs
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 
@@ -33,12 +32,13 @@ type Config struct {
 }
 
 type KafkaConfig struct {
-	Brokers                  string `mapstructure:"brokers"`
-	Topic                    string `mapstructure:"topic"`
-	SessionRecordingEnabled  bool   `mapstructure:"session_recording_enabled"`
-	SessionRecordingTopic    string `mapstructure:"session_recording_topic"`
-	SessionRecordingBrokers  string `mapstructure:"session_recording_brokers"`
-	GroupID                  string `mapstructure:"group_id"`
+	Brokers                          string `mapstructure:"brokers"`
+	Topic                            string `mapstructure:"topic"`
+	SessionRecordingEnabled          bool   `mapstructure:"session_recording_enabled"`
+	SessionRecordingTopic            string `mapstructure:"session_recording_topic"`
+	SessionRecordingBrokers          string `mapstructure:"session_recording_brokers"`
+	SessionRecordingSecurityProtocol string `mapstructure:"session_recording_security_protocol"`
+	GroupID                          string `mapstructure:"group_id"`
 }
 
 func InitConfigs(filename, configPath string) {
@@ -55,7 +55,7 @@ func InitConfigs(filename, configPath string) {
 	}
 
 	viper.OnConfigChange(func(e fsnotify.Event) {
-		fmt.Println("Config file changed:", e.Name)
+		log.Printf("Config file changed: %s", e.Name)
 	})
 	viper.WatchConfig()
 
@@ -86,6 +86,9 @@ func LoadConfig() (*Config, error) {
 		}
 		if config.Kafka.SessionRecordingBrokers == "" {
 			config.Kafka.SessionRecordingBrokers = config.Kafka.Brokers
+		}
+		if config.Kafka.SessionRecordingSecurityProtocol == "" {
+			config.Kafka.SessionRecordingSecurityProtocol = "SSL"
 		}
 	}
 

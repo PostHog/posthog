@@ -1,29 +1,31 @@
-.NotFoundComponent {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    max-width: 50rem;
-    padding: 0 1rem;
-    margin: 6rem auto;
-    text-align: center;
-    text-wrap: balance;
-
-    .NotFoundComponent__graphic {
-        width: 100%;
-        height: 135px;
-        max-height: 100%;
-        background: url('../../../../public/not-found-astrohog.png') no-repeat center center / contain;
-    }
-
-    .NotebookNode & {
+@layer base {
+    .NotFoundComponent {
         display: flex;
-        flex: 1;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
-        max-width: 100%;
-        padding: 2rem;
-        margin: 0;
-        background-color: var(--danger-highlight);
+        max-width: 50rem;
+        padding: 0 1rem;
+        margin: 6rem auto;
+        text-align: center;
+        text-wrap: balance;
+
+        .NotFoundComponent__graphic {
+            width: 100%;
+            height: 135px;
+            max-height: 100%;
+            background: url('../../../../public/not-found-astrohog.png') no-repeat center center / contain;
+        }
+
+        .NotebookNode & {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            max-width: 100%;
+            padding: 2rem;
+            margin: 0;
+            background-color: var(--danger-highlight);
+        }
     }
 }

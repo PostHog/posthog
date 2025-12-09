@@ -1,243 +1,243 @@
-@import '../../../styles/mixins';
+@layer base {
+    $label_position_offset: 8px;
+    $series_container_width: 1.5rem;
+    $glyph_height: 23px; // Based on .funnel-step-glyph
 
-$label_position_offset: 8px;
-$series_container_width: 1.5rem;
-$glyph_height: 23px; // Based on .funnel-step-glyph
+    .FunnelBarHorizontal {
+        min-height: 100%;
+        padding: 1rem;
 
-.FunnelBarHorizontal {
-    min-height: 100%;
-    padding: 1rem;
+        .InsightCard & {
+            padding-right: 1rem;
+            padding-left: 1rem;
+        }
 
-    .InsightCard & {
-        padding-right: 1rem;
-        padding-left: 1rem;
-    }
+        // When there are optional steps, indent all content to make room for the layout
+        &.FunnelBarHorizontal--has-optional-steps {
+            .funnel-step {
+                padding-left: $series_container_width + 2rem; // Extra space for optional step positioning
+            }
+        }
 
-    // When there are optional steps, indent all content to make room for the layout
-    &.FunnelBarHorizontal--has-optional-steps {
         .funnel-step {
-            padding-left: $series_container_width + 2rem; // Extra space for optional step positioning
-        }
-    }
+            position: relative;
+            padding-left: $series_container_width + 0.5rem;
 
-    .funnel-step {
-        position: relative;
-        padding-left: $series_container_width + 0.5rem;
-
-        &:not(:first-child) {
-            &,
-            .funnel-series-container {
-                padding-top: 0.75rem;
-            }
-        }
-
-        // Optional step styling - make it translucent to indicate it's not a real funnel step
-        &.funnel-step--optional {
-            // Don't apply opacity to the whole step, target specific elements instead
-            header,
-            .funnel-bar-wrapper,
-            .funnel-conversion-metadata {
-                opacity: 0.6;
-            }
-
-            .graph-series-glyph {
-                opacity: 0.7;
-            }
-        }
-
-        .graph-series-glyph {
-            z-index: 2;
-        }
-
-        .funnel-conversion-metadata {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-
-            .funnel-inspect-button {
-                line-height: 1.5rem;
-
-                .value-inspector-button-icon {
-                    margin-right: 0.25rem;
-                    font-size: 1.5rem;
-                    vertical-align: bottom;
+            &:not(:first-child) {
+                &,
+                .funnel-series-container {
+                    padding-top: 0.75rem;
                 }
             }
-        }
 
-        .funnel-series-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            width: $series_container_width;
-            height: 100%;
+            // Optional step styling - make it translucent to indicate it's not a real funnel step
+            &.funnel-step--optional {
+                // Don't apply opacity to the whole step, target specific elements instead
+                header,
+                .funnel-bar-wrapper,
+                .funnel-conversion-metadata {
+                    opacity: 0.6;
+                }
 
-            .graph-series-glyph {
-                user-select: none;
-            }
-
-            // Optional step positioning
-            &.optional-step {
-                // Move the step number to the right to align with end of connector
                 .graph-series-glyph {
-                    margin-left: 3rem;
+                    opacity: 0.7;
+                }
+            }
+
+            .graph-series-glyph {
+                z-index: 2;
+            }
+
+            .funnel-conversion-metadata {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+
+                .funnel-inspect-button {
+                    line-height: 1.5rem;
+
+                    .value-inspector-button-icon {
+                        margin-right: 0.25rem;
+                        font-size: 1.5rem;
+                        vertical-align: bottom;
+                    }
+                }
+            }
+
+            .funnel-series-container {
+                position: absolute;
+                top: 0;
+                left: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                width: $series_container_width;
+                height: 100%;
+
+                .graph-series-glyph {
+                    user-select: none;
                 }
 
-                // Create the branching path using multiple pseudo-elements
-                &::before {
+                // Optional step positioning
+                &.optional-step {
+                    // Move the step number to the right to align with end of connector
+                    .graph-series-glyph {
+                        margin-left: 3rem;
+                    }
+
+                    // Create the branching path using multiple pseudo-elements
+                    &::before {
+                        position: absolute;
+                        top: calc(#{$glyph_height} / 2 - 2rem);
+                        left: calc(#{$series_container_width} / 2 - 1px);
+                        z-index: 1;
+                        width: 1.5rem;
+                        height: 2px;
+                        content: '';
+                        background: var(--border-primary);
+                        opacity: 0.5;
+                    }
+                }
+
+                .optional-connector {
                     position: absolute;
                     top: calc(#{$glyph_height} / 2 - 2rem);
-                    left: calc(#{$series_container_width} / 2 - 1px);
+                    left: calc(#{$series_container_width} / 2 + 1.5rem - 1px);
                     z-index: 1;
-                    width: 1.5rem;
-                    height: 2px;
+                    width: 2px;
+                    height: calc(1rem + #{$glyph_height});
                     content: '';
                     background: var(--border-primary);
                     opacity: 0.5;
                 }
-            }
 
-            .optional-connector {
-                position: absolute;
-                top: calc(#{$glyph_height} / 2 - 2rem);
-                left: calc(#{$series_container_width} / 2 + 1.5rem - 1px);
-                z-index: 1;
-                width: 2px;
-                height: calc(1rem + #{$glyph_height});
-                content: '';
-                background: var(--border-primary);
-                opacity: 0.5;
-            }
+                .funnel-series-linebox {
+                    position: absolute;
+                    left: 0;
+                    box-sizing: border-box;
+                    width: calc(#{$series_container_width} / 2 + 1px);
+                    border-right: 2px solid var(--color-border-primary);
+                    opacity: 0.5;
 
-            .funnel-series-linebox {
-                position: absolute;
-                left: 0;
-                box-sizing: border-box;
-                width: calc(#{$series_container_width} / 2 + 1px);
-                border-right: 2px solid var(--color-border-primary);
-                opacity: 0.5;
+                    &.before {
+                        top: 0;
+                        height: calc(#{$glyph_height} / 2);
+                    }
 
-                &.before {
-                    top: 0;
-                    height: calc(#{$glyph_height} / 2);
-                }
-
-                &.after {
-                    top: calc(#{$glyph_height} / 2);
-                    bottom: 0;
-                    height: calc(100% - #{$glyph_height} / 2);
+                    &.after {
+                        top: calc(#{$glyph_height} / 2);
+                        bottom: 0;
+                        height: calc(100% - #{$glyph_height} / 2);
+                    }
                 }
             }
-        }
 
-        .funnel-step-metadata {
-            // .funnel-step-metadata reusable class for components that contain metadata for the funnel (e.g. time to convert or conversion steps)
-            display: flex;
-            flex-wrap: wrap;
-        }
-
-        header,
-        footer {
-            display: flex;
-            align-items: center;
-            line-height: $glyph_height;
-        }
-
-        header {
-            position: relative;
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-
-            .funnel-step-title {
-                font-weight: bold;
+            .funnel-step-metadata {
+                // .funnel-step-metadata reusable class for components that contain metadata for the funnel (e.g. time to convert or conversion steps)
+                display: flex;
+                flex-wrap: wrap;
             }
 
-            button {
-                margin-left: 0.375rem;
-            }
-        }
-    }
-
-    .funnel-bar-wrapper {
-        display: flex;
-        flex-direction: row;
-        height: 32px;
-        margin: 4px 0;
-        background-color: var(--color-border-primary);
-        border-radius: var(--radius);
-
-        .funnel-bar {
-            container-type: inline-size;
-            position: relative;
-            height: 100%;
-            background: var(--color-accent);
-            transition:
-                width 0.2s ease,
-                height 0.2s ease;
-
-            &.first {
-                border-radius: var(--radius) 0 0 4px;
+            header,
+            footer {
+                display: flex;
+                align-items: center;
+                line-height: $glyph_height;
             }
 
-            &.last {
-                border-radius: 0 4px 4px 0;
-            }
+            header {
+                position: relative;
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: space-between;
 
-            &.only {
-                border-radius: var(--radius);
-            }
+                .funnel-step-title {
+                    font-weight: bold;
+                }
 
-            .funnel-bar-percentage {
-                position: absolute;
-                top: 8px;
-                left: calc(100% + #{$label_position_offset});
-                font-weight: bold;
-                line-height: 16px;
-                color: var(--text-3000);
-                white-space: nowrap;
-
-                // When individual bar is wide enough, position label inside
-                @container (min-width: 60px) {
-                    right: $label_position_offset;
-                    left: auto;
-                    color: #fff;
+                button {
+                    margin-left: 0.375rem;
                 }
             }
         }
 
-        .funnel-bar-empty-space {
-            container-type: inline-size;
-            position: relative;
+        .funnel-bar-wrapper {
+            display: flex;
+            flex-direction: row;
+            height: 32px;
+            margin: 4px 0;
+            background-color: var(--color-border-primary);
+            border-radius: var(--radius);
 
-            .funnel-bar-percentage {
-                position: absolute;
-                top: 8px;
-                left: 8px;
+            .funnel-bar {
+                container-type: inline-size;
+                position: relative;
+                height: 100%;
+                background: var(--color-accent);
+                transition:
+                    width 0.2s ease,
+                    height 0.2s ease;
+
+                &.first {
+                    border-radius: var(--radius) 0 0 4px;
+                }
+
+                &.last {
+                    border-radius: 0 4px 4px 0;
+                }
+
+                &.only {
+                    border-radius: var(--radius);
+                }
+
+                .funnel-bar-percentage {
+                    position: absolute;
+                    top: 8px;
+                    left: calc(100% + #{$label_position_offset});
+                    font-weight: bold;
+                    line-height: 16px;
+                    color: var(--text-3000);
+                    white-space: nowrap;
+
+                    // When individual bar is wide enough, position label inside
+                    @container (min-width: 60px) {
+                        right: $label_position_offset;
+                        left: auto;
+                        color: #fff;
+                    }
+                }
+            }
+
+            .funnel-bar-empty-space {
+                container-type: inline-size;
+                position: relative;
+
+                .funnel-bar-percentage {
+                    position: absolute;
+                    top: 8px;
+                    left: 8px;
+                    display: none;
+                    font-weight: bold;
+                    line-height: 16px;
+                    color: var(--text-3000);
+                    white-space: nowrap;
+
+                    // Show breakdown summary label when empty space is wide enough
+                    @container (min-width: 60px) {
+                        display: block;
+                    }
+                }
+            }
+
+            // For breakdown funnels: hide individual bar labels, show summary in empty space
+            &.breakdown .funnel-bar .funnel-bar-percentage {
                 display: none;
-                font-weight: bold;
-                line-height: 16px;
-                color: var(--text-3000);
-                white-space: nowrap;
-
-                // Show breakdown summary label when empty space is wide enough
-                @container (min-width: 60px) {
-                    display: block;
-                }
             }
         }
-
-        // For breakdown funnels: hide individual bar labels, show summary in empty space
-        &.breakdown .funnel-bar .funnel-bar-percentage {
-            display: none;
-        }
     }
-}
 
-// Hide .funnel-bar within InsightCards for snapshots, due to flakiness
-.storybook-test-runner .InsightCard .funnel-bar {
-    display: none;
+    // Hide .funnel-bar within InsightCards for snapshots, due to flakiness
+    .storybook-test-runner .InsightCard .funnel-bar {
+        display: none;
+    }
 }

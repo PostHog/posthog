@@ -1,6 +1,8 @@
-.SessionRecordingScene {
-    .SessionRecordingPlayer {
-        height: calc(100vh - 6rem);
-        min-height: 25rem;
+@layer base {
+    .SessionRecordingScene {
+        .SessionRecordingPlayer {
+            height: calc(100vh - 6rem);
+            min-height: 25rem;
+        }
     }
 }

@@ -81,14 +81,15 @@ func main() {
 
 	if config.Kafka.SessionRecordingEnabled {
 		sessionConsumer, err := events.NewSessionRecordingKafkaConsumer(
-			config.Kafka.SessionRecordingBrokers, kafkaSecurityProtocol, config.Kafka.GroupID,
+			config.Kafka.SessionRecordingBrokers, config.Kafka.SessionRecordingSecurityProtocol, config.Kafka.GroupID,
 			config.Kafka.SessionRecordingTopic, sessionStatsChan)
 		if err != nil {
 			log.Printf("Failed to create session recording Kafka consumer: %v", err)
 		} else {
 			defer sessionConsumer.Close()
 			go sessionConsumer.Consume(ctx)
-			log.Printf("Session recording consumer started for topic: %s", config.Kafka.SessionRecordingTopic)
+			log.Printf("Session recording consumer started for topic: %s (security_protocol: %s)",
+				config.Kafka.SessionRecordingTopic, config.Kafka.SessionRecordingSecurityProtocol)
 		}
 	}
 

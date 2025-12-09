@@ -1,4 +1,6 @@
-.PersonsModal__tabs [role='tablist'] {
-    padding: 0 1rem;
-    margin-bottom: 0;
+@layer base {
+    .PersonsModal__tabs [role='tablist'] {
+        padding: 0 1rem;
+        margin-bottom: 0;
+    }
 }

@@ -284,6 +284,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     ONBOARDING_AI_CONSENT_STEP: 'onboarding-ai-consent-step', // owner: @mattbro #team-growth
+    ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
     ONBOARDING_TELL_US_MORE_STEP: 'onboarding-tell-us-more-step', // owner: @rafaeelaudibert #team-growth
     ONBOARDING_USE_CASE_SELECTION: 'onboarding-use-case-selection', // owner: @mattbro #team-growth
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
