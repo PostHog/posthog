@@ -1,8 +1,18 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { IconChevronLeft, IconExternal, IconFlask, IconPlay, IconPlus, IconRewind } from '@posthog/icons'
+import {
+    IconChevronLeft,
+    IconExternal,
+    IconFlask,
+    IconGear,
+    IconPlay,
+    IconPlus,
+    IconRefresh,
+    IconRewind,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -23,9 +33,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { MOCK_STUDY } from './fixtures'
-import { StudyDetailsSceneLogicProps, studyDetailsSceneLogic } from './studyDetailsSceneLogic'
-import type { ParticipantStatus, Round, RoundStatus, Sentiment, Session, Study, ThoughtAction } from './types'
+import { studyDetailsSceneLogic } from './studyDetailsSceneLogic'
+import type { ParticipantStatus, RoundStatus, Sentiment, Session, Study, ThoughtAction } from './types'
 
 export const scene: SceneExport = {
     component: StudyDetailsSceneWrapper,
@@ -38,10 +47,11 @@ export const scene: SceneExport = {
 function RoundStatusTag({ status }: { status: RoundStatus }): JSX.Element {
     const config: Record<
         RoundStatus,
-        { type: 'muted' | 'option' | 'completion' | 'success' | 'danger'; label: string }
+        { type: 'muted' | 'option' | 'completion' | 'success' | 'danger' | 'highlight'; label: string }
     > = {
         draft: { type: 'muted', label: 'Draft' },
         generating: { type: 'option', label: 'Generating...' },
+        ready: { type: 'highlight', label: 'Ready' },
         running: { type: 'completion', label: 'Running...' },
         completed: { type: 'success', label: 'Completed' },
         failed: { type: 'danger', label: 'Failed' },
@@ -180,56 +190,72 @@ function SessionAvatar({ name, size = 'sm' }: { name: string; size?: 'sm' | 'lg'
     )
 }
 
-function NewRoundModal({
-    isOpen,
-    onClose,
-    nextRoundNumber,
-}: {
-    isOpen: boolean
-    onClose: () => void
-    nextRoundNumber: number
-}): JSX.Element {
-    const [count, setCount] = useState(5)
-    const [notes, setNotes] = useState('')
+function NewRoundModal({ nextRoundNumber }: { nextRoundNumber: number }): JSX.Element {
+    const { showNewRoundModal, isRoundFormSubmitting, roundFormHasErrors } = useValues(studyDetailsSceneLogic)
+    const { setShowNewRoundModal, resetRoundForm } = useActions(studyDetailsSceneLogic)
+
+    const handleClose = (): void => {
+        resetRoundForm()
+        setShowNewRoundModal(false)
+    }
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title={`Start Round ${nextRoundNumber}`} width={500}>
-            <div className="space-y-4">
-                <div>
-                    <label className="text-sm font-medium">Number of sessions</label>
-                    <p className="text-xs text-muted mt-0.5 mb-1">How many synthetic users should run sessions?</p>
-                    <LemonInput
-                        type="number"
-                        value={count}
-                        onChange={(val) => setCount(Number(val))}
-                        min={1}
-                        max={20}
-                        className="w-24"
-                    />
-                </div>
+        <LemonModal
+            isOpen={showNewRoundModal}
+            onClose={handleClose}
+            title={`Create Round ${nextRoundNumber}`}
+            width={500}
+        >
+            <Form logic={studyDetailsSceneLogic} formKey="roundForm" enableFormOnSubmit>
+                <div className="space-y-4">
+                    <Field
+                        name="session_count"
+                        label="Number of sessions"
+                        hint="How many synthetic users should run sessions?"
+                    >
+                        {({ value, onChange }) => (
+                            <LemonInput
+                                type="number"
+                                value={value}
+                                onChange={(val) => onChange(Number(val))}
+                                min={1}
+                                max={20}
+                                className="w-24"
+                            />
+                        )}
+                    </Field>
 
-                <div>
-                    <label className="text-sm font-medium">Notes (optional)</label>
-                    <p className="text-xs text-muted mt-0.5 mb-1">
-                        What changed since the last round? Any tweaks to test?
-                    </p>
-                    <LemonTextArea
-                        value={notes}
-                        onChange={setNotes}
-                        placeholder="e.g., Added pricing link to signup page, shortened onboarding questions"
-                        rows={3}
-                    />
-                </div>
+                    <Field
+                        name="notes"
+                        label="Notes (optional)"
+                        hint="What changed since the last round? Any tweaks to test?"
+                    >
+                        {({ value, onChange }) => (
+                            <LemonTextArea
+                                value={value}
+                                onChange={onChange}
+                                placeholder="e.g., Added pricing link to signup page, shortened onboarding questions"
+                                rows={3}
+                            />
+                        )}
+                    </Field>
 
-                <div className="flex justify-end gap-2 pt-2">
-                    <LemonButton type="secondary" onClick={onClose}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton type="primary" icon={<IconPlay />} onClick={onClose}>
-                        Start round
-                    </LemonButton>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <LemonButton type="secondary" onClick={handleClose}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            htmlType="submit"
+                            loading={isRoundFormSubmitting}
+                            disabledReason={roundFormHasErrors ? 'Please fix the errors' : undefined}
+                        >
+                            Create draft
+                        </LemonButton>
+                    </div>
                 </div>
-            </div>
+            </Form>
         </LemonModal>
     )
 }
@@ -239,9 +265,10 @@ function NewRoundModal({
 // ============================================
 
 function OverviewTab({ study }: { study: Study }): JSX.Element {
-    const latestRound = study.rounds[study.rounds.length - 1]
-    const allSessions = study.rounds.flatMap((r) => r.sessions)
-    const completedRounds = study.rounds.filter((r) => r.status === 'completed')
+    const rounds = study.rounds || []
+    const latestRound = rounds[rounds.length - 1]
+    const allSessions = rounds.flatMap((r) => r.sessions || [])
+    const completedRounds = rounds.filter((r) => r.status === 'completed')
 
     return (
         <div className="space-y-6">
@@ -271,8 +298,8 @@ function OverviewTab({ study }: { study: Study }): JSX.Element {
                 <div>
                     <label className="text-xs text-muted uppercase tracking-wide">Total Sessions</label>
                     <p className="mt-1">
-                        {allSessions.length} across {study.rounds.length} round
-                        {study.rounds.length !== 1 ? 's' : ''}
+                        {allSessions.length} across {rounds.length} round
+                        {rounds.length !== 1 ? 's' : ''}
                     </p>
                 </div>
             </div>
@@ -319,8 +346,20 @@ function OverviewTab({ study }: { study: Study }): JSX.Element {
 }
 
 function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void }): JSX.Element {
-    const [selectedRound, setSelectedRound] = useState<Round | null>(null)
+    const { selectedRoundId, generatedRoundLoading, startedRoundLoading, regeneratedSessionLoading } =
+        useValues(studyDetailsSceneLogic)
+    const { setSelectedRoundId, generateSessions, startRound, regenerateSession } = useActions(studyDetailsSceneLogic)
     const [selectedSession, setSelectedSession] = useState<Session | null>(null)
+
+    // Get selected round from study data (keeps it in sync after reloads)
+    const selectedRound = selectedRoundId ? (study.rounds || []).find((r) => r.id === selectedRoundId) || null : null
+
+    // Clear selection if round no longer exists
+    useEffect(() => {
+        if (selectedRoundId && !selectedRound) {
+            setSelectedRoundId(null)
+        }
+    }, [selectedRoundId, selectedRound, setSelectedRoundId])
 
     // Session detail view
     if (selectedSession && selectedRound) {
@@ -424,14 +463,19 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
 
     // Round detail view
     if (selectedRound) {
-        const completedCount = selectedRound.sessions.filter((s) => s.status === 'completed').length
+        const sessions = selectedRound.sessions || []
+        const completedCount = sessions.filter((s) => s.status === 'completed').length
+        const isDraft = selectedRound.status === 'draft'
+        const isGenerating = selectedRound.status === 'generating'
+        const isReady = selectedRound.status === 'ready'
+        const canRegenerate = isDraft || isReady
 
         return (
             <div className="space-y-4">
                 <LemonButton
                     type="tertiary"
                     icon={<IconChevronLeft />}
-                    onClick={() => setSelectedRound(null)}
+                    onClick={() => setSelectedRoundId(null)}
                     size="small"
                 >
                     Back to all rounds
@@ -440,13 +484,28 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                 <div className="bg-bg-light border rounded p-4 mb-4">
                     <div className="flex items-center justify-between mb-2">
                         <h3 className="font-semibold text-lg">Round {selectedRound.round_number}</h3>
-                        <RoundStatusTag status={selectedRound.status} />
+                        <div className="flex items-center gap-2">
+                            <RoundStatusTag status={selectedRound.status} />
+                            {isReady && (
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlay />}
+                                    size="small"
+                                    loading={startedRoundLoading}
+                                    onClick={() => startRound(selectedRound.id)}
+                                >
+                                    Start round
+                                </LemonButton>
+                            )}
+                        </div>
                     </div>
                     {selectedRound.notes && (
                         <p className="text-sm text-muted italic mb-2">Changes: {selectedRound.notes}</p>
                     )}
                     <p className="text-sm text-muted">
-                        {completedCount}/{selectedRound.session_count} sessions completed
+                        {isDraft || isGenerating
+                            ? `${selectedRound.session_count} sessions to generate`
+                            : `${completedCount}/${selectedRound.session_count} sessions completed`}
                     </p>
                     {selectedRound.summary && (
                         <div className="mt-3 pt-3 border-t">
@@ -455,82 +514,155 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                     )}
                 </div>
 
-                <h4 className="font-medium">Sessions</h4>
-                <LemonTable
-                    dataSource={selectedRound.sessions}
-                    onRow={(session) => ({
-                        onClick: () => setSelectedSession(session),
-                        className: 'cursor-pointer',
-                    })}
-                    columns={[
-                        {
-                            title: 'Session',
-                            key: 'name',
-                            render: (_, session) => (
-                                <div className="flex items-center gap-3">
-                                    <SessionAvatar name={session.name} />
-                                    <LemonTableLink
-                                        title={session.name}
-                                        description={session.archetype}
-                                        onClick={() => setSelectedSession(session)}
-                                    />
-                                </div>
-                            ),
-                        },
-                        {
-                            title: 'Status',
-                            key: 'status',
-                            render: (_, session) => <SessionStatusTag status={session.status} />,
-                        },
-                        {
-                            title: 'Sentiment',
-                            key: 'sentiment',
-                            render: (_, session) => <SentimentTag sentiment={session.sentiment} />,
-                        },
-                        {
-                            title: 'Key insight',
-                            key: 'insight',
-                            render: (_, session) =>
-                                session.key_insights[0] ? (
-                                    <span className="text-sm text-muted truncate max-w-xs block">
-                                        {session.key_insights[0]}
-                                    </span>
-                                ) : session.status === 'navigating' ? (
-                                    <LemonSkeleton className="w-48 h-4" />
-                                ) : (
-                                    <span className="text-muted">—</span>
-                                ),
-                        },
-                        {
-                            title: '',
-                            key: 'replay',
-                            width: 0,
-                            render: (_, session) =>
-                                session.session_replay_url ? (
-                                    <LemonButton
-                                        type="tertiary"
-                                        icon={<IconRewind />}
-                                        size="small"
-                                        to={session.session_replay_url}
-                                        targetBlank
-                                        onClick={(e) => e.stopPropagation()}
-                                        tooltip="View session replay"
-                                    />
-                                ) : null,
-                        },
-                    ]}
-                    rowKey="id"
-                />
+                {/* Draft state: Generate personas button */}
+                {isDraft && sessions.length === 0 && (
+                    <div className="border-2 border-dashed rounded-lg p-8 text-center">
+                        <div className="text-4xl mb-3">🎭</div>
+                        <h4 className="font-semibold mb-2">Generate personas</h4>
+                        <p className="text-muted text-sm mb-4 max-w-md mx-auto">
+                            Create {selectedRound.session_count} synthetic users who match your target audience. Review
+                            and tweak them before starting the round.
+                        </p>
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlay />}
+                            loading={generatedRoundLoading}
+                            onClick={() => generateSessions(selectedRound.id)}
+                        >
+                            Generate {selectedRound.session_count} personas
+                        </LemonButton>
+                    </div>
+                )}
+
+                {/* Generating state: Loading */}
+                {isGenerating && (
+                    <div className="border rounded-lg p-8 text-center">
+                        <div className="text-4xl mb-3 animate-pulse">🎭</div>
+                        <h4 className="font-semibold mb-2">Generating personas...</h4>
+                        <p className="text-muted text-sm">
+                            Creating {selectedRound.session_count} unique synthetic users
+                        </p>
+                    </div>
+                )}
+
+                {/* Sessions list (when we have them) */}
+                {sessions.length > 0 && (
+                    <>
+                        <div className="flex items-center justify-between">
+                            <h4 className="font-medium">
+                                {canRegenerate ? 'Review personas' : 'Sessions'} ({sessions.length})
+                            </h4>
+                            {canRegenerate && (
+                                <p className="text-sm text-muted">Click regenerate to get a different persona</p>
+                            )}
+                        </div>
+                        <LemonTable
+                            dataSource={sessions}
+                            onRow={(session) => ({
+                                onClick: () => setSelectedSession(session),
+                                className: 'cursor-pointer',
+                            })}
+                            columns={[
+                                {
+                                    title: 'Persona',
+                                    key: 'name',
+                                    render: (_, session) => (
+                                        <div className="flex items-center gap-3">
+                                            <SessionAvatar name={session.name} />
+                                            <LemonTableLink
+                                                title={session.name}
+                                                description={session.archetype}
+                                                onClick={() => setSelectedSession(session)}
+                                            />
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    title: 'Background',
+                                    key: 'background',
+                                    render: (_, session) => (
+                                        <span className="text-sm text-muted truncate max-w-xs block">
+                                            {session.background}
+                                        </span>
+                                    ),
+                                },
+                                ...(canRegenerate
+                                    ? []
+                                    : [
+                                          {
+                                              title: 'Status',
+                                              key: 'status',
+                                              render: (_: any, session: Session) => (
+                                                  <SessionStatusTag status={session.status} />
+                                              ),
+                                          },
+                                          {
+                                              title: 'Sentiment',
+                                              key: 'sentiment',
+                                              render: (_: any, session: Session) => (
+                                                  <SentimentTag sentiment={session.sentiment} />
+                                              ),
+                                          },
+                                          {
+                                              title: 'Key insight',
+                                              key: 'insight',
+                                              render: (_: any, session: Session) =>
+                                                  session.key_insights[0] ? (
+                                                      <span className="text-sm text-muted truncate max-w-xs block">
+                                                          {session.key_insights[0]}
+                                                      </span>
+                                                  ) : session.status === 'navigating' ? (
+                                                      <LemonSkeleton className="w-48 h-4" />
+                                                  ) : (
+                                                      <span className="text-muted">—</span>
+                                                  ),
+                                          },
+                                      ]),
+                                {
+                                    title: '',
+                                    key: 'actions',
+                                    width: 0,
+                                    render: (_, session) =>
+                                        canRegenerate ? (
+                                            <LemonButton
+                                                type="secondary"
+                                                icon={<IconRefresh />}
+                                                size="small"
+                                                loading={regeneratedSessionLoading}
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    regenerateSession(session.id)
+                                                }}
+                                                tooltip="Regenerate persona"
+                                            />
+                                        ) : session.session_replay_url ? (
+                                            <LemonButton
+                                                type="tertiary"
+                                                icon={<IconRewind />}
+                                                size="small"
+                                                to={session.session_replay_url}
+                                                targetBlank
+                                                onClick={(e) => e.stopPropagation()}
+                                                tooltip="View session replay"
+                                            />
+                                        ) : null,
+                                },
+                            ]}
+                            rowKey="id"
+                        />
+                    </>
+                )}
             </div>
         )
     }
 
     // Rounds list view
+    const studyRounds = study.rounds || []
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
                 <p className="text-muted m-0">
-                    {study.rounds.length} round{study.rounds.length !== 1 ? 's' : ''}
+                    {studyRounds.length} round{studyRounds.length !== 1 ? 's' : ''}
                 </p>
                 <LemonButton type="primary" icon={<IconPlus />} size="small" onClick={onNewRound}>
                     New round
@@ -538,9 +670,9 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
             </div>
 
             <LemonTable
-                dataSource={[...study.rounds].reverse()} // newest first
+                dataSource={[...studyRounds].reverse()} // newest first
                 onRow={(round) => ({
-                    onClick: () => setSelectedRound(round),
+                    onClick: () => setSelectedRoundId(round.id),
                     className: 'cursor-pointer',
                 })}
                 columns={[
@@ -551,7 +683,7 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                             <LemonTableLink
                                 title={`Round ${round.round_number}`}
                                 description={round.notes || 'Initial round'}
-                                onClick={() => setSelectedRound(round)}
+                                onClick={() => setSelectedRoundId(round.id)}
                             />
                         ),
                     },
@@ -559,7 +691,8 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                         title: 'Sessions',
                         key: 'sessions',
                         render: (_, round) => {
-                            const completed = round.sessions.filter((s) => s.status === 'completed').length
+                            const sessions = round.sessions || []
+                            const completed = sessions.filter((s) => s.status === 'completed').length
                             return (
                                 <span>
                                     {completed}/{round.session_count}
@@ -576,11 +709,12 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                         title: 'Sentiment',
                         key: 'sentiment',
                         render: (_, round) => {
-                            if (round.status !== 'completed') {
+                            const sessions = round.sessions || []
+                            if (round.status !== 'completed' || sessions.length === 0) {
                                 return <span className="text-muted">—</span>
                             }
-                            const positive = round.sessions.filter((s) => s.sentiment === 'positive').length
-                            const negative = round.sessions.filter((s) => s.sentiment === 'negative').length
+                            const positive = sessions.filter((s) => s.sentiment === 'positive').length
+                            const negative = sessions.filter((s) => s.sentiment === 'negative').length
                             return (
                                 <span className="text-sm">
                                     <span className="text-success">{positive}+</span> /{' '}
@@ -598,6 +732,45 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                             </span>
                         ),
                     },
+                    {
+                        title: '',
+                        key: 'actions',
+                        width: 0,
+                        render: (_, round) => {
+                            if (round.status === 'draft') {
+                                return (
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<IconGear />}
+                                        size="small"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            setSelectedRoundId(round.id)
+                                        }}
+                                    >
+                                        Configure
+                                    </LemonButton>
+                                )
+                            }
+                            if (round.status === 'ready') {
+                                return (
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPlay />}
+                                        size="small"
+                                        loading={startedRoundLoading}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            startRound(round.id)
+                                        }}
+                                    >
+                                        Start
+                                    </LemonButton>
+                                )
+                            }
+                            return null
+                        },
+                    },
                 ]}
                 rowKey="id"
             />
@@ -606,8 +779,9 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
 }
 
 function InsightsTab({ study }: { study: Study }): JSX.Element {
-    const allInsights = study.rounds.flatMap((r) =>
-        r.sessions.flatMap((s) =>
+    const rounds = study.rounds || []
+    const allInsights = rounds.flatMap((r) =>
+        (r.sessions || []).flatMap((s) =>
             s.key_insights.map((insight) => ({
                 insight,
                 session: s.name,
@@ -617,7 +791,7 @@ function InsightsTab({ study }: { study: Study }): JSX.Element {
         )
     )
 
-    const completedRounds = study.rounds.filter((r) => r.status === 'completed')
+    const completedRounds = rounds.filter((r) => r.status === 'completed')
 
     return (
         <div className="space-y-6">
@@ -664,7 +838,10 @@ function InsightsTab({ study }: { study: Study }): JSX.Element {
 // Main Scene
 // ============================================
 
-function StudyDetailsSceneWrapper({ id }: StudyDetailsSceneLogicProps): JSX.Element {
+function StudyDetailsSceneWrapper({ id }: { id?: string }): JSX.Element {
+    if (!id) {
+        return <NotFound object="study" />
+    }
     return (
         <BindLogic logic={studyDetailsSceneLogic} props={{ id }}>
             <StudyDetailsScene />
@@ -674,10 +851,11 @@ function StudyDetailsSceneWrapper({ id }: StudyDetailsSceneLogicProps): JSX.Elem
 
 function StudyDetailsScene(): JSX.Element {
     const { study, studyLoading } = useValues(studyDetailsSceneLogic)
+    const { setShowNewRoundModal } = useActions(studyDetailsSceneLogic)
     const [activeTab, setActiveTab] = useState<'overview' | 'rounds' | 'insights'>('overview')
-    const [showNewRound, setShowNewRound] = useState(false)
 
-    if (studyLoading) {
+    // Only show skeleton on initial load (no data yet)
+    if (studyLoading && !study) {
         return (
             <SceneContent>
                 <div className="space-y-4">
@@ -693,10 +871,9 @@ function StudyDetailsScene(): JSX.Element {
         return <NotFound object="study" />
     }
 
-    // For now, use mock data for rounds since we haven't implemented that yet
-    const studyWithRounds = { ...study, rounds: MOCK_STUDY.rounds }
-    const latestRound = studyWithRounds.rounds[studyWithRounds.rounds.length - 1]
-    const totalSessions = studyWithRounds.rounds.reduce((sum, r) => sum + r.sessions.length, 0)
+    const rounds = study.rounds || []
+    const latestRound = rounds[rounds.length - 1]
+    const totalSessions = rounds.reduce((sum, r) => sum + r.session_count, 0)
 
     return (
         <SceneContent>
@@ -721,13 +898,12 @@ function StudyDetailsScene(): JSX.Element {
                         <h1 className="text-2xl font-bold">{study.name}</h1>
                         <p className="text-muted mt-1">{study.research_goal}</p>
                         <p className="text-sm text-muted mt-2">
-                            {studyWithRounds.rounds.length} round{studyWithRounds.rounds.length !== 1 ? 's' : ''} ·{' '}
-                            {totalSessions} sessions
+                            {rounds.length} round{rounds.length !== 1 ? 's' : ''} · {totalSessions} sessions
                         </p>
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <LemonButton type="primary" icon={<IconPlus />} onClick={() => setShowNewRound(true)}>
+                    <LemonButton type="primary" icon={<IconPlus />} onClick={() => setShowNewRoundModal(true)}>
                         New round
                     </LemonButton>
                 </div>
@@ -741,26 +917,22 @@ function StudyDetailsScene(): JSX.Element {
                     {
                         key: 'overview',
                         label: 'Overview',
-                        content: <OverviewTab study={studyWithRounds} />,
+                        content: <OverviewTab study={study} />,
                     },
                     {
                         key: 'rounds',
-                        label: `Rounds (${studyWithRounds.rounds.length})`,
-                        content: <RoundsTab study={studyWithRounds} onNewRound={() => setShowNewRound(true)} />,
+                        label: `Rounds (${rounds.length})`,
+                        content: <RoundsTab study={study} onNewRound={() => setShowNewRoundModal(true)} />,
                     },
                     {
                         key: 'insights',
                         label: 'Insights',
-                        content: <InsightsTab study={studyWithRounds} />,
+                        content: <InsightsTab study={study} />,
                     },
                 ]}
             />
 
-            <NewRoundModal
-                isOpen={showNewRound}
-                onClose={() => setShowNewRound(false)}
-                nextRoundNumber={(latestRound?.round_number ?? 0) + 1}
-            />
+            <NewRoundModal nextRoundNumber={(latestRound?.round_number ?? 0) + 1} />
         </SceneContent>
     )
 }

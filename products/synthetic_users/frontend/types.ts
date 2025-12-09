@@ -2,7 +2,7 @@
 // Status Types
 // ============================================
 export type StudyStatus = 'draft' | 'generating' | 'running' | 'completed' | 'failed'
-export type RoundStatus = 'draft' | 'generating' | 'running' | 'completed' | 'failed'
+export type RoundStatus = 'draft' | 'generating' | 'ready' | 'running' | 'completed' | 'failed'
 export type ParticipantStatus = 'pending' | 'generating' | 'navigating' | 'completed' | 'failed'
 export type Sentiment = 'positive' | 'neutral' | 'negative'
 
@@ -61,7 +61,7 @@ export interface Round {
     notes: string | null // what changed since last round
     status: RoundStatus
     summary: string | null
-    sessions: Session[]
+    sessions?: Session[] // optional until sessions are implemented
     created_at: string
 }
 
@@ -75,7 +75,7 @@ export interface Study {
     audience_description: string // "Marketing managers at B2B SaaS startups"
     research_goal: string // "Identify pain points in the signup flow"
     target_url: string // URL to test
-    rounds: Round[]
+    rounds?: Round[] // optional, included when fetching single study
     created_at: string
 }
 
@@ -102,4 +102,12 @@ export interface StudyFormValues {
     audience_description: string
     research_goal: string
     target_url: string
+}
+
+/**
+ * Form values for creating a round.
+ */
+export interface RoundFormValues {
+    session_count: number
+    notes: string
 }

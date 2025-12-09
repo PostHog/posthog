@@ -7,7 +7,8 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 class Round(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
-        GENERATING = "generating", "Generating"
+        GENERATING = "generating", "Generating personas"
+        READY = "ready", "Ready to start"
         RUNNING = "running", "Running"
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"

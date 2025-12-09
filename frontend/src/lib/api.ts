@@ -4968,6 +4968,27 @@ const api = {
         }): Promise<{ study: any }> {
             return await new ApiRequest().syntheticUsers().withAction('create_study').create({ data: { study } })
         },
+        async createRound(round: { study_id: string; session_count: number; notes?: string }): Promise<{ round: any }> {
+            return await new ApiRequest().syntheticUsers().withAction('create_round').create({ data: { round } })
+        },
+        async generateSessions(roundId: string): Promise<{ round: any }> {
+            return await new ApiRequest()
+                .syntheticUsers()
+                .withAction('generate_sessions')
+                .create({ data: { round_id: roundId } })
+        },
+        async regenerateSession(sessionId: string): Promise<{ session: any }> {
+            return await new ApiRequest()
+                .syntheticUsers()
+                .withAction('regenerate_session')
+                .create({ data: { session_id: sessionId } })
+        },
+        async startRound(roundId: string): Promise<{ round: any }> {
+            return await new ApiRequest()
+                .syntheticUsers()
+                .withAction('start_round')
+                .create({ data: { round_id: roundId } })
+        },
     },
 }
 
