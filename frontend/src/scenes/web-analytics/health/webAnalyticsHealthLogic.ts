@@ -364,7 +364,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         },
         loadWebAnalyticsHealthStatusSuccess: () => {
             const { webAnalyticsHealthStatus, hasAuthorizedUrls, hasReverseProxy, overallHealthStatus } = values
-            if (webAnalyticsHealthStatus) {
+            if (webAnalyticsHealthStatus && overallHealthStatus.status !== 'loading') {
                 actions.reportWebAnalyticsHealthStatus({
                     has_pageviews: webAnalyticsHealthStatus.isSendingPageViews,
                     has_pageleaves: webAnalyticsHealthStatus.isSendingPageLeaves,
