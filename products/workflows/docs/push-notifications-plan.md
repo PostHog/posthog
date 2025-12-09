@@ -167,6 +167,65 @@ func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: Str
 }
 ```
 
+## Testing Slice 1
+
+### Firebase Setup
+
+1. Go to [Firebase Console](https://console.firebase.google.com/)
+2. Create a new project (or use existing)
+3. Go to Project Settings → Cloud Messaging and ensure it's enabled
+4. Go to Project Settings → Service accounts → "Generate new private key"
+5. Save the JSON file - this is what you'll upload to PostHog
+
+### Get an FCM Token (Test App)
+
+You need a simple iOS/Android app to get a device token:
+
+**iOS (simplest approach)**:
+
+```swift
+import FirebaseMessaging
+
+// In AppDelegate after Firebase.configure()
+Messaging.messaging().token { token, error in
+    if let token = token {
+        print("FCM Token: \(token)")  // Copy this!
+    }
+}
+```
+
+**Android**:
+
+```kotlin
+FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+    if (task.isSuccessful) {
+        Log.d("FCM", "Token: ${task.result}")  // Copy this!
+    }
+}
+```
+
+### Test in PostHog
+
+1. Start PostHog locally
+2. Go to Data pipelines → Destinations → "Firebase Push Notification"
+3. Click "Choose Firebase connection" → "Upload Firebase service account .json key file"
+4. Upload your service account JSON
+5. Configure the destination:
+   - **FCM device token**: Paste the token from your test app
+   - **Notification title**: "Test notification"
+   - **Notification body**: "Hello from PostHog!"
+   - **Debug**: Enable for logging
+6. Set up a filter (e.g., event name = "test_push")
+7. Trigger an event matching your filter
+8. Check your test device - you should receive the push notification!
+
+### Troubleshooting
+
+- **401 Unauthorized**: Service account JSON is invalid or doesn't have Cloud Messaging permissions
+- **404 Not Found**: Project ID in the service account doesn't match a valid Firebase project
+- **400 Bad Request**: Usually means the FCM token is invalid or expired (get a new one from your app)
+- **No notification received**: Check that your app has notification permissions and is in the foreground/background (not force-closed)
+
 ## Open Questions
 
 - Do we need delivery tracking? (Firebase provides some via their console)
