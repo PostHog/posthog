@@ -520,8 +520,6 @@ def _detect_partition_column_name(table_uri: str) -> str | None:
         return None
 
     partition_columns = _fetch_delta_partition_columns(table_uri)
-    if not partition_columns:
-        return None
 
     # Return the first partition column
     return partition_columns[0] if partition_columns else None
