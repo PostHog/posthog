@@ -1,4 +1,5 @@
 import json
+import asyncio
 from uuid import uuid4
 
 from django.conf import settings
@@ -6,7 +7,6 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
-from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError
@@ -112,13 +112,15 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
         workflow_id = f"slack-conversation-{integration.team_id}-{channel}-{thread_ts}-{uuid4().hex[:8]}"
 
         client = sync_connect()
-        async_to_sync(client.start_workflow)(
-            SlackConversationRunnerWorkflow.run,
-            workflow_inputs,
-            id=workflow_id,
-            task_queue=settings.MAX_AI_TASK_QUEUE,
-            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        asyncio.run(
+            client.start_workflow(
+                SlackConversationRunnerWorkflow.run,
+                workflow_inputs,
+                id=workflow_id,
+                task_queue=settings.MAX_AI_TASK_QUEUE,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
         )
 
         logger.info(
