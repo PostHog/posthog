@@ -665,6 +665,15 @@ describe('Hogflow Executor', () => {
                                     },
                                     // filters: none
                                 },
+                                middle_action: {
+                                    id: 'middle_action',
+                                    name: 'Middle Action',
+                                    description: '',
+                                    type: 'delay',
+                                    config: { delay_duration: '5m' },
+                                    created_at: new Date().getUTCSeconds(),
+                                    updated_at: new Date().getUTCSeconds(),
+                                },
                                 exit: {
                                     type: 'exit',
                                     config: {},
@@ -672,13 +681,14 @@ describe('Hogflow Executor', () => {
                             },
                             edges: [
                                 { from: 'trigger', to: 'function_id_1', type: 'continue' },
-                                { from: 'function_id_1', to: 'exit', type: 'continue' },
+                                { from: 'function_id_1', to: 'middle_action', type: 'continue' },
+                                { from: 'middle_action', to: 'exit', type: 'continue' },
                             ],
                         })
                         .build()
                 })
 
-                describe('executeCurrentAction error handling when error is returned, not thrown', () => {
+                describe('execute error handling when error is returned, not thrown', () => {
                     it('continues to next action when on_error is continue', async () => {
                         const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
                         action.on_error = 'continue'
@@ -688,35 +698,6 @@ describe('Hogflow Executor', () => {
                         jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({
                             error: new Error('Mocked handler error'),
                         })
-
-                        // Add a middle action to ensure we continue to the correct next action
-                        hogFlow.actions.push({
-                            id: 'middle_action',
-                            name: 'Middle Action',
-                            description: '',
-                            type: 'delay',
-                            config: { delay_duration: '5m' },
-                            created_at: new Date().getUTCSeconds(),
-                            updated_at: new Date().getUTCSeconds(),
-                        })
-                        // Replace the second edge to go to middle_action
-                        hogFlow.edges = [
-                            {
-                                from: 'trigger',
-                                to: 'function_id_1',
-                                type: 'continue',
-                            },
-                            {
-                                from: 'function_id_1',
-                                to: 'middle_action',
-                                type: 'continue',
-                            },
-                            {
-                                from: 'middle_action',
-                                to: 'exit',
-                                type: 'continue',
-                            },
-                        ]
 
                         const invocation = createExampleHogFlowInvocation(hogFlow, {
                             event: {
@@ -767,7 +748,7 @@ describe('Hogflow Executor', () => {
 
                         const loggerErrorSpy = jest.spyOn(logger, 'error')
 
-                        const result = await executor.executeCurrentAction(invocation)
+                        const result = await executor.execute(invocation)
 
                         expect(result.error).toBe('Mocked handler error')
                         expect(result.finished).toBe(true)
@@ -775,6 +756,13 @@ describe('Hogflow Executor', () => {
                         expect(result.invocation.state.currentAction?.id).toBe('function_id_1')
                         expect(result.logs.map((l) => l.message)).not.toEqual(
                             expect.arrayContaining([expect.stringContaining('Workflow moved to action')])
+                        )
+                        expect(result.logs.map((l) => l.message)).toEqual(
+                            expect.arrayContaining([
+                                expect.stringContaining(
+                                    `Workflow is aborting due to [Action:function_id_1] error handling setting (on_error: 'abort')`
+                                ),
+                            ])
                         )
 
                         // Check that logger.error was called with the expected log
