@@ -1,3 +1,5 @@
-.form-error {
-    color: var(--danger);
+@layer base {
+    .form-error {
+        color: var(--danger);
+    }
 }

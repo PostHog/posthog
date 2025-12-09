@@ -1,14 +1,16 @@
-.HedgehogBuddy {
-    margin: 0;
-    cursor: pointer;
+@layer base {
+    .HedgehogBuddy {
+        margin: 0;
+        cursor: pointer;
 
-    &::after {
-        // Hack for preloading images
-        position: absolute;
-        z-index: -1; // hide images
-        width: 0;
-        height: 0;
-        overflow: hidden;
-        content: attr(data-content);
+        &::after {
+            // Hack for preloading images
+            position: absolute;
+            z-index: -1; // hide images
+            width: 0;
+            height: 0;
+            overflow: hidden;
+            content: attr(data-content);
+        }
     }
 }

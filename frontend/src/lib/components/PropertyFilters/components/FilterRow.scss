@@ -1,7 +1,9 @@
-.property-filter-row {
-    flex-basis: 100%;
+@layer base {
+    .property-filter-row {
+        flex-basis: 100%;
 
-    &.wrap-filters {
-        flex-basis: auto;
+        &.wrap-filters {
+            flex-basis: auto;
+        }
     }
 }
