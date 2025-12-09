@@ -619,3 +619,37 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def handle_billing_provider_webhook(
+        self,
+        event_type: str,
+        event_data: dict[str, Any],
+        organization: Organization,
+        billing_provider: str,
+    ) -> None:
+        """
+        Forward billing provider webhook to billing service for processing.
+
+        Pure passthrough - no transformation of event data.
+        Raises exception on failure (causes webhook endpoint to return 500, triggering provider retry).
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
+            headers=self.get_auth_headers(organization),
+            json={
+                "event_type": event_type,
+                "event_data": event_data,
+                "billing_provider": billing_provider,
+            },
+            timeout=30,
+        )
+
+        if not res.ok:
+            logger.error(
+                "billing_provider_webhook_error",
+                event_type=event_type,
+                billing_provider=billing_provider,
+                status_code=res.status_code,
+                response_text=res.text[:500] if res.text else "",
+            )
+            raise Exception(f"Billing service returned {res.status_code}: {res.text}")

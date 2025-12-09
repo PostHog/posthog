@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
@@ -16,9 +17,11 @@ import {
     RecordingsUniversalFiltersEmbedButton,
 } from '../filters/RecordingsUniversalFiltersEmbed'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
 import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
+import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export function SessionRecordingsPlaylist({
@@ -55,11 +58,15 @@ export function SessionRecordingsPlaylist({
         sessionRecordingsResponseLoading,
         otherRecordings,
         activeSessionRecordingId,
+        activeSessionRecording,
         hasNext,
         allowHogQLFilters,
         totalFiltersCount,
     } = useValues(playlistLogic)
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
+
+    const { isFiltersExpanded } = useValues(playlistFiltersLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const notebookNode = useNotebookNode()
     const sections: PlaylistSection[] = []
@@ -109,79 +116,68 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className="h-full deprecated-space-y-2">
-                <Playlist
-                    data-attr="session-recordings-playlist"
-                    notebooksHref={urls.replay(ReplayTabs.Home, filters)}
-                    embedded={!!notebookNode}
-                    sections={sections}
-                    headerActions={
-                        <SessionRecordingsPlaylistTopSettings
-                            filters={filters}
-                            setFilters={setFilters}
-                            type={type}
-                            shortId={props.logicKey}
-                        />
-                    }
-                    filterActions={
-                        notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
-                            <RecordingsUniversalFiltersEmbedButton
+            <div
+                className={clsx('w-full h-full', {
+                    'flex flex-col xl:flex-row gap-2': !isCinemaMode,
+                })}
+            >
+                <div
+                    className={clsx('flex flex-col', {
+                        'xl:w-1/4 xl:min-w-80 xl:h-full order-last xl:order-first': !isCinemaMode,
+                        'w-0 overflow-hidden': isCinemaMode,
+                    })}
+                >
+                    <Playlist
+                        data-attr="session-recordings-playlist"
+                        notebooksHref={urls.replay(ReplayTabs.Home, filters)}
+                        embedded={!!notebookNode}
+                        sections={sections}
+                        headerActions={
+                            <SessionRecordingsPlaylistTopSettings
                                 filters={filters}
                                 setFilters={setFilters}
-                                totalFiltersCount={totalFiltersCount}
-                                currentSessionRecordingId={activeSessionRecordingId}
+                                type={type}
+                                shortId={props.logicKey}
                             />
-                        )
-                    }
-                    loading={sessionRecordingsResponseLoading}
-                    onScrollListEdge={(edge) => {
-                        if (edge === 'top') {
-                            maybeLoadSessionRecordings('newer')
-                        } else {
-                            maybeLoadSessionRecordings('older')
                         }
-                    }}
-                    listEmptyState={
-                        type === 'collection' ? (
-                            <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
-                        ) : (
-                            <ListEmptyState />
-                        )
-                    }
-                    onSelect={(item) => setSelectedRecordingId(item.id)}
-                    activeItemId={activeSessionRecordingId}
-                    content={({ activeItem }) =>
-                        showContent && activeItem ? (
-                            <SessionRecordingPlayer
-                                playerKey={props.logicKey ?? 'playlist'}
-                                sessionRecordingId={activeItem.id}
-                                matchingEventsMatchType={matchingEventsMatchType}
-                                playlistLogic={playlistLogic}
-                                noBorder
-                                pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
-                                setPinned={
-                                    props.onPinnedChange
-                                        ? (pinned) => {
-                                              if (!activeItem.id) {
-                                                  return
-                                              }
-                                              props.onPinnedChange?.(activeItem, pinned)
-                                          }
-                                        : undefined
-                                }
-                            />
-                        ) : (
-                            <div className="mt-20">
-                                <EmptyMessage
-                                    title="No recording selected"
-                                    description="Please select a recording from the list on the left"
-                                    buttonText="Learn more about recordings"
-                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
+                        filterActions={
+                            notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
+                                <RecordingsUniversalFiltersEmbedButton
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    totalFiltersCount={totalFiltersCount}
+                                    currentSessionRecordingId={activeSessionRecordingId}
                                 />
-                            </div>
-                        )
-                    }
-                    filterContent={
+                            )
+                        }
+                        loading={sessionRecordingsResponseLoading}
+                        onScrollListEdge={(edge) => {
+                            if (edge === 'top') {
+                                maybeLoadSessionRecordings('newer')
+                            } else {
+                                maybeLoadSessionRecordings('older')
+                            }
+                        }}
+                        listEmptyState={
+                            type === 'collection' ? (
+                                <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
+                            ) : (
+                                <ListEmptyState />
+                            )
+                        }
+                        onSelect={(item) => setSelectedRecordingId(item.id)}
+                        activeItemId={activeSessionRecordingId}
+                    />
+                </div>
+
+                <div
+                    className={clsx('Playlist__main overflow-hidden', {
+                        'w-full': isCinemaMode,
+                        'xl:flex-1 xl:h-full min-h-96 xl:rounded xl:border-y xl:border-r border-l xl:border-l-0 rounded-bl':
+                            !isCinemaMode,
+                    })}
+                >
+                    {isFiltersExpanded ? (
                         <RecordingsUniversalFiltersEmbed
                             resetFilters={resetFilters}
                             filters={filters}
@@ -189,8 +185,36 @@ export function SessionRecordingsPlaylist({
                             totalFiltersCount={totalFiltersCount}
                             allowReplayHogQLFilters={allowHogQLFilters}
                         />
-                    }
-                />
+                    ) : showContent && activeSessionRecording ? (
+                        <SessionRecordingPlayer
+                            playerKey={props.logicKey ?? 'playlist'}
+                            sessionRecordingId={activeSessionRecording.id}
+                            matchingEventsMatchType={matchingEventsMatchType}
+                            playlistLogic={playlistLogic}
+                            noBorder
+                            pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
+                            setPinned={
+                                props.onPinnedChange
+                                    ? (pinned) => {
+                                          if (!activeSessionRecording.id) {
+                                              return
+                                          }
+                                          props.onPinnedChange?.(activeSessionRecording, pinned)
+                                      }
+                                    : undefined
+                            }
+                        />
+                    ) : (
+                        <div className="mt-20">
+                            <EmptyMessage
+                                title="No recording selected"
+                                description="Please select a recording from the list on the left"
+                                buttonText="Learn more about recordings"
+                                buttonTo="https://posthog.com/docs/user-guides/recordings"
+                            />
+                        </div>
+                    )}
+                </div>
             </div>
         </BindLogic>
     )

@@ -74,6 +74,8 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     # Raised when we hit our self-imposed long running operation timeout.
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account.
     "DatabricksOperationTimeoutError",
+    # Invalid filter used.
+    "InvalidFilterError",
 ]
 
 DatabricksField = tuple[str, str]

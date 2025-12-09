@@ -65,6 +65,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "InvalidS3EndpointError",
     # Invalid file_format input
     "UnsupportedFileFormatError",
+    # Invalid filter used.
+    "InvalidFilterError",
 )
 
 FILE_FORMAT_EXTENSIONS = {

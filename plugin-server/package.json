@@ -48,7 +48,6 @@
     "license": "MIT",
     "dependencies": {
         "@amplitude/ua-parser-js": "^0.7.33",
-        "@temporalio/client": "^1.12.0",
         "@aws-sdk/client-s3": "^3.709.0",
         "@aws-sdk/lib-storage": "^3.709.0",
         "@babel/core": "^7.22.10",
@@ -73,7 +72,9 @@
         "@posthog/hogvm": "workspace:*",
         "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
+        "@pyroscope/nodejs": "^0.4.8",
         "@segment/action-destinations": "^3.383.0",
+        "@temporalio/client": "^1.12.0",
         "@types/node": "^22.13.14",
         "@types/tail": "^2.2.1",
         "asn1.js": "^5.4.1",

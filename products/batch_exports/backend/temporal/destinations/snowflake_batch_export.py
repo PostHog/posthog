@@ -104,6 +104,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeQueryServerTimeoutError",
     # Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it
     "SnowflakeWarehouseUsageError",
+    # Invalid filter used.
+    "InvalidFilterError",
 )
 
 

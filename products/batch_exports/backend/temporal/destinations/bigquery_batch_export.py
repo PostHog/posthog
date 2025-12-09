@@ -65,6 +65,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Raised when attempting to run a batch export without required BigQuery permissions.
     # Our own version of `Forbidden`.
     "MissingRequiredPermissionsError",
+    # Invalid filter used.
+    "InvalidFilterError",
 )
 
 LOGGER = get_write_only_logger(__name__)

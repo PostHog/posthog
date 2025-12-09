@@ -1,4 +1,5 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
+import * as Pyroscope from '@pyroscope/nodejs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
@@ -76,6 +77,7 @@ export class PluginServer {
 
         this.expressApp = setupExpressApp()
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
+        this.setupContinuousProfiling()
     }
 
     private setupPodTermination(): void {
@@ -395,5 +397,35 @@ export class PluginServer {
         logger.info('💤', ' Shutting down completed. Exiting...')
 
         process.exit(error ? 1 : 0)
+    }
+
+    private setupContinuousProfiling(): void {
+        if (!this.config.CONTINUOUS_PROFILING_ENABLED) {
+            logger.info('Continuous profiling is disabled')
+            return
+        }
+
+        if (!this.config.PYROSCOPE_SERVER_ADDRESS) {
+            logger.warn('Continuous profiling is enabled but PYROSCOPE_SERVER_ADDRESS is empty, skipping')
+            return
+        }
+
+        try {
+            Pyroscope.init({
+                serverAddress: this.config.PYROSCOPE_SERVER_ADDRESS,
+                appName: this.config.PYROSCOPE_APPLICATION_NAME || 'plugin-server',
+                tags: {
+                    service: 'plugin-server',
+                },
+            })
+
+            Pyroscope.start()
+            logger.info('Continuous profiling started', {
+                serverAddress: this.config.PYROSCOPE_SERVER_ADDRESS,
+                appName: this.config.PYROSCOPE_APPLICATION_NAME || 'plugin-server',
+            })
+        } catch (error) {
+            logger.error('Failed to start continuous profiling', { error })
+        }
     }
 }

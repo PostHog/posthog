@@ -7,6 +7,13 @@ const { readFileSync } = require('fs')
 const { DateTime } = require('luxon')
 const { join } = require('path')
 
+// Mock @pyroscope/nodejs to avoid ESM compatibility issues with p-limit
+jest.mock('@pyroscope/nodejs', () => ({
+    init: jest.fn(),
+    start: jest.fn(),
+    stop: jest.fn(),
+}))
+
 // Setup spies on the logger for all tests to use
 
 jest.mock('node-fetch', () => ({
