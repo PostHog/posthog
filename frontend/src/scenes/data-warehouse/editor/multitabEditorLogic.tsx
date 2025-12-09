@@ -748,12 +748,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 })
             }
         },
-        setDirectQuerySource: ({ sourceId }) => {
+        setDirectQuerySource: async ({ sourceId }) => {
             // When setting a direct query source, also update directQueryLogic
             // so the RunButton knows to use the direct query path
             if (sourceId) {
+                // Wait for sources to load first - they may not be loaded yet
+                // especially when navigating to a URL with a direct_query_source param
+                let sources = values.sources
+                if (sources.length === 0) {
+                    // Sources not loaded yet, wait for them
+                    sources = await directQueryLogic.asyncActions.loadSources()
+                }
+
                 // Validate that the source exists in the loaded sources
-                const sourceExists = values.sources.some((s) => s.id === sourceId)
+                const sourceExists = sources.some((s) => s.id === sourceId)
                 if (sourceExists) {
                     actions.setSelectedDatabase(sourceId)
                 } else {
