@@ -188,11 +188,7 @@ const LeftHandColumn = (): JSX.Element => {
                     <ExceptionsTab />
                 </TabsPrimitiveContent>
                 <TabsPrimitiveContent value="breakdowns" className="flex-1 min-h-0">
-                    <div className="flex flex-col h-full">
-                        <BreakdownsSearchBar />
-                        <MiniBreakdowns />
-                        <BreakdownsChart />
-                    </div>
+                    <BreakdownsTab />
                 </TabsPrimitiveContent>
                 {hasTasks && (
                     <TabsPrimitiveContent value="autofix">
@@ -239,6 +235,15 @@ const ExceptionsTab = (): JSX.Element => {
                     }}
                 />
             </Metadata>
+        </div>
+    )
+}
+const BreakdownsTab = (): JSX.Element => {
+    return (
+        <div className="flex flex-col h-full">
+            <BreakdownsSearchBar />
+            <MiniBreakdowns />
+            <BreakdownsChart />
         </div>
     )
 }
