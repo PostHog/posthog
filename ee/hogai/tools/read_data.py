@@ -7,7 +7,7 @@ from posthog.schema import ArtifactMessage
 
 from posthog.models import Team, User
 
-from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
+from ee.hogai.artifacts.utils import unwrap_notebook_artifact_content, unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
@@ -156,11 +156,19 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     def _format_artifacts(self, artifact_message: list[ArtifactMessage]) -> str:
         formatted_artifacts = []
         for message in artifact_message:
-            viz_content = unwrap_visualization_artifact_content(message)
-            if viz_content:
-                formatted_artifacts.append(
-                    f"- id: {message.artifact_id}\n- name: {viz_content.name}\n- description: {viz_content.description}\n- query: {viz_content.query}"
-                )
+            if message.content.content_type == "visualization":
+                viz_content = unwrap_visualization_artifact_content(message)
+                if viz_content:
+                    formatted_artifacts.append(
+                        f"- id: {message.artifact_id}\n- name: {viz_content.name}\n- description: {viz_content.description}\n- query: {viz_content.query}"
+                    )
+            elif message.content.content_type == "notebook":
+                notebook_content = unwrap_notebook_artifact_content(message)
+                if notebook_content:
+                    # We don't need to show the content of the notebook, just the title and description
+                    formatted_artifacts.append(
+                        f"- id: {message.artifact_id}\n- name: {notebook_content.name}\n- description: {notebook_content.description}"
+                    )
         if len(formatted_artifacts) == 0:
             return "No artifacts available"
         return "\n\n".join(formatted_artifacts)

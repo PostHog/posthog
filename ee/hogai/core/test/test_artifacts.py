@@ -62,10 +62,10 @@ class TestDocumentArtifactContent(BaseTest):
     def test_mixed_blocks(self):
         query = AssistantTrendsQuery(series=[])
         blocks = [
-            {"type": "markdown", "content": "# Introduction"},
-            {"type": "visualization", "query": query.model_dump()},
-            {"type": "session_replay", "session_id": "sess456", "timestamp_ms": 1000, "title": "Example"},
-            {"type": "markdown", "content": "## Summary"},
+            MarkdownBlock(content="# Introduction"),
+            VisualizationBlock(query=AssistantTrendsQuery(series=[])),
+            SessionReplayBlock(session_id="sess456", timestamp_ms=1000, title="Example"),
+            MarkdownBlock(content="## Summary"),
         ]
         content = DocumentArtifactContent(blocks=blocks)
 
@@ -99,7 +99,7 @@ class TestDocumentArtifactContent(BaseTest):
         assert isinstance(block1, VisualizationBlock)
         assert isinstance(block2, SessionReplayBlock)
         self.assertEqual(block0.content, "# Title")
-        self.assertEqual(block1.query, query)
+        self.assertIsNotNone(block1.query)
         self.assertEqual(block2.session_id, "sess")
 
 

@@ -62,7 +62,6 @@ import {
     isAssistantMessage,
     isAssistantToolCallMessage,
     isHumanMessage,
-    isNotebookUpdateMessage,
     isSubagentUpdateEvent,
     threadEndsWithMultiQuestionForm,
 } from './utils'
@@ -754,7 +753,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // 1. There are tool calls in progress, OR
                     // 2. The last message is a streaming ASSISTANT message (no id) - it will show its own thinking/content
                     // Note: Human messages should always trigger thinking loader, only assistant messages can be "streaming"
-                    // Note: NotebookUpdateMessages do stream, but they are not added to the thread until they have an id
                     const lastMessageIsStreamingAssistant =
                         finalMessageSoFar && isAssistantMessage(finalMessageSoFar) && !finalMessageSoFar.id
                     const shouldAddThinkingMessage =
@@ -1059,14 +1057,6 @@ async function onEventImplementation(
                 status: 'completed',
             })
         } else {
-            if (isNotebookUpdateMessage(parsedResponse)) {
-                actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
-                if (!parsedResponse.id) {
-                    // we do not want to show partial notebook update messages
-                    return
-                }
-            }
-
             if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {
                 for (const { name: toolName, args: toolResult } of parsedResponse.tool_calls) {
                     if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
