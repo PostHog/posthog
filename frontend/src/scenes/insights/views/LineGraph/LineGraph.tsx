@@ -767,6 +767,7 @@ export function LineGraph_({
                                         breakdownFilter={breakdownFilter}
                                         interval={interval}
                                         dateRange={insightData?.resolved_date_range}
+                                        showShiftKeyHint={isBar && isStacked && !isHighlightBarMode}
                                         renderSeries={(value, datum) => {
                                             const hasBreakdown =
                                                 datum.breakdown_value !== undefined && !!datum.breakdown_value
