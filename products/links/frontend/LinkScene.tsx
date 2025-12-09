@@ -194,7 +194,7 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                 <LemonLabel>Destination URL</LemonLabel>
                                 {displayForm ? (
                                     <div className="flex gap-1 items-center">
-                                        <LemonField name="redirect_url">
+                                        <LemonField name="redirect_url" className="flex-1">
                                             <LemonInput
                                                 placeholder="https://loooooooooooooong.posthog.com/"
                                                 fullWidth
@@ -240,7 +240,7 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                 <LemonLabel>Description (optional)</LemonLabel>
                                 {displayForm ? (
                                     <div className="flex gap-1 items-center">
-                                        <LemonField name="description">
+                                        <LemonField name="description" className="flex-1">
                                             <LemonTextArea
                                                 placeholder="Add a description so that you can easily identify this link"
                                                 minRows={2}
