@@ -1,34 +1,32 @@
-@layer base {
-    .Splotch {
-        width: 1.5rem;
-        height: 1.5rem;
-        padding: 0.25rem;
+.Splotch {
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0.25rem;
+}
+
+.Splotch__paint {
+    width: 1rem;
+    height: 1rem;
+    border-radius: var(--radius);
+
+    .Splotch--blue & {
+        background: var(--blue);
     }
 
-    .Splotch__paint {
-        width: 1rem;
-        height: 1rem;
-        border-radius: var(--radius);
+    .Splotch--purple & {
+        background: var(--purple);
+    }
 
-        .Splotch--blue & {
-            background: var(--blue);
-        }
+    .Splotch--green & {
+        background: var(--green);
+    }
 
-        .Splotch--purple & {
-            background: var(--purple);
-        }
+    .Splotch--black & {
+        background: var(--black);
+    }
 
-        .Splotch--green & {
-            background: var(--green);
-        }
-
-        .Splotch--black & {
-            background: var(--black);
-        }
-
-        .Splotch--white & {
-            background: #fff;
-            border: 1px solid var(--color-border-primary);
-        }
+    .Splotch--white & {
+        background: #fff;
+        border: 1px solid var(--color-border-primary);
     }
 }

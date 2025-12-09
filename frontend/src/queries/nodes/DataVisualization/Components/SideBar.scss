@@ -1,36 +1,34 @@
-@layer base {
-    .DataVisualization {
-        .LemonTabs .LemonTabs__bar {
-            margin-bottom: 1px;
+.DataVisualization {
+    .LemonTabs .LemonTabs__bar {
+        margin-bottom: 1px;
 
-            /* Prevent vertical scrolling behavior on the tabs */
-            overflow-y: hidden;
+        /* Prevent vertical scrolling behavior on the tabs */
+        overflow-y: hidden;
 
-            /* Hide the scrollbar */
-            scrollbar-width: none;
+        /* Hide the scrollbar */
+        scrollbar-width: none;
 
-            &::-webkit-scrollbar {
-                display: none;
+        &::-webkit-scrollbar {
+            display: none;
+        }
+    }
+
+    .SideBar {
+        min-width: 18rem;
+        max-width: 18rem;
+        border-radius: var(--radius);
+
+        .LemonInput.LemonInput--medium {
+            display: flex;
+
+            .LemonInput__input {
+                flex: 1;
+                width: 0;
             }
         }
 
-        .SideBar {
-            min-width: 18rem;
-            max-width: 18rem;
-            border-radius: var(--radius);
-
-            .LemonInput.LemonInput--medium {
-                display: flex;
-
-                .LemonInput__input {
-                    flex: 1;
-                    width: 0;
-                }
-            }
-
-            .grow-2 {
-                flex-grow: 2;
-            }
+        .grow-2 {
+            flex-grow: 2;
         }
     }
 }

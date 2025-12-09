@@ -1,20 +1,18 @@
-@layer base {
-    .PersonDisplay {
-        display: inline;
+.PersonDisplay {
+    display: inline;
 
-        .ProfilePicture {
-            margin-right: 0.5rem;
-            transition: opacity 200ms ease;
+    .ProfilePicture {
+        margin-right: 0.5rem;
+        transition: opacity 200ms ease;
 
-            &.sm {
-                margin-right: 0.25rem;
-            }
+        &.sm {
+            margin-right: 0.25rem;
         }
+    }
 
-        a:hover {
-            .ProfilePicture {
-                opacity: 0.75;
-            }
+    a:hover {
+        .ProfilePicture {
+            opacity: 0.75;
         }
     }
 }
