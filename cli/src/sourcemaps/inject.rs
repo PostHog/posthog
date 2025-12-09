@@ -28,6 +28,12 @@ pub struct InjectArgs {
     pub release: ReleaseArgs,
 }
 
+impl InjectArgs {
+    pub fn validate(&self) -> Result<()> {
+        self.file_selection.validate()
+    }
+}
+
 pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool + 'static) -> Result<()> {
     let InjectArgs {
         file_selection,
