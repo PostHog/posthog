@@ -8,60 +8,6 @@
 
         .NotebookNode__box {
             overflow: hidden;
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: var(--primary-alt);
-            border-bottom: 1px solid var(--color-border-primary);
-        }
-
-        .NotebookNode__settings {
-            border-bottom: 1px solid var(--color-border-primary);
-        }
-
-        .NotebookNode__content {
-            z-index: 1;
-            transition: box-shadow 150ms ease-out;
-        }
-    }
-
-    .NotebookNode__gap {
-        display: flex;
-        gap: 0.2rem;
-        align-items: center;
-        height: 1.375rem;
-        overflow: hidden;
-        opacity: 0;
-        transition: all 150ms linear 1000ms;
-    }
-
-    .InsightCard__viz {
-        height: 100%;
-    }
-
-    &--editable:hover,
-    &--selected {
-        .NotebookNode__gap {
-            height: 1.875rem;
-            opacity: 1;
-            transition: all 150ms linear;
-        }
-    }
-
-    &--selected {
-        --border-color: var(--border-bold);
-    }
-
-    &--auto-hide-metadata {
-        --border-color: transparent;
-
-        .NotebookNode__meta {
-            position: absolute;
-            top: 0;
-            right: 0;
-            left: 0;
-            z-index: var(--z-popover);
-            pointer-events: none;
-            visibility: hidden;
             background-color: var(--color-bg-surface-primary);
             border: 1px solid var(--border-color);
             border-radius: var(--radius);
@@ -101,6 +47,10 @@
             overflow: hidden;
             opacity: 0;
             transition: all 150ms linear 1000ms;
+        }
+
+        .InsightCard__viz {
+            height: 100%;
         }
 
         &--editable:hover,
