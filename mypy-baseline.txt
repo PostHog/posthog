@@ -510,6 +510,7 @@ posthog/models/team/team.py:0: error: Argument 1 to "union" of "QuerySet" has in
 posthog/models/team/team.py:0: error: Argument 1 to "union" of "QuerySet" has incompatible type "QuerySet[RoleMembership, int]"; expected "QuerySet[Model, Model]"  [arg-type]
 posthog/models/team/team.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/team/team.py:0: error: Statement is unreachable  [unreachable]
+posthog/models/team/team_caching.py:0: error: "Team" has no attribute "_cached_organization_is_active"  [attr-defined]
 posthog/models/test/test_hog_function.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/models/test/test_hog_function.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/models/test/test_hog_function.py:0: error: Value of type "Any | None" is not indexable  [index]
