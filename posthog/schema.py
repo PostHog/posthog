@@ -1130,10 +1130,10 @@ class EmbeddingRecord(BaseModel):
 
 
 class EmptyPropertyFilter(BaseModel):
-    pass
     model_config = ConfigDict(
         extra="forbid",
     )
+    type: Literal["empty"] = "empty"
 
 
 class EndpointLastExecutionTimesRequest(BaseModel):
@@ -1977,6 +1977,12 @@ class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
+class LogPropertyFilterType(StrEnum):
+    LOG = "log"
+    LOG_ATTRIBUTE = "log_attribute"
+    LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
+
+
 class LogSeverityLevel(StrEnum):
     TRACE = "trace"
     DEBUG = "debug"
@@ -2672,7 +2678,10 @@ class PropertyFilterType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     FLAG = "flag"
     LOG = "log"
+    LOG_ATTRIBUTE = "log_attribute"
+    LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
     WORKFLOW_VARIABLE = "workflow_variable"
+    EMPTY = "empty"
 
 
 class PropertyMathType(StrEnum):
@@ -3360,7 +3369,9 @@ class TaxonomicFilterGroupType(StrEnum):
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
+    LOGS = "logs"
     LOG_ATTRIBUTES = "log_attributes"
+    LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
     REPLAY = "replay"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
@@ -3368,6 +3379,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
     WORKFLOW_VARIABLES = "workflow_variables"
+    EMPTY = "empty"
 
 
 class TestSetupRequest(BaseModel):
@@ -4902,7 +4914,7 @@ class LogPropertyFilter(BaseModel):
     key: str
     label: str | None = None
     operator: PropertyOperator
-    type: Literal["log"] = "log"
+    type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
 
 
@@ -16722,6 +16734,7 @@ class SourceConfig(BaseModel):
     iconPath: str
     label: str | None = None
     name: ExternalDataSourceType
+    permissionsCaption: str | None = None
     suggestedTables: list[SuggestedTable] | None = Field(
         default=[], description="Tables to suggest enabling, with optional tooltip explaining why"
     )
