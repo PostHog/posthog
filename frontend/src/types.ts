@@ -3231,6 +3231,38 @@ export interface ConsolidatedSurveyResults {
 export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
+// Product Tours
+export interface ProductTourStep {
+    selector: string
+    title: string
+    description: string
+    position?: 'top' | 'bottom' | 'left' | 'right'
+}
+
+export interface ProductTourContent {
+    steps: ProductTourStep[]
+    appearance?: Record<string, any>
+    conditions?: {
+        url?: string
+        urlMatchType?: 'exact' | 'contains' | 'regex'
+    }
+}
+
+export interface ProductTour {
+    id: string
+    name: string
+    description: string
+    internal_targeting_flag: FeatureFlagBasicType | null
+    feature_flag_key: string | null
+    content: ProductTourContent
+    start_date: string | null
+    end_date: string | null
+    created_at: string
+    created_by: UserBasicType | null
+    updated_at: string
+    archived: boolean
+}
+
 export interface Survey extends WithAccessControl {
     /** UUID */
     id: string
@@ -4629,6 +4661,7 @@ export type APIScopeObject =
     | 'organization_member'
     | 'person'
     | 'plugin'
+    | 'product_tour'
     | 'project'
     | 'property_definition'
     | 'query'
