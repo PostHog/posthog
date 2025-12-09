@@ -32,7 +32,7 @@ export function IntegrationView({
 
     const isGitHub = integration.kind === 'github'
     const repositories = isGitHub ? getGitHubRepositories(integration.id) : []
-    const refreshedAtTimestamp = integration.config?.refreshed_at || dayjs().unix()
+    const refreshedAtTimestamp = integration.config?.refreshed_at || null
 
     useEffect(() => {
         if (isGitHub) {
