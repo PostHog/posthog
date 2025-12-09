@@ -1,6 +1,4 @@
 // Global components
-@import 'vars';
-@import 'mixins';
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
 
 // Set variables
@@ -546,11 +544,6 @@
 
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
-    --breakpoint-sm: 576px;
-    --breakpoint-md: 768px;
-    --breakpoint-lg: 992px;
-    --breakpoint-xl: 1200px;
-    --breakpoint-xxl: 1600px;
 
     // Brand colors
     // //////////////////////////////////////////////////////////

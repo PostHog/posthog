@@ -1,4 +1,6 @@
-.ConditionalFormattingTab__ColorPicker .LemonButton__chrome {
-    gap: 0;
-    padding-left: 6px !important;
+@layer base {
+    .ConditionalFormattingTab__ColorPicker .LemonButton__chrome {
+        gap: 0;
+        padding-left: 6px !important;
+    }
 }

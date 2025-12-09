@@ -1,7 +1,9 @@
-.sentence-list {
-    display: inline;
-
-    .sentence-part {
+@layer base {
+    .sentence-list {
         display: inline;
+
+        .sentence-part {
+            display: inline;
+        }
     }
 }
