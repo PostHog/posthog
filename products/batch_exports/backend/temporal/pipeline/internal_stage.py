@@ -241,7 +241,7 @@ async def _get_query(
     data_interval_end: str,
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
-    filters: list[dict[str, str | list[str]]] | None = None,
+    filters: list[dict[str, str | list[str] | None]] | None = None,
     **parameters,
 ):
     logger = LOGGER.bind(model_name=model_name)
