@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -80,14 +81,15 @@ func main() {
 
 	if config.Kafka.SessionRecordingEnabled {
 		sessionConsumer, err := events.NewSessionRecordingKafkaConsumer(
-			config.Kafka.SessionRecordingBrokers, kafkaSecurityProtocol, config.Kafka.GroupID,
+			config.Kafka.SessionRecordingBrokers, config.Kafka.SessionRecordingSecurityProtocol, config.Kafka.GroupID,
 			config.Kafka.SessionRecordingTopic, sessionStatsChan)
 		if err != nil {
 			log.Printf("Failed to create session recording Kafka consumer: %v", err)
 		} else {
 			defer sessionConsumer.Close()
 			go sessionConsumer.Consume(ctx)
-			log.Printf("Session recording consumer started for topic: %s", config.Kafka.SessionRecordingTopic)
+			log.Printf("Session recording consumer started for topic: %s (security_protocol: %s)",
+				config.Kafka.SessionRecordingTopic, config.Kafka.SessionRecordingSecurityProtocol)
 		}
 	}
 
@@ -117,7 +119,48 @@ func main() {
 	e := echo.New()
 
 	// Middleware
-	e.Use(middleware.Logger())
+	e.Use(middleware.RequestID())
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogLatency:       true,
+		LogRemoteIP:      true,
+		LogHost:          true,
+		LogMethod:        true,
+		LogURI:           true,
+		LogUserAgent:     true,
+		LogStatus:        true,
+		LogError:         true,
+		LogContentLength: true,
+		LogResponseSize:  true,
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			// Build log entry, omitting error field when empty to avoid
+			// Grafana/Loki incorrectly categorizing successful requests as errors
+			logEntry := map[string]interface{}{
+				"time":          v.StartTime.Format(time.RFC3339Nano),
+				"id":            c.Response().Header().Get(echo.HeaderXRequestID),
+				"remote_ip":     v.RemoteIP,
+				"host":          v.Host,
+				"method":        v.Method,
+				"uri":           v.URI,
+				"user_agent":    v.UserAgent,
+				"status":        v.Status,
+				"latency":       v.Latency.Nanoseconds(),
+				"latency_human": v.Latency.String(),
+				"bytes_in":      v.ContentLength,
+				"bytes_out":     v.ResponseSize,
+			}
+			if v.Error != nil {
+				logEntry["error"] = v.Error.Error()
+			}
+			jsonBytes, err := json.Marshal(logEntry)
+			if err != nil {
+				log.Printf("failed to marshal log entry: %v", err)
+				return nil
+			}
+			// Write directly to stdout without log prefix since JSON already has time field
+			os.Stdout.Write(append(jsonBytes, '\n'))
+			return nil
+		},
+	}))
 	e.Use(middleware.Recover())
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
 		Level: 9, // Set the compression level to maximum
