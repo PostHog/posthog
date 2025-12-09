@@ -129,6 +129,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schemas",
             "job_inputs",
             "revenue_analytics_config",
+            "query_only",
         ]
         read_only_fields = [
             "id",
@@ -141,6 +142,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schemas",
             "prefix",
             "revenue_analytics_config",
+            "query_only",
         ]
 
     """
@@ -361,6 +363,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
+        query_only = request.data.get("query_only", False)
 
         # Validate prefix characters
         is_valid, error_message = validate_source_prefix(prefix)
@@ -376,7 +379,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
-        if is_any_external_data_schema_paused(self.team_id):
+        # Skip billing limit check for query_only sources (they don't sync data)
+        if not query_only and is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
@@ -398,6 +402,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": f"Invalid source config: {', '.join(errors)}"},
             )
         source_config: Config = source.parse_config(payload)
+
+        # For query_only sources: just validate credentials and create source (no sync)
+        if query_only:
+            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+            if not credentials_valid:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": credentials_error or "Invalid credentials"},
+                )
+
+            new_source_model = ExternalDataSource.objects.create(
+                source_id=str(uuid.uuid4()),
+                connection_id=str(uuid.uuid4()),
+                team=self.team,
+                status="Completed",  # No sync needed
+                source_type=source_type_model,
+                job_inputs=source_config.to_dict(),
+                prefix=prefix,
+                query_only=True,
+                created_by=request.user if isinstance(request.user, User) else None,
+            )
+
+            return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),

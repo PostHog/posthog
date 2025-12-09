@@ -1,0 +1,26 @@
+# Demo Postgres database for hackathon BI exploration
+#
+# Usage:
+#   docker compose -f hack/docker-compose.demo-db.yml up -d
+#
+# Connection string:
+#   postgresql://postgres:postgres@localhost:5433/pagila
+#
+# Contains the DVD Rental (Pagila) sample database with 15 tables:
+#   - actor, film, film_actor, film_category, category
+#   - customer, address, city, country
+#   - inventory, rental, payment
+#   - store, staff, language
+
+services:
+    demo-postgres:
+        image: ghcr.io/devrimgunduz/pagila:latest
+        environment:
+            POSTGRES_PASSWORD: postgres
+        ports:
+            - '5433:5432'
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U postgres']
+            interval: 5s
+            timeout: 5s
+            retries: 5

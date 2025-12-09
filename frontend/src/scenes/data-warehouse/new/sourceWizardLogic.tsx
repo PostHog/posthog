@@ -254,6 +254,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
         toggleAllTables: (selectAll: boolean) => ({ selectAll }),
+        createQueryOnlySource: true,
     }),
     connect(() => ({
         values: [
@@ -713,7 +714,40 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
         },
         submitSourceConnectionDetailsSuccess: () => {
-            actions.getDatabaseSchemas()
+            // Check if query_only mode - skip schema fetching and create source directly
+            if (values.sourceConnectionDetails.query_only) {
+                actions.createQueryOnlySource()
+            } else {
+                actions.getDatabaseSchemas()
+            }
+        },
+        createQueryOnlySource: async () => {
+            if (values.selectedConnector === null) {
+                return
+            }
+
+            actions.setIsLoading(true)
+
+            try {
+                const { id } = await api.externalDataSources.create({
+                    ...values.source,
+                    source_type: values.selectedConnector.name,
+                    query_only: true,
+                })
+
+                lemonToast.success('Query connection created')
+
+                actions.setSourceId(id)
+                actions.resetSourceConnectionDetails()
+                actions.loadSources(null)
+                actions.closeWizard()
+
+                posthog.capture('source created', { sourceType: values.selectedConnector.name, queryOnly: true })
+            } catch (e: any) {
+                lemonToast.error(e.data?.message ?? e.message)
+            } finally {
+                actions.setIsLoading(false)
+            }
         },
         getDatabaseSchemas: async () => {
             if (!values.selectedConnector) {

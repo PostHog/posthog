@@ -300,6 +300,23 @@ export function SourceFormComponent({
                     }}
                 </LemonField>
             )}
+            {sourceConfig.name === 'Postgres' && showPrefix && !isUpdateMode && (
+                <LemonField name="query_only" label="Query only (skip data sync)">
+                    {({ value, onChange }) => (
+                        <>
+                            <LemonSwitch
+                                checked={value || false}
+                                onChange={onChange}
+                                label="Enable direct SQL queries"
+                            />
+                            <p className="text-secondary text-xs mt-1">
+                                Connect for direct SQL queries without importing data to PostHog. Use this for ad-hoc
+                                analysis of external databases.
+                            </p>
+                        </>
+                    )}
+                </LemonField>
+            )}
         </div>
     )
 }

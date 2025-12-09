@@ -20,6 +20,7 @@ import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.data_warehouse.backend.api import (
     data_modeling_job,
     data_warehouse,
+    direct_query,
     external_data_schema,
     external_data_source,
     managed_viewset,
@@ -424,6 +425,12 @@ register_grandfathered_environment_nested_viewset(
     r"external_data_sources",
     external_data_source.ExternalDataSourceViewSet,
     "environment_external_data_sources",
+    ["team_id"],
+)
+register_grandfathered_environment_nested_viewset(
+    r"direct_query",
+    direct_query.DirectQueryViewSet,
+    "environment_direct_query",
     ["team_id"],
 )
 register_grandfathered_environment_nested_viewset(
