@@ -1567,6 +1567,10 @@ export class ApiRequest {
         return this.coreMemory().addPathComponent(id)
     }
 
+    public syntheticUsers(): ApiRequest {
+        return this.environmentsDetail().addPathComponent('synthetic-users')
+    }
+
     public authenticateWizard(): ApiRequest {
         return this.wizard().addPathComponent('authenticate')
     }
@@ -4946,6 +4950,23 @@ const api = {
             kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    syntheticUsers: {
+        async getStudies(): Promise<{ studies: any[] }> {
+            return await new ApiRequest().syntheticUsers().withAction('get_studies').get()
+        },
+        async getStudy(id: string): Promise<{ study: any }> {
+            return await new ApiRequest().syntheticUsers().withAction('get_study').withQueryString(`id=${id}`).get()
+        },
+        async createStudy(study: {
+            name: string
+            audience_description: string
+            research_goal: string
+            target_url: string
+        }): Promise<{ study: any }> {
+            return await new ApiRequest().syntheticUsers().withAction('create_study').create({ data: { study } })
         },
     },
 }

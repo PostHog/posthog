@@ -14,6 +14,7 @@ import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.live_debugger.backend.api as live_debugger
+import products.synthetic_users.backend.api as synthetic_users
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -948,6 +949,11 @@ environments_router.register(
 
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+
+# Synthetic users endpoints
+register_grandfathered_environment_nested_viewset(
+    r"synthetic-users", synthetic_users.SyntheticUsersViewSet, "environment_synthetic_users", ["team_id"]
+)
 
 register_grandfathered_environment_nested_viewset(
     r"endpoints", endpoints.EndpointViewSet, "environment_endpoints", ["team_id"]

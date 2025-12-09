@@ -93,3 +93,13 @@ export interface StudySummary {
     latest_round_status: RoundStatus | null
     created_at: string
 }
+
+/**
+ * Form values for creating/editing a study.
+ */
+export interface StudyFormValues {
+    name: string
+    audience_description: string
+    research_goal: string
+    target_url: string
+}

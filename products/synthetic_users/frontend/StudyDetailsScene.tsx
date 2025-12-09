@@ -1,3 +1,4 @@
+import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -15,6 +16,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -22,10 +24,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { MOCK_STUDY } from './fixtures'
+import { StudyDetailsSceneLogicProps, studyDetailsSceneLogic } from './studyDetailsSceneLogic'
 import type { ParticipantStatus, Round, RoundStatus, Sentiment, Session, Study, ThoughtAction } from './types'
 
 export const scene: SceneExport = {
-    component: StudyDetailsScene,
+    component: StudyDetailsSceneWrapper,
 }
 
 // ============================================
@@ -661,13 +664,39 @@ function InsightsTab({ study }: { study: Study }): JSX.Element {
 // Main Scene
 // ============================================
 
-export function StudyDetailsScene(): JSX.Element {
+function StudyDetailsSceneWrapper({ id }: StudyDetailsSceneLogicProps): JSX.Element {
+    return (
+        <BindLogic logic={studyDetailsSceneLogic} props={{ id }}>
+            <StudyDetailsScene />
+        </BindLogic>
+    )
+}
+
+function StudyDetailsScene(): JSX.Element {
+    const { study, studyLoading } = useValues(studyDetailsSceneLogic)
     const [activeTab, setActiveTab] = useState<'overview' | 'rounds' | 'insights'>('overview')
     const [showNewRound, setShowNewRound] = useState(false)
 
-    const study = MOCK_STUDY
-    const latestRound = study.rounds[study.rounds.length - 1]
-    const totalSessions = study.rounds.reduce((sum, r) => sum + r.sessions.length, 0)
+    if (studyLoading) {
+        return (
+            <SceneContent>
+                <div className="space-y-4">
+                    <LemonSkeleton className="h-8 w-48" />
+                    <LemonSkeleton className="h-4 w-96" />
+                    <LemonSkeleton className="h-64 w-full" />
+                </div>
+            </SceneContent>
+        )
+    }
+
+    if (!study) {
+        return <NotFound object="study" />
+    }
+
+    // For now, use mock data for rounds since we haven't implemented that yet
+    const studyWithRounds = { ...study, rounds: MOCK_STUDY.rounds }
+    const latestRound = studyWithRounds.rounds[studyWithRounds.rounds.length - 1]
+    const totalSessions = studyWithRounds.rounds.reduce((sum, r) => sum + r.sessions.length, 0)
 
     return (
         <SceneContent>
@@ -692,7 +721,8 @@ export function StudyDetailsScene(): JSX.Element {
                         <h1 className="text-2xl font-bold">{study.name}</h1>
                         <p className="text-muted mt-1">{study.research_goal}</p>
                         <p className="text-sm text-muted mt-2">
-                            {study.rounds.length} round{study.rounds.length !== 1 ? 's' : ''} · {totalSessions} sessions
+                            {studyWithRounds.rounds.length} round{studyWithRounds.rounds.length !== 1 ? 's' : ''} ·{' '}
+                            {totalSessions} sessions
                         </p>
                     </div>
                 </div>
@@ -711,17 +741,17 @@ export function StudyDetailsScene(): JSX.Element {
                     {
                         key: 'overview',
                         label: 'Overview',
-                        content: <OverviewTab study={study} />,
+                        content: <OverviewTab study={studyWithRounds} />,
                     },
                     {
                         key: 'rounds',
-                        label: `Rounds (${study.rounds.length})`,
-                        content: <RoundsTab study={study} onNewRound={() => setShowNewRound(true)} />,
+                        label: `Rounds (${studyWithRounds.rounds.length})`,
+                        content: <RoundsTab study={studyWithRounds} onNewRound={() => setShowNewRound(true)} />,
                     },
                     {
                         key: 'insights',
                         label: 'Insights',
-                        content: <InsightsTab study={study} />,
+                        content: <InsightsTab study={studyWithRounds} />,
                     },
                 ]}
             />

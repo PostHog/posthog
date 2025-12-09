@@ -50,6 +50,7 @@ PRODUCTS_APPS = [
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
     "products.customer_analytics.backend.apps.CustomerAnalyticsConfig",
     "products.product_tours.backend.apps.ProductToursConfig",
+    "products.synthetic_users.backend.apps.SyntheticUsersConfig",
 ]
 
 INSTALLED_APPS = [
