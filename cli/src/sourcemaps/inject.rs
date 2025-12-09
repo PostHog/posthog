@@ -35,11 +35,14 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool + 'sta
         release,
     } = args;
 
-    let selection: FileSelection = FileSelection::from(file_selection.clone()).filter(matcher);
+    info!("injecting selection: {}", file_selection);
 
-    info!("injecting selection: {}", selection);
+    let iterator = FileSelection::try_from(file_selection.clone())?;
 
-    let mut pairs = read_pairs(selection, public_path_prefix)?;
+    let mut pairs = read_pairs(
+        iterator.into_iter().filter(|entry| matcher(entry)),
+        public_path_prefix,
+    );
     if pairs.is_empty() {
         bail!("no source files found");
     }

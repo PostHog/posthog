@@ -38,10 +38,14 @@ pub fn read_pairs(
     include: Vec<String>,
     prefix: &Option<String>,
 ) -> Result<Vec<SourcePair>> {
-    let selection =
-        FileSelection::new(directory, include, exclude.to_vec()).filter(is_javascript_file);
+    let selection = FileSelection::from_roots([directory].to_vec())
+        .include(include)?
+        .exclude(exclude)?;
 
-    posthog_cli::sourcemaps::source_pairs::read_pairs(selection, prefix)
+    Ok(posthog_cli::sourcemaps::source_pairs::read_pairs(
+        selection.into_iter().filter(is_javascript_file),
+        prefix,
+    ))
 }
 
 #[test]

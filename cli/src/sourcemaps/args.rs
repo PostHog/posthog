@@ -1,12 +1,14 @@
-use std::path::PathBuf;
+use std::{fmt::Display, path::PathBuf};
+
+use anyhow::Result;
 
 use crate::utils::files::FileSelection;
 
 #[derive(clap::Args, Clone)]
 pub struct FileSelectionArgs {
     /// The directory containing the bundled chunks
-    #[arg(short, long)]
-    pub directory: PathBuf,
+    #[arg(short, long, alias = "file", alias = "directory")]
+    pub roots: Vec<PathBuf>,
 
     /// One or more directory glob patterns to exclude from selection
     #[arg(short, long, alias = "ignore")]
@@ -17,9 +19,18 @@ pub struct FileSelectionArgs {
     pub include: Vec<String>,
 }
 
-impl From<FileSelectionArgs> for FileSelection {
-    fn from(args: FileSelectionArgs) -> Self {
-        FileSelection::new(args.directory, args.include, args.exclude)
+impl TryFrom<FileSelectionArgs> for FileSelection {
+    type Error = anyhow::Error;
+    fn try_from(args: FileSelectionArgs) -> Result<Self> {
+        FileSelection::from_roots(args.roots)
+            .include(args.include)?
+            .exclude(args.exclude)
+    }
+}
+
+impl Display for FileSelectionArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.roots)
     }
 }
 
