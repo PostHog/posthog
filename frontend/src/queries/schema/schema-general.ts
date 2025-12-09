@@ -86,6 +86,7 @@ export enum NodeKind {
     HogQLASTQuery = 'HogQLASTQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
+    DirectQuery = 'DirectQuery',
     ActorsQuery = 'ActorsQuery',
     GroupsQuery = 'GroupsQuery',
     FunnelsActorsQuery = 'FunnelsActorsQuery',
@@ -238,6 +239,7 @@ export type QuerySchema =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | DirectQuery
     | HogQLASTQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
@@ -333,6 +335,7 @@ export type AnyResponseType =
     | HogQLQueryResponse
     | HogQLMetadataResponse
     | HogQLAutocompleteResponse
+    | DirectQueryResponse
     | EventsNode['response']
     | EventsQueryResponse
     | SessionsQueryResponse
@@ -441,6 +444,36 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     explain?: boolean
     /** Client provided name of the query */
     name?: string
+}
+
+/** Response from a DirectQuery - SQL executed directly against an external database */
+export interface DirectQueryResponse {
+    results: any[]
+    /** Column names */
+    columns?: string[]
+    /** Column types from the external database */
+    types?: string[]
+    /** Whether there are more rows available */
+    hasMore?: boolean
+    /** Query execution time in milliseconds */
+    executionTimeMs?: number
+    /** Error message if query failed */
+    error?: string
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
+    /** Query status for async queries */
+    query_status?: QueryStatus
+}
+
+/** Query executed directly against an external database (not through HogQL/ClickHouse) */
+export interface DirectQuery extends Node<DirectQueryResponse> {
+    kind: NodeKind.DirectQuery
+    /** UUID of the external data source to query */
+    sourceId: string
+    /** Raw SQL query to execute against the external database */
+    query: string
+    /** Maximum number of rows to return (default 1000) */
+    limit?: integer
 }
 
 export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
@@ -3484,6 +3517,7 @@ export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCom
     url_pattern: string
     schema?: DatabaseSchemaSchema
     source?: DatabaseSchemaSource
+    is_direct_query?: boolean
 }
 
 export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {

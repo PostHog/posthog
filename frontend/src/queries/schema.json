@@ -748,6 +748,9 @@
                     "$ref": "#/definitions/HogQLAutocompleteResponse"
                 },
                 {
+                    "$ref": "#/definitions/DirectQueryResponse"
+                },
+                {
                     "type": "object"
                 },
                 {
@@ -10524,6 +10527,9 @@
                 "id": {
                     "type": "string"
                 },
+                "is_direct_query": {
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -11032,6 +11038,86 @@
                 "Unknown"
             ],
             "type": "string"
+        },
+        "DirectQuery": {
+            "additionalProperties": false,
+            "description": "Query executed directly against an external database (not through HogQL/ClickHouse)",
+            "properties": {
+                "kind": {
+                    "const": "DirectQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Maximum number of rows to return (default 1000)"
+                },
+                "query": {
+                    "description": "Raw SQL query to execute against the external database",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/DirectQueryResponse"
+                },
+                "sourceId": {
+                    "description": "UUID of the external data source to query",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "query", "sourceId"],
+            "type": "object"
+        },
+        "DirectQueryResponse": {
+            "additionalProperties": false,
+            "description": "Response from a DirectQuery - SQL executed directly against an external database",
+            "properties": {
+                "columns": {
+                    "description": "Column names",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Error message if query failed",
+                    "type": "string"
+                },
+                "executionTimeMs": {
+                    "description": "Query execution time in milliseconds",
+                    "type": "number"
+                },
+                "hasMore": {
+                    "description": "Whether there are more rows available",
+                    "type": "boolean"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status for async queries"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "description": "Column types from the external database",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
         },
         "DocumentArtifactContent": {
             "additionalProperties": false,
@@ -20067,6 +20153,7 @@
                 "HogQLASTQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
+                "DirectQuery",
                 "ActorsQuery",
                 "GroupsQuery",
                 "FunnelsActorsQuery",
@@ -21867,6 +21954,54 @@
                         }
                     },
                     "required": ["suggestions", "incomplete_list"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "description": "Column names",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Error message if query failed",
+                            "type": "string"
+                        },
+                        "executionTimeMs": {
+                            "description": "Query execution time in milliseconds",
+                            "type": "number"
+                        },
+                        "hasMore": {
+                            "description": "Whether there are more rows available",
+                            "type": "boolean"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status for async queries"
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "description": "Column types from the external database",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -25434,6 +25569,9 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLAutocomplete"
+                },
+                {
+                    "$ref": "#/definitions/DirectQuery"
                 },
                 {
                     "$ref": "#/definitions/HogQLASTQuery"
