@@ -1,3 +1,5 @@
-.dashboard .page-caption {
-    margin-bottom: 0;
+@layer base {
+    .dashboard .page-caption {
+        margin-bottom: 0;
+    }
 }
