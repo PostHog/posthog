@@ -32,7 +32,7 @@ let uniqueNodeId = 0
 
 const TILE_TITLE = 'Non-integrated conversions'
 const TILE_DESCRIPTION =
-    'Conversions with UTM parameters set that do not match any campaign data from your integrations. Use the cell actions to map these to your integrations or configure them from the marketing settings. You need to have conversion goals configured to be able to see any date. If you do not see anything, it means all your conversion from the period are mapped to a native source.'
+    'Conversions with UTM parameters set that do not match any campaign data from your integrations. Use the cell actions to map these to your integrations or configure them from the marketing settings. You need to have conversion goals configured to be able to see any data. If you do not see anything, it means all your conversion from the period are mapped to a native source.'
 
 export const NonIntegratedConversionsTable = (): JSX.Element | null => {
     const { conversion_goals, integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
