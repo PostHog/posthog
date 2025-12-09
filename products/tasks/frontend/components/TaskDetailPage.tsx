@@ -76,7 +76,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     </ButtonPrimitive>
                 </ScenePanelActionsSection>
 
-                {runs.length >= 1 && (
+                {runs.length > 0 && (
                     <>
                         <ScenePanelDivider />
                         <ScenePanelInfoSection>

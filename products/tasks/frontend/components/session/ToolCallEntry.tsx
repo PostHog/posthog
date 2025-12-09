@@ -25,28 +25,38 @@ export function ToolCallEntry({ toolName, status, args, result, timestamp }: Too
     const hasContent = args || result !== undefined
     const isLoading = status === 'pending' || status === 'running'
 
+    const HeaderContent = (
+        <>
+            {timestamp && <span className="text-xs text-muted">{new Date(timestamp).toLocaleTimeString()}</span>}
+            {hasContent && (
+                <IconChevronRight
+                    className={`text-muted transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                    fontSize="12"
+                />
+            )}
+            {isLoading ? <Spinner className="text-muted" /> : <IconTerminal className="text-muted" fontSize="14" />}
+            <code className="text-xs text-secondary">{toolName}</code>
+            <LemonTag type={config.type} size="small">
+                {config.label}
+            </LemonTag>
+        </>
+    )
+
     return (
         <div className="py-2">
-            <button
-                type="button"
-                onClick={() => hasContent && setIsOpen(!isOpen)}
-                className={`flex items-center gap-2 w-full text-left rounded ${
-                    hasContent ? 'hover:bg-bg-light cursor-pointer' : 'cursor-default'
-                }`}
-            >
-                {timestamp && <span className="text-xs text-muted">{new Date(timestamp).toLocaleTimeString()}</span>}
-                {hasContent && (
-                    <IconChevronRight
-                        className={`text-muted transition-transform ${isOpen ? 'rotate-90' : ''}`}
-                        fontSize="12"
-                    />
-                )}
-                {isLoading ? <Spinner className="text-muted" /> : <IconTerminal className="text-muted" fontSize="14" />}
-                <code className="text-xs text-secondary">{toolName}</code>
-                <LemonTag type={config.type} size="small">
-                    {config.label}
-                </LemonTag>
-            </button>
+            {hasContent ? (
+                <button
+                    type="button"
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="flex items-center gap-2 w-full text-left rounded hover:bg-bg-light cursor-pointer"
+                >
+                    {HeaderContent}
+                </button>
+            ) : (
+                <div className="flex items-center gap-2 w-full text-left rounded">
+                    {HeaderContent}
+                </div>
+            )}
 
             {isOpen && hasContent && (
                 <div className="ml-5 mt-1 rounded bg-bg-light p-2 overflow-hidden">

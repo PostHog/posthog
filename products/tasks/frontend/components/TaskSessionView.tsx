@@ -109,8 +109,10 @@ export function TaskSessionView({ logs, loading, isPolling, run }: TaskSessionVi
     const entries = useMemo(() => parseLogs(logs), [logs])
 
     const handleCopyLogs = (): void => {
-        navigator.clipboard.writeText(logs)
-        lemonToast.success('Logs copied to clipboard')
+        navigator.clipboard.writeText(logs).then(
+            () => lemonToast.success('Logs copied to clipboard'),
+            () => lemonToast.error('Failed to copy logs')
+        )
     }
 
     if (loading && entries.length === 0) {

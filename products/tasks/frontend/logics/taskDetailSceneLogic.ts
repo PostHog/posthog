@@ -180,7 +180,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         },
         loadSelectedRunSuccess: ({ selectedRunData }) => {
             if (selectedRunData) {
-                tasksLogic.findMounted()?.actions.updateTaskRun(props.taskId, selectedRunData)
+                tasksLogic.findMounted()?.actions.updateTaskRun(values.taskId, selectedRunData)
             }
             if (values.shouldPoll) {
                 actions.startPolling()

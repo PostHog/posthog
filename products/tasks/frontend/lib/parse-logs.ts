@@ -180,6 +180,15 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
 
 function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry>): LogEntry | null {
     const id = `log-${index}`
+    const trimmed = line.trim()
+
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        return {
+            id,
+            type: 'raw',
+            raw: line,
+        }
+    }
 
     try {
         const parsed = JSON.parse(line)
