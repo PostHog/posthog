@@ -1,7 +1,9 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import type { directQueryLogicType } from './directQueryLogicType'
 
@@ -13,11 +15,13 @@ export interface DirectQuerySource {
     status: string
 }
 
+// Response format from the unified /query/ endpoint for DirectQuery
 export interface DirectQueryResult {
-    columns: string[]
-    rows: Record<string, any>[]
-    row_count: number
-    execution_time_ms: number
+    results: Record<string, any>[]
+    columns?: string[]
+    types?: string[]
+    hasMore?: boolean
+    executionTimeMs?: number
     error?: string
 }
 
@@ -53,13 +57,19 @@ export const directQueryLogic = kea<directQueryLogicType>([
             },
         ],
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         sources: [
             [] as DirectQuerySource[],
             {
                 loadSources: async (): Promise<DirectQuerySource[]> => {
-                    const response = await api.get('api/environments/@current/direct_query/sources')
-                    return response.sources || []
+                    try {
+                        const response = await api.get('api/environments/@current/direct_query/sources/')
+                        return response.sources || []
+                    } catch (e) {
+                        // Return empty array on error - don't block the UI
+                        console.error('Failed to load direct query sources:', e)
+                        return []
+                    }
                 },
             },
         ],
@@ -75,10 +85,26 @@ export const directQueryLogic = kea<directQueryLogicType>([
                     sql: string
                     maxRows?: number
                 }): Promise<DirectQueryResult> => {
-                    const response = await api.create('api/environments/@current/direct_query/execute', {
-                        source_id: sourceId,
-                        sql,
-                        max_rows: maxRows || 1000,
+                    // Find the source to get its prefix
+                    const source = values.sources.find((s: DirectQuerySource) => s.id === sourceId)
+                    let transformedSql = sql
+
+                    // Strip the prefix from table names in the SQL
+                    // Tables are referenced as "prefix.table_name" or "source_type.table_name" in HogQL
+                    // but need to be just "table_name" for the external database
+                    // When prefix is empty, HogQL uses source_type.toLowerCase() as the prefix
+                    const prefixToStrip = source?.prefix || source?.source_type?.toLowerCase()
+                    if (prefixToStrip) {
+                        const prefixPattern = new RegExp(`\\b${prefixToStrip}\\.`, 'gi')
+                        transformedSql = sql.replace(prefixPattern, '')
+                    }
+
+                    // Use the unified /query/ endpoint with DirectQuery kind
+                    const response = await api.query({
+                        kind: NodeKind.DirectQuery,
+                        sourceId: sourceId,
+                        query: transformedSql,
+                        limit: maxRows || 1000,
                     })
                     return response as DirectQueryResult
                 },
@@ -89,7 +115,7 @@ export const directQueryLogic = kea<directQueryLogicType>([
             null as DirectQuerySchema | null,
             {
                 loadSchemaForSource: async ({ sourceId }: { sourceId: string }): Promise<DirectQuerySchema> => {
-                    const response = await api.get(`api/environments/@current/direct_query/schema/${sourceId}`)
+                    const response = await api.get(`api/environments/@current/direct_query/schema/${sourceId}/`)
                     return response as DirectQuerySchema
                 },
             },
@@ -110,10 +136,14 @@ export const directQueryLogic = kea<directQueryLogicType>([
             },
         ],
         selectedSourceName: [
-            (s) => [s.selectedSource],
-            (selectedSource: DirectQuerySource | null): string => {
-                if (!selectedSource) {
+            (s) => [s.selectedDatabase, s.selectedSource],
+            (selectedDatabase: SelectedDatabase, selectedSource: DirectQuerySource | null): string => {
+                if (selectedDatabase === 'hogql') {
                     return 'PostHog (HogQL)'
+                }
+                if (!selectedSource) {
+                    // Source ID is set but source not found yet (still loading)
+                    return 'Loading...'
                 }
                 return selectedSource.prefix || selectedSource.source_type
             },
@@ -135,12 +165,12 @@ export const directQueryLogic = kea<directQueryLogicType>([
         ],
         hasDirectQuerySources: [(s) => [s.sources], (sources: DirectQuerySource[]): boolean => sources.length > 0],
     }),
-    listeners(({ actions }) => ({
-        setSelectedDatabase: ({ database }: { database: SelectedDatabase }) => {
-            // Load schema when selecting an external database
-            if (database !== 'hogql') {
-                actions.loadSchemaForSource(database)
-            }
-        },
+    listeners(() => ({
+        // Schema is already discovered when source is created, no need to load separately
     })),
+    afterMount(({ actions }) => {
+        // Load sources immediately when the logic mounts
+        // This ensures sources are available before setSelectedDatabase is called
+        actions.loadSources()
+    }),
 ])

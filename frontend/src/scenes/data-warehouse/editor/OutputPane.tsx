@@ -317,19 +317,18 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
         if (!isDirectQueryMode || !queryResult) {
             return undefined
         }
+        const columns = queryResult.columns || []
         // Transform rows from Record<string, any>[] to any[][]
-        const results = queryResult.rows.map((row: Record<string, any>) =>
-            queryResult.columns.map((col: string) => row[col])
-        )
+        const results = queryResult.results.map((row: Record<string, any>) => columns.map((col: string) => row[col]))
         return {
-            columns: queryResult.columns,
+            columns: columns,
             results,
-            types: queryResult.columns.map((col: string) => [col, 'String']), // Default type for now
-            hasMore: false,
-            limit: queryResult.row_count,
+            types: queryResult.types || columns.map((col: string) => [col, 'String']),
+            hasMore: queryResult.hasMore ?? false,
+            limit: queryResult.results.length,
             offset: 0,
             hogql: '',
-            timings: [{ k: 'query', t: queryResult.execution_time_ms / 1000 }],
+            timings: queryResult.executionTimeMs ? [{ k: 'query', t: queryResult.executionTimeMs / 1000 }] : [],
         } as HogQLQueryResponse
     }, [isDirectQueryMode, queryResult])
 
