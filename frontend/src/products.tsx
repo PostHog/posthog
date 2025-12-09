@@ -40,6 +40,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
+    Viz: () => import('../../products/ai_visibility/frontend/Viz'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import(
@@ -99,6 +100,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/viz': ['Viz', 'viz'],
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
@@ -199,6 +201,14 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/data/actions',
         activityScope: 'Action',
         iconType: 'action',
+    },
+    Viz: {
+        name: 'Viz',
+        projectBased: true,
+        defaultDocsPath: '/docs/tasks',
+        activityScope: 'TaskTracker',
+        description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
+        iconType: 'task',
     },
     CustomerAnalytics: {
         projectBased: true,
@@ -407,6 +417,7 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    taskTracker: (): string => '/viz',
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
