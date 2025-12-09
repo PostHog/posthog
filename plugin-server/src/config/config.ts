@@ -21,6 +21,8 @@ export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
 export function getDefaultConfig(): PluginsServerConfig {
     return {
+        CONTINUOUS_PROFILING_ENABLED: false,
+        PYROSCOPE_SERVER_ADDRESS: '',
         INSTRUMENT_THREAD_PERFORMANCE: false,
         OTEL_EXPORTER_OTLP_ENDPOINT: isDevEnv() ? 'http://localhost:4317' : '',
         OTEL_SDK_DISABLED: isDevEnv() ? false : true,

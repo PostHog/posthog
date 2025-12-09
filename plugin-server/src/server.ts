@@ -1,4 +1,5 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
+import Pyroscope from '@pyroscope/nodejs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
@@ -76,6 +77,7 @@ export class PluginServer {
 
         this.expressApp = setupExpressApp()
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
+        this.setupContinuousProfiling()
     }
 
     private setupPodTermination(): void {
@@ -395,5 +397,17 @@ export class PluginServer {
         logger.info('💤', ' Shutting down completed. Exiting...')
 
         process.exit(error ? 1 : 0)
+    }
+
+    private setupContinuousProfiling(): void {
+        if (this.config.CONTINUOUS_PROFILING_ENABLED) {
+            Pyroscope.init({
+                tags: {
+                    service: 'plugin-server',
+                },
+            } as any)
+
+            Pyroscope.start()
+        }
     }
 }

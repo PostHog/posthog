@@ -256,6 +256,8 @@ export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig, LogsIngestionConsumerConfig {
+    CONTINUOUS_PROFILING_ENABLED: boolean
+    PYROSCOPE_SERVER_ADDRESS: string
     INSTRUMENT_THREAD_PERFORMANCE: boolean
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
