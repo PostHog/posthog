@@ -177,8 +177,6 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
     queryset = ProductTour.objects.select_related("internal_targeting_flag", "created_by").all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
-
-    # Allow toolbar to access this API from customer websites
     authentication_classes = [TemporaryTokenAuthentication]
 
     def get_serializer_class(self) -> type[serializers.Serializer]:

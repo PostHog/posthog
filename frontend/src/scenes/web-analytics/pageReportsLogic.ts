@@ -202,6 +202,11 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         outboundClicksQuery: undefined,
                         channelsQuery: undefined,
                         referrersQuery: undefined,
+                        utmSourceQuery: undefined,
+                        utmMediumQuery: undefined,
+                        utmCampaignQuery: undefined,
+                        utmContentQuery: undefined,
+                        utmTermQuery: undefined,
                         deviceTypeQuery: undefined,
                         browserQuery: undefined,
                         osQuery: undefined,
@@ -305,6 +310,11 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     // Source queries
                     channelsQuery: getQuery(TileId.SOURCES, SourceTab.CHANNEL),
                     referrersQuery: getQuery(TileId.SOURCES, SourceTab.REFERRING_DOMAIN),
+                    utmSourceQuery: getQuery(TileId.SOURCES, SourceTab.UTM_SOURCE),
+                    utmMediumQuery: getQuery(TileId.SOURCES, SourceTab.UTM_MEDIUM),
+                    utmCampaignQuery: getQuery(TileId.SOURCES, SourceTab.UTM_CAMPAIGN),
+                    utmContentQuery: getQuery(TileId.SOURCES, SourceTab.UTM_CONTENT),
+                    utmTermQuery: getQuery(TileId.SOURCES, SourceTab.UTM_TERM),
 
                     // Device queries
                     deviceTypeQuery: getQuery(TileId.DEVICES, DeviceTab.DEVICE_TYPE),
@@ -472,10 +482,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 }
                             ),
                             createQueryTile(
-                                TileId.PAGE_REPORTS_OUTBOUND_CLICKS,
-                                'Outbound Clicks',
-                                'External links users click on this page',
-                                queries.outboundClicksQuery
+                                TileId.PAGE_REPORTS_PREVIOUS_PAGE,
+                                'Previous Pages',
+                                'Pages users visited before this page. For internal navigation, we used the previous pathname. If the user arrived from an external link, we used the referrer URL.',
+                                queries.prevPathsQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
@@ -499,10 +509,40 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 queries.referrersQuery
                             ),
                             createQueryTile(
-                                TileId.PAGE_REPORTS_PREVIOUS_PAGE,
-                                'Previous Pages',
-                                'Pages users visited before this page. For internal navigation, we used the previous pathname. If the user arrived from an external link, we used the referrer URL.',
-                                queries.prevPathsQuery
+                                TileId.PAGE_REPORTS_OUTBOUND_CLICKS,
+                                'Outbound Clicks',
+                                'External links users click on this page',
+                                queries.outboundClicksQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_UTM_SOURCE,
+                                'UTM Source',
+                                'UTM source parameter showing the source of traffic to this page',
+                                queries.utmSourceQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_UTM_MEDIUM,
+                                'UTM Medium',
+                                'UTM medium parameter showing the marketing medium that brought users to this page',
+                                queries.utmMediumQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_UTM_CAMPAIGN,
+                                'UTM Campaign',
+                                'UTM campaign parameter showing the marketing campaign that brought users to this page',
+                                queries.utmCampaignQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_UTM_CONTENT,
+                                'UTM Content',
+                                'UTM content parameter showing which specific link or content brought users to this page',
+                                queries.utmContentQuery
+                            ),
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_UTM_TERM,
+                                'UTM Term',
+                                'UTM term parameter showing the keywords associated with traffic to this page',
+                                queries.utmTermQuery
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
