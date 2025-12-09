@@ -15,14 +15,24 @@ export const manifest: ProductManifest = {
             activityScope: 'SyntheticUsers',
             layout: 'app-container',
             iconType: 'cohort',
-            description: 'Create and manage synthetic users for testing.',
+            description: 'Run UX research with AI-generated users.',
+        },
+        SyntheticUsersStudy: {
+            import: () => import('./frontend/StudyDetailsScene'),
+            projectBased: true,
+            name: 'Study details',
+            activityScope: 'SyntheticUsers',
+            layout: 'app-container',
+            iconType: 'cohort',
         },
     },
     routes: {
         '/synthetic-users': ['SyntheticUsers', 'syntheticUsers'],
+        '/synthetic-users/:id': ['SyntheticUsersStudy', 'syntheticUsersStudy'],
     },
     urls: {
         syntheticUsers: (): string => '/synthetic-users',
+        syntheticUsersStudy: (id: string): string => `/synthetic-users/${id}`,
     },
     fileSystemTypes: {},
     treeItemsProducts: [

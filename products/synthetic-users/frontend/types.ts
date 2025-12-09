@@ -1,0 +1,95 @@
+// ============================================
+// Status Types
+// ============================================
+export type StudyStatus = 'draft' | 'generating' | 'running' | 'completed' | 'failed'
+export type RoundStatus = 'draft' | 'generating' | 'running' | 'completed' | 'failed'
+export type ParticipantStatus = 'pending' | 'generating' | 'navigating' | 'completed' | 'failed'
+export type Sentiment = 'positive' | 'neutral' | 'negative'
+
+// ============================================
+// Stream of Consciousness - Thought/Action Log
+// ============================================
+export type ThoughtActionType = 'thought' | 'action' | 'observation' | 'frustration' | 'success'
+
+export interface ThoughtAction {
+    type: ThoughtActionType
+    content: string
+    timestamp_ms: number // ms from session start
+    element?: string // CSS selector or element description for actions
+    screenshot_url?: string // optional screenshot at this moment
+}
+
+// ============================================
+// Core Entities
+// ============================================
+
+/**
+ * A session represents a single synthetic user navigating the target URL.
+ * Each session has a generated persona, a plan, and captures their experience.
+ */
+export interface Session {
+    id: string
+    round_id: string
+    // Generated persona
+    name: string
+    archetype: string
+    background: string
+    traits: string[]
+    // Generated plan based on persona + research goal
+    plan: string
+    // Execution
+    status: ParticipantStatus
+    session_replay_url: string | null
+    // Stream of consciousness - the thought/action log
+    thought_action_log: ThoughtAction[]
+    // Results
+    experience_writeup: string | null
+    key_insights: string[]
+    sentiment: Sentiment | null
+    created_at: string
+}
+
+/**
+ * A round is a single execution of a study with N sessions.
+ * Multiple rounds allow iterating on changes and comparing results.
+ */
+export interface Round {
+    id: string
+    study_id: string
+    round_number: number
+    session_count: number
+    notes: string | null // what changed since last round
+    status: RoundStatus
+    summary: string | null
+    sessions: Session[]
+    created_at: string
+}
+
+/**
+ * A study defines the research goal and target audience.
+ * It contains multiple rounds, each with their own sessions.
+ */
+export interface Study {
+    id: string
+    name: string
+    audience_description: string // "Marketing managers at B2B SaaS startups"
+    research_goal: string // "Identify pain points in the signup flow"
+    target_url: string // URL to test
+    rounds: Round[]
+    created_at: string
+}
+
+/**
+ * Summary view of a study for the list page.
+ */
+export interface StudySummary {
+    id: string
+    name: string
+    audience_description: string
+    research_goal: string
+    target_url: string
+    rounds_count: number
+    total_sessions: number
+    latest_round_status: RoundStatus | null
+    created_at: string
+}
