@@ -3234,8 +3234,8 @@ export type SurveyRawResults = SurveyResponseRow[]
 // Product Tours
 export interface ProductTourStep {
     selector: string
-    title: string
-    description: string
+    /** Rich text content in tiptap JSONContent format */
+    content: Record<string, any> | null
     position?: 'top' | 'bottom' | 'left' | 'right'
 }
 
