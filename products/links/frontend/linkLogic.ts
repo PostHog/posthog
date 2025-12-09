@@ -138,7 +138,7 @@ export const linkLogic = kea<linkLogicType>([
         deleteLink: async ({ linkId }) => {
             try {
                 await api.links.delete(linkId)
-                lemonToast.info('Link deleted. Existing `$linkclick` events will be kept for future analysis')
+                lemonToast.info('Link deleted. Existing `$link_clicked` events will be kept for future analysis')
                 actions.loadLinksSuccess(values.links.filter((link) => link.id !== linkId))
                 deleteFromTree('link', linkId)
                 router.actions.push(urls.links())

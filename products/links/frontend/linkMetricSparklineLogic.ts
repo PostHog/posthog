@@ -34,12 +34,11 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
                             display: ChartDisplayType.ActionsBar,
                         },
 
-                        // TODO: Update to $linkclick event once ready
                         series: [
                             {
                                 kind: NodeKind.EventsNode,
-                                event: '$pageview',
-                                name: '$pageview',
+                                event: '$link_clicked',
+                                name: '$link_clicked',
                             },
                         ],
                     })

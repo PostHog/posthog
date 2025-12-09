@@ -58,7 +58,7 @@ export function LinksScene(): JSX.Element {
             title: 'Last 7 days',
             render: function RenderLinkMetricSparkline(_: any, link: LinkType) {
                 return (
-                    // TODO: Update URL to link to page with all `$linkclick` events
+                    // TODO: Update URL to link to page with all `$link_clicked` events
                     // for this specific link
                     <Link to="/insights">
                         <LinkMetricSparkline id={link.id} />

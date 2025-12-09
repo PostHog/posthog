@@ -151,7 +151,7 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                                 LemonDialog.open({
                                                     title: 'Permanently delete link?',
                                                     description:
-                                                        'Doing so will remove the link and the existing redirect rules. You will NOT lose access to the `$clicklink` events.',
+                                                        'Doing so will remove the link and the existing redirect rules. You will NOT lose access to the `$link_clicked` events.',
                                                     primaryButton: {
                                                         children: 'Delete',
                                                         type: 'primary',
