@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use envconfig::Envconfig;
@@ -13,9 +14,13 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
+use capture::metrics_middleware::ACTIVE_CONNECTIONS;
 use capture::server::serve;
 
 common_alloc::used!();
+
+const GRACEFUL_SHUTDOWN_INTERVAL_MS: u64 = 3;
+const GRACEFUL_SHUTDOWN_INTERVAL_POLL_MS: u64 = 500;
 
 async fn shutdown() {
     let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
@@ -29,7 +34,26 @@ async fn shutdown() {
         _ = interrupt.recv() => {},
     };
 
-    tracing::info!("Shutting down gracefully...");
+    tracing::info!("Graceful shutdown interval starting...");
+    let start = tokio::time::Instant::now();
+    let mut interval =
+        tokio::time::interval(Duration::from_millis(GRACEFUL_SHUTDOWN_INTERVAL_POLL_MS));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep_until(start + Duration::from_secs(GRACEFUL_SHUTDOWN_INTERVAL_MS)) => {
+                tracing::info!("Graceful shutdown timeout reached (3s), shutting down now");
+                break;
+            }
+            _ = interval.tick() => {
+                if ACTIVE_CONNECTIONS.load(Ordering::Relaxed) == 0 {
+                    tracing::info!("All connections closed, shutting down now");
+                    break;
+                }
+            }
+        }
+    }
 }
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {

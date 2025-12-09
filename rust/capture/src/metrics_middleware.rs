@@ -14,7 +14,7 @@ use axum::{
 use metrics::gauge;
 
 // Global atomic counter for active connections
-static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+pub static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 
 // Guard to ensure connection count is decremented even on panic
 struct ConnectionGuard;
