@@ -2291,6 +2291,8 @@ importers:
         specifier: '*'
         version: 18.2.0
 
+  products/product_tours: {}
+
   products/replay:
     dependencies:
       '@posthog/icons':
