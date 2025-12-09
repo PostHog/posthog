@@ -1104,12 +1104,14 @@ class _Printer(Visitor[str]):
         return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
 
     def visit_call(self, node: ast.Call):
-        # Validate parametric arguments
-        if func_meta := (
+        func_meta = (
             find_hogql_aggregation(node.name)
             or find_hogql_function(node.name)
             or find_hogql_posthog_function(node.name)
-        ):
+        )
+
+        # Validate parametric arguments
+        if func_meta:
             if func_meta.parametric_first_arg:
                 if not node.args:
                     raise QueryError(f"Missing arguments in function '{node.name}'")
@@ -1129,12 +1131,7 @@ class _Printer(Visitor[str]):
                         f"Invalid parametric function in '{node.name}', '{first_arg.value}' is not supported."
                     )
 
-        # Handle format strings in function names before checking function type
-        if func_meta := (
-            find_hogql_aggregation(node.name)
-            or find_hogql_function(node.name)
-            or find_hogql_posthog_function(node.name)
-        ):
+            # Handle format strings in function names before checking function type
             if func_meta.using_placeholder_arguments:
                 # Check if using positional arguments (e.g. {0}, {1})
                 if func_meta.using_positional_arguments:
