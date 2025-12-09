@@ -8,7 +8,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isUserLoggedIntoOrganization } from 'lib/utils'
+import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -72,7 +72,7 @@ export const organizationLogic = kea<organizationLogicType>([
             null as OrganizationType | null,
             {
                 loadCurrentOrganization: async () => {
-                    if (!isUserLoggedIntoOrganization()) {
+                    if (!isUserLoggedIn()) {
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return null
                     }

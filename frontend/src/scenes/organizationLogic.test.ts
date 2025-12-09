@@ -12,8 +12,10 @@ describe('organizationLogic', () => {
 
     describe('if POSTHOG_APP_CONTEXT available', () => {
         beforeEach(() => {
-            window.POSTHOG_APP_CONTEXT = { current_user: { organization: { id: 'WXYZ' } } } as unknown as AppContext
-            initKeaTests()
+            initKeaTests(false)
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: { organization: { id: 'WXYZ', is_active: true } },
+            } as unknown as AppContext
             logic = organizationLogic()
             logic.mount()
         })
@@ -22,18 +24,19 @@ describe('organizationLogic', () => {
             await expectLogic(logic).toNotHaveDispatchedActions(['loadCurrentOrganization'])
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
             await expectLogic(logic).toMatchValues({
-                currentOrganization: { id: 'WXYZ' },
+                currentOrganization: { id: 'WXYZ', is_active: true },
             })
         })
     })
 
     describe('if POSTHOG_APP_CONTEXT not available', () => {
         beforeEach(async () => {
+            initKeaTests(false)
             window.POSTHOG_APP_CONTEXT = undefined as unknown as AppContext
-            initKeaTests()
             logic = organizationLogic()
             logic.mount()
         })
+
         it('loads organization from API', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganization', 'loadCurrentOrganizationSuccess'])
             await expectLogic(logic).toMatchValues({
