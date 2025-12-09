@@ -24,7 +24,11 @@ from products.tasks.backend.temporal.process_task.activities import (
     get_task_processing_context,
     track_workflow_event,
 )
-from products.tasks.backend.temporal.process_task.workflow import ProcessTaskOutput, ProcessTaskWorkflow
+from products.tasks.backend.temporal.process_task.workflow import (
+    ProcessTaskInput,
+    ProcessTaskOutput,
+    ProcessTaskWorkflow,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -42,8 +46,11 @@ class TestProcessTaskWorkflow:
     when no snapshot exists.
     """
 
-    async def _run_workflow(self, run_id: str, mock_task_command: str = "echo 'task complete'") -> ProcessTaskOutput:
+    async def _run_workflow(
+        self, run_id: str, mock_task_command: str = "echo 'task complete'", create_pr: bool = True
+    ) -> ProcessTaskOutput:
         workflow_id = str(uuid.uuid4())
+        workflow_input = ProcessTaskInput(run_id=str(run_id), create_pr=create_pr)
 
         with patch(
             "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
@@ -69,7 +76,7 @@ class TestProcessTaskWorkflow:
             ):
                 result = await env.client.execute_workflow(
                     ProcessTaskWorkflow.run,
-                    run_id,
+                    workflow_input,
                     id=workflow_id,
                     task_queue=settings.TASKS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),

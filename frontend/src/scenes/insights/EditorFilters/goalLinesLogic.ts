@@ -38,11 +38,7 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
                 updateGoalLine: (state, { goalLineIndex, key, value }) => {
                     const goalLines = [...state]
                     if (key === 'value') {
-                        if (Number.isNaN(value)) {
-                            goalLines[goalLineIndex][key] = 0
-                        } else {
-                            goalLines[goalLineIndex][key] = parseInt(value.toString(), 10)
-                        }
+                        goalLines[goalLineIndex][key] = value as number
                     } else {
                         // @ts-expect-error not sure why it thinks this is an error but it clearly isn't
                         goalLines[goalLineIndex][key] = value

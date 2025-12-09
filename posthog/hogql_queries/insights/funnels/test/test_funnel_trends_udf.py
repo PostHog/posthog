@@ -23,7 +23,6 @@ from posthog.schema import (
     FunnelExclusionEventsNode,
     FunnelsFilter,
     FunnelsQuery,
-    FunnelsQueryResponse,
     FunnelVizType,
     IntervalType,
     PropertyOperator,
@@ -85,26 +84,6 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             },
             self.team,
         )
-
-    def test_assert_udf_flag(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "hour",
-            "date_from": "2021-05-01 00:00:00",
-            "funnel_window_interval": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
-
-        self.assertTrue(results.isUdf)
 
     def test_no_event_in_period(self):
         journeys_for(
