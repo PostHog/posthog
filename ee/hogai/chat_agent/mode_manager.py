@@ -145,7 +145,29 @@ class ChatAgentToolkitManager(AgentToolkitManager):
         return available_tools
 
 
-class ChatAgentPromptBuilder(AgentPromptBuilder, AssistantContextMixin):
+class BillingPromptMixin:
+    _context_manager: AssistantContextManager
+
+    async def _get_billing_prompt(self) -> str:
+        """Get billing information including whether to include the billing tool and the prompt.
+        Returns:
+            str: prompt
+        """
+        has_billing_context = self._context_manager.get_billing_context() is not None
+        has_access = await self._context_manager.check_user_has_billing_access()
+
+        if has_access and not has_billing_context:
+            return ROOT_BILLING_CONTEXT_ERROR_PROMPT
+
+        prompt = (
+            ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT
+            if has_access and has_billing_context
+            else ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT
+        )
+        return prompt
+
+
+class ChatAgentPromptBuilder(AgentPromptBuilder, AssistantContextMixin, BillingPromptMixin):
     async def get_prompts(self, state: AssistantState, config: RunnableConfig) -> list[BaseMessage]:
         # Add context messages on start of the conversation.
         billing_context_prompt, core_memory, groups = await asyncio.gather(
@@ -179,24 +201,6 @@ class ChatAgentPromptBuilder(AgentPromptBuilder, AssistantContextMixin):
             core_memory=format_prompt_string(CORE_MEMORY_PROMPT, core_memory=core_memory),
         )
 
-    async def _get_billing_prompt(self) -> str:
-        """Get billing information including whether to include the billing tool and the prompt.
-        Returns:
-            str: prompt
-        """
-        has_billing_context = self._context_manager.get_billing_context() is not None
-        has_access = await self._context_manager.check_user_has_billing_access()
-
-        if has_access and not has_billing_context:
-            return ROOT_BILLING_CONTEXT_ERROR_PROMPT
-
-        prompt = (
-            ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT
-            if has_access and has_billing_context
-            else ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT
-        )
-        return prompt
-
 
 class ChatAgentModeManager(AgentModeManager):
     def __init__(
@@ -206,11 +210,11 @@ class ChatAgentModeManager(AgentModeManager):
         user: User,
         node_path: tuple[NodePath, ...],
         context_manager: AssistantContextManager,
-        mode: AgentMode | None = None,
+        state: AssistantState,
     ):
-        super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, mode=mode)
+        super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, state=state)
         if has_agent_modes_feature_flag(team, user):
-            self._mode = mode or AgentMode.PRODUCT_ANALYTICS
+            self._mode = state.agent_mode or AgentMode.PRODUCT_ANALYTICS
         else:
             self._mode = AgentMode.PRODUCT_ANALYTICS
 

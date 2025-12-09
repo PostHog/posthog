@@ -30,6 +30,12 @@ from posthog.temporal.ai.chat_agent import (
     ChatAgentWorkflow,
     ChatAgentWorkflowInputs,
 )
+from posthog.temporal.ai.research_agent import (
+    RESEARCH_AGENT_STREAM_MAX_LENGTH,
+    RESEARCH_AGENT_WORKFLOW_TIMEOUT,
+    ResearchAgentWorkflow,
+    ResearchAgentWorkflowInputs,
+)
 from posthog.utils import get_instance_region
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -179,8 +185,6 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         has_message = serializer.validated_data.get("content") is not None
         is_deep_research = serializer.validated_data.get("deep_research_mode", False)
-        if is_deep_research:
-            raise NotImplementedError("Deep research is not supported yet")
 
         is_new_conversation = False
         # Safely set the lookup kwarg for potential error handling
@@ -214,29 +218,45 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if not has_message and conversation.status == Conversation.Status.IDLE:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
-        workflow_inputs = ChatAgentWorkflowInputs(
-            team_id=self.team_id,
-            user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
-            conversation_id=conversation.id,
-            stream_key=get_conversation_stream_key(conversation.id),
-            message=serializer.validated_data["message"].model_dump() if has_message else None,
-            contextual_tools=serializer.validated_data.get("contextual_tools"),
-            is_new_conversation=is_new_conversation,
-            trace_id=serializer.validated_data["trace_id"],
-            session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
-            billing_context=serializer.validated_data.get("billing_context"),
-            agent_mode=serializer.validated_data.get("agent_mode"),
-            use_checkpointer=True,
-        )
-        workflow_class = ChatAgentWorkflow
+        if is_deep_research:
+            workflow_inputs = ResearchAgentWorkflowInputs(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
+                conversation_id=conversation.id,
+                stream_key=get_conversation_stream_key(conversation.id),
+                message=serializer.validated_data["message"].model_dump() if has_message else None,
+                is_new_conversation=is_new_conversation,
+                trace_id=serializer.validated_data["trace_id"],
+                session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
+                billing_context=serializer.validated_data.get("billing_context"),
+            )
+            workflow_class = ResearchAgentWorkflow
+            timeout = RESEARCH_AGENT_WORKFLOW_TIMEOUT
+            max_length = RESEARCH_AGENT_STREAM_MAX_LENGTH
+        else:
+            workflow_inputs = ChatAgentWorkflowInputs(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
+                conversation_id=conversation.id,
+                stream_key=get_conversation_stream_key(conversation.id),
+                message=serializer.validated_data["message"].model_dump() if has_message else None,
+                contextual_tools=serializer.validated_data.get("contextual_tools"),
+                is_new_conversation=is_new_conversation,
+                trace_id=serializer.validated_data["trace_id"],
+                session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
+                billing_context=serializer.validated_data.get("billing_context"),
+                agent_mode=serializer.validated_data.get("agent_mode"),
+                use_checkpointer=True,
+            )
+            workflow_class = ChatAgentWorkflow
+            timeout = CHAT_AGENT_WORKFLOW_TIMEOUT
+            max_length = CHAT_AGENT_STREAM_MAX_LENGTH
 
         async def async_stream(
-            workflow_inputs: ChatAgentWorkflowInputs,
+            workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs,
         ) -> AsyncGenerator[bytes, None]:
             serializer = AssistantSSESerializer()
-            stream_manager = AgentExecutor(
-                conversation, timeout=CHAT_AGENT_WORKFLOW_TIMEOUT, max_length=CHAT_AGENT_STREAM_MAX_LENGTH
-            )
+            stream_manager = AgentExecutor(conversation, timeout=timeout, max_length=max_length)
             last_iteration_time = time.time()
             async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
                 chunk_received_time = time.time()
