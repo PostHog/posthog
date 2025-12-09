@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
@@ -125,6 +126,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
 
 def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
+    tag_queries(product=Product.FEATURE_FLAGS, name="find_flags_with_enriched_analytics")
     result = sync_execute(
         """
         SELECT team_id, JSONExtractString(properties, 'feature_flag') as flag_key

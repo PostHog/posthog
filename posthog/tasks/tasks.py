@@ -16,7 +16,7 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.metrics import pushed_metrics_registry
@@ -37,7 +37,6 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER = Counter(
     "posthog_feature_flag_last_called_at_sync_limit_reached_total",
     "Times the ClickHouse query result limit was reached during feature flag last_called_at sync",
 )
-
 
 COHORT_DELETION_MARK_FAILURE_COUNTER = Counter(
     "posthog_cohort_deletion_mark_failure_total",
@@ -124,13 +123,12 @@ def pg_table_cache_hit_rate() -> None:
         try:
             cursor.execute(
                 """
-                SELECT
-                 relname as table_name,
-                 sum(heap_blks_hit) / nullif(sum(heap_blks_hit) + sum(heap_blks_read),0) * 100 AS ratio
+                SELECT relname                                                                        as table_name,
+                       sum(heap_blks_hit) / nullif(sum(heap_blks_hit) + sum(heap_blks_read), 0) * 100 AS ratio
                 FROM pg_statio_user_tables
                 GROUP BY relname
                 ORDER BY ratio ASC
-            """
+                """
             )
             tables = cursor.fetchall()
             with pushed_metrics_registry("celery_pg_table_cache_hit_rate") as registry:
@@ -156,19 +154,17 @@ def pg_plugin_server_query_timing() -> None:
         try:
             cursor.execute(
                 """
-                SELECT
-                    substring(query from 'plugin-server:(\\w+)') AS query_type,
-                    total_time as total_time,
-                    (total_time / calls) as avg_time,
-                    min_time,
-                    max_time,
-                    stddev_time,
-                    calls,
-                    rows as rows_read_or_affected
+                SELECT substring(query from 'plugin-server:(\\w+)') AS query_type,
+                       total_time                                   as total_time,
+                       (total_time / calls)                         as avg_time,
+                       min_time,
+                       max_time,
+                       stddev_time,
+                       calls, rows as rows_read_or_affected
                 FROM pg_stat_statements
                 WHERE query LIKE '%%plugin-server%%'
                 ORDER BY total_time DESC
-                LIMIT 50
+                    LIMIT 50
                 """
             )
 
@@ -232,13 +228,16 @@ def ingestion_lag() -> None:
     from posthog.models.team.team import Team
 
     query = """
-    SELECT event, date_diff('second', max(timestamp), now())
-    FROM events
-    WHERE team_id IN %(team_ids)s
-        AND event IN %(events)s
-        AND timestamp > now() - interval 72 hours AND timestamp < now() + toIntervalMinute(3)
-    GROUP BY event
-    """
+            SELECT event, date_diff('second', max(timestamp), now())
+            FROM events
+            WHERE team_id IN %(team_ids)s
+              AND event IN %(events)s
+              AND timestamp
+                > now() - interval 72 hours
+              AND timestamp
+                < now() + toIntervalMinute(3)
+            GROUP BY event \
+            """
 
     team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
 
@@ -285,21 +284,19 @@ def replay_count_metrics() -> None:
 
         # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
         query = """
-        select
-            --team_id,
-            count() as all_recordings,
-            countIf(snapshot_source == 'mobile') as mobile_recordings,
-            countIf(snapshot_source == 'web') as web_recordings,
-            countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
-        from (
-            select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
-            from session_replay_events
-            where min_first_timestamp >= now() - interval 65 minute
-            and min_first_timestamp <= now() - interval 5 minute
-            group by session_id
-        )
-        --group by team_id
-        """
+                select
+                    --team_id,
+                    count()                                                as all_recordings,
+                    countIf(snapshot_source == 'mobile')                   as mobile_recordings,
+                    countIf(snapshot_source == 'web')                      as web_recordings,
+                    countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
+                from (select any (team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
+                      from session_replay_events
+                      where min_first_timestamp >= now() - interval 65 minute
+                        and min_first_timestamp <= now() - interval 5 minute
+                      group by session_id)
+                --group by team_id \
+                """
 
         results = sync_execute(
             query,
@@ -353,8 +350,9 @@ def clickhouse_row_count() -> None:
         )
         for table in CLICKHOUSE_TABLES:
             try:
-                QUERY = """SELECT sum(rows) rows from system.parts
-                       WHERE table = '{table}' and active;"""
+                QUERY = """SELECT sum(rows) rows
+                           from system.parts
+                           WHERE table = '{table}' and active;"""
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
@@ -379,16 +377,15 @@ def clickhouse_errors_count() -> None:
     from posthog.clickhouse.client import sync_execute
 
     QUERY = """
-        select
-            getMacro('replica') replica,
-            getMacro('shard') shard,
-            name,
-            value as errors,
-            dateDiff('minute', last_error_time, now()) minutes_ago
-        from clusterAllReplicas(%(cluster)s, system.errors)
-        where code in (999, 225, 242)
-        order by minutes_ago
-    """
+            select getMacro('replica')                        replica,
+                   getMacro('shard')                          shard,
+                   name,
+                   value as                                   errors,
+                   dateDiff('minute', last_error_time, now()) minutes_ago
+            from clusterAllReplicas(%(cluster)s, system.errors)
+            where code in (999, 225, 242)
+            order by minutes_ago \
+            """
     params = {
         "cluster": CLICKHOUSE_CLUSTER,
     }
@@ -412,12 +409,12 @@ def clickhouse_part_count() -> None:
     from posthog.clickhouse.client import sync_execute
 
     QUERY = """
-        SELECT table, count(1) freq
-        FROM system.parts
-        WHERE active
-        GROUP BY table
-        ORDER BY freq DESC;
-    """
+            SELECT table, count (1) freq
+            FROM system.parts
+            WHERE active
+            GROUP BY table
+            ORDER BY freq DESC; \
+            """
     rows = sync_execute(QUERY)
 
     with pushed_metrics_registry("celery_clickhouse_part_count") as registry:
@@ -443,14 +440,13 @@ def clickhouse_mutation_count() -> None:
     from posthog.clickhouse.client import sync_execute
 
     QUERY = """
-        SELECT
-            table,
-            count(1) AS freq
-        FROM system.mutations
-        WHERE is_done = 0
-        GROUP BY table
-        ORDER BY freq DESC
-    """
+            SELECT
+                table, count (1) AS freq
+            FROM system.mutations
+            WHERE is_done = 0
+            GROUP BY table
+            ORDER BY freq DESC \
+            """
     rows = sync_execute(QUERY)
 
     with pushed_metrics_registry("celery_clickhouse_mutation_count") as registry:
@@ -977,6 +973,8 @@ def sync_feature_flag_last_called() -> None:
 
     start_time = timezone.now()
 
+    tag_queries(product=Product.FEATURE_FLAGS, name="sync_feature_flag_last_called")
+
     try:
         redis_client = get_client()
 
@@ -1011,19 +1009,19 @@ def sync_feature_flag_last_called() -> None:
         # Limit for insurance against large datasets and memory issues during a surge
         result = sync_execute(
             """
-            SELECT
-                team_id,
-                JSONExtractString(properties, '$feature_flag') as flag_key,
-                max(timestamp) as last_called_at,
-                count() as call_count
-            FROM events
-            PREWHERE event = '$feature_flag_called'
-            WHERE timestamp > %(last_sync_timestamp)s
+            SELECT team_id,
+                   JSONExtractString(properties, '$feature_flag') as flag_key,
+                   max(timestamp)                                 as last_called_at,
+                   count()                                        as call_count
+            FROM events PREWHERE event = '$feature_flag_called'
+            WHERE timestamp
+                > %(last_sync_timestamp)s
               AND timestamp <= %(current_sync_timestamp)s
-              AND JSONExtractString(properties, '$feature_flag') != ''
+              AND JSONExtractString(properties
+                , '$feature_flag') != ''
             GROUP BY team_id, flag_key
             ORDER BY last_called_at DESC
-            LIMIT %(limit)s
+                LIMIT %(limit)s
             """,
             {
                 "last_sync_timestamp": last_sync_timestamp,

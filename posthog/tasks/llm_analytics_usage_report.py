@@ -13,6 +13,7 @@ from posthog.schema import AIEventType
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models.team.team import Team
@@ -308,6 +309,8 @@ def get_ai_event_counts_by_type(
           AND timestamp < %(end)s
         GROUP BY team_id, event
     """
+
+    tag_queries(product=Product.LLM_ANALYTICS, name="get_ai_event_counts_by_type")
 
     results = _execute_split_query(
         begin,
