@@ -273,12 +273,15 @@ def query_with_columns(
     *,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
+    settings: Optional[dict[str, Any]] = None,
 ) -> list[dict]:
     if columns_to_remove is None:
         columns_to_remove = []
     if columns_to_rename is None:
         columns_to_rename = {}
-    metrics, types = sync_execute(query, args, with_column_types=True, workload=workload, team_id=team_id)
+    metrics, types = sync_execute(
+        query, args, settings=settings, with_column_types=True, workload=workload, team_id=team_id
+    )
     type_names = [key for key, _type in types]
 
     rows = []

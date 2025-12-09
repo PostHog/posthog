@@ -172,6 +172,10 @@ impl KafkaSink {
                 "message.timeout.ms",
                 config.kafka_message_timeout_ms.to_string(),
             )
+            .set(
+                "socket.timeout.ms",
+                config.kafka_socket_timeout_ms.to_string(),
+            )
             .set("compression.codec", config.kafka_compression_codec)
             .set(
                 "queue.buffering.max.kbytes",
@@ -463,6 +467,7 @@ mod tests {
             kafka_metadata_max_age_ms: 60000,
             kafka_producer_max_retries: 2,
             kafka_producer_acks: "all".to_string(),
+            kafka_socket_timeout_ms: 60000,
         };
         let sink = KafkaSink::new(config, handle, limiter, None)
             .await

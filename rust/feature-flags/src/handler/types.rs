@@ -43,6 +43,7 @@ pub struct RequestPropertyOverrides {
 pub struct FeatureFlagEvaluationContext {
     pub team_id: i32,
     pub distinct_id: String,
+    pub device_id: Option<String>,
     pub feature_flags: FeatureFlagList,
     pub persons_reader: Arc<dyn common_database::Client + Send + Sync>,
     pub persons_writer: Arc<dyn common_database::Client + Send + Sync>,

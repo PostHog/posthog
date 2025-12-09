@@ -111,6 +111,10 @@ type SceneMainTitleProps = {
      */
     saveOnBlur?: boolean
     /**
+     * If true, removes the border from the title section
+     * */
+    noBorder?: boolean
+    /**
      * If true, the actions from PageHeader will be shown
      * @default false
      */
@@ -134,6 +138,7 @@ export function SceneTitleSection({
     forceEdit = false,
     renameDebounceMs,
     saveOnBlur = false,
+    noBorder = false,
     actions,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -177,8 +182,9 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    'bg-[var(--scene-layout-background)] @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 border-b border-transparent transition-border duration-300',
-                    isScrolled && '@2xl/main-content:border-border [body.storybook-test-runner_&]:border-transparent'
+                    'bg-[var(--scene-layout-background)] @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    noBorder ? '' : 'border-b border-transparent transition-border',
+                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent'
                 )}
             >
                 <div
@@ -224,7 +230,7 @@ export function SceneTitleSection({
                         </div>
                     )}
                 </div>
-                {effectiveDescription == null && <SceneDivider />}
+                {effectiveDescription == null && !noBorder && <SceneDivider />}
             </div>
             {effectiveDescription != null && (effectiveDescription || canEdit) && (
                 <div className="[&_svg]:size-6">
@@ -238,7 +244,7 @@ export function SceneTitleSection({
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
                     />
-                    <SceneDivider />
+                    {!noBorder && <SceneDivider />}
                 </div>
             )}
         </>

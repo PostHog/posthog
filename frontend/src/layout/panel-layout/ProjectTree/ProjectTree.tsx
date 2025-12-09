@@ -118,8 +118,7 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
 
-    const { setPanelTreeRef, resetPanelLayout, showLayoutPanel, setActivePanelIdentifier } =
-        useActions(panelLayoutLogic)
+    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -202,28 +201,13 @@ export function ProjectTree({
                                     Dismiss.
                                 </span>
                             )}
+                            <br />
+                            <br />
                             {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
-                                <>
-                                    <br />
-                                    <br />
-                                    <span className="cursor-pointer underline" onClick={seed}>
-                                        {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
-                                    </span>
-                                </>
+                                <span className="cursor-pointer underline" onClick={seed}>
+                                    {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
+                                </span>
                             )}
-                            <br />
-                            <br />
-                            You can also see all products in the{' '}
-                            <span
-                                className="cursor-pointer underline"
-                                onClick={() => {
-                                    showLayoutPanel(true)
-                                    setActivePanelIdentifier('Products')
-                                }}
-                            >
-                                All apps
-                            </span>{' '}
-                            section.
                         </div>
                     ),
                 })
@@ -549,11 +533,31 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
-                if (root === 'products://' || root === 'data://' || root === 'persons://') {
+                if (
+                    root === 'products://' ||
+                    root === 'data://' ||
+                    root === 'persons://' ||
+                    root === 'custom-products://'
+                ) {
                     const key = item.record?.sceneKey
+                    const reason = item.record?.reason as UserProductListReason | undefined
+                    const reasonText = item.record?.reason_text as string | null | undefined
+
+                    const suggestedProductBaseTooltipText =
+                        reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
+                    const tooltipText = suggestedProductBaseTooltipText ? (
+                        <>
+                            {suggestedProductBaseTooltipText}
+                            <br />
+                            You can remove this product from your sidebar on the pencil button above.
+                            <br />
+                            <br />
+                        </>
+                    ) : undefined
 
                     return (
                         <>
+                            {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
                             {item.tags?.length && (
@@ -633,7 +637,6 @@ export function ProjectTree({
                 const createdAt = item.record?.created_at
                 const reason = item.record?.reason as UserProductListReason | undefined
                 const reasonText = item.record?.reason_text as string | null | undefined
-                const parsedReason = reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
 
                 // This indicator is shown if we detect we're looking at a custom product
                 // that's been recently added to the user's sidebar.
@@ -643,10 +646,10 @@ export function ProjectTree({
                     root === 'custom-products://' &&
                     createdAt &&
                     dayjs().diff(dayjs(createdAt), 'days') < 7 &&
-                    parsedReason
+                    (reasonText || (reason && USER_PRODUCT_LIST_REASON_DEFAULTS[reason]))
 
                 return (
-                    <Tooltip title={parsedReason} delayMs={0} placement="top-start">
+                    <>
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
                             <ProfilePicture
                                 user={item.record?.user as UserBasicType | undefined}
@@ -660,7 +663,7 @@ export function ProjectTree({
                                 <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
                             )}
                         </div>
-                    </Tooltip>
+                    </>
                 )
             }}
             renderItem={(item) => {

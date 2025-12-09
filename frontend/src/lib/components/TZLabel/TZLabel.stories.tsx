@@ -26,6 +26,19 @@ export function MoreThanADayAgo(): JSX.Element {
     return <TZLabel time={now().subtract(2, 'day')} />
 }
 
+export function AbsoluteTimestamp(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <div>
+                <strong>Relative (default):</strong> <TZLabel time={now()} />
+            </div>
+            <div>
+                <strong>Absolute:</strong> <TZLabel time={now()} timestampStyle="absolute" />
+            </div>
+        </div>
+    )
+}
+
 export function MoreThanADayAgoWithPopover(): JSX.Element {
     return <TZLabel time={now().subtract(2, 'day')} showPopover={false} />
 }

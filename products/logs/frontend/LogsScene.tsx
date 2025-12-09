@@ -325,7 +325,7 @@ function LogsTable({
                         dataIndex: 'timestamp',
                         width: 180,
                         render: (_, { timestamp }) => (
-                            <TZLabel time={timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
+                            <TZLabel time={timestamp} {...tzLabelFormat} timestampStyle="absolute" />
                         ),
                     },
                     {

@@ -12,6 +12,7 @@ from temporalio.worker import Worker
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.delete_recordings.activities import group_recording_blocks
 from posthog.temporal.delete_recordings.types import (
+    DeleteRecordingMetadataInput,
     Recording,
     RecordingBlockGroup,
     RecordingsWithPersonInput,
@@ -19,6 +20,7 @@ from posthog.temporal.delete_recordings.types import (
     RecordingsWithTeamInput,
 )
 from posthog.temporal.delete_recordings.workflows import (
+    DeleteRecordingMetadataWorkflow,
     DeleteRecordingsWithPersonWorkflow,
     DeleteRecordingsWithQueryWorkflow,
     DeleteRecordingsWithTeamWorkflow,
@@ -74,13 +76,29 @@ async def test_delete_recording_workflow():
         assert input.path in EXPECTED_PATHS
         TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
 
+    @activity.defn(name="schedule-recording-metadata-deletion")
+    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
+        assert input.session_id == TEST_SESSION_ID
+        assert input.team_id == TEST_TEAM_ID
+
+    @activity.defn(name="delete-recording-lts-data")
+    async def delete_recording_lts_data_mocked(input: Recording) -> None:
+        assert input.session_id == TEST_SESSION_ID
+        assert input.team_id == TEST_TEAM_ID
+
     task_queue_name = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue_name,
             workflows=[DeleteRecordingWorkflow],
-            activities=[load_recording_blocks_mocked, delete_recording_blocks_mocked, group_recording_blocks],
+            activities=[
+                load_recording_blocks_mocked,
+                delete_recording_blocks_mocked,
+                group_recording_blocks,
+                schedule_recording_metadata_deletion_mocked,
+                delete_recording_lts_data_mocked,
+            ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(
@@ -187,6 +205,16 @@ async def test_delete_recording_with_person_workflow():
         assert input.path in EXPECTED_PATHS
         TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
 
+    @activity.defn(name="schedule-recording-metadata-deletion")
+    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
+        assert input.session_id in TEST_SESSIONS
+        assert input.team_id == TEST_TEAM_ID
+
+    @activity.defn(name="delete-recording-lts-data")
+    async def delete_recording_lts_data_mocked(input: Recording) -> None:
+        assert input.session_id in TEST_SESSIONS
+        assert input.team_id == TEST_TEAM_ID
+
     task_queue_name = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -198,6 +226,8 @@ async def test_delete_recording_with_person_workflow():
                 delete_recording_blocks_mocked,
                 load_recordings_with_person_mocked,
                 group_recording_blocks,
+                schedule_recording_metadata_deletion_mocked,
+                delete_recording_lts_data_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -299,6 +329,16 @@ async def test_delete_recordings_with_team_workflow():
         assert input.path in EXPECTED_PATHS
         TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
 
+    @activity.defn(name="schedule-recording-metadata-deletion")
+    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
+        assert input.session_id in TEST_SESSIONS
+        assert input.team_id == TEST_TEAM_ID
+
+    @activity.defn(name="delete-recording-lts-data")
+    async def delete_recording_lts_data_mocked(input: Recording) -> None:
+        assert input.session_id in TEST_SESSIONS
+        assert input.team_id == TEST_TEAM_ID
+
     task_queue_name = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -310,6 +350,8 @@ async def test_delete_recordings_with_team_workflow():
                 delete_recording_blocks_mocked,
                 load_recordings_with_team_id_mocked,
                 group_recording_blocks,
+                schedule_recording_metadata_deletion_mocked,
+                delete_recording_lts_data_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -414,6 +456,16 @@ async def test_delete_recordings_with_query_workflow():
         assert input.path in EXPECTED_PATHS
         TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
 
+    @activity.defn(name="schedule-recording-metadata-deletion")
+    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
+        assert input.session_id in TEST_SESSIONS
+        assert input.team_id == TEST_TEAM_ID
+
+    @activity.defn(name="delete-recording-lts-data")
+    async def delete_recording_lts_data_mocked(input: Recording) -> None:
+        assert input.session_id in TEST_SESSIONS
+        assert input.team_id == TEST_TEAM_ID
+
     task_queue_name = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -425,6 +477,8 @@ async def test_delete_recordings_with_query_workflow():
                 delete_recording_blocks_mocked,
                 load_recordings_with_query_mocked,
                 group_recording_blocks,
+                schedule_recording_metadata_deletion_mocked,
+                delete_recording_lts_data_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -484,6 +538,14 @@ async def test_delete_recordings_with_query_workflow_dry_run():
     async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
         raise AssertionError("Should not be called in dry run mode")
 
+    @activity.defn(name="schedule-recording-metadata-deletion")
+    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
+        raise AssertionError("Should not be called in dry run mode")
+
+    @activity.defn(name="delete-recording-lts-data")
+    async def delete_recording_lts_data_mocked(input: Recording) -> None:
+        raise AssertionError("Should not be called in dry run mode")
+
     task_queue_name = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -495,6 +557,8 @@ async def test_delete_recordings_with_query_workflow_dry_run():
                 delete_recording_blocks_mocked,
                 load_recordings_with_query_mocked,
                 group_recording_blocks,
+                schedule_recording_metadata_deletion_mocked,
+                delete_recording_lts_data_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -521,3 +585,207 @@ async def test_delete_recordings_with_query_workflow_dry_run():
         TEST_SESSIONS["8e5f6g7h-9i0j-1k2l-3m4n-5o6p7q8r9s0t"][0].url
         == "s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=81788204-81793010"
     )
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_metadata_workflow():
+    activity_called = False
+
+    @activity.defn(name="perform-recording-metadata-deletion")
+    async def perform_recording_metadata_deletion_mocked(input: DeleteRecordingMetadataInput) -> None:
+        nonlocal activity_called
+        activity_called = True
+        assert input.dry_run is False
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingMetadataWorkflow],
+            activities=[perform_recording_metadata_deletion_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DeleteRecordingMetadataWorkflow.run,
+                DeleteRecordingMetadataInput(dry_run=False),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+            )
+
+    assert activity_called is True
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_metadata_workflow_dry_run():
+    activity_called = False
+
+    @activity.defn(name="perform-recording-metadata-deletion")
+    async def perform_recording_metadata_deletion_mocked(input: DeleteRecordingMetadataInput) -> None:
+        nonlocal activity_called
+        activity_called = True
+        assert input.dry_run is True
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingMetadataWorkflow],
+            activities=[perform_recording_metadata_deletion_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DeleteRecordingMetadataWorkflow.run,
+                DeleteRecordingMetadataInput(dry_run=True),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+            )
+
+    assert activity_called is True
+
+
+def test_delete_recording_metadata_workflow_parse_inputs():
+    result = DeleteRecordingMetadataWorkflow.parse_inputs(['{"dry_run": true}'])
+    assert result.dry_run is True
+
+    result = DeleteRecordingMetadataWorkflow.parse_inputs(['{"dry_run": false}'])
+    assert result.dry_run is False
+
+    result = DeleteRecordingMetadataWorkflow.parse_inputs(["{}"])
+    assert result.dry_run is False
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_workflow_no_blocks():
+    """Test that workflow handles recordings with no blocks gracefully."""
+    TEST_SESSION_ID: str = "empty-session-id"
+    TEST_TEAM_ID: int = 55555
+    lts_deleted = False
+    metadata_scheduled = False
+
+    @activity.defn(name="load-recording-blocks")
+    async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
+        assert input.session_id == TEST_SESSION_ID
+        assert input.team_id == TEST_TEAM_ID
+        return []  # No blocks
+
+    @activity.defn(name="delete-recording-blocks")
+    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
+        raise AssertionError("Should not be called when there are no blocks")
+
+    @activity.defn(name="schedule-recording-metadata-deletion")
+    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
+        nonlocal metadata_scheduled
+        metadata_scheduled = True
+        assert input.session_id == TEST_SESSION_ID
+        assert input.team_id == TEST_TEAM_ID
+
+    @activity.defn(name="delete-recording-lts-data")
+    async def delete_recording_lts_data_mocked(input: Recording) -> None:
+        nonlocal lts_deleted
+        lts_deleted = True
+        assert input.session_id == TEST_SESSION_ID
+        assert input.team_id == TEST_TEAM_ID
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingWorkflow],
+            activities=[
+                load_recording_blocks_mocked,
+                delete_recording_blocks_mocked,
+                group_recording_blocks,
+                schedule_recording_metadata_deletion_mocked,
+                delete_recording_lts_data_mocked,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DeleteRecordingWorkflow.run,
+                Recording(session_id=TEST_SESSION_ID, team_id=TEST_TEAM_ID),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+            )
+
+    # Even with no blocks, LTS and metadata cleanup should still happen
+    assert lts_deleted is True
+    assert metadata_scheduled is True
+
+
+@pytest.mark.asyncio
+async def test_delete_recordings_with_team_workflow_dry_run():
+    """Test that dry run mode loads sessions but doesn't delete anything."""
+    TEST_TEAM_ID: int = 44444
+    TEST_SESSIONS = {
+        "dry-run-session-1": [
+            RecordingBlock(
+                start_time=datetime.now(),
+                end_time=datetime.now() + timedelta(hours=1),
+                url="s3://test_bucket/session_recordings/1y/test-file?range=bytes=0-1000",
+            ),
+        ],
+        "dry-run-session-2": [
+            RecordingBlock(
+                start_time=datetime.now(),
+                end_time=datetime.now() + timedelta(hours=2),
+                url="s3://test_bucket/session_recordings/90d/test-file2?range=bytes=0-2000",
+            ),
+        ],
+    }
+
+    @activity.defn(name="load-recordings-with-team-id")
+    async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> list[str]:
+        assert input.team_id == TEST_TEAM_ID
+        assert input.dry_run is True
+        return list(TEST_SESSIONS.keys())
+
+    @activity.defn(name="load-recording-blocks")
+    async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
+        raise AssertionError("Should not be called in dry run mode")
+
+    @activity.defn(name="delete-recording-blocks")
+    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
+        raise AssertionError("Should not be called in dry run mode")
+
+    @activity.defn(name="schedule-recording-metadata-deletion")
+    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
+        raise AssertionError("Should not be called in dry run mode")
+
+    @activity.defn(name="delete-recording-lts-data")
+    async def delete_recording_lts_data_mocked(input: Recording) -> None:
+        raise AssertionError("Should not be called in dry run mode")
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithTeamWorkflow, DeleteRecordingWorkflow],
+            activities=[
+                load_recording_blocks_mocked,
+                delete_recording_blocks_mocked,
+                load_recordings_with_team_id_mocked,
+                group_recording_blocks,
+                schedule_recording_metadata_deletion_mocked,
+                delete_recording_lts_data_mocked,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            parent_id = str(uuid.uuid4())
+
+            await env.client.execute_workflow(
+                DeleteRecordingsWithTeamWorkflow.run,
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID, dry_run=True),
+                id=parent_id,
+                task_queue=task_queue_name,
+            )
+
+            # Wait a short while to ensure no child workflows were started
+            await asyncio.sleep(1)
+
+    # Check that no recording blocks were deleted in dry run mode
+    assert len(TEST_SESSIONS["dry-run-session-1"]) == 1
+    assert len(TEST_SESSIONS["dry-run-session-2"]) == 1

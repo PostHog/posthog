@@ -217,6 +217,7 @@ async def get_llm_single_session_summary_activity(
         session_start_time_str=llm_input.session_start_time_str,
         session_duration=llm_input.session_duration,
         trace_id=temporalio.activity.info().workflow_id,
+        user_distinct_id=llm_input.user_distinct_id_to_log,
     )
     # Store the final summary in the DB
     await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
@@ -295,6 +296,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         session_start_time_str=llm_input.session_start_time_str,
         session_duration=llm_input.session_duration,
         trace_id=temporalio.activity.info().workflow_id,
+        user_distinct_id=llm_input.user_distinct_id_to_log,
     )
     async for current_summary_state_str in session_summary_generator:
         if current_summary_state_str == last_summary_state_str:
