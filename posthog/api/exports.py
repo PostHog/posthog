@@ -94,9 +94,13 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         export_context = data.get("export_context", {})
         has_query = export_context and export_context.get("query") is not None
+        has_path = export_context and export_context.get("path") is not None
+        has_source = export_context and export_context.get("source") is not None
+        has_session_recording_id = export_context and export_context.get("session_recording_id") is not None
+        has_export_context = has_query or has_path or has_source or has_session_recording_id
 
-        if not data.get("dashboard") and not data.get("insight") and not has_query:
-            raise ValidationError("Either dashboard, insight or export_context with query is required for an export.")
+        if not data.get("dashboard") and not data.get("insight") and not has_export_context:
+            raise ValidationError("Either dashboard, insight or export_context is required for an export.")
 
         if data.get("dashboard") and data["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})

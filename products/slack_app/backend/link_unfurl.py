@@ -166,6 +166,8 @@ def export_and_unfurl_insight(
                         unfurls=unfurls,
                         unfurl_id=unfurl_id,
                         source=source,
+                        channel="",
+                        ts="",
                     )
 
                 logger.info(
@@ -181,6 +183,8 @@ def export_and_unfurl_insight(
                         unfurls=unfurls,
                         unfurl_id=unfurl_id,
                         source=source,
+                        channel="",
+                        ts="",
                     )
                     logger.info(
                         "slack_unfurl_message_sent",
@@ -318,6 +322,8 @@ def export_and_unfurl_dashboard(
                         unfurls=unfurls,
                         unfurl_id=unfurl_id,
                         source=source,
+                        channel="",
+                        ts="",
                     )
 
                 logger.info(
@@ -333,6 +339,8 @@ def export_and_unfurl_dashboard(
                         unfurls=unfurls,
                         unfurl_id=unfurl_id,
                         source=source,
+                        channel="",
+                        ts="",
                     )
                     logger.info(
                         "slack_unfurl_message_sent",
