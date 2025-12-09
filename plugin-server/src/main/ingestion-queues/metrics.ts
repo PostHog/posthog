@@ -55,9 +55,9 @@ export const workflowE2eLagMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-export const legacyPluginE2eLagMsSummary = new Summary({
-    name: 'legacy_plugin_e2e_lag_ms',
-    help: 'Time difference in ms between event capture time and legacy plugin finishing time',
+export const destinationE2eLagMsSummary = new Summary({
+    name: 'destination_e2e_lag_ms',
+    help: 'Time difference in ms between event capture time and destination finishing time',
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 

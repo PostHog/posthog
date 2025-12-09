@@ -6,6 +6,7 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
+import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -314,6 +315,12 @@ export class HogExecutorService {
             if (result.finished || result.invocation.queueScheduledAt) {
                 break
             }
+        }
+
+        const capturedAt = invocation.state.globals.event?.captured_at
+        if (capturedAt) {
+            const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
+            destinationE2eLagMsSummary.observe(e2eLagMs)
         }
 
         result.logs = logs
