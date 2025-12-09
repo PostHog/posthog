@@ -62,10 +62,14 @@ async fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
-    let _profiling_agent = config
-        .continuous_profiling
-        .start_agent()
-        .expect("Failed to start continuous profiling agent");
+    // Fails gracefully - logs error but doesn't prevent service from starting
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            eprintln!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
 
     // Instantiate tracing outputs:
     //   - stdout with a level configured by the RUST_LOG envvar (default=ERROR)

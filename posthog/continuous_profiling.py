@@ -1,7 +1,5 @@
 import logging
 
-import pyroscope
-
 from posthog.settings.continuous_profiling import (
     CONTINUOUS_PROFILING_ENABLED,
     PYROSCOPE_APPLICATION_NAME,
@@ -17,6 +15,7 @@ def start_continuous_profiling() -> None:
     Start Pyroscope continuous profiling if enabled.
 
     Call this early in your application startup to capture the full application profile.
+    This function fails gracefully - it will log warnings/errors but never raise exceptions.
 
     Environment variables:
         CONTINUOUS_PROFILING_ENABLED: Set to "true" to enable profiling
@@ -32,16 +31,23 @@ def start_continuous_profiling() -> None:
         logger.warning("Continuous profiling is enabled but PYROSCOPE_SERVER_ADDRESS is empty, skipping")
         return
 
-    pyroscope.configure(
-        application_name=PYROSCOPE_APPLICATION_NAME,
-        server_address=PYROSCOPE_SERVER_ADDRESS,
-        sample_rate=PYROSCOPE_SAMPLE_RATE,
-    )
-    logger.info(
-        "Continuous profiling started",
-        extra={
-            "server_address": PYROSCOPE_SERVER_ADDRESS,
-            "application_name": PYROSCOPE_APPLICATION_NAME,
-            "sample_rate": PYROSCOPE_SAMPLE_RATE,
-        },
-    )
+    try:
+        import pyroscope
+
+        pyroscope.configure(
+            application_name=PYROSCOPE_APPLICATION_NAME,
+            server_address=PYROSCOPE_SERVER_ADDRESS,
+            sample_rate=PYROSCOPE_SAMPLE_RATE,
+        )
+        logger.info(
+            "Continuous profiling started",
+            extra={
+                "server_address": PYROSCOPE_SERVER_ADDRESS,
+                "application_name": PYROSCOPE_APPLICATION_NAME,
+                "sample_rate": PYROSCOPE_SAMPLE_RATE,
+            },
+        )
+    except ImportError:
+        logger.warning("pyroscope-io package not installed, continuous profiling unavailable")
+    except Exception:
+        logger.exception("Failed to start continuous profiling")
