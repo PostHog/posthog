@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import date, datetime
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -23,6 +23,7 @@ from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import HogQLDialect
 from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
     extract_select_queries,
@@ -70,7 +71,7 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types_from_table(
-    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
 ) -> ast.Expr:
     if context.database is None:
         raise QueryError("Database needs to be defined")
@@ -91,7 +92,7 @@ def resolve_types_from_table(
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: HogQLDialect,
     scopes: Optional[list[ast.SelectQueryType]] = None,
 ) -> _T_AST:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
@@ -113,7 +114,7 @@ class Resolver(CloningVisitor):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
         scopes: Optional[list[ast.SelectQueryType]] = None,
     ):
         super().__init__()

@@ -1,6 +1,6 @@
 import json
 from collections.abc import Mapping
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional, cast
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, clean_varying_query_parts, materialized
@@ -27,7 +27,13 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
+from posthog.hogql.printer import (
+    HogQLDialect,
+    prepare_and_print_ast,
+    prepare_ast_for_printing,
+    print_prepared_ast,
+    to_printed_hogql,
+)
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -48,7 +54,7 @@ class TestPrinter(BaseTest):
         self,
         query: str,
         context: Optional[HogQLContext] = None,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
     ) -> str:
         node = parse_expr(query)
@@ -84,7 +90,7 @@ class TestPrinter(BaseTest):
         self,
         expr,
         expected_error,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
     ):
         with self.assertRaises(ExposedHogQLError) as context:
             self._expr(expr, None, dialect)
@@ -114,7 +120,7 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         placeholders: Optional[dict[str, ast.Expr]] = None,
         settings: Optional[HogQLGlobalSettings] = None,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
     ) -> str:
         parsed = parse_select(query, placeholders=placeholders)
         printed, _ = prepare_and_print_ast(

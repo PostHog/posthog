@@ -79,6 +79,9 @@ def get_channel_definition_dict():
     return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
+HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
+
+
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
     if not context.team_id:
@@ -109,7 +112,7 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers
 def prepare_and_print_ast(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: HogQLDialect,
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
@@ -130,7 +133,7 @@ def prepare_and_print_ast(
 def prepare_ast_for_printing(
     node: _T_AST,  # node is mutated
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: HogQLDialect,
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
 ) -> _T_AST | None:
@@ -208,7 +211,7 @@ def prepare_ast_for_printing(
 def print_prepared_ast(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: HogQLDialect,
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
@@ -216,6 +219,14 @@ def print_prepared_ast(
     with context.timings.measure("printer"):
         if dialect == "clickhouse":
             return ClickHousePrinter(
+                context=context,
+                dialect=dialect,
+                stack=stack or [],
+                settings=settings,
+                pretty=pretty,
+            ).visit(node)
+        elif dialect == "postgres":
+            return PostgresPrinter(
                 context=context,
                 dialect=dialect,
                 stack=stack or [],
@@ -291,7 +302,7 @@ class _Printer(Visitor[str]):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["hogql", "clickhouse"],
+        dialect: HogQLDialect,
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
@@ -1742,11 +1753,23 @@ class _Printer(Visitor[str]):
         )
 
 
+class PostgresPrinter(_Printer):
+    def __init__(
+        self,
+        context: HogQLContext,
+        dialect: Literal["postgres"],
+        stack: list[AST] | None = None,
+        settings: HogQLGlobalSettings | None = None,
+        pretty: bool = False,
+    ):
+        super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+
+
 class ClickHousePrinter(_Printer):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["hogql", "clickhouse"],
+        dialect: Literal["clickhouse"],
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,

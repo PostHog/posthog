@@ -1,11 +1,12 @@
 import re
 import math
 from datetime import date, datetime
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.printer import HogQLDialect
 
 from posthog.models.utils import UUIDT
 
@@ -78,7 +79,7 @@ class SQLValueEscaper:
     def __init__(
         self,
         timezone: Optional[str] = None,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
     ):
         self._timezone = timezone or "UTC"
         self._dialect = dialect
