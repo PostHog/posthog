@@ -3,6 +3,7 @@ import datetime as dt
 from typing import cast
 
 import pytest
+import unittest.mock
 
 from django.test import override_settings
 
@@ -438,13 +439,13 @@ def test_run_partition_verification_without_temporal_type():
         table_name="model_partition_string",
         verification_queries=[],
         partition_column="event_id",
-        partition_column_type="String",
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-partition", model=metadata)
     fake_conn = FakeConn()
     conn = cast(duckdb.DuckDBPyConnection, fake_conn)
 
-    result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
+    with unittest.mock.patch.object(ducklake_module, "_fetch_delta_schema", return_value=[("event_id", "String")]):
+        result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
 
     assert result is not None and result.passed is True
     assert fake_conn.statements and "date_trunc" not in fake_conn.statements[0]
@@ -473,13 +474,13 @@ def test_run_partition_verification_with_temporal_type():
         table_name="model_partition_time",
         verification_queries=[],
         partition_column="timestamp",
-        partition_column_type="DateTime64",
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-partition", model=metadata)
     fake_conn = FakeConn()
     conn = cast(duckdb.DuckDBPyConnection, fake_conn)
 
-    result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
+    with unittest.mock.patch.object(ducklake_module, "_fetch_delta_schema", return_value=[("timestamp", "DateTime64")]):
+        result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
 
     assert result is not None and result.passed is True
     assert fake_conn.statements and "date_trunc" in fake_conn.statements[0]
