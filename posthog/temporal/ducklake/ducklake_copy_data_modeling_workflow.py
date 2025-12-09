@@ -136,9 +136,9 @@ async def prepare_data_modeling_ducklake_metadata_activity(
 
     for model in inputs.models:
         # Django: only for semantic naming (not stored in Delta)
-        saved_query = await database_sync_to_async(
-            DataWarehouseSavedQuery.objects.only("id", "name", "normalized_name").get
-        )(id=model.saved_query_id)
+        saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.only("id", "name").get)(
+            id=model.saved_query_id
+        )
 
         normalized_name = saved_query.normalized_name or saved_query.name
 
