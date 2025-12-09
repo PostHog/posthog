@@ -525,9 +525,9 @@ OAUTH2_PROVIDER = {
         "*": "Full access to all scopes",
         **get_scope_descriptions(),
     },
-    # Allow both http and https schemes to support localhost callbacks
+    # Allow http, https, and custom schemes to support localhost callbacks and native mobile apps
     # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses (localhost, 127.0.0.0/8) in production
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"],
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "posthog-mobile", "exp"],
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
     # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],
