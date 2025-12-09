@@ -69,7 +69,7 @@ class BatchExportEventPropertyFilter:
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
-    filters: list[dict[str, str | list[str]]] | None = None
+    filters: list[dict[str, str | list[str] | None]] | None = None
 
 
 @dataclass

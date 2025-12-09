@@ -54,6 +54,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'person', objectPlural: 'persons' },
     { key: 'plugin', objectPlural: 'plugins' },
+    { key: 'product_tour', objectPlural: 'product tours' },
     {
         key: 'project',
         objectPlural: 'projects',

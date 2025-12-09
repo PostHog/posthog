@@ -40,8 +40,6 @@ describe('logsViewerLogic', () => {
     })
 
     describe('cursor navigation', () => {
-        const logsLength = mockLogs.length
-
         beforeEach(() => {
             logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
             logic.mount()
@@ -69,9 +67,9 @@ describe('logsViewerLogic', () => {
         describe('moveCursorDown', () => {
             it('highlights first log when none is highlighted', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.moveCursorDown(logsLength)
+                    logic.actions.moveCursorDown()
                 })
-                    .toDispatchActions(['moveCursorDown', 'setCursorIndex'])
+                    .toDispatchActions(['moveCursorDown', 'setCursor'])
                     .toMatchValues({
                         cursorIndex: 0,
                     })
@@ -82,9 +80,9 @@ describe('logsViewerLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.moveCursorDown(logsLength)
+                    logic.actions.moveCursorDown()
                 })
-                    .toDispatchActions(['moveCursorDown', 'setCursorIndex'])
+                    .toDispatchActions(['moveCursorDown', 'setCursor'])
                     .toMatchValues({
                         cursorIndex: 1,
                     })
@@ -95,19 +93,19 @@ describe('logsViewerLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.moveCursorDown(logsLength)
+                    logic.actions.moveCursorDown()
                 })
                     .toDispatchActions(['moveCursorDown'])
-                    .toNotHaveDispatchedActions(['setCursorIndex'])
+                    .toNotHaveDispatchedActions(['setCursor'])
             })
         })
 
         describe('moveCursorUp', () => {
             it('highlights last log when none is highlighted', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.moveCursorUp(logsLength)
+                    logic.actions.moveCursorUp()
                 })
-                    .toDispatchActions(['moveCursorUp', 'setCursorIndex'])
+                    .toDispatchActions(['moveCursorUp', 'setCursor'])
                     .toMatchValues({
                         cursorIndex: 2,
                     })
@@ -118,9 +116,9 @@ describe('logsViewerLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.moveCursorUp(logsLength)
+                    logic.actions.moveCursorUp()
                 })
-                    .toDispatchActions(['moveCursorUp', 'setCursorIndex'])
+                    .toDispatchActions(['moveCursorUp', 'setCursor'])
                     .toMatchValues({
                         cursorIndex: 0,
                     })
@@ -131,34 +129,34 @@ describe('logsViewerLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.moveCursorUp(logsLength)
+                    logic.actions.moveCursorUp()
                 })
                     .toDispatchActions(['moveCursorUp'])
-                    .toNotHaveDispatchedActions(['setCursorIndex'])
+                    .toNotHaveDispatchedActions(['setCursor'])
             })
         })
     })
 
     describe('empty logs', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: [], orderBy: 'latest' })
             logic.mount()
         })
 
         it('moveCursorDown does nothing when logs are empty', async () => {
             await expectLogic(logic, () => {
-                logic.actions.moveCursorDown(0)
+                logic.actions.moveCursorDown()
             })
                 .toDispatchActions(['moveCursorDown'])
-                .toNotHaveDispatchedActions(['setCursorIndex'])
+                .toNotHaveDispatchedActions(['setCursor'])
         })
 
         it('moveCursorUp does nothing when logs are empty', async () => {
             await expectLogic(logic, () => {
-                logic.actions.moveCursorUp(0)
+                logic.actions.moveCursorUp()
             })
                 .toDispatchActions(['moveCursorUp'])
-                .toNotHaveDispatchedActions(['setCursorIndex'])
+                .toNotHaveDispatchedActions(['setCursor'])
         })
     })
 
