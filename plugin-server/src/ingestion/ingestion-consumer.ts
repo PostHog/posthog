@@ -4,7 +4,6 @@ import { Counter } from 'prom-client'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { prefetchPersonsStep } from '~/worker/ingestion/event-pipeline/prefetchPersonsStep'
-import { EventPipelineResult } from '~/worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
@@ -31,6 +30,7 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
+import { createClientIngestionWarningSubpipeline, createEventSubpipeline, createHeatmapSubpipeline } from './analytics'
 import {
     createApplyCookielessProcessingStep,
     createApplyDropRestrictionsStep,
@@ -45,16 +45,6 @@ import {
     createValidateEventUuidStep,
     createValidateHistoricalMigrationStep,
 } from './event-preprocessing'
-import { createCreateEventStep } from './event-processing/create-event-step'
-import { createDisablePersonProcessingStep } from './event-processing/disable-person-processing-step'
-import { createEmitEventStep } from './event-processing/emit-event-step'
-import { createEventPipelineRunnerHeatmapStep } from './event-processing/event-pipeline-runner-heatmap-step'
-import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
-import { createExtractHeatmapDataStep } from './event-processing/extract-heatmap-data-step'
-import { createHandleClientIngestionWarningStep } from './event-processing/handle-client-ingestion-warning-step'
-import { createNormalizeEventStep } from './event-processing/normalize-event-step'
-import { createNormalizeProcessPersonFlagStep } from './event-processing/normalize-process-person-flag-step'
-import { createSkipEmitEventStep } from './event-processing/skip-emit-event-step'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
@@ -356,57 +346,24 @@ export class IngestionConsumer {
                                         (branches) => {
                                             branches
                                                 .branch('client_ingestion_warning', (b) =>
-                                                    b.pipe(createHandleClientIngestionWarningStep())
+                                                    createClientIngestionWarningSubpipeline(b)
                                                 )
                                                 .branch('heatmap', (b) =>
-                                                    b
-                                                        .pipe(createDisablePersonProcessingStep())
-                                                        .pipe(createNormalizeEventStep(this.hub))
-                                                        .pipe(
-                                                            createEventPipelineRunnerHeatmapStep(
-                                                                this.hub,
-                                                                this.hogTransformer,
-                                                                this.personsStore
-                                                            )
-                                                        )
-                                                        .pipe(
-                                                            createExtractHeatmapDataStep({
-                                                                kafkaProducer: this.kafkaProducer!,
-                                                                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
-                                                                    this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                                                            })
-                                                        )
-                                                        .pipe(createSkipEmitEventStep())
+                                                    createHeatmapSubpipeline(b, {
+                                                        hub: this.hub,
+                                                        hogTransformer: this.hogTransformer,
+                                                        personsStore: this.personsStore,
+                                                        kafkaProducer: this.kafkaProducer!,
+                                                    })
                                                 )
                                                 .branch('event', (b) =>
-                                                    b
-                                                        .pipe(createNormalizeProcessPersonFlagStep())
-                                                        .pipe(
-                                                            createEventPipelineRunnerV1Step(
-                                                                this.hub,
-                                                                this.hogTransformer,
-                                                                this.personsStore
-                                                            )
-                                                        )
-                                                        // TRICKY: Older client versions may still send $heatmap_data as properties on regular events.
-                                                        // This step extracts and processes that data even though up-to-date clients send dedicated $$heatmap events.
-                                                        // TODO: Verify if we still receive $heatmap_data on regular events and consider removing this step if not.
-                                                        .pipe(
-                                                            createExtractHeatmapDataStep({
-                                                                kafkaProducer: this.kafkaProducer!,
-                                                                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
-                                                                    this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                                                            })
-                                                        )
-                                                        .pipe(createCreateEventStep())
-                                                        .pipe(
-                                                            createEmitEventStep({
-                                                                kafkaProducer: this.kafkaProducer!,
-                                                                clickhouseJsonEventsTopic:
-                                                                    this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                                                                groupId: this.groupId,
-                                                            })
-                                                        )
+                                                    createEventSubpipeline(b, {
+                                                        hub: this.hub,
+                                                        hogTransformer: this.hogTransformer,
+                                                        personsStore: this.personsStore,
+                                                        kafkaProducer: this.kafkaProducer!,
+                                                        groupId: this.groupId,
+                                                    })
                                                 )
                                         }
                                     ),
