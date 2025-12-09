@@ -191,7 +191,7 @@ impl Team {
         let mut conn =
             get_connection_with_metrics(&client, "non_persons_reader", "fetch_team").await?;
 
-        let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team JOIN posthog_organization o ON o.id = organization_id WHERE o.is_active <> false AND api_token = $1");
+        let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team JOIN posthog_organization o ON o.id = organization_id WHERE o.is_active IS DISTINCT FROM false AND api_token = $1");
         let row = sqlx::query_as::<_, Team>(&query)
             .bind(token)
             .fetch_one(&mut *conn)
@@ -209,7 +209,7 @@ impl Team {
                 .await?;
 
         let query = format!(
-            "SELECT {TEAM_COLUMNS} FROM posthog_team JOIN posthog_organization o ON o.id = organization_id WHERE o.is_active <> false AND (secret_api_token = $1 OR secret_api_token_backup = $1)"
+            "SELECT {TEAM_COLUMNS} FROM posthog_team JOIN posthog_organization o ON o.id = organization_id WHERE o.is_active IS DISTINCT FROM false AND (secret_api_token = $1 OR secret_api_token_backup = $1)"
         );
         let row = sqlx::query_as::<_, Team>(&query)
             .bind(token)

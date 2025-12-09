@@ -131,7 +131,7 @@ export class TeamManager {
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
             WHERE
-              o.is_active <> false
+              o.is_active IS DISTINCT FROM false
               AND (
                 t.id = ANY($1)
                 OR t.api_token = ANY($2)
