@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -7,11 +8,14 @@ from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.validators import UniqueTogetherValidator
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.link import Link
 from posthog.models.team.team import Team
+
+from products.links.backend.utils import get_hog_function
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +39,13 @@ class LinkSerializer(serializers.ModelSerializer):
             "_create_in_folder",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+        validators = [
+            UniqueTogetherValidator(
+                queryset=Link.objects.all(),
+                fields=["short_link_domain", "short_code"],
+                message="A link with this short code already exists for this domain",
+            )
+        ]
 
     def create(self, validated_data: dict[str, Any]) -> Link:
         team = Team.objects.get(id=self.context["team_id"])
@@ -42,11 +53,21 @@ class LinkSerializer(serializers.ModelSerializer):
         if validated_data.get("short_link_domain") != "phog.gg":
             raise serializers.ValidationError({"short_link_domain": "Only phog.gg is allowed as a short link domain"})
 
-        link = Link.objects.create(
-            team=team,
-            created_by=self.context["request"].user,
-            **validated_data,
-        )
+        redirect_url = validated_data.get("redirect_url")
+        if not redirect_url:
+            raise serializers.ValidationError({"redirect_url": "Redirect URL is required"})
+
+        with transaction.atomic():
+            hog_function = get_hog_function(team=team, redirect_url=redirect_url)
+            hog_function.created_by = self.context["request"].user
+            hog_function.save()
+
+            link = Link.objects.create(
+                team=team,
+                created_by=self.context["request"].user,
+                hog_function=hog_function,
+                **validated_data,
+            )
 
         logger.info("link_created", id=link.id, team_id=team.id)
         return link

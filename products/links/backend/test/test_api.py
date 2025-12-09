@@ -43,6 +43,38 @@ class TestLink(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIn("short_link_domain", json_response)
         self.assertIn("Only phog.gg is allowed as a short link domain", json_response)
 
+    def test_create_link_missing_redirect_url(self):
+        data = {
+            "short_link_domain": "phog.gg",
+            "short_code": "test123",
+            "description": "Test link",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/links", data=data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        json_response = response.json()
+        self.assertIn("redirect_url", json_response["attr"])
+        self.assertIn("This field is required", json_response["detail"])
+
+    def test_create_link_violates_unique_constraint(self):
+        data = {
+            "redirect_url": "https://example.com",
+            "short_link_domain": "phog.gg",
+            "short_code": "test123",
+            "description": "Test link",
+        }
+
+        # first create should succeed
+        response = self.client.post(f"/api/projects/{self.team.id}/links", data=data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # second create should fail with validation error
+        response = self.client.post(f"/api/projects/{self.team.id}/links", data=data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        json_response = response.json()
+        self.assertEqual(json_response["type"], "validation_error")
+        self.assertEqual(json_response["code"], "unique")
+        self.assertIn("A link with this short code already exists for this domain", json_response["detail"])
+
     def test_list_links(self):
         # Create a link first
         link = Link.objects.create(

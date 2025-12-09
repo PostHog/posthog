@@ -33,6 +33,13 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
         help_text="Team that owns this link",
     )
     description = models.TextField(null=True, blank=True)
+    hog_function = models.ForeignKey(
+        "posthog.HogFunction",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="links",
+    )
 
     class Meta:
         indexes = [
