@@ -18,7 +18,7 @@ from posthog.temporal.export_recording.types import ExportData, ExportRecordingI
 @workflow.defn(name="export-recording")
 class ExportRecordingWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_input(input: list[str]) -> ExportRecordingInput:
+    def parse_inputs(input: list[str]) -> ExportRecordingInput:
         return ExportRecordingInput(**json.loads(input[0]))
 
     @workflow.run

@@ -50,7 +50,6 @@ class TeamAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
         "internal_properties",
-        "export_individual_replay",
         "remote_config_cache_actions",
     ]
 
@@ -67,7 +66,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "organization",
                     "project",
                     "internal_properties",
-                    "export_individual_replay",
                     "remote_config_cache_actions",
                 ],
             },
