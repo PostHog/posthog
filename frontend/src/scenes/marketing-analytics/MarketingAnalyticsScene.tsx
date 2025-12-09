@@ -34,21 +34,6 @@ export const scene: SceneExport = {
     settingSectionId: 'environment-marketing-analytics',
 }
 
-const MarketingTiles = ({ tiles, compact = false }: { tiles?: QueryTile[]; compact?: boolean }): JSX.Element => {
-    return (
-        <div
-            className={clsx(
-                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
-                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
-            )}
-        >
-            {tiles?.map((tile, i) => (
-                <QueryTileItem key={i} tile={tile} />
-            ))}
-        </div>
-    )
-}
-
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, control, showIntervalSelect } = tile
 
