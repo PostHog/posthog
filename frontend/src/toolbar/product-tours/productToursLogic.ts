@@ -1,23 +1,29 @@
 import { JSONContent } from '@tiptap/core'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement } from '~/toolbar/utils'
+import { ProductTour } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
 
 export interface TourStep {
     selector: string
     content: JSONContent | null
+    /** Local-only: reference to DOM element, not persisted */
     element?: HTMLElement
 }
 
 export interface TourForm {
+    id?: string
     name: string
     steps: TourStep[]
 }
@@ -26,6 +32,14 @@ function newTour(): TourForm {
     return {
         name: '',
         steps: [],
+    }
+}
+
+function tourToForm(tour: ProductTour): TourForm {
+    return {
+        id: tour.id,
+        name: tour.name,
+        steps: tour.content?.steps ?? [],
     }
 }
 
@@ -45,13 +59,31 @@ export const productToursLogic = kea<productToursLogicType>([
         selectElement: (element: HTMLElement) => ({ element }),
         confirmStep: (content: JSONContent | null) => ({ content }),
         cancelStep: true,
-        selectTour: (id: number | null) => ({ id }),
+        selectTour: (id: string | null) => ({ id }),
         newTour: true,
         addStep: true,
         removeStep: (index: number) => ({ index }),
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         updateRects: true,
+        saveTour: true,
+        deleteTour: (id: string) => ({ id }),
     }),
+
+    loaders(() => ({
+        tours: [
+            [] as ProductTour[],
+            {
+                loadTours: async () => {
+                    const response = await toolbarFetch('/api/projects/@current/product_tours/')
+                    if (!response.ok) {
+                        return []
+                    }
+                    const data = await response.json()
+                    return data.results ?? data
+                },
+            },
+        ],
+    })),
 
     reducers({
         buttonProductToursVisible: [
@@ -62,10 +94,11 @@ export const productToursLogic = kea<productToursLogicType>([
             },
         ],
         selectedTourId: [
-            null as number | 'new' | null,
+            null as string | 'new' | null,
             {
                 selectTour: (_, { id }) => id,
                 newTour: () => 'new',
+                saveTourSuccess: (_, { tours }) => tours[0]?.id ?? null,
             },
         ],
         inspectingElement: [
@@ -107,14 +140,36 @@ export const productToursLogic = kea<productToursLogicType>([
         ],
     }),
 
-    forms(() => ({
+    forms(({ actions }) => ({
         tourForm: {
             defaults: { name: '', steps: [] } as TourForm,
             errors: ({ name }) => ({
                 name: !name || !name.length ? 'Must name this tour' : undefined,
             }),
-            submit: async () => {
-                // No persistence in this phase - just log for now
+            submit: async (formValues) => {
+                const { id, name, steps } = formValues
+                // Strip element references from steps before saving
+                const stepsForApi = steps.map(({ selector, content }) => ({ selector, content }))
+                const payload = {
+                    name,
+                    content: { steps: stepsForApi },
+                }
+
+                const url = id ? `/api/projects/@current/product_tours/${id}/` : '/api/projects/@current/product_tours/'
+                const method = id ? 'PATCH' : 'POST'
+
+                const response = await toolbarFetch(url, method, payload)
+
+                if (!response.ok) {
+                    const error = await response.json()
+                    lemonToast.error(error.detail || 'Failed to save tour')
+                    throw new Error(error.detail || 'Failed to save tour')
+                }
+
+                const savedTour = await response.json()
+                lemonToast.success(id ? 'Tour updated' : 'Tour created')
+                actions.loadTours()
+                return savedTour
             },
         },
     })),
@@ -125,10 +180,16 @@ export const productToursLogic = kea<productToursLogicType>([
 
     selectors({
         selectedTour: [
-            (s) => [s.selectedTourId],
-            (selectedTourId): TourForm | null => {
+            (s) => [s.selectedTourId, s.tours],
+            (selectedTourId, tours): TourForm | null => {
                 if (selectedTourId === 'new') {
                     return newTour()
+                }
+                if (selectedTourId) {
+                    const tour = tours.find((t) => t.id === selectedTourId)
+                    if (tour) {
+                        return tourToForm(tour)
+                    }
                 }
                 return null
             },
@@ -172,6 +233,9 @@ export const productToursLogic = kea<productToursLogicType>([
             if (!selectedTour) {
                 actions.resetTourForm()
             } else {
+                if (selectedTour.id) {
+                    actions.setTourFormValue('id', selectedTour.id)
+                }
                 actions.setTourFormValue('name', selectedTour.name)
                 actions.setTourFormValue('steps', selectedTour.steps)
             }
@@ -226,8 +290,22 @@ export const productToursLogic = kea<productToursLogicType>([
             // Close the sidebar menu when starting to edit a tour
             toolbarLogic.actions.setVisibleMenu('none')
         },
+        saveTour: () => {
+            actions.submitTourForm()
+        },
+        deleteTour: async ({ id }) => {
+            const response = await toolbarFetch(`/api/projects/@current/product_tours/${id}/`, 'DELETE')
+            if (response.ok) {
+                lemonToast.success('Tour deleted')
+                actions.loadTours()
+                actions.selectTour(null)
+            } else {
+                lemonToast.error('Failed to delete tour')
+            }
+        },
         showButtonProductTours: () => {
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'product-tours', enabled: true })
+            actions.loadTours()
         },
         hideButtonProductTours: () => {
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'product-tours', enabled: false })
