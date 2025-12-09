@@ -472,25 +472,13 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.info(scheduledAt ? 'Scheduling workflow...' : 'Triggering workflow...')
 
             try {
-                const body: Record<string, any> = {
-                    user_id: String(values.user?.id),
-                }
-
-                if (variables) {
-                    body.$variables = variables
-                }
-
-                if (scheduledAt) {
-                    body.$scheduled_at = scheduledAt
-                }
-
                 await fetch(webhookUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        user_id: String(values.user?.id),
+                        user_id: values.user?.email,
                         $variables: variables,
                         $scheduled_at: scheduledAt,
                     }),
