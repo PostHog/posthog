@@ -16,6 +16,11 @@ import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
 
 const ERROR_TOAST_ID = 'live-stream-error'
 
+export interface LiveStats {
+    users_on_product: number | null
+    active_recordings: number | null
+}
+
 export interface LiveEventsTableProps {
     showLiveStreamErrorToast?: boolean
     tabId?: string
@@ -81,7 +86,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
         stats: [
-            { users_on_product: null },
+            { users_on_product: null, active_recordings: null } as LiveStats,
             {
                 setStats: (_, { stats }) => stats,
             },

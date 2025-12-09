@@ -1,9 +1,7 @@
-@layer base {
-    .AggregationColumn__title {
-        color: var(--color-text-tertiary);
+.AggregationColumn__title {
+    color: var(--color-text-tertiary);
 
-        &:hover {
-            color: var(--text-3000);
-        }
+    &:hover {
+        color: var(--text-3000);
     }
 }

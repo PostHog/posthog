@@ -1,124 +1,122 @@
-@layer base {
-    .RetentionTable {
-        width: 100%;
+.RetentionTable {
+    width: 100%;
+    font-weight: 500;
+    border-spacing: 0;
+    border-collapse: separate;
+
+    th {
+        padding: 0.625rem 0.5rem;
         font-weight: 500;
-        border-spacing: 0;
-        border-collapse: separate;
+        text-align: left;
+        white-space: nowrap;
 
-        th {
-            padding: 0.625rem 0.5rem;
-            font-weight: 500;
-            text-align: left;
-            white-space: nowrap;
+        &:nth-of-type(-n + 2) {
+            padding-left: 1px solid var(--color-border-primary);
+        }
+    }
 
-            &:nth-of-type(-n + 2) {
-                padding-left: 1px solid var(--color-border-primary);
+    td {
+        padding: 0 0.15rem;
+    }
+
+    tr {
+        border-left: 0.25rem solid transparent;
+
+        &:not(:nth-of-type(-n + 1)) {
+            cursor: pointer;
+
+            &:hover {
+                border-left-color: var(--retention-table-color);
+            }
+        }
+    }
+
+    .RetentionTable__TextTab {
+        padding: 0 1rem 0 0.5rem;
+        white-space: nowrap;
+    }
+
+    .RetentionTable__Tab {
+        min-height: 2rem;
+        padding: 0.5rem;
+        margin: 2px;
+        text-align: right;
+        background-color: var(--retention-table-color); // NOTE: This is usually overridden in JS
+        border-radius: var(--radius);
+
+        &.RetentionTable__Tab--clickable {
+            transition: transform 200ms ease-out;
+
+            &:hover {
+                transform: scale(1.05);
             }
         }
 
-        td {
-            padding: 0 0.15rem;
+        &.RetentionTable__Tab--period {
+            color: var(--color-text-secondary);
+            background-color: var(--color-bg-surface-primary);
+            border: 1px solid var(--color-border-primary);
+            border-style: dashed;
         }
+    }
 
+    &.RetentionTable--non-interactive {
         tr {
-            border-left: 0.25rem solid transparent;
-
-            &:not(:nth-of-type(-n + 1)) {
-                cursor: pointer;
-
-                &:hover {
-                    border-left-color: var(--retention-table-color);
-                }
+            &:hover {
+                border-left-color: transparent;
             }
-        }
-
-        .RetentionTable__TextTab {
-            padding: 0 1rem 0 0.5rem;
-            white-space: nowrap;
         }
 
         .RetentionTable__Tab {
-            min-height: 2rem;
-            padding: 0.5rem;
-            margin: 2px;
-            text-align: right;
-            background-color: var(--retention-table-color); // NOTE: This is usually overridden in JS
-            border-radius: var(--radius);
+            cursor: initial;
 
-            &.RetentionTable__Tab--clickable {
-                transition: transform 200ms ease-out;
-
-                &:hover {
-                    transform: scale(1.05);
-                }
-            }
-
-            &.RetentionTable__Tab--period {
-                color: var(--color-text-secondary);
-                background-color: var(--color-bg-surface-primary);
-                border: 1px solid var(--color-border-primary);
-                border-style: dashed;
+            &:hover {
+                transform: none;
             }
         }
+    }
 
-        &.RetentionTable--non-interactive {
-            tr {
-                &:hover {
-                    border-left-color: transparent;
-                }
-            }
+    &.RetentionTable--small-layout {
+        font-size: 0.75rem;
+        line-height: 1rem;
 
-            .RetentionTable__Tab {
-                cursor: initial;
-
-                &:hover {
-                    transform: none;
-                }
-            }
+        th {
+            padding-right: 0.25rem;
+            padding-left: 0.25rem;
         }
 
-        &.RetentionTable--small-layout {
-            font-size: 0.75rem;
-            line-height: 1rem;
-
-            th {
-                padding-right: 0.25rem;
-                padding-left: 0.25rem;
-            }
-
-            .RetentionTable__TextTab {
-                padding-right: 0.25rem;
-                padding-left: 0.25rem;
-            }
-
-            .RetentionTable__Tab {
-                padding: 0.5rem 0.25rem;
-                margin: 0;
-            }
+        .RetentionTable__TextTab {
+            padding-right: 0.25rem;
+            padding-left: 0.25rem;
         }
 
-        .RetentionTable__SelectedColumn {
+        .RetentionTable__Tab {
+            padding: 0.5rem 0.25rem;
+            margin: 0;
+        }
+    }
+
+    .RetentionTable__SelectedColumn {
+        &--header {
+            font-weight: 600;
+            background-color: var(--color-bg-fill-highlight-100);
+            border-radius: var(--radius) var(--radius) 0 0;
+        }
+
+        &--cell {
+            background-color: var(--color-bg-fill-highlight-100);
+        }
+    }
+
+    &.RetentionTable--allow-selecting-columns {
+        .RetentionTable__HoveredColumn {
             &--header {
-                font-weight: 600;
-                background-color: var(--color-bg-fill-highlight-100);
+                background-color: var(--color-bg-fill-highlight-50);
                 border-radius: var(--radius) var(--radius) 0 0;
             }
 
             &--cell {
-                background-color: var(--color-bg-fill-highlight-100);
-            }
-        }
-
-        &.RetentionTable--allow-selecting-columns {
-            .RetentionTable__HoveredColumn {
-                &--header {
-                    background-color: var(--color-bg-fill-highlight-50);
-                    border-radius: var(--radius) var(--radius) 0 0;
-                }
-
-                &--cell {
-                    background-color: var(--color-bg-fill-highlight-50);
-                }
+                background-color: var(--color-bg-fill-highlight-50);
             }
         }
     }

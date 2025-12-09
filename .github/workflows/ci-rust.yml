@@ -67,7 +67,9 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.88.0
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
@@ -160,7 +162,9 @@ jobs:
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.88.0
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
@@ -260,8 +264,9 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
+                  toolchain: 1.88.0
                   components: clippy,rustfmt
 
             - name: Install sccache
