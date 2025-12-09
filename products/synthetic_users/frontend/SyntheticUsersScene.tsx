@@ -112,7 +112,7 @@ function CreateStudyModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
 
 export function SyntheticUsersScene(): JSX.Element {
     const { showCreateStudyModal, studies } = useValues(syntheticUsersSceneLogic)
-    const { setShowCreateStudyModal } = useActions(syntheticUsersSceneLogic)
+    const { setShowCreateStudyModal, startRoastMyWebsite } = useActions(syntheticUsersSceneLogic)
 
     return (
         <SceneContent>
@@ -135,9 +135,14 @@ export function SyntheticUsersScene(): JSX.Element {
             <div className="space-y-4">
                 <div className="flex justify-between items-center">
                     <p className="text-muted m-0">{studies.length} studies</p>
-                    <LemonButton type="primary" icon={<IconPlus />} onClick={() => setShowCreateStudyModal(true)}>
-                        New study
-                    </LemonButton>
+                    <div className="flex gap-2">
+                        <LemonButton type="secondary" icon={<IconFlask />} onClick={startRoastMyWebsite}>
+                            🔥 Roast my website
+                        </LemonButton>
+                        <LemonButton type="primary" icon={<IconPlus />} onClick={() => setShowCreateStudyModal(true)}>
+                            New study
+                        </LemonButton>
+                    </div>
                 </div>
 
                 <LemonTable

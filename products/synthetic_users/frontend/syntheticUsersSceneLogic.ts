@@ -14,6 +14,7 @@ export const syntheticUsersSceneLogic = kea<syntheticUsersSceneLogicType>([
 
     actions({
         setShowCreateStudyModal: (show: boolean) => ({ show }),
+        startRoastMyWebsite: true,
     }),
 
     reducers({
@@ -75,6 +76,17 @@ export const syntheticUsersSceneLogic = kea<syntheticUsersSceneLogicType>([
         },
         createStudyFailure: ({ error }) => {
             lemonToast.error(`Failed to create study: ${error}`)
+        },
+        startRoastMyWebsite: () => {
+            actions.setStudyFormValues({
+                name: 'Roast my website',
+                audience_description:
+                    'Brutally honest tech reviewers who have no patience for bad UX, slow load times, or confusing navigation',
+                research_goal:
+                    'Tear apart this website. Find every UX sin, confusing element, and frustration point. Be ruthless but constructive.',
+                target_url: '',
+            })
+            actions.setShowCreateStudyModal(true)
         },
     })),
 
