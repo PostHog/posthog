@@ -198,12 +198,13 @@ export class HogFlowExecutorService {
         if (result.error) {
             const lastExecutedActionId = result.invocation.state.currentAction?.id
             const lastExecutedAction = result.invocation.hogFlow.actions.find((a) => a.id === lastExecutedActionId)
+
             if (lastExecutedAction?.on_error === 'abort') {
                 shouldAbortAfterError = true
                 logs.push({
                     level: 'info',
                     timestamp: DateTime.now(),
-                    message: `Workflow is aborting due to the action's error handling setting (on_error: 'abort')`,
+                    message: `Workflow is aborting due to ${actionIdForLogging(lastExecutedAction)} error handling setting being set to abort on error`,
                 })
             }
         }
@@ -339,6 +340,10 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
+                if (handlerResult.error) {
+                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
+                }
+
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
                 }
@@ -423,7 +428,7 @@ export class HogFlowExecutorService {
                         result,
                         currentAction,
                         'info',
-                        `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
+                        `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to error handling setting being set to continue on error`
                     )
 
                     /**
