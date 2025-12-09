@@ -464,7 +464,7 @@ Use this tool when the user wants to:
                     for repo_name in repo_names:
                         full_name = f"{org}/{repo_name}"
                         if search:
-                            if search.lower() not in full_name.lower():
+                            if search.lower() not in repo_name.lower():
                                 continue
                         all_repos.append(
                             {
