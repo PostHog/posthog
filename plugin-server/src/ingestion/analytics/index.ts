@@ -10,10 +10,16 @@ export { createHeatmapSubpipeline, HeatmapSubpipelineConfig, HeatmapSubpipelineI
 export {
     createPerDistinctIdPipeline,
     PerDistinctIdPipelineConfig,
+    PerDistinctIdPipelineContext,
     PerDistinctIdPipelineInput,
 } from './per-distinct-id-pipeline'
 
-export { createPreprocessingPipeline, PreprocessingPipelineConfig } from './preprocessing-pipeline'
+export {
+    createPreprocessingPipeline,
+    PreprocessingPipelineConfig,
+    PreprocessingPipelineContext,
+    PreprocessingPipelineInput,
+} from './preprocessing-pipeline'
 
 export {
     createPostTeamPreprocessingSubpipeline,

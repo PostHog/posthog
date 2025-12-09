@@ -41,10 +41,15 @@ function classifyEvent<TInput extends PerDistinctIdPipelineInput>(input: TInput)
     }
 }
 
-export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipelineInput>(
-    builder: BatchPipelineBuilder<TInput, TInput, { message: Message; team: Team }, { message: Message; team: Team }>,
-    config: PerDistinctIdPipelineConfig
-) {
+export interface PerDistinctIdPipelineContext {
+    message: Message
+    team: Team
+}
+
+export function createPerDistinctIdPipeline<
+    TInput extends PerDistinctIdPipelineInput,
+    TContext extends PerDistinctIdPipelineContext,
+>(builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>, config: PerDistinctIdPipelineConfig) {
     const { hub, hogTransformer, personsStore, kafkaProducer, groupId, dlqTopic, promiseScheduler } = config
 
     const pipelineConfig: PipelineConfig = {

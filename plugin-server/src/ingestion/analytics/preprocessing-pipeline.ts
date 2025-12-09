@@ -23,15 +23,18 @@ export interface PreprocessingPipelineConfig {
     promiseScheduler: PromiseScheduler
 }
 
-export function createPreprocessingPipeline(
-    builder: BatchPipelineBuilder<
-        { message: Message },
-        { message: Message },
-        { message: Message },
-        { message: Message }
-    >,
-    config: PreprocessingPipelineConfig
-) {
+export interface PreprocessingPipelineInput {
+    message: Message
+}
+
+export interface PreprocessingPipelineContext {
+    message: Message
+}
+
+export function createPreprocessingPipeline<
+    TInput extends PreprocessingPipelineInput,
+    TContext extends PreprocessingPipelineContext,
+>(builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>, config: PreprocessingPipelineConfig) {
     const {
         hub,
         kafkaProducer,
