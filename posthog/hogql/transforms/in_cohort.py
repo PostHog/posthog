@@ -2,11 +2,11 @@ from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import HogQLDialect
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 

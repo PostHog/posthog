@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
@@ -9,7 +9,7 @@ from posthog.hogql.database.s3_table import build_function_call
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import HogQLDialect, prepare_and_print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
 from products.data_warehouse.backend.models.table import DataWarehouseTable

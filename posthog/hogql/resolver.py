@@ -6,6 +6,7 @@ from uuid import UUID
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
@@ -23,7 +24,6 @@ from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import HogQLDialect
 from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
     extract_select_queries,

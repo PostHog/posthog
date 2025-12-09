@@ -5,8 +5,8 @@ from typing import Any, Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.errors import QueryError, ResolutionError
-from posthog.hogql.printer import HogQLDialect
 
 from posthog.models.utils import UUIDT
 

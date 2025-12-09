@@ -20,7 +20,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import _T_AST, AST
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
+from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
@@ -77,9 +77,6 @@ def get_channel_definition_dict():
     """Get the channel definition dictionary name with the correct database.
     Evaluated at call time to work with test databases in Python 3.12."""
     return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
-
-
-HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -1553,8 +1550,8 @@ class _Printer(Visitor[str]):
         exprs = [self.visit(expr) for expr in node.exprs or []]
         cloned_node = cast(ast.WindowFunction, clone_expr(node))
 
-        # For compatibility with postgresql syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
-        if identifier in ("lag", "lead"):
+        # For compatibility with ClickHouse syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
+        if identifier in ("lag", "lead") and self.dialect != "postgres":
             identifier = f"{identifier}InFrame"
             # Wrap the first expression (value) and third expression (default) in toNullable()
             # The second expression (offset) must remain a non-nullable integer

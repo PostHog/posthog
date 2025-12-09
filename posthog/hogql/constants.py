@@ -12,6 +12,8 @@ type ConstantSupportedData = (
     ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
 )
 
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
+
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 

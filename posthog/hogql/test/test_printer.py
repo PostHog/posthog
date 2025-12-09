@@ -3248,3 +3248,80 @@ class TestPrinted(APIBaseTest):
             query=query,
         )
         assert query_response.results == [(6,)]
+
+
+class TestPostgresPrinter(BaseTest):
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        settings: Optional[HogQLQuerySettings] = None,
+    ) -> str:
+        node = parse_expr(query)
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(
+            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
+        )
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="postgres", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="postgres",
+            stack=[prepared_select_query],
+        )
+
+    def _select(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        placeholders: Optional[dict[str, ast.Expr]] = None,
+        dialect: HogQLDialect = "postgres",
+    ) -> str:
+        return prepare_and_print_ast(
+            parse_select(query, placeholders=placeholders),
+            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect,
+        )[0]
+
+    @parameterized.expand(
+        [
+            ("SELECT event FROM events",),
+            ("SELECT distinct_id, event FROM events WHERE event = 'test'",),
+            ("SELECT event FROM events ORDER BY timestamp DESC",),
+            ("SELECT count() FROM events GROUP BY event",),
+        ]
+    )
+    def test_matches_hogql_output(self, query: str):
+        postgres = self._select(query)
+        hogql = self._select(query, dialect="hogql")
+
+        self.assertEqual(postgres, hogql)
+
+    def test_omits_clickhouse_specific_transforms(self):
+        postgres = self._select("SELECT event FROM events")
+        clickhouse = self._select("SELECT event FROM events", dialect="clickhouse")
+
+        self.assertNotIn("team_id", postgres)
+        self.assertNotEqual(postgres, clickhouse)
+
+    def test_boolean_and_null_literals(self):
+        self.assertEqual(self._expr("true"), "true")
+        self.assertEqual(self._expr("false"), "false")
+        self.assertEqual(self._expr("null"), "NULL")
+
+    def test_allows_dollar_identifiers(self):
+        printed = self._select("SELECT event AS $value FROM events")
+
+        self.assertIn("AS $value", printed)
+
+    def test_window_functions_keep_postgres_shape(self):
+        printed = self._select("SELECT lag(timestamp) OVER (ORDER BY timestamp) FROM events")
+
+        self.assertIn("lag(", printed)
+        self.assertNotIn("lagInFrame", printed)
+        self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)

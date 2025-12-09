@@ -3,10 +3,10 @@ from typing import Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.printer import HogQLDialect
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.transforms.property_types import PropertySwapper
