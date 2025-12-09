@@ -109,7 +109,7 @@
         color: var(--color-foreground);
 
         &:not(:disabled):hover {
-            color: var(--primary-3000-hover);
+            color: var(--color-primary);
         }
     }
 }

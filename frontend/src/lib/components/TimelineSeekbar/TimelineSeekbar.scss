@@ -30,7 +30,7 @@
     border-radius: var(--radius);
 
     &::selection {
-        background: var(--primary-3000-hover); // Default selection background is invisible on primary
+        background: var(--color-primary); // Default selection background is invisible on primary
     }
 
     .Spinner {
