@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlay, IconTrash } from '@posthog/icons'
+import { IconExternal, IconGithub, IconPlay, IconTrash } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -17,6 +17,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
 import { TaskRunItem } from './TaskRunItem'
+import { TaskRunStatusBadge } from './TaskRunStatusBadge'
+import { TaskSessionView } from './TaskSessionView'
 
 export interface TaskDetailPageProps {
     taskId: string
@@ -24,7 +26,8 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskLoading, runs, selectedRunId, runsLoading } = useValues(sceneLogic)
+    const { task, taskLoading, runs, selectedRunId, selectedRun, runsLoading, logs, logsLoading, shouldPollLogs } =
+        useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask, updateTask } = useActions(sceneLogic)
 
     if (!task) {
@@ -37,6 +40,8 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const latestRun = runs.length > 0 ? runs[0] : null
     const isLatestRunCompleted = latestRun?.status === 'completed'
     const runButtonText = !hasBeenRun ? 'Run task' : isLatestRunCompleted ? 'Run again' : 'Retry task'
+
+    const prUrl = selectedRun?.output?.pr_url as string | undefined
 
     return (
         <SceneContent>
@@ -73,7 +78,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     </ButtonPrimitive>
                 </ScenePanelActionsSection>
 
-                {runs.length > 1 && (
+                {runs.length >= 1 && (
                     <>
                         <ScenePanelDivider />
                         <ScenePanelInfoSection>
@@ -104,11 +109,41 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 renameDebounceMs={500}
                 saveOnBlur={true}
                 actions={
-                    <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
-                        {runButtonText}
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconExternal />}
+                            onClick={() => window.open(`posthog-array://task/${task.id}`, '_blank')}
+                        >
+                            Open in Array
+                        </LemonButton>
+                        {prUrl && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconGithub />}
+                                onClick={() => window.open(prUrl, '_blank')}
+                            >
+                                View PR
+                            </LemonButton>
+                        )}
+                        <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
+                            {runButtonText}
+                        </LemonButton>
+                    </div>
                 }
             />
+
+            {selectedRun && (
+                <div className="flex items-center gap-3 px-4 py-2 border-b">
+                    <TaskRunStatusBadge run={selectedRun} />
+                    <span className="text-sm text-muted">
+                        Started {dayjs(selectedRun.created_at).format('MMM D, YYYY HH:mm')}
+                    </span>
+                    {selectedRun.branch && <code className="text-xs text-muted">{selectedRun.branch}</code>}
+                </div>
+            )}
 
             {runsLoading ? (
                 <div className="flex items-center justify-center h-32">
@@ -117,6 +152,10 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
             ) : runs.length === 0 ? (
                 <div className="text-center py-16">
                     <p className="text-muted">This task hasn't been run yet</p>
+                </div>
+            ) : selectedRun ? (
+                <div className="flex-1 overflow-hidden">
+                    <TaskSessionView logs={logs} loading={logsLoading} isPolling={shouldPollLogs} />
                 </div>
             ) : null}
         </SceneContent>

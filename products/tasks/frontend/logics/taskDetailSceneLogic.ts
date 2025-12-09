@@ -13,8 +13,10 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import { TaskRun, TaskRunStatus } from '../types'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
@@ -38,6 +40,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
 
     actions({
         setSelectedRunId: (runId: TaskRun['id'] | null) => ({ runId }),
+        selectLatestRun: true,
         startLogPolling: true,
         stopLogPolling: true,
     }),
@@ -47,12 +50,13 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             null as TaskRun['id'] | null,
             {
                 setSelectedRunId: (_, { runId }) => runId,
-                loadRunsSuccess: (state, { runs }) => {
-                    if (state) {
-                        return state
-                    }
-                    return runs.length > 0 ? runs[0].id : null
-                },
+            },
+        ],
+        shouldSelectLatestRun: [
+            false,
+            {
+                selectLatestRun: () => true,
+                loadRunsSuccess: () => false,
             },
         ],
     }),
@@ -128,9 +132,13 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             }
         },
         runTaskSuccess: () => {
+            actions.selectLatestRun()
             actions.loadRuns()
         },
-        loadRunsSuccess: () => {
+        loadRunsSuccess: ({ runs }) => {
+            if (values.shouldSelectLatestRun && runs.length > 0) {
+                actions.setSelectedRunId(runs[0].id)
+            }
             if (values.selectedRunId) {
                 actions.loadLogs()
             }
@@ -173,4 +181,28 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             actions.loadRuns()
         }
     }),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.taskDetail(':taskId')]: (_, searchParams) => {
+            const runIdFromUrl = searchParams.runId
+            if (runIdFromUrl && runIdFromUrl !== values.selectedRunId) {
+                actions.setSelectedRunId(runIdFromUrl)
+            }
+        },
+    })),
+
+    actionToUrl(({ values, props }) => ({
+        setSelectedRunId: ({ runId }) => {
+            if (runId) {
+                return [urls.taskDetail(props.taskId), { runId }, router.values.hashParams]
+            }
+            return [urls.taskDetail(props.taskId), {}, router.values.hashParams]
+        },
+        loadRunsSuccess: ({ runs }) => {
+            if (runs.length > 0 && !router.values.searchParams.runId) {
+                return [urls.taskDetail(props.taskId), { runId: runs[0].id }, router.values.hashParams]
+            }
+            return undefined
+        },
+    })),
 ])
