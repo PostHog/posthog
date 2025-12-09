@@ -59,9 +59,10 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
 
     // a read, just use the primary as the source of truth
     async fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica: boolean = true
     ): Promise<InternalPersonWithDistinctId[]> {
-        return await this.primaryRepo.fetchPersonsByDistinctIds(teamPersons)
+        return await this.primaryRepo.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
     }
 
     /*

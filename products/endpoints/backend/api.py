@@ -376,11 +376,23 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint_id = str(endpoint.id)
+        endpoint_name = endpoint.name
 
         if endpoint.saved_query:
             self._disable_materialization(endpoint)
 
         endpoint.delete()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=endpoint_id,
+            scope="Endpoint",
+            activity="deleted",
+            detail=Detail(name=endpoint_name),
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _should_use_materialized_table(self, endpoint: Endpoint, data: EndpointRunRequest) -> bool:
