@@ -215,18 +215,23 @@ def print_prepared_ast(
 ) -> str:
     with context.timings.measure("printer"):
         if dialect == "clickhouse":
-            printer_class: type[_Printer] = ClickHousePrinter
+            return ClickHousePrinter(
+                context=context,
+                dialect=dialect,
+                stack=stack or [],
+                settings=settings,
+                pretty=pretty,
+            ).visit(node)
         elif dialect == "hogql":
-            printer_class: type[_Printer] = _Printer
+            return _Printer(
+                context=context,
+                dialect=dialect,
+                stack=stack or [],
+                settings=settings,
+                pretty=pretty,
+            ).visit(node)
         else:
             raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
-        return printer_class(
-            context=context,
-            dialect=dialect,
-            stack=stack or [],
-            settings=settings,
-            pretty=pretty,
-        ).visit(node)
 
 
 @dataclass
@@ -521,17 +526,16 @@ class _Printer(Visitor[str]):
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
-            # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
-            # Skip warehouse tables and tables with an explicit skip.
-            if (
-                self.dialect == "clickhouse"
-                and not isinstance(table_type.table, DataWarehouseTable)
-                and not isinstance(table_type.table, SavedQuery)
-                and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
-            ):
-                extra_where = team_id_guard_for_table(node.type, self.context)
-
             if self.dialect == "clickhouse":
+                # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
+                # Skip warehouse tables and tables with an explicit skip.
+                if (
+                    not isinstance(table_type.table, DataWarehouseTable)
+                    and not isinstance(table_type.table, SavedQuery)
+                    and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
+                ):
+                    extra_where = team_id_guard_for_table(node.type, self.context)
+
                 sql = table_type.table.to_printed_clickhouse(self.context)
 
                 # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
@@ -757,7 +761,7 @@ class _Printer(Visitor[str]):
             else:
                 assert constant_expr is not None  # appease mypy - if we got this far, we should have a constant
 
-            property_source = self.__get_materialized_property_source_for_property_type(property_type)
+            property_source = self._get_materialized_property_source_for_property_type(property_type)
             if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
@@ -802,7 +806,7 @@ class _Printer(Visitor[str]):
             if left_type is None or len(left_type.chain) > 1:
                 return None
 
-            property_source = self.__get_materialized_property_source_for_property_type(left_type)
+            property_source = self._get_materialized_property_source_for_property_type(left_type)
             if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
@@ -875,7 +879,7 @@ class _Printer(Visitor[str]):
             return None
 
         # Check if this property uses an individually materialized column (not a property group)
-        property_source = self.__get_materialized_property_source_for_property_type(property_type)
+        property_source = self._get_materialized_property_source_for_property_type(property_type)
         if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
@@ -1099,58 +1103,7 @@ class _Printer(Visitor[str]):
         # When printing HogQL, we print the properties out as a chain as they are.
         return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
 
-    def __get_optimized_property_group_call(self, node: ast.Call) -> str | None:
-        """
-        Returns a printed expression corresponding to the provided call, if the function is being applied to a property
-        group value and the function can be rewritten so that it can be eligible for use by the property group's map's
-        key bloom filter index, or can be optimized to avoid reading the property group's map ``values`` subcolumn.
-        """
-        if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
-            return None
-
-        # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
-        # might make sense to make it so that ``isNull``/``isNotNull`` is rewritten to comparison expressions before
-        # this step, similar to how ``equals``/``notEquals`` are interpreted as their comparison operation counterparts.
-
-        match node:
-            case ast.Call(name="isNull" | "isNotNull" as function_name, args=[field]):
-                # TODO: can probably optimize chained operations, but will need more thought
-                field_type = resolve_field_type(field)
-                if isinstance(field_type, ast.PropertyType) and len(field_type.chain) == 1:
-                    property_source = self.__get_materialized_property_source_for_property_type(field_type)
-                    if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                        return None
-
-                    match function_name:
-                        case "isNull":
-                            return f"not({property_source.has_expr})"
-                        case "isNotNull":
-                            return property_source.has_expr
-                        case _:
-                            raise ValueError(f"unexpected node name: {function_name}")
-            case ast.Call(name="JSONHas", args=[field, ast.Constant(value=property_name)]):
-                # TODO: can probably optimize chained operations here as well
-                field_type = resolve_field_type(field)
-                if not isinstance(field_type, ast.FieldType):
-                    return None
-
-                # TRICKY: Materialized property columns do not currently support null values (see comment in
-                # `visit_property_type`) so checking whether or not a property is set for a row cannot safely use that
-                # field and falls back to the equivalent ``JSONHas(properties, ...)`` call instead. However, if this
-                # property is part of *any* property group, we can use that column instead to evaluate this expression
-                # more efficiently -- even if the materialized column would be a better choice in other situations.
-                for property_source in self.__get_all_materialized_property_sources(field_type, str(property_name)):
-                    if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                        return property_source.has_expr
-
-        return None  # nothing to optimize
-
     def visit_call(self, node: ast.Call):
-        # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
-        # skipping indexes can be used when possible.
-        if optimized_property_group_call := self.__get_optimized_property_group_call(node):
-            return optimized_property_group_call
-
         # Validate parametric arguments
         if func_meta := (
             find_hogql_aggregation(node.name)
@@ -1581,17 +1534,17 @@ class _Printer(Visitor[str]):
 
         return field_sql
 
-    def __get_materialized_property_source_for_property_type(
+    def _get_materialized_property_source_for_property_type(
         self, type: ast.PropertyType
     ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
         """
         Find the most efficient materialized property source for the provided property type.
         """
-        for source in self.__get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
+        for source in self._get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
             return source
         return None
 
-    def __get_all_materialized_property_sources(
+    def _get_all_materialized_property_sources(
         self, field_type: ast.FieldType, property_name: str
     ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
         """
@@ -1660,7 +1613,7 @@ class _Printer(Visitor[str]):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
-        materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
+        materialized_property_source = self._get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
             # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
             if (
@@ -2098,6 +2051,60 @@ class ClickHousePrinter(_Printer):
             raise QueryError(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
 
         return self.visit(node.type)
+
+    def __get_optimized_property_group_call(self, node: ast.Call) -> str | None:
+        """
+        Returns a printed expression corresponding to the provided call, if the function is being applied to a property
+        group value and the function can be rewritten so that it can be eligible for use by the property group's map's
+        key bloom filter index, or can be optimized to avoid reading the property group's map ``values`` subcolumn.
+        """
+        if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
+            return None
+
+        # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
+        # might make sense to make it so that ``isNull``/``isNotNull`` is rewritten to comparison expressions before
+        # this step, similar to how ``equals``/``notEquals`` are interpreted as their comparison operation counterparts.
+
+        match node:
+            case ast.Call(name="isNull" | "isNotNull" as function_name, args=[field]):
+                # TODO: can probably optimize chained operations, but will need more thought
+                field_type = resolve_field_type(field)
+                if isinstance(field_type, ast.PropertyType) and len(field_type.chain) == 1:
+                    property_source = self._get_materialized_property_source_for_property_type(field_type)
+                    if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+                        return None
+
+                    match function_name:
+                        case "isNull":
+                            return f"not({property_source.has_expr})"
+                        case "isNotNull":
+                            return property_source.has_expr
+                        case _:
+                            raise ValueError(f"unexpected node name: {function_name}")
+            case ast.Call(name="JSONHas", args=[field, ast.Constant(value=property_name)]):
+                # TODO: can probably optimize chained operations here as well
+                field_type = resolve_field_type(field)
+                if not isinstance(field_type, ast.FieldType):
+                    return None
+
+                # TRICKY: Materialized property columns do not currently support null values (see comment in
+                # `visit_property_type`) so checking whether or not a property is set for a row cannot safely use that
+                # field and falls back to the equivalent ``JSONHas(properties, ...)`` call instead. However, if this
+                # property is part of *any* property group, we can use that column instead to evaluate this expression
+                # more efficiently -- even if the materialized column would be a better choice in other situations.
+                for property_source in self._get_all_materialized_property_sources(field_type, str(property_name)):
+                    if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+                        return property_source.has_expr
+
+        return None  # nothing to optimize
+
+    def visit_call(self, node: ast.Call):
+        # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
+        # skipping indexes can be used when possible.
+        if optimized_property_group_call := self.__get_optimized_property_group_call(node):
+            return optimized_property_group_call
+
+        return super().visit_call(node)
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
