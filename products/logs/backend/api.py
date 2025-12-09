@@ -265,7 +265,7 @@ FROM (
             for result in results[0][0]:
                 entry = {
                     "name": result,
-                    "propertyFilterType": "log_attribute",
+                    "propertyFilterType": "log_resource_attribute" if attribute_type == "resource" else "log_attribute",
                 }
                 r.append(entry)
         return Response({"results": r, "count": results[0][1] + offset}, status=status.HTTP_200_OK)
