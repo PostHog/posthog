@@ -12,7 +12,7 @@ export type LinkType = {
     description: string | null
     created_at: string
     updated_at: string
-    hog_function: string
+    hog_function_id: string
 }
 
 const LINK_FIELDS = [
@@ -24,7 +24,7 @@ const LINK_FIELDS = [
     'description',
     'created_at',
     'updated_at',
-    'hog_function',
+    'hog_function_id',
 ]
 
 const toKey = (shortLinkDomain: string, shortCode: string): string => `${shortLinkDomain}|_${shortCode}`

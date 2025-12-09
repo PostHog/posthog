@@ -487,11 +487,11 @@ export class CdpApi {
                     return res.status(404).json({ error: 'Link not found' })
                 }
 
-                if (!link.hog_function) {
+                if (!link.hog_function_id) {
                     return res.status(404).json({ error: 'Hog function is not set' })
                 }
 
-                const result = await this.cdpSourceWebhooksConsumer.processWebhook(link.hog_function, req)
+                const result = await this.cdpSourceWebhooksConsumer.processWebhook(link.hog_function_id, req)
 
                 if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
                     // TODO: Better validation here before we directly use the result
