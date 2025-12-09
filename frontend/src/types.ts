@@ -6125,6 +6125,16 @@ export interface DatasetItem {
     deleted: boolean
 }
 
+export interface LLMPrompt {
+    id: string
+    name: string
+    prompt: any
+    version: number
+    created_by: UserBasicType
+    created_at: string
+    updated_at: string
+}
+
 // Managed viewset
 export interface DataWarehouseManagedViewsetSavedQuery {
     id: string

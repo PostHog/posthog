@@ -129,6 +129,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LLMPrompt,
     LineageGraph,
     LinearTeamType,
     LinkType,
@@ -1633,6 +1634,14 @@ export class ApiRequest {
 
     public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
+    }
+
+    public llmPrompts(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_prompts')
+    }
+
+    public llmPrompt(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_prompts').addPathComponent(id)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -4692,6 +4701,29 @@ const api = {
 
         async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
             return await new ApiRequest().datasetItem(datasetItemId).update({ data })
+        },
+    },
+
+    llmPrompts: {
+        list(params?: {
+            search?: string
+            order_by?: string
+            offset?: number
+            limit?: number
+        }): Promise<CountedPaginatedResponse<LLMPrompt>> {
+            return new ApiRequest().llmPrompts().withQueryString(params).get()
+        },
+
+        get(promptId: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPrompt(promptId).get()
+        },
+
+        async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPrompts().create({ data })
+        },
+
+        async update(promptId: string, data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPrompt(promptId).update({ data })
         },
     },
 

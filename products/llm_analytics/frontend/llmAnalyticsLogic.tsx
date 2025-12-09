@@ -567,7 +567,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'datasets'
                 } else if (sceneKey === 'llmAnalyticsEvaluations') {
                     return 'evaluations'
+                } else if (sceneKey === 'llmAnalyticsPrompts') {
+                    return 'prompts'
                 }
+
                 return 'dashboard'
             },
         ],
