@@ -17,6 +17,7 @@ const pathsWithoutProjectId = [
     'embedded',
     'cli',
     'render_query',
+    'viz',
 ]
 
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/

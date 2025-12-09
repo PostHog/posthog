@@ -6,18 +6,13 @@ export const manifest: ProductManifest = {
         Viz: {
             name: 'Viz',
             import: () => import('./frontend/Viz'),
-            projectBased: true,
-            defaultDocsPath: '/docs/tasks',
-            activityScope: 'TaskTracker',
-            description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
-            iconType: 'task',
+            allowUnauthenticated: true,
+            layout: 'plain',
         },
     },
     routes: {
         '/viz': ['Viz', 'viz'],
     },
     redirects: {},
-    urls: {
-        taskTracker: (): string => '/viz',
-    },
+    urls: {},
 }

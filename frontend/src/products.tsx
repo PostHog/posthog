@@ -202,14 +202,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Action',
         iconType: 'action',
     },
-    Viz: {
-        name: 'Viz',
-        projectBased: true,
-        defaultDocsPath: '/docs/tasks',
-        activityScope: 'TaskTracker',
-        description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
-        iconType: 'task',
-    },
+    Viz: { name: 'Viz', allowUnauthenticated: true, layout: 'plain' },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
@@ -417,7 +410,6 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
-    taskTracker: (): string => '/viz',
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
