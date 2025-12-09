@@ -1199,11 +1199,11 @@ class _Printer(Visitor[str]):
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
 
-            args = [self.visit(arg) for arg in node.args]
+            arg_strings = [self.visit(arg) for arg in node.args]
             params = [self.visit(param) for param in node.params] if node.params is not None else None
 
             params_part = f"({', '.join(params)})" if params is not None else ""
-            args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
+            args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
 
             return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
