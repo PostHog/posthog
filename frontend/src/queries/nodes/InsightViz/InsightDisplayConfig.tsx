@@ -40,7 +40,7 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { isValidBreakdown } from '~/queries/utils'
+import { isValidBreakdown, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -70,16 +70,16 @@ export function InsightDisplayConfig(): JSX.Element {
         isNonTimeSeriesDisplay,
         compareFilter,
         supportsCompare,
-        dateRange,
     } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource, updateCompareFilter, setExplicitDate } = useActions(insightVizDataLogic(insightProps))
+    const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
 
     const showCompare =
         (isTrends && display !== ChartDisplayType.ActionsAreaGraph && display !== ChartDisplayType.CalendarHeatmap) ||
-        isStickiness
+        isStickiness ||
+        isWebAnalyticsInsightQuery(querySource)
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
@@ -229,28 +229,6 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: 'Decimal places',
                       items: [{ label: () => <DecimalPrecisionInput /> }],
-                  },
-              ]
-            : []),
-        ...((isTrends || isStickiness || isLifecycle) && display !== ChartDisplayType.CalendarHeatmap
-            ? [
-                  {
-                      title: 'Date range',
-                      items: [
-                          {
-                              label: () => (
-                                  <LemonSwitch
-                                      label="Use exact time range"
-                                      className="pb-2"
-                                      fullWidth
-                                      checked={dateRange?.explicitDate ?? false}
-                                      onChange={(checked) => {
-                                          setExplicitDate(checked)
-                                      }}
-                                  />
-                              ),
-                          },
-                      ],
                   },
               ]
             : []),

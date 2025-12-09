@@ -201,13 +201,20 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return sessionPlayerData.end ?? null
             },
         ],
+        snapshotAt: [
+            (s) => [s.startTime],
+            (startTime) => {
+                return startTime
+                    ? ((startTime as any).toISOString?.() ??
+                          (typeof startTime === 'string' ? startTime : String(startTime)))
+                    : undefined
+            },
+        ],
         currentWindowIndex: [
-            (s) => [s.windowIds, s.currentSegment],
-            (windowIds, currentSegment) => {
-                const index = windowIds.findIndex((windowId) =>
-                    currentSegment?.windowId ? windowId === currentSegment?.windowId : -1
-                )
-                return index === -1 ? 1 : index + 1
+            (s) => [s.currentSegment],
+            (currentSegment) => {
+                // windowId is already 1-indexed from the registry
+                return currentSegment?.windowId ?? 1
             },
         ],
         lastPageviewEvent: [

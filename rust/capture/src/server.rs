@@ -133,9 +133,23 @@ where
         HealthRegistry::new_with_strategy("liveness", config.healthcheck_strategy.clone());
 
     let redis_client = Arc::new(
-        RedisClient::new(config.redis_url.clone())
-            .await
-            .expect("failed to create redis client"),
+        RedisClient::with_config(
+            config.redis_url.clone(),
+            common_redis::CompressionConfig::disabled(),
+            common_redis::RedisValueFormat::default(),
+            if config.redis_response_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(config.redis_response_timeout_ms))
+            },
+            if config.redis_connection_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(config.redis_connection_timeout_ms))
+            },
+        )
+        .await
+        .expect("failed to create redis client"),
     );
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added

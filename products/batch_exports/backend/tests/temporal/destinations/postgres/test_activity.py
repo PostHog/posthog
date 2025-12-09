@@ -1,11 +1,4 @@
-"""Test module for the Postgres batch export activity.
-
-The tests are parametrized with `use_internal_stage` to cover both usage of
-`insert_into_postgres_activity` or `insert_into_postgres_activity_from_stage`.
-
-NOTE: Once all batch exports have been moved to use the internal stage, the
-`use_internal_stage` parameter can be dropped with only the `True` case remaining.
-"""
+"""Test module for the Postgres batch export activity."""
 
 import uuid
 
@@ -19,7 +12,6 @@ from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     PostgresInsertInputs,
-    insert_into_postgres_activity,
     insert_into_postgres_activity_from_stage,
     postgres_default_fields,
 )
@@ -40,8 +32,6 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    # TODO - clean up when we remove the old activity
-    pytest.mark.parametrize("use_internal_stage", [True]),
 ]
 
 
@@ -61,16 +51,8 @@ async def _run_activity(
     sort_key: str = "event",
     expected_fields=None,
     expect_duplicates: bool = False,
-    use_internal_stage: bool = False,
 ):
-    """Helper function to run Postgres main activity and assert records are exported.
-
-    This function executes either `insert_into_postgres_activity`, or
-    `insert_into_internal_stage_activity` together with `insert_into_postgres_activity_from_stage`
-    depending on the value of `use_internal_stage`.
-
-    This allows using a single function to test both versions of the pipeline.
-    """
+    """Helper function to run Postgres main activity and assert records are exported."""
     insert_inputs = PostgresInsertInputs(
         team_id=team.pk,
         table_name=table_name,
@@ -84,28 +66,26 @@ async def _run_activity(
         **postgres_config,
     )
 
-    if use_internal_stage:
-        assert insert_inputs.batch_export_id is not None
-        # we first need to run the insert_into_internal_stage_activity so that we have data to export
-        await activity_environment.run(
-            insert_into_internal_stage_activity,
-            BatchExportInsertIntoInternalStageInputs(
-                team_id=insert_inputs.team_id,
-                batch_export_id=insert_inputs.batch_export_id,
-                data_interval_start=insert_inputs.data_interval_start,
-                data_interval_end=insert_inputs.data_interval_end,
-                exclude_events=insert_inputs.exclude_events,
-                include_events=None,
-                run_id=None,
-                backfill_details=None,
-                batch_export_model=insert_inputs.batch_export_model,
-                batch_export_schema=insert_inputs.batch_export_schema,
-                destination_default_fields=postgres_default_fields(),
-            ),
-        )
-        result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
-    else:
-        result = await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+    # we first need to run the insert_into_internal_stage_activity so that we have data to export
+    assert insert_inputs.batch_export_id is not None
+    await activity_environment.run(
+        insert_into_internal_stage_activity,
+        BatchExportInsertIntoInternalStageInputs(
+            team_id=insert_inputs.team_id,
+            batch_export_id=insert_inputs.batch_export_id,
+            data_interval_start=insert_inputs.data_interval_start,
+            data_interval_end=insert_inputs.data_interval_end,
+            exclude_events=insert_inputs.exclude_events,
+            include_events=None,
+            run_id=None,
+            backfill_details=None,
+            batch_export_model=insert_inputs.batch_export_model,
+            batch_export_schema=insert_inputs.batch_export_schema,
+            destination_default_fields=postgres_default_fields(),
+        ),
+    )
+
+    result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
 
     await assert_clickhouse_records_in_postgres(
         postgres_connection=postgres_connection,
@@ -138,9 +118,8 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the insert_into_postgres_activity function inserts data into a PostgreSQL table.
+    """Test that the insert_into_postgres_activity_from_stage function inserts data into a PostgreSQL table.
 
     We use the generate_test_events_in_clickhouse function to generate several sets
     of events. Some of these sets are expected to be exported, and others not. Expected
@@ -190,7 +169,6 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
             batch_export_schema=batch_export_schema,
             exclude_events=exclude_events,
             sort_key=sort_key,
-            use_internal_stage=use_internal_stage,
         )
 
 
@@ -225,7 +203,6 @@ async def test_insert_into_postgres_activity_handles_problematic_json(
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
     """Sometimes users send us invalid JSON. We want to test that we handle this gracefully.
 
@@ -246,7 +223,6 @@ async def test_insert_into_postgres_activity_handles_problematic_json(
             batch_export_model=model,
             exclude_events=exclude_events,
             sort_key="event",
-            use_internal_stage=use_internal_stage,
         )
 
 
@@ -259,9 +235,8 @@ async def test_insert_into_postgres_activity_merges_persons_data_in_follow_up_ru
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the `insert_into_postgres_activity` merges new versions of rows.
+    """Test that the `insert_into_postgres_activity_from_stage` merges new versions of rows.
 
     This unit tests looks at the mutability handling capabilities of the aforementioned activity.
     We will generate a new entry in the persons table for half of the persons exported in a first
@@ -283,7 +258,6 @@ async def test_insert_into_postgres_activity_merges_persons_data_in_follow_up_ru
         table_name=table_name,
         batch_export_model=model,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
     )
 
     _, persons_to_export_created = generate_test_data
@@ -321,7 +295,6 @@ async def test_insert_into_postgres_activity_merges_persons_data_in_follow_up_ru
         table_name=table_name,
         batch_export_model=model,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
     )
 
 
@@ -334,9 +307,8 @@ async def test_insert_into_postgres_activity_merges_sessions_data_in_follow_up_r
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the `insert_into_postgres_activity` merges new versions of rows.
+    """Test that the `insert_into_postgres_activity_from_stage` merges new versions of rows.
 
     This unit tests looks at the mutability handling capabilities of the aforementioned activity.
     We will generate a new entry in the sessions table after an initial run. We expect the new
@@ -361,7 +333,6 @@ async def test_insert_into_postgres_activity_merges_sessions_data_in_follow_up_r
         table_name=table_name,
         batch_export_model=model,
         sort_key="session_id",
-        use_internal_stage=use_internal_stage,
     )
 
     events_to_export_created, _ = generate_test_data
@@ -400,7 +371,6 @@ async def test_insert_into_postgres_activity_merges_sessions_data_in_follow_up_r
         table_name=table_name,
         batch_export_model=model,
         sort_key="session_id",
-        use_internal_stage=use_internal_stage,
     )
 
     rows = []
@@ -467,9 +437,8 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
     ateam,
     generate_test_data,
     persons_table_without_primary_key,
-    use_internal_stage,
 ):
-    """Test the insert_into_postgres_activity function fails when missing a primary key.
+    """Test the insert_into_postgres_activity_from_stage function fails when missing a primary key.
 
     We use a self-managed, previously created postgresql table to export persons data to.
     Since this table does not have a primary key, the merge query should fail.
@@ -496,28 +465,25 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
     )
 
     with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-        if use_internal_stage:
-            assert insert_inputs.batch_export_id is not None
-            # First run the internal stage activity
-            await activity_environment.run(
-                insert_into_internal_stage_activity,
-                BatchExportInsertIntoInternalStageInputs(
-                    team_id=insert_inputs.team_id,
-                    batch_export_id=insert_inputs.batch_export_id,
-                    data_interval_start=insert_inputs.data_interval_start,
-                    data_interval_end=insert_inputs.data_interval_end,
-                    exclude_events=insert_inputs.exclude_events,
-                    include_events=None,
-                    run_id=None,
-                    backfill_details=None,
-                    batch_export_model=insert_inputs.batch_export_model,
-                    batch_export_schema=insert_inputs.batch_export_schema,
-                    destination_default_fields=postgres_default_fields(),
-                ),
-            )
-            result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
-        else:
-            result = await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+        # First run the internal stage activity
+        assert insert_inputs.batch_export_id is not None
+        await activity_environment.run(
+            insert_into_internal_stage_activity,
+            BatchExportInsertIntoInternalStageInputs(
+                team_id=insert_inputs.team_id,
+                batch_export_id=insert_inputs.batch_export_id,
+                data_interval_start=insert_inputs.data_interval_start,
+                data_interval_end=insert_inputs.data_interval_end,
+                exclude_events=insert_inputs.exclude_events,
+                include_events=None,
+                run_id=None,
+                backfill_details=None,
+                batch_export_model=insert_inputs.batch_export_model,
+                batch_export_schema=insert_inputs.batch_export_schema,
+                destination_default_fields=postgres_default_fields(),
+            ),
+        )
+        result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
 
         assert result.error is not None
         assert result.error.type == "MissingPrimaryKeyError"
@@ -533,9 +499,8 @@ async def test_insert_into_postgres_activity_handles_person_schema_changes(
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the `insert_into_postgres_activity` handles changes to the
+    """Test that the `insert_into_postgres_activity_from_stage` handles changes to the
     person schema.
 
     If we update the schema of the persons model we export, we should still be
@@ -561,7 +526,6 @@ async def test_insert_into_postgres_activity_handles_person_schema_changes(
         table_name=table_name,
         batch_export_model=model,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
     )
 
     # Drop the created_at column from the PostgreSQL table
@@ -611,5 +575,4 @@ async def test_insert_into_postgres_activity_handles_person_schema_changes(
         batch_export_model=model,
         sort_key="person_id",
         expected_fields=expected_fields,
-        use_internal_stage=use_internal_stage,
     )

@@ -9,8 +9,8 @@ export interface AppShortcutType {
     ref: React.RefObject<HTMLElement>
     /* The name of the shortcut used for reference */
     name: string
-    /* The keybind to use for the shortcut */
-    keybind: string[]
+    /* The keybind(s) to use for the shortcut - array of keybind arrays for multiple alternative keybinds */
+    keybind: string[][]
     /* Describe what the shortcut does */
     intent: string
     /* The type of interaction to trigger */
@@ -87,8 +87,10 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
 
                 // Find matching shortcut
                 const matchingShortcut = values.registeredAppShortcuts.find((shortcut) => {
-                    const shortcutKeyString = shortcut.keybind.map((k: string) => k.toLowerCase()).join('+')
-                    return shortcutKeyString === pressedKeyString
+                    return shortcut.keybind.some((keybind) => {
+                        const shortcutKeyString = keybind.map((k: string) => k.toLowerCase()).join('+')
+                        return shortcutKeyString === pressedKeyString
+                    })
                 })
 
                 if (matchingShortcut) {
@@ -104,13 +106,13 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             }
         }
 
-        window.addEventListener('keydown', cache.onKeyDown)
+        window.addEventListener('keydown', cache.onKeyDown, { capture: true })
         window.addEventListener('keyup', cache.onKeyUp)
         window.addEventListener('blur', cache.onBlur)
     }),
     beforeUnmount(({ cache }) => {
         // unregister app shortcuts
-        window.removeEventListener('keydown', cache.onKeyDown)
+        window.removeEventListener('keydown', cache.onKeyDown, { capture: true })
         window.removeEventListener('keyup', cache.onKeyUp)
         window.removeEventListener('blur', cache.onBlur)
     }),

@@ -14,7 +14,7 @@ import { QuestionInput } from './QuestionInput'
 
 export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean }): JSX.Element {
     const { focusCounter, threadVisible } = useValues(maxLogic)
-    const { threadLoading, showDeepResearchModeToggle } = useValues(maxThreadLogic)
+    const { threadLoading } = useValues(maxThreadLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -37,7 +37,6 @@ export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean 
             textAreaRef={textAreaRef}
             containerClassName="px-3 mx-auto self-center pb-1"
             isThreadVisible={threadVisible}
-            showDeepResearchModeToggle={showDeepResearchModeToggle}
         >
             <SuggestionsList />
         </QuestionInput>
@@ -86,6 +85,7 @@ function SuggestionsList(): JSX.Element {
                         focusInput()
                     } else {
                         // Otherwise, just launch the generation
+                        setQuestion(suggestion.content)
                         askMax(suggestion.content)
                     }
 

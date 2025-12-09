@@ -24,7 +24,6 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -43,6 +42,7 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     ActivityScope,
@@ -65,7 +65,6 @@ import {
     MultivariateFlagVariant,
     NewEarlyAccessFeatureType,
     OrganizationFeatureFlag,
-    ProductKey,
     ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
@@ -925,6 +924,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        // Separate loader for toggling active state - has its own loading state so it doesn't show skeleton
+        featureFlagActiveUpdate: [
+            null as FeatureFlagType | null,
+            {
+                updateFeatureFlagActive: async (active: boolean) => {
+                    if (!values.featureFlag.id) {
+                        throw new Error('Cannot toggle active state of unsaved flag')
+                    }
+                    const savedFlag = await api.update(
+                        `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
+                        { active }
+                    )
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
+                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                },
+            },
+        ],
         relatedInsights: [
             [] as QueryBasedInsightModel[],
             {
@@ -1143,12 +1159,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         submitFeatureFlagFailure: async () => {
             scrollToFormError()
         },
+        updateFeatureFlagActiveFailure: ({ error }) => {
+            lemonToast.error(`Failed to toggle flag: ${error}`)
+        },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
+        },
+        updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
+            if (featureFlagActiveUpdate) {
+                lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
+                actions.setFeatureFlag(featureFlagActiveUpdate)
+                actions.updateFlag(featureFlagActiveUpdate)
+            }
         },
         saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Release conditions updated')
@@ -1368,7 +1394,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     originalFlag: values.originalFeatureFlag,
                     updatedFlag,
                     onConfirm: () => {
-                        actions.saveFeatureFlag(updatedFlag)
+                        actions.updateFeatureFlagActive(active)
                     },
                 },
                 breakpoint,

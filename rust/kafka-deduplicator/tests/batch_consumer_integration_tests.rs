@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::async_trait;
 use kafka_deduplicator::kafka::{
     batch_consumer::*, batch_message::*, test_utils::TestRebalanceHandler,
 };
@@ -14,8 +15,8 @@ use rdkafka::{
     util::Timeout,
 };
 use time::OffsetDateTime;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use tokio_util::sync::CancellationToken;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
 const KAFKA_BROKERS: &str = "localhost:9092";
@@ -31,7 +32,7 @@ fn create_batch_kafka_consumer(
 ) -> Result<(
     BatchConsumer<CapturedEvent>,
     UnboundedReceiver<Batch<CapturedEvent>>,
-    CancellationToken,
+    oneshot::Sender<()>,
 )> {
     let mut config = ClientConfig::new();
     config
@@ -43,22 +44,42 @@ fn create_batch_kafka_consumer(
         .set("heartbeat.interval.ms", "2000");
 
     // Create shutdown channel - return sender so test can control shutdown
-    let shutdown_token = CancellationToken::new();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     let (chan_tx, chan_rx) = unbounded_channel();
+
+    // Create a test processor that sends batches to the channel
+    struct TestProcessor {
+        sender: UnboundedSender<Batch<CapturedEvent>>,
+    }
+
+    #[async_trait]
+    impl BatchConsumerProcessor<CapturedEvent> for TestProcessor {
+        async fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
+            let mut batch = Batch::new();
+            for msg in messages {
+                batch.push_message(msg);
+            }
+            self.sender
+                .send(batch)
+                .map_err(|e| anyhow::anyhow!("Failed to send batch: {e}"))
+        }
+    }
+
+    let processor = Arc::new(TestProcessor { sender: chan_tx });
 
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
         Arc::new(TestRebalanceHandler::default()),
-        chan_tx,
-        shutdown_token.clone(),
+        processor,
+        shutdown_rx,
         topic,
         batch_size,
         batch_timeout,
         Duration::from_secs(1),
     )?;
 
-    Ok((consumer, chan_rx, shutdown_token))
+    Ok((consumer, chan_rx, shutdown_tx))
 }
 
 /// Helper to send test messages
@@ -77,7 +98,7 @@ async fn send_test_messages(
         producer
             .send(record, Timeout::After(Duration::from_secs(5)))
             .await
-            .map_err(|(e, _)| anyhow::anyhow!("Failed to send message: {}", e))?;
+            .map_err(|(e, _)| anyhow::anyhow!("Failed to send message: {e}"))?;
     }
 
     // Give kafka some time to process the messages
@@ -101,6 +122,7 @@ fn create_captured_event() -> CapturedEvent {
     CapturedEvent {
         uuid: event_uuid,
         distinct_id: distinct_id.to_string(),
+        session_id: None,
         ip: "127.0.0.1".to_string(),
         now: now_rfc3339.clone(),
         token: token.to_string(),
@@ -138,7 +160,7 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     send_test_messages(&test_topic, test_messages).await?;
 
-    let (consumer, mut batch_rx, shutdown_token) =
+    let (consumer, mut batch_rx, shutdown_tx) =
         create_batch_kafka_consumer(&test_topic, &group_id, batch_size, batch_timeout)?;
 
     // Start consumption in background task
@@ -149,7 +171,7 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
     // closes the batch submission channel
     let _shutdown_handle = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        shutdown_token.cancel();
+        let _ = shutdown_tx.send(());
     });
 
     tokio::time::sleep(Duration::from_millis(1)).await;

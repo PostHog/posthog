@@ -113,11 +113,8 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
         "personRepository": {
           "options": {
             "calculatePropertiesSize": 0,
-            "newTableIdOffset": 9007199254740991,
-            "newTableName": "posthog_person_new",
             "personPropertiesDbConstraintLimitBytes": 655360,
             "personPropertiesTrimTargetBytes": 524288,
-            "tableCutoverEnabled": false,
           },
         },
         "personUpdateCache": {},

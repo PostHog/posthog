@@ -84,8 +84,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -105,8 +105,8 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             not_matching_distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router2,
             cohort_cache.clone(),
             None,
@@ -126,8 +126,8 @@ mod tests {
         let router3 = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "other_distinct_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router3,
             cohort_cache.clone(),
             None,
@@ -189,8 +189,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -249,7 +249,7 @@ mod tests {
             None,
         );
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -271,8 +271,8 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             context.create_postgres_router(),
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
@@ -354,8 +354,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -512,8 +512,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -668,8 +668,8 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user_distinct_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             context.create_postgres_router(),
             cohort_cache,
             None,
@@ -792,8 +792,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -945,8 +945,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -1037,7 +1037,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
-            1,
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache.clone(),
@@ -1064,7 +1064,7 @@ mod tests {
 
         let flag = create_test_flag_with_variants(team.id);
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -1073,8 +1073,8 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
@@ -1124,7 +1124,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
-            1,
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1183,7 +1183,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
-            1,
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1242,6 +1242,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         }
     }
 
@@ -1290,8 +1291,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -1339,7 +1340,6 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
         let team_id = team.id;
-        let project_id = team.project_id();
         let flag = Arc::new(create_test_flag(
             None,
             Some(team.id),
@@ -1370,8 +1370,8 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 let matcher = FeatureFlagMatcher::new(
                     format!("test_user_{i}"),
+                    None, // device_id
                     team_id,
-                    project_id,
                     router,
                     cohort_cache_clone,
                     None,
@@ -1452,8 +1452,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -1502,7 +1502,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "".to_string(),
-            1,
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1549,7 +1549,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
-            1,
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1603,7 +1603,7 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
-            1,
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1681,8 +1681,8 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             context.create_postgres_router(),
             cohort_cache,
             None,
@@ -1745,8 +1745,8 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             context.create_postgres_router(),
             cohort_cache,
             None,
@@ -1791,7 +1791,7 @@ mod tests {
 
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
-            1,
+            None, // device_id
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1871,8 +1871,8 @@ mod tests {
 
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             context.create_postgres_router(),
             cohort_cache,
             None,
@@ -2104,8 +2104,8 @@ mod tests {
             let router = context.create_postgres_router();
             let mut matcher = FeatureFlagMatcher::new(
                 user_id.to_string(),
+                None, // device_id
                 team.id,
-                team.project_id(),
                 router,
                 cohort_cache.clone(),
                 None,
@@ -2219,8 +2219,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router.clone(),
             cohort_cache.clone(),
             None,
@@ -2229,8 +2229,8 @@ mod tests {
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
             "lil_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router.clone(),
             cohort_cache.clone(),
             None,
@@ -2239,8 +2239,8 @@ mod tests {
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
             "another_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -2355,8 +2355,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -2466,8 +2466,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router.clone(),
             cohort_cache.clone(),
             None,
@@ -2476,8 +2476,8 @@ mod tests {
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
             "lil_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router.clone(),
             cohort_cache.clone(),
             None,
@@ -2486,8 +2486,8 @@ mod tests {
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
             "another_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -2613,8 +2613,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -2709,8 +2709,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -2805,8 +2805,8 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -2922,8 +2922,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -3018,8 +3018,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -3114,8 +3114,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -3202,8 +3202,8 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -3285,8 +3285,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -3383,8 +3383,8 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -3420,7 +3420,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -3462,7 +3462,6 @@ mod tests {
             &router,
             team.id,
             vec![distinct_id.clone()],
-            team.project_id(),
             "hash_key_continuity".to_string(),
         )
         .await
@@ -3475,8 +3474,8 @@ mod tests {
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
@@ -3524,7 +3523,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -3567,8 +3566,8 @@ mod tests {
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
@@ -3611,7 +3610,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -3683,7 +3682,6 @@ mod tests {
             &router2,
             team.id,
             vec![distinct_id.clone()],
-            team.project_id(),
             "hash_key_mixed".to_string(),
         )
         .await
@@ -3696,8 +3694,8 @@ mod tests {
         let router = context.create_postgres_router();
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
@@ -3802,8 +3800,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4033,8 +4031,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "example_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4055,8 +4053,8 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher2 = FeatureFlagMatcher::new(
             "example_id2".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router2,
             cohort_cache.clone(),
             None,
@@ -4162,14 +4160,15 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         // Test user "11" - should get first-variant
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "11".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4191,8 +4190,8 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "example_id".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4214,8 +4213,8 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "3".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4309,8 +4308,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4375,8 +4374,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "nonexistent_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4435,7 +4434,7 @@ mod tests {
         );
 
         // Set up group type mapping cache
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -4446,8 +4445,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher_numeric = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
@@ -4466,8 +4465,8 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher_string = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router2,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
@@ -4498,8 +4497,8 @@ mod tests {
         let router3 = context.create_postgres_router();
         let mut matcher_float = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router3,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
@@ -4519,8 +4518,8 @@ mod tests {
         let router4 = context.create_postgres_router();
         let mut matcher_bool = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router4,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
@@ -4604,7 +4603,7 @@ mod tests {
                 payloads: None,
                 super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
-                        key: "$feature_enrollment/artificial-hog".to_string(),
+                        key: "$feature_enrollment/my-flag".to_string(),
                         value: Some(json!(["true"])),
                         operator: Some(OperatorType::Exact),
                         prop_type: PropertyType::Person,
@@ -4628,7 +4627,7 @@ mod tests {
                 "super_user".to_string(),
                 Some(json!({
                     "email": "random@example.com",
-                    "$feature_enrollment/artificial-hog": true
+                    "$feature_enrollment/my-flag": true
                 })),
             )
             .await
@@ -4641,7 +4640,7 @@ mod tests {
                 "posthog_user".to_string(),
                 Some(json!({
                     "email": "test@posthog.com",
-                    "$feature_enrollment/artificial-hog": false
+                    "$feature_enrollment/my-flag": false
                 })),
             )
             .await
@@ -4663,8 +4662,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "super_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4688,8 +4687,8 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "posthog_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router2,
             cohort_cache.clone(),
             None,
@@ -4713,8 +4712,8 @@ mod tests {
         let router3 = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "regular_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router3,
             cohort_cache.clone(),
             None,
@@ -4786,8 +4785,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4802,6 +4801,216 @@ mod tests {
         let match_result = matcher.get_match(&flag, None, None).unwrap();
         assert!(match_result.matches);
         assert_eq!(match_result.variant, None);
+    }
+
+    fn build_device_bucketing_flag(team_id: TeamId) -> FeatureFlag {
+        FeatureFlag {
+            id: 1,
+            team_id,
+            name: Some("device flag".to_string()),
+            key: "device-flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(50.0),
+                    variant: None,
+                }],
+                ..FlagFilters::default()
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+            bucketing_identifier: Some("device_id".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_uses_device_identifier() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = build_device_bucketing_flag(team.id);
+
+        // device-high hashes to ~0.27 (< 0.5), so rollout should match regardless of distinct_id
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "distinct-alpha".to_string(),
+            Some("device-high".to_string()),
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let high_device_result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            high_device_result.matches,
+            "device-high hash should fall inside rollout"
+        );
+
+        // Changing distinct_id with the same device_id should not change the outcome
+        let router = context.create_postgres_router();
+        let mut matcher_same_device = FeatureFlagMatcher::new(
+            "distinct-beta".to_string(),
+            Some("device-high".to_string()),
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher_same_device
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let same_device_result = matcher_same_device.get_match(&flag, None, None).unwrap();
+        assert_eq!(
+            high_device_result.matches, same_device_result.matches,
+            "device hashing should ignore distinct_id changes"
+        );
+
+        // device-low hashes to ~0.74 (> 0.5), so rollout should not match
+        let router = context.create_postgres_router();
+        let mut matcher_low = FeatureFlagMatcher::new(
+            "distinct-gamma".to_string(),
+            Some("device-low".to_string()),
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher_low
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let low_device_result = matcher_low.get_match(&flag, None, None).unwrap();
+        assert!(
+            !low_device_result.matches,
+            "device-low hash should fall outside rollout"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_falls_back_to_distinct_id_when_missing_device() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = build_device_bucketing_flag(team.id);
+
+        // Without a device_id, the matcher should fall back to the distinct_id hash.
+        // distinct-foo hashes to ~0.32 (< 0.5) so it should match.
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let match_from_distinct = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            match_from_distinct.matches,
+            "fallback distinct hash should fall inside rollout"
+        );
+
+        // distinct-high hashes to ~0.94 (> 0.5) so it should not match.
+        let router = context.create_postgres_router();
+        let mut matcher_high = FeatureFlagMatcher::new(
+            "distinct-high".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher_high
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let high_distinct_result = matcher_high.get_match(&flag, None, None).unwrap();
+        assert!(
+            !high_distinct_result.matches,
+            "fallback distinct hash should fall outside rollout"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_distinct_id_bucketing_ignores_device_id() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let mut flag = build_device_bucketing_flag(team.id);
+        flag.bucketing_identifier = Some("distinct_id".to_string());
+
+        // distinct-high hashes to > 50%, so rollout should be false even though device-high would match.
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "distinct-high".to_string(),
+            Some("device-high".to_string()),
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let high_distinct_result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            !high_distinct_result.matches,
+            "distinct-id bucketing should ignore device_id input"
+        );
+
+        // distinct-foo hashes to < 50%, so rollout should be true regardless of device_id.
+        let router = context.create_postgres_router();
+        let mut matcher_low = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            Some("device-low".to_string()),
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+        matcher_low
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let low_distinct_result = matcher_low.get_match(&flag, None, None).unwrap();
+        assert!(
+            low_distinct_result.matches,
+            "distinct-id bucketing should follow the distinct hash even when device_id exists"
+        );
     }
 
     #[tokio::test]
@@ -4906,8 +5115,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4951,8 +5160,8 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher2 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router2,
             cohort_cache.clone(),
             None,
@@ -4985,8 +5194,8 @@ mod tests {
         let router3 = context.create_postgres_router();
         let mut matcher3 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router3,
             cohort_cache.clone(),
             None,
@@ -5021,8 +5230,8 @@ mod tests {
         let router4 = context.create_postgres_router();
         let mut matcher4 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router4,
             cohort_cache.clone(),
             None,
@@ -5144,7 +5353,7 @@ mod tests {
         );
 
         // Set up group type mappings
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.id);
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -5174,8 +5383,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
@@ -5218,8 +5427,8 @@ mod tests {
         let router2 = context.create_postgres_router();
         let mut matcher2 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router2,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
@@ -5258,8 +5467,8 @@ mod tests {
         let router3 = context.create_postgres_router();
         let mut matcher3 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router3,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
@@ -5294,8 +5503,8 @@ mod tests {
         let router4 = context.create_postgres_router();
         let mut matcher4 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router4,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
@@ -5334,8 +5543,8 @@ mod tests {
         let router5 = context.create_postgres_router();
         let mut matcher5 = FeatureFlagMatcher::new(
             distinct_id.clone(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router5,
             cohort_cache.clone(),
             None,
@@ -5430,6 +5639,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         let router = context.create_postgres_router();
@@ -5437,8 +5647,8 @@ mod tests {
         // Test 1: User with email "specific@example.com" should match first condition
         let matcher = FeatureFlagMatcher::new(
             "specific_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router.clone(),
             cohort_cache.clone(),
             None,
@@ -5467,8 +5677,8 @@ mod tests {
         // Test 2: Different user should match second condition (catch-all)
         let matcher2 = FeatureFlagMatcher::new(
             "other_user".to_string(),
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -5512,8 +5722,8 @@ mod tests {
         let distinct_id = "user_distinct_id".to_string();
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id,
+            None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -5632,8 +5842,8 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None,
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -5709,8 +5919,8 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None,
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,

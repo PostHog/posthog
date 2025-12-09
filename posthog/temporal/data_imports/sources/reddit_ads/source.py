@@ -27,6 +27,9 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.REDDITADS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {"401 Client Error": None, "404 Client Error": None}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

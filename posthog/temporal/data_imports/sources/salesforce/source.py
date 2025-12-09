@@ -26,6 +26,14 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SALESFORCE
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "invalid_session_id": "Your Salesforce session has expired. Please reconnect the source.",
+            "400 Client Error: Bad Request for url": None,
+            "403 Client Error: Forbidden for url": None,
+            "inactive organization": None,
+        }
+
     def get_schemas(
         self, config: SalesforceSourceConfig, team_id: int, with_counts: bool = False
     ) -> list[SourceSchema]:

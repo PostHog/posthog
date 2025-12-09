@@ -6,10 +6,7 @@ import TextareaAutosize from 'react-textarea-autosize'
 import { cn } from 'lib/utils/css-classes'
 
 interface LemonTextAreaPropsBase
-    extends Pick<
-        React.TextareaHTMLAttributes<HTMLTextAreaElement>,
-        'onFocus' | 'onBlur' | 'maxLength' | 'autoFocus' | 'onKeyDown'
-    > {
+    extends Pick<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown'> {
     id?: string
     value?: string
     defaultValue?: string
@@ -22,6 +19,7 @@ interface LemonTextAreaPropsBase
     minRows?: number
     maxRows?: number
     rows?: number
+    autoFocus?: boolean | 'true-without-pulse'
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
     'data-attr'?: string
@@ -62,6 +60,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
         stopPropagation,
         actions,
         rightFooter,
+        autoFocus,
         ...textProps
     },
     ref
@@ -77,7 +76,11 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     }, [textProps.value])
 
     return (
-        <div className="flex flex-col">
+        <div
+            className={cn('flex flex-col rounded', {
+                'animate-input-focus-pulse': autoFocus && autoFocus !== 'true-without-pulse',
+            })}
+        >
             <TextareaAutosize
                 minRows={minRows}
                 ref={textRef}
@@ -108,6 +111,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                     setTextLength((event.currentTarget.value ?? '').length)
                     return onChange?.(event.currentTarget.value ?? '')
                 }}
+                autoFocus={!!autoFocus}
                 {...textProps}
             />
             {hasFooter ? (

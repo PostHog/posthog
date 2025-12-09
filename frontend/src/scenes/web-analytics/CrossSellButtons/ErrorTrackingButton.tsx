@@ -1,11 +1,11 @@
 import { IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { WebStatsBreakdown } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, ProductKey, PropertyFilterType, PropertyOperator } from '~/types'
+import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 interface ErrorTrackingButtonProps {
     breakdownBy: WebStatsBreakdown

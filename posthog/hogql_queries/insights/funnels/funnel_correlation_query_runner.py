@@ -31,15 +31,8 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql_queries.insights.funnels import FunnelUDF
-from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnel_strict_actors import FunnelStrictActors
-from posthog.hogql_queries.insights.funnels.funnel_unordered_actors import FunnelUnorderedActors
-from posthog.hogql_queries.insights.funnels.utils import (
-    funnel_window_interval_unit_to_sql,
-    get_funnel_actor_class,
-    use_udf,
-)
+from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -99,7 +92,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
     actors_query: FunnelsActorsQuery
     correlation_actors_query: Optional[FunnelCorrelationActorsQuery]
 
-    _funnel_actors_generator: FunnelActors | FunnelStrictActors | FunnelUnorderedActors | FunnelUDF
+    _funnel_actors_generator: FunnelUDF
 
     def __init__(
         self,
@@ -138,13 +131,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         self.context.actorsQuery = self.actors_query
 
         # Used for generating the funnel persons cte
-        funnel_order_actor_class = get_funnel_actor_class(
-            self.context.funnelsFilter, use_udf(self.context.funnelsFilter, self.team)
-        )(context=self.context)
-        assert isinstance(
-            funnel_order_actor_class, FunnelActors | FunnelStrictActors | FunnelUnorderedActors | FunnelUDF
-        )  # for typings
-        self._funnel_actors_generator = funnel_order_actor_class
+        self._funnel_actors_generator = FunnelUDF(context=self.context)
 
     def _calculate(self) -> FunnelCorrelationResponse:
         """

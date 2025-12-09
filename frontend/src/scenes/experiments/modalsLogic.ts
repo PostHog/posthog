@@ -52,6 +52,8 @@ export const modalsLogic = kea<modalsLogicType>([
         closePrimaryMetricsReorderModal: true,
         openSecondaryMetricsReorderModal: true,
         closeSecondaryMetricsReorderModal: true,
+        openRunningTimeConfigModal: true,
+        closeRunningTimeConfigModal: true,
     }),
     reducers({
         isExperimentCollectionGoalModalOpen: [
@@ -185,6 +187,13 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openStatsEngineModal: () => true,
                 closeStatsEngineModal: () => false,
+            },
+        ],
+        isRunningTimeConfigModalOpen: [
+            false,
+            {
+                openRunningTimeConfigModal: () => true,
+                closeRunningTimeConfigModal: () => false,
             },
         ],
     }),

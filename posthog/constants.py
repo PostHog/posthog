@@ -43,6 +43,7 @@ class AvailableFeature(StrEnum):
     DATA_COLOR_THEMES = "data_color_themes"
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
+    TWO_FACTOR_ENFORCEMENT = "2fa_enforcement"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
@@ -332,6 +333,7 @@ DEFAULT_SURVEY_APPEARANCE = {
     "displayThankYouMessage": True,
     "thankYouMessageHeader": "Thank you for your feedback!",
     "position": "bottom-right",
+    "tabPosition": "right",
     "widgetType": "tab",
     "widgetLabel": "Feedback",
     "widgetColor": "black",

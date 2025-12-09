@@ -9,7 +9,7 @@ import { captureException } from '../posthog'
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
 
-export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording' | 'cookieless'
+export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording' | 'cookieless' | 'cdp' | 'logs'
 
 export function getRedisConnectionOptions(
     serverConfig: PluginsServerConfig,
@@ -62,6 +62,28 @@ export function getRedisConnectionOptions(
                       url: serverConfig.COOKIELESS_REDIS_HOST,
                       options: {
                           port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379,
+                      },
+                  }
+                : fallback
+        case 'cdp':
+            return serverConfig.CDP_REDIS_HOST
+                ? {
+                      url: serverConfig.CDP_REDIS_HOST,
+                      options: {
+                          port: serverConfig.CDP_REDIS_PORT,
+                          password: serverConfig.CDP_REDIS_PASSWORD,
+                      },
+                  }
+                : fallback
+        case 'logs':
+            return serverConfig.LOGS_REDIS_HOST
+                ? {
+                      url: serverConfig.LOGS_REDIS_HOST,
+                      options: {
+                          port: serverConfig.LOGS_REDIS_PORT,
+                          // TLS is an object that lets you define certificate, ca, etc
+                          // we just want the default config so weirdly we pass empty object to enable it
+                          tls: serverConfig.LOGS_REDIS_TLS ? {} : undefined,
                       },
                   }
                 : fallback

@@ -40,7 +40,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import GroupFeedCanvas from 'products/customer_analytics/frontend/components/GroupFeedCanvas/GroupFeedCanvas'
+import { GroupFeedCanvas } from 'products/customer_analytics/frontend/components/GroupFeedCanvas/GroupFeedCanvas'
 
 import { GroupOverview } from './GroupOverview'
 import { RelatedGroups } from './RelatedGroups'
@@ -56,7 +56,11 @@ export const scene: SceneExport<GroupLogicProps> = {
     }),
 }
 
-export function Group(): JSX.Element {
+export function Group({ tabId }: { tabId?: string }): JSX.Element {
+    if (!tabId) {
+        throw new Error('GroupScene rendered with no tabId')
+    }
+
     const { logicProps, groupData, groupDataLoading, groupTypeName, groupType, groupTab, groupEventsQuery } =
         useValues(groupLogic)
     const { groupKey, groupTypeIndex } = logicProps
@@ -108,7 +112,7 @@ export function Group(): JSX.Element {
                               {
                                   key: GroupsTabType.FEED,
                                   label: <span data-attr="groups-feed-tab">Feed</span>,
-                                  content: <GroupFeedCanvas group={groupData} />,
+                                  content: <GroupFeedCanvas group={groupData} tabId={tabId} />,
                               },
                           ]
                         : []),
@@ -117,7 +121,7 @@ export function Group(): JSX.Element {
                         label: <span data-attr="groups-overview-tab">Overview</span>,
                         content: <GroupOverview groupData={groupData} />,
                     },
-                    ...(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && groupData.notebook
+                    ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && groupData.notebook
                         ? [
                               {
                                   key: GroupsTabType.NOTES,

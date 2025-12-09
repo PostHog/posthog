@@ -16,7 +16,8 @@ import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingProductV2Type, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { BillingProductV2Type, StartupProgramLabel } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'
 import { StartupProgramLogicProps, startupProgramLogic } from './startupProgramLogic'
@@ -56,16 +57,17 @@ export function StartupProgram(): JSX.Element {
         formSubmitted,
         isCurrentlyOnStartupPlan,
         wasPreviouslyOnStartupPlan,
-        isUserOrganizationOwnerOrAdmin,
+        isAdminOrOwner,
         isYC,
         isReferralProgram,
         referrerDisplayName,
         ycBatchOptions,
+        currentStartupProgramLabel,
     } = useValues(startupProgramLogic)
     const { billing, billingLoading, isAnnualPlanCustomer, accountOwner } = useValues(billingLogic)
     const { setStartupProgramValue } = useActions(startupProgramLogic)
 
-    const programName = isYC ? 'YC Program' : 'Startup Program'
+    const currentProgramName = currentStartupProgramLabel === StartupProgramLabel.YC ? 'YC Program' : 'Startup Program'
     const platformAndSupportProduct = billing?.products?.find(
         (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
     )
@@ -80,16 +82,38 @@ export function StartupProgram(): JSX.Element {
         },
     })
 
-    if (isCurrentlyOnStartupPlan || wasPreviouslyOnStartupPlan) {
+    // Show early return banner only for non-YC pages when already on a plan
+    // For YC pages, we show the full page with a status box instead
+    if (isCurrentlyOnStartupPlan && !isYC) {
         return (
             <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="info">
-                    <h2 className="mb-2">
-                        You {wasPreviouslyOnStartupPlan ? 'were' : 'are'} already in the {programName}
-                    </h2>
+                    <h2 className="mb-2">You are already in the {currentProgramName}</h2>
+                    <p>It looks like your organization is already part of our {currentProgramName}.</p>
+                    {currentStartupProgramLabel === StartupProgramLabel.YC && (
+                        <p>
+                            Your credits will renew automatically{' '}
+                            <span className="font-semibold">every year, forever.</span>
+                        </p>
+                    )}
+                    <p>If you have any questions, please contact our support team.</p>
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
+                        Return to PostHog
+                    </LemonButton>
+                </LemonBanner>
+            </div>
+        )
+    }
+
+    // YC customers can re-apply
+    if (wasPreviouslyOnStartupPlan && !isYC) {
+        return (
+            <div className="mx-auto max-w-200 mt-6 px-4">
+                <LemonBanner type="info">
+                    <h2 className="mb-2">You were already in the Startup Program</h2>
                     <p>
-                        It looks like your organization {wasPreviouslyOnStartupPlan ? 'was' : 'is'} already part of our{' '}
-                        {programName}. If you have any questions, please contact our support team.
+                        It looks like your organization was already part of our Startup Program. If you have any
+                        questions, please contact our support team.
                     </p>
                     <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
@@ -119,7 +143,7 @@ export function StartupProgram(): JSX.Element {
         )
     }
 
-    if (!isUserOrganizationOwnerOrAdmin) {
+    if (!isAdminOrOwner) {
         return (
             <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="warning">
@@ -151,8 +175,8 @@ export function StartupProgram(): JSX.Element {
                                 You've found our secret Y Combinator offer!
                             </h1>
                             <p className="text-sm sm:text-base text-muted">
-                                Get $50,000 in credits (plus extras you'll actually use) to help you get to
-                                product-market fit.
+                                Get $50,000 in credits <span className="font-semibold">every. year. forever.</span>{' '}
+                                (plus extras you'll actually use) to help you get to product-market fit.
                             </p>
                         </div>
                     </div>
@@ -195,10 +219,20 @@ export function StartupProgram(): JSX.Element {
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">
-                                    $50,000 in PostHog credit
-                                    {isYC && <span className="text-[0.66em] align-super text-muted"> 1</span>}
+                                    $50,000 in PostHog credit{}
+                                    {isYC && (
+                                        <>
+                                            {' '}
+                                            every. year. forever.
+                                            <span className="text-[0.66em] align-super text-muted"> 1</span>
+                                        </>
+                                    )}
                                 </h4>
-                                <p className="text-muted text-sm">Valid for 1 year to use across all products</p>
+                                <p className="text-muted text-sm">
+                                    {isYC
+                                        ? 'Valid to use across all products'
+                                        : 'Valid for 1 year to use across all products'}
+                                </p>
                             </div>
                         </div>
                         <div className="flex items-start">
@@ -268,8 +302,8 @@ export function StartupProgram(): JSX.Element {
                             <div className="text-xs text-muted space-y-1">
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">1</span>
-                                    Applies to current and previous 4 batches. Earlier batches get $25,000 for 12
-                                    months.
+                                    Credits renew automatically each year. If you've previously been in the program and
+                                    your credits expired, you can reapply and continue getting $50,000 annually.
                                 </div>
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">2</span>
@@ -282,216 +316,257 @@ export function StartupProgram(): JSX.Element {
                 </div>
 
                 <div className="space-y-4">
-                    {/* Step 1: Add billing details */}
-                    <div className="bg-surface-secondary rounded-lg p-6">
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl m-0">Step 1: Add billing details</h2>
+                    {/* Show status box for current startup plan customers visiting YC page */}
+                    {isCurrentlyOnStartupPlan && isYC ? (
+                        <div className="bg-surface-secondary rounded-lg p-6">
+                            <div className="flex items-center gap-2 mb-4">
+                                <IconCheck className="text-success shrink-0 size-6" />
+                                <h2 className="text-xl m-0">You're in the {currentProgramName}</h2>
+                            </div>
+                            {currentStartupProgramLabel === StartupProgramLabel.YC ? (
+                                <p>
+                                    Your credits will renew automatically{' '}
+                                    <span className="font-semibold">every year, forever.</span>
+                                </p>
+                            ) : (
+                                <p>
+                                    If you qualify for the YC Program and your Startup Program credits expire, you can
+                                    reapply for the YC deal and receive $50,000 in credits annually.
+                                </p>
+                            )}
+                            <p className="mt-2">If you have any questions, please contact our support team.</p>
+                            <LemonButton type="primary" to={urls.projectRoot()} className="mt-4">
+                                Return to PostHog
+                            </LemonButton>
                         </div>
-                        {billingLoading ? (
-                            <div className="flex items-center gap-2">
-                                <Spinner className="text-lg" />
-                                <span>Checking if you're on a paid plan</span>
-                            </div>
-                        ) : billing?.has_active_subscription ? (
-                            <div className="flex items-center gap-2 text-success">
-                                <IconCheck className="shrink-0" />
-                                <span>You're on a paid plan</span>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-start gap-2">
-                                <p className="text-muted mb-2">
-                                    To be eligible for the startup program, you need to be on a paid plan.
-                                </p>
-                                <p className="text-muted mb-2">
-                                    Don't worry - you'll only pay for what you use and can set billing limits as low as
-                                    $0 to control your spend.
-                                </p>
-                                <p className="text-muted mb-2 italic">
-                                    P.S. You still keep the monthly free allowance for every product!
-                                </p>
-                                {platformAndSupportProduct && (
-                                    <BillingUpgradeCTAWrapper platformAndSupportProduct={platformAndSupportProduct} />
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Step 2: Submit application form */}
-                    <div className="bg-surface-secondary rounded-lg p-6">
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl m-0">Step 2: Submit application</h2>
-                        </div>
-
-                        {formSubmitted ? (
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-2 text-success">
-                                    <IconCheck className="shrink-0" />
-                                    <span>Application submitted successfully!</span>
+                    ) : (
+                        <>
+                            {/* Step 1: Add billing details */}
+                            <div className="bg-surface-secondary rounded-lg p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h2 className="text-xl m-0">Step 1: Add billing details</h2>
                                 </div>
-                                <p className="text-muted">
-                                    Thank you for your application! We'll review it and get back to you as soon as
-                                    possible. In the meantime, you can continue using PostHog.
-                                </p>
-                                <LemonButton type="primary" to={urls.projectRoot()}>
-                                    Return to PostHog
-                                </LemonButton>
-                            </div>
-                        ) : (
-                            <Form
-                                logic={startupProgramLogic}
-                                formKey="startupProgram"
-                                enableFormOnSubmit
-                                className="space-y-3"
-                            >
-                                <div className="hidden">
-                                    <div className="grid md:grid-cols-2 gap-3">
-                                        <LemonField name="first_name" label="First name">
-                                            <LemonInput placeholder="Jane" />
-                                        </LemonField>
-
-                                        <LemonField name="last_name" label="Last name">
-                                            <LemonInput placeholder="Doe" />
-                                        </LemonField>
+                                {billingLoading ? (
+                                    <div className="flex items-center gap-2">
+                                        <Spinner className="text-lg" />
+                                        <span>Checking if you're on a paid plan</span>
                                     </div>
+                                ) : billing?.has_active_subscription ? (
+                                    <div className="flex items-center gap-2 text-success">
+                                        <IconCheck className="shrink-0" />
+                                        <span>You're on a paid plan</span>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-start gap-2">
+                                        <p className="text-muted mb-2">
+                                            To be eligible for the startup program, you need to be on a paid plan.
+                                        </p>
+                                        <p className="text-muted mb-2">
+                                            Don't worry - you'll only pay for what you use and can set billing limits as
+                                            low as $0 to control your spend.
+                                        </p>
+                                        <p className="text-muted mb-2 italic">
+                                            P.S. You still keep the monthly free allowance for every product!
+                                        </p>
+                                        {platformAndSupportProduct && (
+                                            <BillingUpgradeCTAWrapper
+                                                platformAndSupportProduct={platformAndSupportProduct}
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                            </div>
 
-                                    <LemonField name="email" label="Email">
-                                        <LemonInput placeholder="you@example.com" />
-                                    </LemonField>
-
-                                    <LemonField name="startup_domain" label="Company domain">
-                                        <LemonInput placeholder="example.com" />
-                                    </LemonField>
+                            {/* Step 2: Submit application form */}
+                            <div className="bg-surface-secondary rounded-lg p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h2 className="text-xl m-0">Step 2: Submit application</h2>
                                 </div>
 
-                                <LemonField
-                                    name="organization_name"
-                                    label="PostHog organization"
-                                    info="To apply for a different organization, switch to that organization first"
-                                >
-                                    <LemonInput placeholder="Your PostHog organization" disabled />
-                                </LemonField>
-
-                                <LemonField name="organization_id" className="hidden">
-                                    <LemonInput />
-                                </LemonField>
-
-                                {!isYC && (
-                                    <>
-                                        <LemonField
-                                            name="raised"
-                                            label="How much in total funding have you raised (USD)"
-                                        >
-                                            <LemonSelect options={RAISED_OPTIONS} className="bg-bg-light" />
-                                        </LemonField>
-
-                                        <LemonField
-                                            name="incorporation_date"
-                                            label="The date that your company was incorporated"
-                                        >
-                                            <LemonCalendarSelectInput
-                                                clearable={false}
-                                                format="YYYY-MM-DD"
-                                                buttonProps={{ className: 'bg-bg-light' }}
-                                                placeholder=" "
-                                                selectionPeriod="past"
-                                            />
-                                        </LemonField>
-                                    </>
+                                {/* Show reapplication banner for YC users who were previously in a program */}
+                                {wasPreviouslyOnStartupPlan && isYC && (
+                                    <LemonBanner type="info" className="mb-4">
+                                        <p>
+                                            You can reapply for the YC Program and receive $50,000 in credits annually,
+                                            renewed each year.
+                                        </p>
+                                    </LemonBanner>
                                 )}
 
-                                {isYC && (
-                                    <>
-                                        <LemonField name="yc_batch" label="Which YC batch are you?">
-                                            <LemonSelect options={ycBatchOptions} className="bg-bg-light" />
-                                        </LemonField>
+                                {formSubmitted ? (
+                                    <div className="space-y-4">
+                                        <div className="flex items-center gap-2 text-success">
+                                            <IconCheck className="shrink-0" />
+                                            <span>Application submitted successfully!</span>
+                                        </div>
+                                        <p className="text-muted">
+                                            Thank you for your application! We'll review it and get back to you as soon
+                                            as possible. In the meantime, you can continue using PostHog.
+                                        </p>
+                                        <LemonButton type="primary" to={urls.projectRoot()}>
+                                            Return to PostHog
+                                        </LemonButton>
+                                    </div>
+                                ) : (
+                                    <Form
+                                        logic={startupProgramLogic}
+                                        formKey="startupProgram"
+                                        enableFormOnSubmit
+                                        className="space-y-3"
+                                    >
+                                        <div className="hidden">
+                                            <div className="grid md:grid-cols-2 gap-3">
+                                                <LemonField name="first_name" label="First name">
+                                                    <LemonInput placeholder="Jane" />
+                                                </LemonField>
+
+                                                <LemonField name="last_name" label="Last name">
+                                                    <LemonInput placeholder="Doe" />
+                                                </LemonField>
+                                            </div>
+
+                                            <LemonField name="email" label="Email">
+                                                <LemonInput placeholder="you@example.com" />
+                                            </LemonField>
+
+                                            <LemonField name="startup_domain" label="Company domain">
+                                                <LemonInput placeholder="example.com" />
+                                            </LemonField>
+                                        </div>
 
                                         <LemonField
-                                            name="yc_proof_screenshot_url"
-                                            label={
-                                                <span>
-                                                    Screenshot showing you're using{' '}
-                                                    <Link target="_blank" to={YC_DEAL_BOOKFACE}>
-                                                        PostHog deal
-                                                    </Link>{' '}
-                                                    on Bookface
-                                                </span>
-                                            }
-                                            info="Open PostHog deal on Bookface, click 'Mark Using', take a screenshot and attach it below"
+                                            name="organization_name"
+                                            label="PostHog organization"
+                                            info="To apply for a different organization, switch to that organization first"
                                         >
-                                            <LemonFileInput
-                                                accept="image/*"
-                                                multiple={false}
-                                                value={filesToUpload}
-                                                showUploadedFiles={false}
-                                                onChange={setFilesToUpload}
-                                                loading={uploading}
-                                                callToAction={
-                                                    <div className="border border-dashed rounded p-2 w-full">
-                                                        {startupProgram.yc_proof_screenshot_url ? (
-                                                            <div className="flex items-center justify-center gap-4 w-full">
-                                                                <span className="font-semibold">
-                                                                    YC deal screenshot
-                                                                </span>
-                                                                <div className="relative">
-                                                                    <img
-                                                                        src={startupProgram.yc_proof_screenshot_url}
-                                                                        alt="YC Profile"
-                                                                        className="h-10 w-10 rounded object-cover"
-                                                                    />
-                                                                    <LemonButton
-                                                                        type="tertiary"
-                                                                        status="danger"
-                                                                        size="xsmall"
-                                                                        icon={<IconX className="text-sm" />}
-                                                                        onClick={(e) => {
-                                                                            e.preventDefault()
-                                                                            setStartupProgramValue(
-                                                                                'yc_proof_screenshot_url',
-                                                                                undefined
-                                                                            )
-                                                                        }}
-                                                                        tooltip="Remove screenshot"
-                                                                        className="absolute -top-1 -right-1 p-0.5 !bg-bg-light rounded-full"
-                                                                        noPadding
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex items-center justify-center gap-2">
-                                                                <IconUpload className="text-2xl" />
-                                                                <span>Upload Screenshot</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                }
-                                            />
+                                            <LemonInput placeholder="Your PostHog organization" disabled />
                                         </LemonField>
 
-                                        <LemonField
-                                            name="yc_merch_count"
-                                            label="How many merch packs do you need for you and your co-founder(s)?"
-                                        >
-                                            <LemonInput type="number" min={1} max={5} />
+                                        <LemonField name="organization_id" className="hidden">
+                                            <LemonInput />
                                         </LemonField>
-                                    </>
+
+                                        {!isYC && (
+                                            <>
+                                                <LemonField
+                                                    name="raised"
+                                                    label="How much in total funding have you raised (USD)"
+                                                >
+                                                    <LemonSelect options={RAISED_OPTIONS} className="bg-bg-light" />
+                                                </LemonField>
+
+                                                <LemonField
+                                                    name="incorporation_date"
+                                                    label="The date that your company was incorporated"
+                                                >
+                                                    <LemonCalendarSelectInput
+                                                        clearable={false}
+                                                        format="YYYY-MM-DD"
+                                                        buttonProps={{ className: 'bg-bg-light' }}
+                                                        placeholder=" "
+                                                        selectionPeriod="past"
+                                                    />
+                                                </LemonField>
+                                            </>
+                                        )}
+
+                                        {isYC && (
+                                            <>
+                                                <LemonField name="yc_batch" label="Which YC batch are you?">
+                                                    <LemonSelect options={ycBatchOptions} className="bg-bg-light" />
+                                                </LemonField>
+
+                                                <LemonField
+                                                    name="yc_proof_screenshot_url"
+                                                    label={
+                                                        <span>
+                                                            Screenshot showing you're using{' '}
+                                                            <Link target="_blank" to={YC_DEAL_BOOKFACE}>
+                                                                PostHog deal
+                                                            </Link>{' '}
+                                                            on Bookface
+                                                        </span>
+                                                    }
+                                                    info="Open PostHog deal on Bookface, click 'Mark Using', take a screenshot and attach it below"
+                                                >
+                                                    <LemonFileInput
+                                                        accept="image/*"
+                                                        multiple={false}
+                                                        value={filesToUpload}
+                                                        showUploadedFiles={false}
+                                                        onChange={setFilesToUpload}
+                                                        loading={uploading}
+                                                        callToAction={
+                                                            <div className="border border-dashed rounded p-2 w-full">
+                                                                {startupProgram.yc_proof_screenshot_url ? (
+                                                                    <div className="flex items-center justify-center gap-4 w-full">
+                                                                        <span className="font-semibold">
+                                                                            YC deal screenshot
+                                                                        </span>
+                                                                        <div className="relative">
+                                                                            <img
+                                                                                src={
+                                                                                    startupProgram.yc_proof_screenshot_url
+                                                                                }
+                                                                                alt="YC Profile"
+                                                                                className="h-10 w-10 rounded object-cover"
+                                                                            />
+                                                                            <LemonButton
+                                                                                type="tertiary"
+                                                                                status="danger"
+                                                                                size="xsmall"
+                                                                                icon={<IconX className="text-sm" />}
+                                                                                onClick={(e) => {
+                                                                                    e.preventDefault()
+                                                                                    setStartupProgramValue(
+                                                                                        'yc_proof_screenshot_url',
+                                                                                        undefined
+                                                                                    )
+                                                                                }}
+                                                                                tooltip="Remove screenshot"
+                                                                                className="absolute -top-1 -right-1 p-0.5 !bg-bg-light rounded-full"
+                                                                                noPadding
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex items-center justify-center gap-2">
+                                                                        <IconUpload className="text-2xl" />
+                                                                        <span>Upload Screenshot</span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        }
+                                                    />
+                                                </LemonField>
+
+                                                <LemonField
+                                                    name="yc_merch_count"
+                                                    label="How many merch packs do you need for you and your co-founder(s)?"
+                                                >
+                                                    <LemonInput type="number" min={1} max={5} />
+                                                </LemonField>
+                                            </>
+                                        )}
+
+                                        <LemonButton
+                                            type="primary"
+                                            htmlType="submit"
+                                            className="mt-4"
+                                            data-attr="startup-program-submit"
+                                        >
+                                            Submit Application
+                                        </LemonButton>
+
+                                        {/* This will display a form error if user is not on a paid plan. Kea forms requires a child element */}
+                                        <LemonField name="_form">
+                                            <span />
+                                        </LemonField>
+                                    </Form>
                                 )}
-
-                                <LemonButton
-                                    type="primary"
-                                    htmlType="submit"
-                                    className="mt-4"
-                                    data-attr="startup-program-submit"
-                                >
-                                    Submit Application
-                                </LemonButton>
-
-                                {/* This will display a form error if user is not on a paid plan. Kea forms requires a child element */}
-                                <LemonField name="_form">
-                                    <span />
-                                </LemonField>
-                            </Form>
-                        )}
-                    </div>
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
         </div>

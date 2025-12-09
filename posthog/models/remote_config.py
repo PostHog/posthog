@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import requests
 import structlog
+from opentelemetry import trace
 from prometheus_client import Counter
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
@@ -28,6 +29,8 @@ from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+
+tracer = trace.get_tracer(__name__)
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
@@ -58,6 +61,7 @@ logger = structlog.get_logger(__name__)
 _array_js_content: Optional[str] = None
 
 
+@tracer.start_as_current_span("RemoteConfig.get_array_js_content")
 def get_array_js_content():
     global _array_js_content
 
@@ -68,6 +72,7 @@ def get_array_js_content():
     return _array_js_content
 
 
+@tracer.start_as_current_span("RemoteConfig.indent_js")
 def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
@@ -78,6 +83,7 @@ def cache_key_for_team_token(team_token: str) -> str:
     return f"remote_config/{team_token}/config"
 
 
+@tracer.start_as_current_span("RemoteConfig.sanitize_config_for_public_cdn")
 def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
     from posthog.api.utils import on_permitted_recording_domain
 
@@ -124,6 +130,7 @@ class RemoteConfig(UUIDTModel):
             load_fn=load_config,
         )
 
+    @tracer.start_as_current_span("RemoteConfig.build_config")
     def build_config(self):
         from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
@@ -196,12 +203,12 @@ class RemoteConfig(UUIDTModel):
 
             rrweb_script_config = None
 
-            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
-                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-            ):
+            recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
+            if not recorder_script and settings.DEBUG:
+                recorder_script = "posthog-recorder"
+            if recorder_script:
                 rrweb_script_config = {
-                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                    "script": recorder_script,
                 }
 
             session_recording_config_response = {
@@ -282,6 +289,7 @@ class RemoteConfig(UUIDTModel):
 
         return config
 
+    @tracer.start_as_current_span("RemoteConfig._build_site_apps_js")
     def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
@@ -357,6 +365,7 @@ class RemoteConfig(UUIDTModel):
         return data
 
     @classmethod
+    @tracer.start_as_current_span("RemoteConfig.get_config_via_token")
     def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
         config = cls._get_config_via_cache(token)
         config = sanitize_config_for_public_cdn(config, request=request)
@@ -364,6 +373,7 @@ class RemoteConfig(UUIDTModel):
         return config
 
     @classmethod
+    @tracer.start_as_current_span("RemoteConfig.get_config_js_via_token")
     def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         config = cls._get_config_via_cache(token)
         # Get the site apps JS so we can render it in the JS
@@ -384,6 +394,7 @@ class RemoteConfig(UUIDTModel):
         return js_content
 
     @classmethod
+    @tracer.start_as_current_span("RemoteConfig.get_array_js_via_token")
     def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
         # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
         js_content = cls.get_config_js_via_token(token, request=request)

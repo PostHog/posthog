@@ -5,7 +5,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { parseTagsFilter } from 'lib/utils'
+import { objectsEqual, parseTagsFilter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
@@ -212,16 +212,18 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     const response = await api.get(url)
                     breakpoint()
 
-                    // Fetch one event as example and cache
-                    let exampleEventProperties: Record<string, string>
-                    const exampleUrl = api.events.determineListEndpoint({ event: definition.name }, 1)
-                    if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
-                        exampleEventProperties = cache.apiCache[exampleUrl]
-                    } else {
-                        exampleEventProperties = (await api.get(exampleUrl))?.results?.[0].properties ?? {}
-                        cache.apiCache = {
-                            ...cache.apiCache,
-                            [exampleUrl]: exampleEventProperties,
+                    // Fetch one event as example and cache (only if events have been captured)
+                    let exampleEventProperties: Record<string, string> = {}
+                    if (definition.last_seen_at) {
+                        const exampleUrl = api.events.determineListEndpoint({ event: definition.name }, 1)
+                        if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
+                            exampleEventProperties = cache.apiCache[exampleUrl]
+                        } else {
+                            exampleEventProperties = (await api.get(exampleUrl))?.results?.[0].properties ?? {}
+                            cache.apiCache = {
+                                ...cache.apiCache,
+                                [exampleUrl]: exampleEventProperties,
+                            }
                         }
                     }
 
@@ -345,7 +347,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             }
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/data-management/events': (_, searchParams) => {
             const { event, event_type, ordering, tags } = searchParams
 
@@ -357,7 +359,11 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
             }
 
-            actions.setFilters(filtersFromUrl)
+            if (!objectsEqual(values.filters, filtersFromUrl)) {
+                actions.setFilters(filtersFromUrl)
+            } else if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+                actions.loadEventDefinitions()
+            }
         },
     })),
     actionToUrl(({ values }) => ({

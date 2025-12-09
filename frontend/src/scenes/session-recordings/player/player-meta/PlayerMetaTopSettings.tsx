@@ -15,6 +15,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { urls } from 'scenes/urls'
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -91,9 +92,17 @@ function TTLWarning(): JSX.Element | null {
                         title: 'Recording about to expire',
                         description: (
                             <span>
+                                <br />
                                 This recording will expire in{' '}
-                                <strong>{sessionPlayerMetaData.recording_ttl} days</strong>. If you wish to keep it
-                                around, you should add it to a collection.
+                                <strong>{sessionPlayerMetaData.recording_ttl} days</strong>.
+                                <br />
+                                <br />
+                                Go to{' '}
+                                <Link to={urls.settings('project-replay', 'replay-retention')}>
+                                    Session Replay settings
+                                </Link>{' '}
+                                to increase your retention period to keep future recordings around for longer.
+                                <br />
                                 <br />
                                 Refer to{' '}
                                 <Link

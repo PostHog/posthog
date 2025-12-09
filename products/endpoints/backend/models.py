@@ -80,6 +80,13 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     description = models.TextField(blank=True, help_text="Human-readable description of what this query does")
 
+    derived_from_insight = models.CharField(
+        max_length=12,
+        null=True,
+        blank=True,
+        help_text="Short ID of the insight this endpoint was created from",
+    )
+
     # Parameter schema for query customization
     parameters = models.JSONField(
         default=dict, blank=True, help_text="JSON schema defining expected parameters for query customization"
@@ -179,10 +186,14 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     def can_materialize(self) -> tuple[bool, str]:
         """Check if endpoint can be materialized.
 
+        Only HogQLQuery can be materialized.
+
         Returns: (can_materialize: bool, reason: str)
         """
-        if self.query.get("kind") != "HogQLQuery":
-            return False, "Only HogQL queries can be materialized."
+        query_kind = self.query.get("kind")
+
+        if query_kind != "HogQLQuery":
+            return False, f"Only HogQLQuery can be materialized. Query type '{query_kind}' is not supported."
 
         if self.query.get("variables"):
             return False, "Queries with variables cannot be materialized."

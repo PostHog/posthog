@@ -4,14 +4,6 @@ from django.conf import settings
 
 import psycopg
 
-from products.batch_exports.backend.temporal.destinations.postgres_batch_export import PostgreSQLHeartbeatDetails
-
-
-@pytest.fixture
-def activity_environment(activity_environment):
-    activity_environment.heartbeat_class = PostgreSQLHeartbeatDetails
-    return activity_environment
-
 
 @pytest.fixture
 def postgres_config():

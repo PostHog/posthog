@@ -1,4 +1,5 @@
 from collections import namedtuple
+from datetime import datetime
 from numbers import Number
 from typing import Literal, Optional, Union, cast
 
@@ -44,6 +45,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Cohort, Filter, Property, Team
 from posthog.models.property import PropertyGroup
 from posthog.queries.cohort_query import CohortQuery
@@ -573,3 +575,258 @@ class HogQLCohortQuery:
         if condition.negation:
             raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
         return condition.query
+
+
+class HogQLRealtimeCohortQuery(HogQLCohortQuery):
+    """
+    Realtime cohort query that uses prefiltered_events for behavioral conditions
+    and cohort_membership for child cohort filters.
+
+    This extends HogQLCohortQuery and overrides the methods that need to query
+    different tables for realtime cohort calculation.
+    """
+
+    def __init__(
+        self,
+        cohort_query: Optional[CohortQuery] = None,
+        cohort: Optional[Cohort] = None,
+        team: Optional[Team] = None,
+    ):
+        super().__init__(cohort_query=cohort_query, cohort=cohort, team=team)
+        self.cohort = cohort
+
+    def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
+        """
+        Query precalculated_events using conditionHash for realtime behavioral matching.
+        Uses the precalculated_events table populated by CdpBehaviouralEventsConsumer.
+        """
+        condition_hash = getattr(prop, "conditionHash", None)
+        if not condition_hash:
+            cohort_id = self.cohort.id if self.cohort else "unknown"
+            raise ValueError(
+                f"BUG: Realtime cohort (cohort_id={cohort_id}) has behavioral property without conditionHash. "
+                f"All realtime cohorts MUST have conditionHash for behavioral filters. Property: {prop}"
+            )
+
+        # Extract date_from using same logic as parent class
+        if prop.explicit_datetime:
+            # Explicit datetime filter, can be a relative or absolute date
+            date_from_str = prop.explicit_datetime
+        else:
+            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+            date_interval = validate_interval(prop.time_interval)
+            date_from_str = f"-{date_value}{date_interval[:1]}"
+
+        # Parse the date string using QueryDateRange to get actual datetime
+        date_range = DateRange(date_from=date_from_str)
+        query_date_range = QueryDateRange(
+            date_range=date_range,
+            team=self.team,
+            interval=None,
+            now=datetime.now(),
+        )
+        date_from_datetime = query_date_range.date_from()
+
+        # Build query using precalculated_events
+        query_str = """
+            SELECT
+                pdi2.person_id as id
+            FROM
+            (
+                SELECT DISTINCT distinct_id
+                FROM precalculated_events
+                WHERE
+                    team_id = {team_id}
+                    AND condition = {condition_hash}
+                    AND date >= toDate({date_from})
+            ) AS pfe
+            INNER JOIN
+            (
+                SELECT
+                    distinct_id,
+                    argMax(person_id, version) as person_id
+                FROM raw_person_distinct_ids
+                WHERE team_id = {team_id}
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+            ) AS pdi2 ON pdi2.distinct_id = pfe.distinct_id
+        """
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                query_str,
+                {
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "condition_hash": ast.Constant(value=condition_hash),
+                    "date_from": ast.Constant(value=date_from_datetime),
+                },
+            ),
+        )
+
+    def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
+        """
+        Query precalculated_events with count aggregation for multiple event occurrences.
+        Supports operators: gte, lte, gt, lt, eq.
+        """
+        condition_hash = getattr(prop, "conditionHash", None)
+        if not condition_hash:
+            cohort_id = self.cohort.id if self.cohort else "unknown"
+            raise ValueError(
+                f"Realtime cohort (cohort_id={cohort_id}) has behavioral property without conditionHash. "
+                f"All realtime cohorts MUST have conditionHash for behavioral filters. Property: {prop}"
+            )
+
+        min_matches = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
+
+        # Extract date_from using same logic as parent class
+        if prop.explicit_datetime:
+            # Explicit datetime filter, can be a relative or absolute date
+            date_from_str = prop.explicit_datetime
+        else:
+            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+            date_interval = validate_interval(prop.time_interval)
+            date_from_str = f"-{date_value}{date_interval[:1]}"
+
+        # Parse the date string using QueryDateRange to get actual datetime
+        date_range = DateRange(date_from=date_from_str)
+        query_date_range = QueryDateRange(
+            date_range=date_range,
+            team=self.team,
+            interval=None,
+            now=datetime.now(),
+        )
+        date_from_datetime = query_date_range.date_from()
+
+        # Map operator to SQL comparison - validated to prevent SQL injection
+        VALID_OPERATORS: dict[str, str] = {
+            "gte": ">=",
+            "lte": "<=",
+            "gt": ">",
+            "lt": "<",
+            "eq": "=",
+            "exact": "=",
+        }
+        operator_str = str(prop.operator) if prop.operator else "eq"
+        if operator_str not in VALID_OPERATORS:
+            raise ValidationError(
+                f"Invalid operator for performed_event_multiple: {prop.operator}. "
+                f"Must be one of: {', '.join(VALID_OPERATORS.keys())}"
+            )
+        sql_operator = VALID_OPERATORS[operator_str]
+
+        query_str = f"""
+            SELECT
+                pdi2.person_id as id
+            FROM
+            (
+                SELECT distinct_id, count() as event_count
+                FROM precalculated_events
+                WHERE
+                    team_id = {{team_id}}
+                    AND condition = {{condition_hash}}
+                    AND date >= toDate({{date_from}})
+                GROUP BY distinct_id
+                HAVING event_count {sql_operator} {{min_matches}}
+            ) AS pfe
+            INNER JOIN
+            (
+                SELECT
+                    distinct_id,
+                    argMax(person_id, version) as person_id
+                FROM raw_person_distinct_ids
+                WHERE team_id = {{team_id}}
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+            ) AS pdi2 ON pdi2.distinct_id = pfe.distinct_id
+        """
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                query_str,
+                {
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "condition_hash": ast.Constant(value=condition_hash),
+                    "date_from": ast.Constant(value=date_from_datetime),
+                    "min_matches": ast.Constant(value=min_matches),
+                },
+            ),
+        )
+
+    def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:
+        """
+        Query cohort_membership table for realtime cohort membership.
+        Filters most recent status='entered' to find current members.
+        """
+        cohort_id = cast(int, prop.value)
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT person_id as id FROM (
+                    SELECT person_id, argMax(status, last_updated) as status
+                    FROM cohort_membership
+                    WHERE cohort_id = {cohort_id}
+                    AND team_id = {team_id}
+                    GROUP BY person_id
+                    HAVING status = 'entered'
+                )
+                """,
+                {
+                    "cohort_id": ast.Constant(value=cohort_id),
+                    "team_id": ast.Constant(value=self.team.pk),
+                },
+            ),
+        )
+
+    def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
+        """
+        Realtime cohorts do not support static cohorts.
+        Static cohorts use manually uploaded CSV data and are not compatible with realtime calculation.
+        """
+        raise ValueError(
+            "Realtime cohorts do not support static cohort filters. "
+            "Only dynamic cohorts and behavioral filters are supported for realtime calculation."
+        )
+
+    def get_performed_event_sequence(self, prop: Property) -> ast.SelectQuery:
+        """
+        Realtime cohorts do not support performed_event_sequence.
+        Only performed_event and performed_event_multiple are supported by build_behavioral_event_expr.
+        """
+        raise ValueError(
+            "Realtime cohorts do not support 'performed_event_sequence'. "
+            "Only 'performed_event' and 'performed_event_multiple' are supported."
+        )
+
+    def get_stopped_performing_event(self, prop: Property) -> ast.SelectSetQuery:
+        """
+        Realtime cohorts do not support stopped_performing_event.
+        Only performed_event and performed_event_multiple are supported by build_behavioral_event_expr.
+        """
+        raise ValueError(
+            "Realtime cohorts do not support 'stopped_performing_event'. "
+            "Only 'performed_event' and 'performed_event_multiple' are supported."
+        )
+
+    def get_restarted_performing_event(self, prop: Property) -> ast.SelectSetQuery:
+        """
+        Realtime cohorts do not support restarted_performing_event.
+        Only performed_event and performed_event_multiple are supported by build_behavioral_event_expr.
+        """
+        raise ValueError(
+            "Realtime cohorts do not support 'restarted_performing_event'. "
+            "Only 'performed_event' and 'performed_event_multiple' are supported."
+        )
+
+    def get_performed_event_regularly(self, prop: Property) -> ast.SelectQuery:
+        """
+        Realtime cohorts do not support performed_event_regularly.
+        Only performed_event and performed_event_multiple are supported by build_behavioral_event_expr.
+        """
+        raise ValueError(
+            "Realtime cohorts do not support 'performed_event_regularly'. "
+            "Only 'performed_event' and 'performed_event_multiple' are supported."
+        )

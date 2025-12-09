@@ -8633,7 +8633,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
                 "interval": "hour",
             },
         )
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache_key = generate_cache_key(self.team.pk, f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
 
         is_present = Trends().get_cached_result(filter, self.team)
@@ -8663,7 +8663,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
                 "interval": "hour",
             },
         )
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache_key = generate_cache_key(self.team.pk, f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
 
         res = Trends().get_cached_result(filter, self.team)
@@ -8699,7 +8699,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
                 "events": [{"id": "sign up", "name": "sign up"}],
             },
         )
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache_key = generate_cache_key(self.team.pk, f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
 
         res = Trends().get_cached_result(filter, self.team)
@@ -8739,7 +8739,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
                 "interval": "week",
             },
         )
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache_key = generate_cache_key(self.team.pk, f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
 
         res = Trends().get_cached_result(filter, self.team)
@@ -8777,7 +8777,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
                 "interval": "month",
             },
         )
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache_key = generate_cache_key(self.team.pk, f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
 
         res = Trends().get_cached_result(filter, self.team)

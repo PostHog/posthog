@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -19,6 +19,11 @@ import { maxLogic, mergeConversationHistory } from './maxLogic'
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
     {
+        identifier: 'session_summarization' as const,
+        name: TOOL_DEFINITIONS['session_summarization'].name,
+        description: TOOL_DEFINITIONS['session_summarization'].description,
+    },
+    {
         identifier: 'create_dashboard' as const,
         name: TOOL_DEFINITIONS['create_dashboard'].name,
         description: TOOL_DEFINITIONS['create_dashboard'].description,
@@ -27,11 +32,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         identifier: 'search' as const,
         name: TOOL_DEFINITIONS['search'].name,
         description: TOOL_DEFINITIONS['search'].description,
-    },
-    {
-        identifier: 'session_summarization' as const,
-        name: TOOL_DEFINITIONS['session_summarization'].name,
-        description: TOOL_DEFINITIONS['session_summarization'].description,
     },
     {
         identifier: 'create_and_query_insight' as const,
@@ -64,7 +64,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         conversationHistory: [
             [] as ConversationDetail[],
             {
@@ -78,9 +78,23 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     const response = await api.conversations.list()
                     return response.results
                 },
+
+                loadConversation: async (conversationId: string) => {
+                    const response = await api.conversations.get(conversationId)
+                    const itemIndex = values.conversationHistory.findIndex((c) => c.id === conversationId)
+
+                    if (itemIndex !== -1) {
+                        return [
+                            ...values.conversationHistory.slice(0, itemIndex),
+                            response,
+                            ...values.conversationHistory.slice(itemIndex + 1),
+                        ]
+                    }
+                    return [response, ...values.conversationHistory]
+                },
             },
         ],
-    }),
+    })),
 
     reducers({
         conversationHistory: {
@@ -150,12 +164,21 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
         availableStaticTools: [
             (s) => [s.featureFlags],
-            (featureFlags): ToolRegistration[] =>
-                STATIC_TOOLS.filter((tool) => {
+            (featureFlags): ToolRegistration[] => {
+                const staticTools = STATIC_TOOLS.filter((tool) => {
                     // Only register the static tools that either aren't flagged or have their flag enabled
                     const toolDefinition = TOOL_DEFINITIONS[tool.identifier]
                     return !toolDefinition.flag || featureFlags[toolDefinition.flag]
-                }),
+                })
+                if (featureFlags[FEATURE_FLAGS.AGENT_MODES]) {
+                    staticTools.unshift({
+                        identifier: 'filter_session_recordings' as const,
+                        name: TOOL_DEFINITIONS['filter_session_recordings'].name,
+                        description: TOOL_DEFINITIONS['filter_session_recordings'].description,
+                    })
+                }
+                return staticTools
+            },
         ],
         toolMap: [
             (s) => [s.registeredToolMap, s.availableStaticTools],
@@ -167,7 +190,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         tools: [(s) => [s.toolMap], (toolMap): ToolRegistration[] => Object.values(toolMap)],
         editInsightToolRegistered: [
             (s) => [s.registeredToolMap],
-            (registeredToolMap) => !!registeredToolMap.create_and_query_insight,
+            (registeredToolMap) => !!registeredToolMap.create_and_query_insight || !!registeredToolMap.create_insight,
         ],
         toolSuggestions: [
             (s) => [s.tools],

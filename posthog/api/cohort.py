@@ -68,7 +68,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.cohort import CohortPeople, CohortType
-from posthog.models.cohort.util import get_all_cohort_dependencies, print_cohort_hogql_query
+from posthog.models.cohort.util import get_all_cohort_dependencies, get_friendly_error_message, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
@@ -370,6 +370,14 @@ class CSVConfig:
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
 
 
+class CohortMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer for cohort references (e.g., person cohorts endpoint)."""
+
+    class Meta:
+        model = Cohort
+        fields = ["id", "name", "count"]
+
+
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
@@ -378,6 +386,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    last_error_message = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohort
@@ -394,6 +403,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "created_at",
             "last_calculation",
             "errors_calculating",
+            "last_error_message",
             "count",
             "is_static",
             "cohort_type",
@@ -408,9 +418,31 @@ class CohortSerializer(serializers.ModelSerializer):
             "created_at",
             "last_calculation",
             "errors_calculating",
+            "last_error_message",
             "count",
             "experiment_set",
         ]
+
+    def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
+        # Prefer the annotated last_error_code when available
+        if hasattr(cohort, "last_error_code"):
+            if cohort.last_error_code:
+                return get_friendly_error_message(cohort.last_error_code)
+            return None
+
+        # Fall back to querying calculation history.
+        # Old records may have error set but error_code=NULL; get_friendly_error_message
+        # returns None for those, so they won't surface user-facing messages.
+        last_failed_calculation = (
+            CohortCalculationHistory.objects.filter(cohort=cohort)
+            .exclude(error__isnull=True)
+            .exclude(error="")
+            .order_by("-started_at")
+            .first()
+        )
+        if last_failed_calculation:
+            return get_friendly_error_message(last_failed_calculation.error_code)
+        return None
 
     def validate_cohort_type(self, value):
         """Validate that the cohort type matches the filters"""
@@ -492,6 +524,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if cohort.is_static:
             self._handle_static(cohort, self.context, validated_data, person_ids)
+            # Refresh from DB to get updated count field set by _insert_users_list_with_batching
+            cohort.refresh_from_db()
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
@@ -978,7 +1012,21 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
 
-        return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
+        last_error_code_subquery = Subquery(
+            CohortCalculationHistory.objects.filter(
+                cohort=OuterRef("pk"),
+                error__isnull=False,
+            )
+            .exclude(error="")
+            .order_by("-started_at")
+            .values("error_code")[:1]
+        )
+
+        return (
+            queryset.annotate(last_error_code=last_error_code_subquery)
+            .prefetch_related("experiment_set", "created_by", "team")
+            .order_by("-created_at")
+        )
 
     def _find_behavioral_cohorts(self, all_cohorts: dict[int, Cohort]) -> set[int]:
         """
@@ -1506,7 +1554,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             # )[0]
             distinct_id_subquery = Subquery(
                 PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-                .filter(person_id=OuterRef("person_id"))
+                .filter(team_id=team_id, person_id=OuterRef("person_id"))
                 .values_list("id", flat=True)[:3]
             )
             prefetch_related_objects(

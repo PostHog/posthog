@@ -371,7 +371,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     @snapshot_postgres_queries
@@ -719,7 +719,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select id from persons"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
+            "ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
             in query
         ), query
 
@@ -737,7 +737,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
+            "ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)"
             in query
         ), query
 

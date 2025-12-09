@@ -23,6 +23,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.dashboard import Dashboard
+from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
@@ -41,6 +42,8 @@ from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
+
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
@@ -138,7 +141,16 @@ class TeamManager(models.Manager):
                 type="filters",
             )
         team.save()
+
+        # Add UserProductList for all users who have access to this new team
+        self._sync_user_product_lists_for_new_team(team)
+
         return team
+
+    def _sync_user_product_lists_for_new_team(self, team: "Team") -> None:
+        """Sync UserProductList for all users who have access to this new team."""
+        for user in team.all_users_with_access():
+            backfill_user_product_list_for_new_user(user, team)
 
     def create(self, **kwargs):
         from ..project import Project
@@ -224,6 +236,12 @@ class CookielessServerHashMode(models.IntegerChoices):
     DISABLED = 0, "Disabled"
     STATELESS = 1, "Stateless"
     STATEFUL = 2, "Stateful"
+
+
+class BusinessModel(models.TextChoices):
+    B2B = "b2b", "B2B"
+    B2C = "b2c", "B2C"
+    OTHER = "other", "Other"
 
 
 class SessionRecordingRetentionPeriod(models.TextChoices):
@@ -397,6 +415,12 @@ class Team(UUIDTClassicModel):
         default=False,
         help_text="Whether to automatically apply default evaluation environments to new feature flags",
     )
+    require_evaluation_environment_tags = models.BooleanField(
+        null=True,
+        blank=True,
+        default=False,
+        help_text="Whether to require at least one evaluation environment tag when creating new feature flags",
+    )
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
@@ -434,8 +458,8 @@ class Team(UUIDTClassicModel):
 
     default_data_theme = models.IntegerField(null=True, blank=True)
 
-    # Generic field for storing any team-specific context that is more temporary in nature and thus
-    # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
+    # Generic field for storing any team-specific context
+    # that likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
     # during feature releases.
     extra_settings = models.JSONField(null=True, blank=True)
 
@@ -505,6 +529,14 @@ class Team(UUIDTClassicModel):
         help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
     )
 
+    business_model = models.CharField(
+        max_length=10,
+        choices=BusinessModel.choices,
+        null=True,
+        blank=True,
+        help_text="Whether this project serves B2B or B2C customers, used to optimize the UI layout.",
+    )
+
     @cached_property
     def revenue_analytics_config(self):
         from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -517,6 +549,17 @@ class Team(UUIDTClassicModel):
         from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
         config, _ = TeamMarketingAnalyticsConfig.objects.get_or_create(team=self)
+        return config
+
+    @cached_property
+    def customer_analytics_config(self):
+        from products.customer_analytics.backend.models.team_customer_analytics_config import (
+            TeamCustomerAnalyticsConfig,
+        )
+
+        config, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(
+            team=self, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
+        )
         return config
 
     @property

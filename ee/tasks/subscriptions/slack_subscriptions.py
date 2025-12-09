@@ -12,6 +12,8 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription
 
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, _has_asset_failed
+
 logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
@@ -41,17 +43,19 @@ class SlackDeliveryResult:
 
 
 def _block_for_asset(asset: ExportedAsset) -> dict:
-    # If asset has an exception, return an error block instead of an image
-    if asset.exception:
+    if _has_asset_failed(asset):
         insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
 
         # Slack text blocks have a 3000 character limit
         # Reserve space for the insight name, formatting, and support message
         max_error_length = 2000
-        exception_text = str(asset.exception)
 
-        if len(exception_text) > max_error_length:
-            exception_text = exception_text[:max_error_length] + "... (truncated)"
+        if asset.exception:
+            exception_text = str(asset.exception)
+            if len(exception_text) > max_error_length:
+                exception_text = exception_text[:max_error_length] + "... (truncated)"
+        else:
+            exception_text = ASSET_GENERATION_FAILED_MESSAGE
 
         error_text = (
             f"*{insight_name}*\n"

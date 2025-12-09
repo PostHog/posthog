@@ -9,8 +9,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { ProductKey, SDK, SDKInstructionsMap, SDKTag } from '~/types'
+import { SDK, SDKInstructionsMap, SDKTag } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
@@ -18,7 +19,7 @@ import type { sdksLogicType } from './sdksLogicType'
 
 /*
 To add SDK instructions for your product:
-    1. If needed, add a new ProductKey enum value in ~/types.ts
+    1. If needed, add a new ProductKey enum value in ~/queries/schema/schema-general.ts
     2. Create a folder in this directory for your product
     3. Create and export the instruction components
     4. Create a file like ProductAnalyticsSDKInstructions.tsx and export the instructions object with the SDKKey:Component mapping

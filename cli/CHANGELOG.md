@@ -1,5 +1,25 @@
 # posthog-cli
 
+# 0.5.16
+
+- fix: cut a new version for fixing compromised package
+
+# 0.5.15
+
+- Compromised
+
+# 0.5.14
+
+- Fix authentication issue on sourcemap upload
+
+# 0.5.13
+
+- Add `--include` option on sourcemap commands to match specific files inside directory
+
+# 0.5.12
+
+- Bug fixes and improvements
+
 # 0.5.11
 
 - Do not read bundle files as part of hermes sourcemap commands

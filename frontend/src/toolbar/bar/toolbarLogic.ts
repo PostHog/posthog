@@ -6,12 +6,16 @@ import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
+import { webVitalsToolbarLogic } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
 
 import { generatePiiMaskingCSS } from './piiMaskingStyles'
 import type { toolbarLogicType } from './toolbarLogicType'
@@ -46,7 +50,20 @@ export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
 
     connect(() => ({
-        values: [toolbarConfigLogic, ['posthog']],
+        values: [
+            toolbarConfigLogic,
+            ['posthog'],
+            heatmapToolbarMenuLogic,
+            ['elementStatsLoading', 'rawHeatmapLoading', 'isRefreshing'],
+            actionsLogic,
+            ['allActionsLoading'],
+            flagsToolbarLogic,
+            ['userFlagsLoading'],
+            experimentsLogic,
+            ['allExperimentsLoading'],
+            webVitalsToolbarLogic,
+            ['remoteWebVitalsLoading'],
+        ],
         actions: [
             actionsTabLogic,
             [
@@ -69,9 +86,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'setHeatmapColorPalette',
                 'setCommonFilters',
                 'toggleClickmapsEnabled',
-                'loadHeatmap',
-                'loadHeatmapSuccess',
-                'loadHeatmapFailure',
             ],
         ],
     })),
@@ -357,6 +371,33 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 return warnings
             },
         ],
+        isLoading: [
+            (s) => [
+                s.elementStatsLoading,
+                s.rawHeatmapLoading,
+                s.isRefreshing,
+                s.allActionsLoading,
+                s.userFlagsLoading,
+                s.allExperimentsLoading,
+                s.remoteWebVitalsLoading,
+            ],
+            (
+                elementStatsLoading,
+                rawHeatmapLoading,
+                isRefreshing,
+                allActionsLoading,
+                userFlagsLoading,
+                allExperimentsLoading,
+                remoteWebVitalsLoading
+            ) =>
+                elementStatsLoading ||
+                rawHeatmapLoading ||
+                isRefreshing ||
+                allActionsLoading ||
+                userFlagsLoading ||
+                allExperimentsLoading ||
+                remoteWebVitalsLoading,
+        ],
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
@@ -474,12 +515,16 @@ export const toolbarLogic = kea<toolbarLogicType>([
         },
         actionCreatedSuccess: (action) => {
             // if embedded, we need to tell the parent window that a new action was created
+            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
         },
         maybeSendNavigationMessage: () => {
             const currentPath = window.location.pathname
             if (currentPath !== values.currentPathname) {
                 actions.setCurrentPathname(currentPath)
+                // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                 window.parent.postMessage(
                     { type: PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED, payload: { path: currentPath } },
                     '*'
@@ -581,6 +626,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                             actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
                             actions.setCommonFilters(e.data.payload.commonFilters)
                             actions.toggleClickmapsEnabled(false)
+                            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                             return
                         case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
@@ -605,6 +652,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             // Post message up to parent in case we are embedded in an app
             // Tell the parent window that we are ready
             // we check if we're in an iframe before this setup to avoid logging warnings to the console
+            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
         }
     }),

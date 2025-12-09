@@ -96,6 +96,25 @@ class HogFlowActionSerializer(serializers.Serializer):
 
             data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
 
+        conditions = data.get("config", {}).get("conditions", [])
+
+        single_condition = data.get("config", {}).get("condition", None)
+        if conditions and single_condition:
+            raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
+        if single_condition:
+            conditions = [single_condition]
+
+        if conditions:
+            for condition in conditions:
+                filters = condition.get("filters")
+                if filters is not None:
+                    if "events" in filters:
+                        raise serializers.ValidationError("Event filters are not allowed in conditionals")
+
+                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    serializer.is_valid(raise_exception=True)
+                    condition["filters"] = serializer.validated_data
+
         return data
 
 

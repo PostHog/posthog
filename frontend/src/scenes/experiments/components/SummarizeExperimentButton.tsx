@@ -1,15 +1,21 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
 import { IconAI } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
-import { MaxExperimentMetricResult, MaxExperimentSummaryContext } from '~/queries/schema/schema-general'
-import { ExperimentStatsMethod, ProductKey } from '~/types'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import {
+    MaxExperimentMetricResult,
+    MaxExperimentSummaryContext,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
+import { ExperimentStatsMethod } from '~/types'
 
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { experimentLogic } from '../experimentLogic'
@@ -77,8 +83,12 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
     const maxToolResult = useMaxTool({
         identifier: 'experiment_results_summary',
         context: maxToolContext,
+        contextDescription: {
+            text: maxToolContext.experiment_name,
+            icon: iconForType('experiment'),
+        },
         active: shouldShowMaxSummaryTool,
-        initialMaxPrompt: `Summarize the experiment "${experiment.name}"`,
+        initialMaxPrompt: `!Summarize the experiment "${experiment.name}"`,
         callback(toolOutput) {
             addProductIntent({
                 product_type: ProductKey.EXPERIMENTS,
@@ -103,7 +113,8 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
 
 export function SummarizeExperimentButton(): JSX.Element | null {
     const { openMax } = useExperimentSummaryMaxTool()
-
+    const { experiment } = useValues(experimentLogic)
+    const { reportExperimentAiSummaryRequested } = useActions(experimentLogic)
     if (!openMax) {
         return null
     }
@@ -112,6 +123,7 @@ export function SummarizeExperimentButton(): JSX.Element | null {
         <LemonButton
             size="small"
             onClick={() => {
+                reportExperimentAiSummaryRequested(experiment)
                 openMax()
             }}
             type="secondary"

@@ -30,7 +30,6 @@ from posthog.schema import (
     RetentionQuery,
     TeamTaxonomyQuery,
     TrendsQuery,
-    VisualizationMessage,
 )
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -38,7 +37,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
-from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMessageUnion
+from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantDispatcherEvent, AssistantMessageUnion
 
 
 def remove_line_breaks(line: str) -> str:
@@ -49,7 +48,7 @@ def filter_and_merge_messages(
     messages: Sequence[AssistantMessageUnion],
     entity_filter: Union[tuple[type[AssistantMessageUnion], ...], type[AssistantMessageUnion]] = (
         AssistantMessage,
-        VisualizationMessage,
+        ArtifactRefMessage,
     ),
 ) -> list[AssistantMessageUnion]:
     """
@@ -119,7 +118,7 @@ def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str 
     return cast(HumanMessage, messages[index])
 
 
-def should_output_assistant_message(candidate_message: AssistantMessageUnion) -> bool:
+def should_output_assistant_message(candidate_message: Any) -> bool:
     """
     This is used to filter out messages that are not useful for the user.
     Filter out empty assistant messages and context messages.
@@ -331,3 +330,70 @@ def insert_messages_before_start(
     # Insert context messages right before the start message
     start_idx = find_start_message_idx(messages, start_id)
     return [*messages[:start_idx], *new_messages, *messages[start_idx:]]
+
+
+def sort_schema_properties(
+    schema: dict, top_level_order: list[str], property_order_map: dict[str, list[str]] | None = None
+) -> dict:
+    """
+    Sorts properties in the JSON schema according to predefined order.
+    Uses startswith matching for schema names to handle variants.
+    Modifies the schema in place.
+    """
+    default_order_map = {
+        # Events and Actions nodes - prioritize kind and identifying field
+        "AssistantTrendsEventsNode": ["kind", "event"],
+        "AssistantTrendsActionsNode": ["kind", "id"],
+        # Generic property filters - type first for all variants
+        "AssistantGenericPropertyFilter": ["type", "key", "operator", "value"],
+        # Group property filters - type first for all variants
+        "AssistantGroupPropertyFilter": ["type", "key", "operator", "value", "group_type_index"],
+    }
+    full_order_map = {**default_order_map, **(property_order_map or {})}
+
+    def get_property_order(schema_name: str) -> list[str]:
+        """Get property order for a schema name using startswith matching."""
+        for prefix, order in full_order_map.items():
+            if schema_name.startswith(prefix):
+                return order
+        return []
+
+    def reorder_properties(obj: dict, order: list[str]) -> dict:
+        """Reorders properties dict according to the order list."""
+        if "properties" not in obj:
+            return obj
+
+        properties = obj["properties"]
+
+        if not order:
+            return obj
+
+        # Create new ordered dict
+        ordered_properties = {}
+
+        # Add properties in specified order
+        for key in order:
+            if key in properties:
+                ordered_properties[key] = properties[key]
+
+        # Add remaining properties not in the order list
+        for key, value in properties.items():
+            if key not in ordered_properties:
+                ordered_properties[key] = value
+
+        obj["properties"] = ordered_properties
+        return obj
+
+    # Reorder top-level properties using provided order
+    if "properties" in schema:
+        schema = reorder_properties(schema, top_level_order)
+
+    # Reorder properties in $defs
+    if "$defs" in schema:
+        defs = schema["$defs"]
+        for def_name in defs:
+            order = get_property_order(def_name)
+            if order:
+                defs[def_name] = reorder_properties(defs[def_name], order)
+
+    return schema

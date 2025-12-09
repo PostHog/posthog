@@ -9,7 +9,7 @@ from django.core.cache import cache
 from dateutil import parser
 from rest_framework import status
 
-from posthog.models import WebExperiment
+from posthog.models import Team, WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
@@ -664,7 +664,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
-        self.assertEqual(response.json()["detail"], "Saved metric does not exist")
+        self.assertEqual(response.json()["detail"], "Saved metric does not exist or does not belong to this project")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -2654,8 +2654,14 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Verify the duplicate has the same settings
         assert duplicate_data["description"] == original_experiment["description"]
-        assert duplicate_data["parameters"] == original_experiment["parameters"]
         assert duplicate_data["filters"] == original_experiment["filters"]
+
+        # feature_flag_variants should come from the new flag; other parameters should match the original
+        assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag.filters["multivariate"]["variants"]
+        assert {**duplicate_data["parameters"], "feature_flag_variants": None} == {
+            **original_experiment["parameters"],
+            "feature_flag_variants": None,
+        }
 
         # Compare metrics ignoring fingerprints (they differ due to different start_dates)
         def remove_fingerprints(metrics):
@@ -2670,6 +2676,54 @@ class TestExperimentCRUD(APILicensedTest):
         assert duplicate_data["start_date"] is None
         assert duplicate_data["end_date"] is None
         assert duplicate_data["archived"] is False
+
+    def test_duplicate_experiment_with_existing_flag_uses_new_flag_variants(self) -> None:
+        """Test that duplicating with an existing feature flag uses that flag's variants, not the original's"""
+        # Create original experiment with specific variants
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "feature_flag_key": "original-flag",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "original-variant", "name": "Original Variant", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        # Create a new feature flag with DIFFERENT variants
+        new_flag_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 34},
+            {"key": "new-variant-1", "name": "New Variant 1", "rollout_percentage": 33},
+            {"key": "new-variant-2", "name": "New Variant 2", "rollout_percentage": 33},
+        ]
+        new_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="new-flag-with-different-variants",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {"variants": new_flag_variants},
+            },
+        )
+
+        # Duplicate the experiment using the new feature flag
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate",
+            {"feature_flag_key": new_flag.key},
+        )
+
+        assert response.status_code == 201
+        duplicate_data = response.json()
+
+        # The duplicate should use the NEW flag's variants, not the original's
+        assert duplicate_data["feature_flag_key"] == "new-flag-with-different-variants"
+        assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag_variants
 
     def test_metric_fingerprinting(self):
         """Test that metric fingerprints are computed correctly on create and update"""
@@ -3512,3 +3566,49 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
 
         # Verify the fix: the update activity log should NOT show the first user
         self.assertNotEqual(update_logs[0].user, self.user)
+
+    def test_cannot_add_saved_metric_from_different_team(self):
+        team_b = Team.objects.create(organization=self.organization, name="Team B")
+
+        # Create a saved metric in team A (self.team)
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Team A Metric",
+                "description": "This metric belongs to Team A",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        team_a_metric_id = saved_metric_response.json()["id"]
+
+        # Create an experiment in team B
+        experiment_response = self.client.post(
+            f"/api/projects/{team_b.id}/experiments/",
+            {
+                "name": "Team B Experiment",
+                "feature_flag_key": "team-b-flag",
+                "parameters": None,
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        team_b_experiment_id = experiment_response.json()["id"]
+
+        # Try to add Team A's saved metric to Team B's experiment
+        # This should fail with validation error
+        update_response = self.client.patch(
+            f"/api/projects/{team_b.id}/experiments/{team_b_experiment_id}/",
+            {
+                "saved_metrics_ids": [{"id": team_a_metric_id, "metadata": {"type": "primary"}}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not exist or does not belong to this project", str(update_response.json()))

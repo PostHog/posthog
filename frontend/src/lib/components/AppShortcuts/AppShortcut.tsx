@@ -25,7 +25,14 @@ function keybindToKeyboardShortcutProps(keybind: string[]): Record<string, boole
     return Object.fromEntries(platformAgnosticKeybind.map((key) => [key, true]))
 }
 
-interface AppShortcutProps extends React.HTMLAttributes<HTMLElement>, Omit<AppShortcutType, 'ref'> {
+// Helper function to convert platform-specific keybinds
+function convertPlatformKeybinds(keybinds: string[][]): string[][] {
+    return keybinds.map((keybind) => keybind.map((key) => (!IS_MAC && key === 'command' ? 'ctrl' : key)))
+}
+
+interface AppShortcutProps extends React.HTMLAttributes<HTMLElement>, Omit<AppShortcutType, 'ref' | 'keybind'> {
+    /* The keybind(s) to use for the shortcut - can be a single keybind or multiple alternative keybinds */
+    keybind: string[][]
     children: ReactNode
     /** Pass through props to the child element IMPORTANT, the child element must properly forward the ref what you're trying to interact with */
     asChild?: boolean
@@ -58,6 +65,8 @@ export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(
         const [isRefReady, setIsRefReady] = useState(false)
         const { registerAppShortcut, unregisterAppShortcut } = useActions(appShortcutLogic)
 
+        // keybind is already string[][], no normalization needed
+
         // Use callback ref to track when element is ready
         const handleRef = useCallback(
             (node: HTMLElement | null) => {
@@ -78,14 +87,15 @@ export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(
         // Register shortcut when ref is ready
         useEffect(() => {
             if (isRefReady && internalRef.current && !disabled) {
-                // Replace 'command' with 'ctrl' when not on Mac
-                const platformAgnosticKeybind = keybind.map((key) => (!IS_MAC && key === 'command' ? 'ctrl' : key))
+                // Convert platform-specific keybinds
+                const platformAgnosticKeybinds = convertPlatformKeybinds(keybind)
+
                 // Use targetRef only when asChild is false (wrapper mode)
                 // When asChild is true, always use internalRef (cloned child)
                 const refToUse = !asChild && targetRef ? targetRef : internalRef
                 registerAppShortcut({
                     name,
-                    keybind: platformAgnosticKeybind,
+                    keybind: platformAgnosticKeybinds,
                     ref: refToUse,
                     intent,
                     interaction,
@@ -101,11 +111,13 @@ export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(
             }
         }, [name, unregisterAppShortcut])
 
+        const keybindStrings = keybind.map((kb) => kb.join('+')).join(',')
+
         const elementProps = {
             'data-shortcut-name': name,
-            'data-shortcut-keybind': keybind.join('+'),
+            'data-shortcut-keybind': keybindStrings,
             'data-shortcut-intent': intent,
-            'aria-keyshortcuts': keybind.join('+'),
+            'aria-keyshortcuts': keybindStrings,
             ref: handleRef,
             className: cn(className),
             ...props,
@@ -115,15 +127,20 @@ export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(
             const childProps = children.props as any
             let finalTooltip = undefined
 
-            // If the child has a tooltip prop and not disabled, append the keyboard shortcut to it
+            // If the child has a tooltip prop and not disabled, append the keyboard shortcut(s) to it
             if (childProps.tooltip && !disabled) {
                 finalTooltip = (
                     <>
                         {childProps.tooltip}{' '}
-                        <KeyboardShortcut
-                            {...keybindToKeyboardShortcutProps(keybind)}
-                            className="relative text-xs -top-px"
-                        />
+                        {keybind.map((kb, index) => (
+                            <span key={index}>
+                                {index > 0 && <span className="text-xs opacity-75"> or </span>}
+                                <KeyboardShortcut
+                                    {...keybindToKeyboardShortcutProps(kb)}
+                                    className="relative text-xs -top-px"
+                                />
+                            </span>
+                        ))}
                     </>
                 )
             } else if (childProps.tooltip) {

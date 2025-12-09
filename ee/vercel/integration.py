@@ -18,6 +18,9 @@ from django.utils.text import slugify
 import structlog
 from rest_framework import exceptions
 
+from posthog.schema import ProductIntentContext, ProductKey
+
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.experiment import Experiment
@@ -32,6 +35,8 @@ from posthog.utils import absolute_uri
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
+from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_types import BillingProvider
 from ee.vercel.client import SSOTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
@@ -175,6 +180,41 @@ class VercelIntegration:
         return resource, installation
 
     @staticmethod
+    def _cleanup_failed_installation(
+        organization: Organization, installation_id: str, user: User | None = None, user_created: bool = False
+    ) -> None:
+        """
+        Clean up organization and integration after a failed installation.
+
+        Deletes the organization (which cascades to OrganizationIntegration) and
+        optionally deletes the user if it was created specifically for this installation.
+        """
+        try:
+            organization.delete()
+            logger.info(
+                "Cleaned up organization after billing failure",
+                installation_id=installation_id,
+                organization_id=str(organization.id),
+            )
+
+            # Only delete user if it was created specifically for this installation
+            # Existing users should not be deleted
+            if user_created and user:
+                user.delete()
+                logger.info(
+                    "Cleaned up user after billing failure",
+                    installation_id=installation_id,
+                    user_id=str(user.id),
+                )
+        except Exception as cleanup_error:
+            logger.exception(
+                "Failed to clean up organization after billing failure",
+                installation_id=installation_id,
+                organization_id=str(organization.id),
+            )
+            capture_exception(cleanup_error)
+
+    @staticmethod
     def get_vercel_plans() -> list[dict[str, Any]]:
         # TODO: Retrieve through billing service instead.
         return [
@@ -262,6 +302,7 @@ class VercelIntegration:
             logger.info("Vercel installation updated", installation_id=installation_id, integration="vercel")
             return
 
+        # Create organization and integration in a DB transaction
         with transaction.atomic():
             # Through Vercel we can only create new organizations, not use existing ones.
             # Note: We won't create a team here, that's done during Vercel resource creation.
@@ -312,6 +353,26 @@ class VercelIntegration:
                     {"validation_error": "Something went wrong."},
                     code="unique",
                 )
+
+        license = get_cached_instance_license()
+        if license:
+            try:
+                billing_manager = BillingManager(license)
+                billing_manager.authorize(organization, billing_provider=BillingProvider.VERCEL)
+                logger.info(
+                    "Created Stripe customer for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+            except Exception as e:
+                logger.exception(
+                    "Failed to create Stripe customer for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+                capture_exception(e)
+                VercelIntegration._cleanup_failed_installation(organization, installation_id, user, user_created)
+                raise exceptions.APIException("Failed to initialize billing. Please try again.")
 
         if user_created:
             report_user_signed_up(
@@ -394,23 +455,23 @@ class VercelIntegration:
             initiating_user=installation.created_by or None,
             organization=organization,
             name=config.name,
-            has_completed_onboarding_for={
-                "product_analytics": True
-            },  # Mark one product as onboarded to show quick start sidebar
+            # Mark one product as onboarded to skip onboarding flow and show quick start sidebar instead
+            has_completed_onboarding_for={"product_analytics": True},
         )
 
+        # Populate intent, this will add to the sidebar and also to the quick start section
         if installation.created_by:
             ProductIntent.register(
                 team=team,
-                product_type="feature_flags",
-                context="vercel integration",
+                product_type=ProductKey.FEATURE_FLAGS,
+                context=ProductIntentContext.VERCEL_INTEGRATION,
                 user=installation.created_by,
             )
 
             ProductIntent.register(
                 team=team,
-                product_type="experiments",
-                context="vercel integration",
+                product_type=ProductKey.EXPERIMENTS,
+                context=ProductIntentContext.VERCEL_INTEGRATION,
                 user=installation.created_by,
             )
 

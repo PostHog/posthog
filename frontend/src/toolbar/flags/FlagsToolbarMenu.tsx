@@ -18,7 +18,8 @@ import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 export const FlagsToolbarMenu = (): JSX.Element => {
-    const { searchTerm, filteredFlags, userFlagsLoading, draftPayloads, payloadErrors } = useValues(flagsToolbarLogic)
+    const { searchTerm, filteredFlags, userFlagsLoading, draftPayloads, payloadErrors, countFlagsOverridden } =
+        useValues(flagsToolbarLogic)
     const {
         setSearchTerm,
         setOverriddenUserFlag,
@@ -29,12 +30,21 @@ export const FlagsToolbarMenu = (): JSX.Element => {
         setDraftPayload,
         savePayloadOverride,
         setPayloadEditorOpen,
+        clearAllOverrides,
     } = useActions(flagsToolbarLogic)
-    const { apiURL, posthog: posthogClient } = useValues(toolbarConfigLogic)
+    const { apiURL, posthog: posthogClient, toolbarFlagsKey } = useValues(toolbarConfigLogic)
     const { openPayloadEditors } = useValues(flagsToolbarLogic)
 
     useOnMountEffect(() => {
         posthogClient?.onFeatureFlags(setFeatureFlagValueFromPostHogClient)
+
+        if (toolbarFlagsKey && posthogClient) {
+            // When toolbarFlagsKey is present, flags were pre-loaded via overrideFeatureFlags
+            // Read the current values directly and update state
+            const currentFlags = posthogClient.featureFlags.getFlagVariants()
+            setFeatureFlagValueFromPostHogClient(Object.keys(currentFlags), currentFlags)
+        }
+
         getUserFlags()
         checkLocalOverrides()
     })
@@ -42,14 +52,25 @@ export const FlagsToolbarMenu = (): JSX.Element => {
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
-                <LemonInput
-                    autoFocus
-                    placeholder="Search"
-                    fullWidth
-                    type="search"
-                    value={searchTerm}
-                    onChange={(s) => setSearchTerm(s)}
-                />
+                <div className="flex gap-2 items-center w-full pr-3">
+                    <LemonInput
+                        autoFocus
+                        placeholder="Search"
+                        fullWidth
+                        type="search"
+                        value={searchTerm}
+                        onChange={(s) => setSearchTerm(s)}
+                    />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        className="flex-shrink-0"
+                        onClick={clearAllOverrides}
+                        disabledReason={countFlagsOverridden === 0 ? 'No overrides to clear' : undefined}
+                    >
+                        Clear overrides
+                    </LemonButton>
+                </div>
             </ToolbarMenu.Header>
 
             <ToolbarMenu.Body>

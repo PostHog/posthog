@@ -40,8 +40,11 @@ PropertyType = Literal[
     "data_warehouse_person_property",
     "error_tracking_issue",
     "log",
+    "log_attribute",
+    "log_resource_attribute",
     "revenue_analytics",
     "flag",
+    "workflow_variable",
 ]
 
 PropertyName = str
@@ -101,11 +104,14 @@ VALIDATE_PROP_TYPES = {
     "recording": ["key", "value"],
     "log_entry": ["key", "value"],
     "log": ["key", "value"],
+    "log_attribute": ["key", "value"],
+    "log_resource_attribute": ["key", "value"],
     "flag": ["key", "value"],
     "revenue_analytics": ["key", "value"],
     "behavioral": ["key", "value"],
     "session": ["key", "value"],
     "hogql": ["key"],
+    "workflow_variable": ["key", "value"],
 }
 
 VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
@@ -220,6 +226,9 @@ class Property:
     total_periods: Optional[int]
     min_periods: Optional[int]
     negation: Optional[bool] = False
+    # Fields for realtime cohorts
+    conditionHash: Optional[str]
+    bytecode: Optional[list[Any]]
     _data: dict
 
     def __init__(
@@ -244,6 +253,9 @@ class Property:
         seq_time_interval: Optional[OperatorInterval] = None,
         negation: Optional[bool] = None,
         event_filters: Optional[list["Property"]] = None,
+        # Only set for realtime cohorts
+        conditionHash: Optional[str] = None,
+        bytecode: Optional[list[Any]] = None,
         **kwargs,
     ) -> None:
         self.key = key
@@ -263,6 +275,8 @@ class Property:
         self.seq_time_interval = seq_time_interval
         self.negation = None if negation is None else str_to_bool(negation)
         self.event_filters = event_filters
+        self.conditionHash = conditionHash
+        self.bytecode = bytecode
 
         if value is None and self.operator in ["is_set", "is_not_set"]:
             self.value = self.operator

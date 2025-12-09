@@ -31,6 +31,13 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ZENDESK
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "404 Client Error: Not Found for url": "Zendesk authentication failed. Please check your API token and subdomain.",
+            "403 Client Error: Forbidden for url": "Zendesk authentication failed. Please check your API token and subdomain.",
+            "401 Client Error": "Zendesk authentication failed. Please check your API token and subdomain.",
+        }
+
     def get_schemas(self, config: ZendeskSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
@@ -59,6 +66,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             name=SchemaExternalDataSourceType.ZENDESK,
             caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
             iconPath="/static/services/zendesk.png",
+            iconClassName="rounded dark:bg-white p-[2px]",
             docsUrl="https://posthog.com/docs/cdp/sources/zendesk",
             fields=cast(
                 list[FieldType],

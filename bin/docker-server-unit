@@ -16,8 +16,9 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
     echo "🚀 Starting with Granian ASGI server (opt-in via USE_GRANIAN=true)..."
 
     # Granian configuration
-    export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
-    export GRANIAN_THREADS=2
+    # Default to 2 workers for small pods (1 CPU), scale up via GRANIAN_WORKERS for larger pods
+    export GRANIAN_WORKERS=${GRANIAN_WORKERS:-2}
+    export GRANIAN_THREADS=${GRANIAN_THREADS:-2}
 
     # Start metrics HTTP server in background on port 8001
     python ./bin/granian_metrics.py &
@@ -48,7 +49,8 @@ else
     export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
     envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
 
-    # We need to run as --user root so that nginx unit can proxy the control socket for stats
+    # We need to run as root so that nginx unit can proxy the control socket for stats
     # However each application is run as "nobody"
+    # nosemgrep: trailofbits.generic.container-user-root.container-user-root
     exec /usr/local/bin/docker-entrypoint.sh unitd --no-daemon --user root
 fi

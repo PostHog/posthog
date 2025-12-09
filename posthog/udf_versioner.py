@@ -13,10 +13,10 @@ from xml import etree
 # 4. Land a version of the posthog repo with the updated `user_scripts` folder from the new branch (make sure this PR doesn't include changes to this file with the new version)
 # 5. Run the `copy_udfs_to_clickhouse` action in the `posthog_cloud_infra` repo to deploy the `user_scripts` folder to clickhouse
 # 6. After that deploy goes out, it is safe to land and deploy the full changes to the `posthog` repo
-UDF_VERSION = 9  # Last modified by: @orian, 2025-11-06
+UDF_VERSION = 10  # Last modified by: @orian, 2025-11-06
 
 # Clean up all versions less than this
-EARLIEST_UDF_VERSION = 7
+EARLIEST_UDF_VERSION = 8
 
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"
@@ -46,6 +46,8 @@ def prepare_version(force=False):
     base_xml = ET.parse(ACTIVE_XML_CONFIG)
 
     if os.path.exists(LAST_VERSION_STR):
+        # this function only parses trusted input
+        # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
         last_version_xml = ET.parse(os.path.join(LAST_VERSION_STR, CLICKHOUSE_XML_FILENAME))
     else:
         last_version_xml = ET.parse(ACTIVE_XML_CONFIG)

@@ -15,12 +15,10 @@ export const createHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to create insight: ${insightResult.error.message}`)
     }
 
-    const insightWithUrl = {
+    return {
         ...insightResult.data,
         url: `${context.api.getProjectBaseUrl(projectId)}/insights/${insightResult.data.short_id}`,
     }
-
-    return { content: [{ type: 'text', text: JSON.stringify(insightWithUrl) }] }
 }
 
 const tool = (): ToolBase<typeof schema> => ({

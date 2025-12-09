@@ -48,6 +48,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
+from posthog.models.person.person import PersonDistinctId
 from posthog.models.person.util import delete_person
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -231,7 +232,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     stickiness_class = Stickiness
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
         queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
         return queryset
 
@@ -397,11 +404,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if distinct_ids := request.data.get("distinct_ids"):
             if len(distinct_ids) > 1000:
                 raise ValidationError("You can only pass 1000 distinct_ids in one call")
-            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids).defer("properties")
+            # Optimize query by avoiding expensive JOIN - first get person_ids, then fetch persons
+            person_ids = PersonDistinctId.objects.filter(
+                team_id=self.team_id, distinct_id__in=distinct_ids
+            ).values_list("person_id", flat=True)
+            persons = self.get_queryset().filter(id__in=person_ids, team_id=self.team_id).defer("properties")
         elif ids := request.data.get("ids"):
             if len(ids) > 1000:
                 raise ValidationError("You can only pass 1000 ids in one call")
-            persons = self.get_queryset().filter(uuid__in=ids).defer("properties")
+            persons = self.get_queryset().filter(uuid__in=ids, team_id=self.team_id).defer("properties")
         else:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
@@ -604,7 +615,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read", "cohort:read"])
     def cohorts(self, request: request.Request) -> response.Response:
-        from posthog.api.cohort import CohortSerializer
+        from posthog.api.cohort import CohortMinimalSerializer
 
         team = cast(User, request.user).team
         if not team:
@@ -621,7 +632,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
 
-        return response.Response({"results": CohortSerializer(cohorts, many=True).data})
+        return response.Response({"results": CohortMinimalSerializer(cohorts, many=True).data})
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
@@ -686,7 +697,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             resp = capture_internal(
-                token=instance.team.api_token,
+                token=self.team.api_token,
                 event_name=event_name,
                 event_source="person_viewset",
                 distinct_id=distinct_id,
@@ -871,7 +882,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         temporal = sync_connect()
         input = RecordingsWithPersonInput(
             distinct_ids=person.distinct_ids,
-            team_id=person.team.id,
+            team_id=self.team_id,
         )
         workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
 

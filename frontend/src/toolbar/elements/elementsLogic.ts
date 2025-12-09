@@ -19,6 +19,8 @@ import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
+const VIEWPORT_BUFFER_PX = 200
+
 const getMaxZIndex = (element: Element): number => {
     let maxZIndex = 0
     let currentElement: Element | null = element
@@ -153,14 +155,23 @@ export const elementsLogic = kea<elementsLogicType>([
                 s.rectUpdateCounter,
                 toolbarConfigLogic.selectors.buttonVisible,
             ],
-            (countedElements) =>
-                countedElements.map(
-                    (e) =>
-                        ({
-                            ...e,
-                            rect: getRectForElement(e.element),
-                        }) as ElementWithMetadata
-                ),
+            (countedElements) => {
+                const windowHeight = window.innerHeight
+
+                const result: ElementWithMetadata[] = []
+
+                for (const e of countedElements) {
+                    const rect = getRectForElement(e.element)
+                    const inViewport =
+                        rect.bottom >= -VIEWPORT_BUFFER_PX && rect.top <= windowHeight + VIEWPORT_BUFFER_PX
+
+                    if (inViewport) {
+                        result.push({ ...e, rect } as ElementWithMetadata)
+                    }
+                }
+
+                return result
+            },
         ],
 
         allInspectElements: [

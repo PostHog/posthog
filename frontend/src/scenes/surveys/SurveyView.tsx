@@ -49,6 +49,7 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { SurveyHeadline } from './SurveyHeadline'
 import { SurveysDisabledBanner } from './SurveySettings'
 
 const RESOURCE_TYPE = 'survey'
@@ -349,12 +350,20 @@ function SurveyResponsesByQuestionV2(): JSX.Element {
 }
 
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
-        useValues(surveyLogic)
+    const {
+        dataTableQuery,
+        surveyLoading,
+        surveyAsInsightURL,
+        isAnyResultsLoading,
+        processedSurveyStats,
+        archivedResponseUuids,
+        isSurveyHeadlineEnabled,
+    } = useValues(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
     return (
         <div className="deprecated-space-y-4">
+            {isSurveyHeadlineEnabled && <SurveyHeadline />}
             <SurveyResponseFilters />
             <SurveyStatsSummary />
             {isAnyResultsLoading || atLeastOneResponse ? (
@@ -374,7 +383,26 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                             <LemonSkeleton />
                         ) : (
                             <div className="survey-table-results">
-                                <Query query={dataTableQuery} />
+                                <Query
+                                    query={dataTableQuery}
+                                    context={{
+                                        rowProps: (record: unknown) => {
+                                            // "mute" archived records
+                                            if (typeof record !== 'object' || !record || !('result' in record)) {
+                                                return {}
+                                            }
+                                            const result = record.result
+                                            if (!Array.isArray(result)) {
+                                                return {}
+                                            }
+                                            return {
+                                                className: archivedResponseUuids.has(result[0].uuid)
+                                                    ? 'opacity-50'
+                                                    : undefined,
+                                            }
+                                        },
+                                    }}
+                                />
                             </div>
                         ))}
                 </>

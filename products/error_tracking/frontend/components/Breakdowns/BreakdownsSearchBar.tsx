@@ -20,7 +20,7 @@ export function BreakdownsSearchBar(): JSX.Element {
         useActions(breakdownFiltersLogic)
 
     return (
-        <div className="border rounded bg-surface-primary p-3 flex gap-2 items-center">
+        <div className="flex items-center flex-wrap px-3 pt-3 gap-2">
             <DateFilter
                 size="small"
                 dateFrom={dateRange.date_from}

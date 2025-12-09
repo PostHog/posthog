@@ -16,12 +16,8 @@ import structlog
 from celery import shared_task
 
 from posthog.models.team import Team
+from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import (
-    TEAM_METADATA_BATCH_REFRESH_COUNTER,
-    TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM,
-    TEAM_METADATA_CACHE_COVERAGE_GAUGE,
-    TEAM_METADATA_SIGNAL_UPDATE_COUNTER,
-    TEAM_METADATA_TEAMS_PROCESSED_COUNTER,
     cleanup_stale_expiry_tracking,
     clear_team_metadata_cache,
     get_cache_stats,
@@ -47,11 +43,13 @@ def update_team_metadata_cache_task(team_id: int) -> None:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         logger.debug("Team does not exist for metadata cache update", team_id=team_id)
-        TEAM_METADATA_SIGNAL_UPDATE_COUNTER.labels(result="team_not_found").inc()
+        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="team_metadata", operation="update", result="failure").inc()
         return
 
     success = update_team_metadata_cache(team)
-    TEAM_METADATA_SIGNAL_UPDATE_COUNTER.labels(result="success" if success else "failed").inc()
+    HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+        namespace="team_metadata", operation="update", result="success" if success else "failure"
+    ).inc()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -78,18 +76,13 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
     try:
         successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
 
-        TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="success").inc(successful)
-        TEAM_METADATA_TEAMS_PROCESSED_COUNTER.labels(result="failed").inc(failed)
+        # Note: Teams processed metrics are pushed to Pushgateway by
+        # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
 
-        # Only scan once after refresh for metrics
+        # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
         stats_after = get_cache_stats()
 
-        coverage_percent = stats_after.get("cache_coverage_percent", 0)
-        TEAM_METADATA_CACHE_COVERAGE_GAUGE.set(coverage_percent)
-
         duration = time.time() - start_time
-        TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM.observe(duration)
-        TEAM_METADATA_BATCH_REFRESH_COUNTER.labels(result="success").inc()
 
         logger.info(
             "Completed team metadata cache refresh",
@@ -104,8 +97,6 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
 
     except Exception as e:
         duration = time.time() - start_time
-        TEAM_METADATA_BATCH_REFRESH_DURATION_HISTOGRAM.observe(duration)
-        TEAM_METADATA_BATCH_REFRESH_COUNTER.labels(result="failed").inc()
         logger.exception(
             "Failed to complete team metadata batch refresh",
             error=str(e),
@@ -124,7 +115,9 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
         try:
             update_team_metadata_cache_task.delay(instance.id)
         except Exception as e:
-            TEAM_METADATA_SIGNAL_UPDATE_COUNTER.labels(result="enqueue_failed").inc()
+            HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+                namespace="team_metadata", operation="enqueue", result="failure"
+            ).inc()
             logger.exception(
                 "Failed to enqueue cache update task",
                 team_id=instance.id,

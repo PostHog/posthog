@@ -378,7 +378,8 @@ export const QueryDatabase = (): JSX.Element => {
                                             undefined,
                                             undefined,
                                             undefined,
-                                            OutputTab.Endpoint
+                                            OutputTab.Endpoint,
+                                            item.record?.endpoint?.name
                                         )
                                     )
                                 }}
@@ -405,7 +406,7 @@ export const QueryDatabase = (): JSX.Element => {
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                router.actions.push(urls.dataWarehouseSourceNew())
+                                sceneLogic.actions.newTab(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
                         >

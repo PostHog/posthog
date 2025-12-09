@@ -42,7 +42,6 @@ from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
     pause_saved_query_schedule,
-    recreate_model_paths,
     trigger_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
@@ -90,6 +89,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_history_id",
             "soft_update",
             "is_materialized",
+            "origin",
         ]
         read_only_fields = [
             "id",
@@ -102,6 +102,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_error",
             "latest_history_id",
             "is_materialized",
+            "origin",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
@@ -331,11 +332,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 )
                 self.context["activity_log"] = latest_activity_log
 
-            if sync_frequency and sync_frequency != "never":
-                recreate_model_paths(view)
-
         if was_sync_frequency_updated:
-            view.enable_materialization(
+            view.schedule_materialization(
                 unpause=before_update is not None and before_update.sync_frequency_interval is None
             )
 

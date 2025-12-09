@@ -100,16 +100,16 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
 
     def _should_skip_parents_filter(self) -> bool:
         """
-        Skip parent filtering when include_organization_scoped=1.
+        Skip parent filtering when team has receive_org_level_activity_logs enabled.
         We'll apply custom org-scoped filtering in safely_get_queryset instead.
         """
-        return self.request.query_params.get("include_organization_scoped") == "1"
+        return bool(self.team.receive_org_level_activity_logs)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
 
         queryset = apply_organization_scoped_filter(
-            queryset, params.get("include_organization_scoped") == "1", self.team_id, self.organization.id
+            queryset, bool(self.team.receive_org_level_activity_logs), self.team_id, self.organization.id
         )
 
         if params.get("user"):
@@ -186,10 +186,10 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     def _should_skip_parents_filter(self) -> bool:
         """
-        Skip parent filtering when include_organization_scoped=1.
+        Skip parent filtering when team has receive_org_level_activity_logs enabled.
         We'll apply custom org-scoped filtering in safely_get_queryset instead.
         """
-        return self.request.query_params.get("include_organization_scoped") == "1"
+        return bool(self.team.receive_org_level_activity_logs)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -221,6 +221,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     def _generate_export_filename(self, filters_data: dict, export_format: str) -> str:
         filter_string = json.dumps(filters_data, sort_keys=True)
+        # md5 is fine here since file name collisions have no security impact
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
         filter_hash = hashlib.md5(filter_string.encode()).hexdigest()[:6]
 
         has_filters = any(filters_data.values())
@@ -236,7 +238,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         queryset = apply_organization_scoped_filter(
             queryset,
-            self.request.query_params.get("include_organization_scoped") == "1",
+            bool(self.team.receive_org_level_activity_logs),
             self.team_id,
             self.organization.id,
         )
@@ -245,6 +247,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         lookback_date = get_activity_log_lookback_restriction(self.organization)
         if lookback_date:
             queryset = queryset.filter(created_at__gte=lookback_date)
+
+        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
 
         return queryset.order_by("-created_at")
 
@@ -295,8 +299,6 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             return Response({"error": "Filters are invalid"}, status=400)
 
         query_params = {}
-        if self.request.query_params.get("include_organization_scoped"):
-            query_params["include_organization_scoped"] = "1"
 
         # Transform body params to query params to include the filters in the export path
         for key, value in filters_serializer.validated_data.items():

@@ -1,8 +1,5 @@
 use crate::{
-    api::{
-        errors::FlagError,
-        types::{ConfigResponse, FlagsResponse},
-    },
+    api::{errors::FlagError, types::FlagsResponse},
     flags::{
         flag_analytics::{increment_request_count, SURVEY_TARGETING_FLAG_PREFIX},
         flag_models::FeatureFlagList,
@@ -26,13 +23,12 @@ pub async fn check_limits(
         .await;
 
     if billing_limited {
-        return Ok(Some(FlagsResponse {
-            errors_while_computing_flags: false,
-            flags: HashMap::new(),
-            quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
-            request_id: context.request_id,
-            config: ConfigResponse::default(),
-        }));
+        return Ok(Some(FlagsResponse::new(
+            false,
+            HashMap::new(),
+            Some(vec![ServiceName::FeatureFlags.as_string()]),
+            context.request_id,
+        )));
     }
     Ok(None)
 }
@@ -50,7 +46,7 @@ pub async fn record_usage(
 
     if has_billable_flags {
         if let Err(e) = increment_request_count(
-            context.state.redis_writer.clone(),
+            context.state.redis_client.clone(),
             team_id,
             1,
             FlagRequestType::Decide,
@@ -117,6 +113,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         }
     }
 

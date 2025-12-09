@@ -42,7 +42,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
@@ -109,6 +109,11 @@ INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
     "insight_refresh_initiated",
     "Insight refreshes initiated, based on should_refresh_insight().",
     labelnames=["is_shared"],
+)
+
+EXPORT_QUERY_CACHE_MISS = Counter(
+    "export_query_cache_miss",
+    "Cache misses during PNG export rendering when expected cache key was not found",
 )
 
 
@@ -349,6 +354,7 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
+    resolved_date_range = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
 
@@ -389,6 +395,7 @@ class InsightSerializer(InsightBasicSerializer):
             "query_status",
             "hogql",
             "types",
+            "resolved_date_range",
             "_create_in_folder",
             "alerts",
             "last_viewed_at",
@@ -648,6 +655,9 @@ class InsightSerializer(InsightBasicSerializer):
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
 
+    def get_resolved_date_range(self, insight: Insight):
+        return self.insight_result(insight).resolved_date_range
+
     def get_alerts(self, insight: Insight):
         if not are_alerts_supported_for_insight(insight):
             return []
@@ -760,6 +770,36 @@ class InsightSerializer(InsightBasicSerializer):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
 
+        # Check if we have an expected cache key from the image exporter
+        export_cache_keys: Optional[dict[int, str]] = self.context.get("export_cache_keys")
+        if export_cache_keys and insight.id in export_cache_keys:
+            expected_cache_key = export_cache_keys[insight.id]
+            cached_response = fetch_cached_response_by_key(expected_cache_key)
+            if cached_response:
+                return InsightResult(
+                    result=cached_response.get("results"),
+                    has_more=cached_response.get("hasMore"),
+                    columns=cached_response.get("columns"),
+                    last_refresh=cached_response.get("last_refresh"),
+                    cache_key=expected_cache_key,
+                    is_cached=True,
+                    timezone=cached_response.get("timezone"),
+                    next_allowed_client_refresh=cached_response.get("next_allowed_client_refresh"),
+                    cache_target_age=cached_response.get("cache_target_age"),
+                    timings=cached_response.get("timings"),
+                    query_status=cached_response.get("query_status"),
+                    hogql=cached_response.get("hogql"),
+                    types=cached_response.get("types"),
+                )
+            else:
+                EXPORT_QUERY_CACHE_MISS.inc()
+                logger.error(
+                    "export_cache_key_miss",
+                    insight_id=insight.id,
+                    expected_cache_key=expected_cache_key,
+                    message="Expected cache key not found during export - falling back to normal calculation",
+                )
+
         with upgrade_query(insight):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
@@ -840,7 +880,7 @@ class InsightSerializer(InsightBasicSerializer):
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""
-Whether to refresh the retrieved insights, how aggresively, and if sync or async:
+Whether to refresh the retrieved insights, how aggressively, and if sync or async:
 - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
 - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
 - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache

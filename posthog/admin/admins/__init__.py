@@ -3,6 +3,7 @@ from products.links.backend.admin import LinkAdmin
 from .async_deletion_admin import AsyncDeletionAdmin
 from .batch_imports import BatchImportAdmin
 from .cohort_admin import CohortAdmin
+from .column_configuration_admin import ColumnConfigurationAdmin
 from .dashboard_admin import DashboardAdmin
 from .dashboard_template_admin import DashboardTemplateAdmin
 from .data_color_theme_admin import DataColorThemeAdmin
@@ -27,11 +28,13 @@ from .survey_admin import SurveyAdmin
 from .team_admin import TeamAdmin
 from .text_admin import TextAdmin
 from .user_admin import UserAdmin
+from .user_product_list_admin import UserProductListAdmin
 
 __all__ = [
     "AsyncDeletionAdmin",
     "BatchImportAdmin",
     "CohortAdmin",
+    "ColumnConfigurationAdmin",
     "DashboardAdmin",
     "DashboardTemplateAdmin",
     "DataColorThemeAdmin",
@@ -57,4 +60,5 @@ __all__ = [
     "TeamAdmin",
     "TextAdmin",
     "UserAdmin",
+    "UserProductListAdmin",
 ]

@@ -14,6 +14,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
 from products.data_warehouse.backend.models import DataWarehouseTable
+from products.marketing_analytics.backend.hogql_queries.constants import MATCH_KEY_FIELD
 
 logger = structlog.get_logger(__name__)
 
@@ -78,6 +79,14 @@ class TikTokAdsConfig(BaseMarketingConfig):
 
 
 @dataclass
+class BingAdsConfig(BaseMarketingConfig):
+    """Configuration for Bing Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+
+
+@dataclass
 class ValidationResult:
     """Result of source validation"""
 
@@ -105,11 +114,14 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     # Default fields for the marketing analytics table
     campaign_name_field: str = MarketingAnalyticsColumnsSchemaNames.CAMPAIGN
+    campaign_id_field: str = MarketingAnalyticsColumnsSchemaNames.ID
     source_name_field: str = MarketingAnalyticsColumnsSchemaNames.SOURCE
     impressions_field: str = MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS
     clicks_field: str = MarketingAnalyticsColumnsSchemaNames.CLICKS
     cost_field: str = MarketingAnalyticsColumnsSchemaNames.COST
     reported_conversion_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION
+    reported_conversion_value_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE
+    match_key_field: str = MATCH_KEY_FIELD
 
     @classmethod
     @abstractmethod
@@ -155,6 +167,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     @abstractmethod
     def _get_campaign_name_field(self) -> ast.Expr:
         """Get the campaign name field expression"""
+
+        pass
+
+    @abstractmethod
+    def _get_campaign_id_field(self) -> ast.Expr:
+        """Get the campaign ID field expression"""
         pass
 
     def _get_source_name_field(self) -> ast.Expr:
@@ -191,7 +209,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     @abstractmethod
     def _get_reported_conversion_field(self) -> ast.Expr:
-        """Get the reported conversion field expression"""
+        """Get the reported conversion count field expression"""
+        pass
+
+    @abstractmethod
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        """Get the reported conversion value (monetary) field expression"""
         pass
 
     @abstractmethod
@@ -209,6 +232,34 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Get GROUP BY expressions"""
         pass
 
+    def _get_campaign_field_preference(self) -> str:
+        """
+        Get campaign field matching preference for this integration from team config.
+
+        Returns: "campaign_name" or "campaign_id"
+
+        Defaults to campaign_name if no preference set (backward compatible).
+        """
+        try:
+            preferences = self.team.marketing_analytics_config.campaign_field_preferences
+            integration_prefs = preferences.get(self.get_source_type(), {})
+            return integration_prefs.get("match_field", "campaign_name")
+        except Exception:
+            # If any error accessing config, default to campaign_name
+            return "campaign_name"
+
+    def get_campaign_match_field(self) -> ast.Expr:
+        """
+        Get the campaign field expression to use for matching with utm_campaign.
+        This respects the campaign_field_preferences setting.
+
+        Returns either campaign_name or campaign_id field based on configuration.
+        """
+        preference = self._get_campaign_field_preference()
+        if preference == "campaign_id":
+            return self._get_campaign_id_field()
+        return self._get_campaign_name_field()
+
     def _log_validation_errors(self, errors: list[str]):
         """Helper to log validation issues"""
         if errors:
@@ -225,24 +276,32 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """
         Build SelectQuery that returns marketing data in standardized format.
 
-        MUST return columns in this exact order and format:
-        - campaign_name (string): Campaign identifier
+        MUST return columns in this exact order and format (9 columns):
+        - match_key (string): Campaign match field for joining with conversion goals
+        - campaign_name (string): Campaign identifier (human-readable name)
+        - campaign_id (string): Campaign identifier (platform ID)
         - source_name (string): Source identifier
         - impressions (float): Number of impressions
         - clicks (float): Number of clicks
         - cost (float): Total cost in base currency
+        - reported_conversion (float): Number of reported conversions
+        - reported_conversion_value (float): Monetary value of reported conversions
 
         Returns None if this source cannot provide data for the given context.
         """
         try:
-            # Build SELECT columns
+            # Build SELECT columns - match_key first (stable position for joins), then data columns
+            # Each adapter decides whether to use campaign_name or campaign_id for match_key based on team preferences
             select_columns: list[ast.Expr] = [
+                ast.Alias(alias=self.match_key_field, expr=self.get_campaign_match_field()),
                 ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
+                ast.Alias(alias=self.campaign_id_field, expr=self._get_campaign_id_field()),
                 ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
                 ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
                 ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
                 ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
                 ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
+                ast.Alias(alias=self.reported_conversion_value_field, expr=self._get_reported_conversion_value_field()),
             ]
 
             # Build query components

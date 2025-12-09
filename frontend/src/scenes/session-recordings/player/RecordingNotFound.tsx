@@ -17,8 +17,8 @@ export function RecordingNotFound(): JSX.Element {
                 <>
                     The requested recording could not be found. It may still be processing, may have been deleted due to
                     age, or recording may not be enabled. Please check your{' '}
-                    <Link to={urls.settings('project-replay')}>project settings</Link>
-                    to ensure that recording is turned on and enabled for the relevant domain. You can also refer to the{' '}
+                    <Link to={urls.settings('project-replay')}>project settings</Link> to ensure that recording is
+                    turned on and enabled for the relevant domain. You can also refer to the{' '}
                     <Link to="https://posthog.com/docs/session-replay/troubleshooting#recording-not-found">
                         troubleshooting guide
                     </Link>{' '}

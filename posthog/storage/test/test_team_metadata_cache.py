@@ -7,6 +7,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from posthog.models.team.team import Team
 from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_FIELDS,
@@ -185,35 +187,50 @@ class TestTeamMetadataCacheSignals(BaseTest):
 class TestCacheStats(BaseTest):
     """Test cache statistics functionality."""
 
-    @patch("posthog.storage.team_metadata_cache.get_client")
+    @patch("posthog.storage.hypercache_manager.get_client")
     def test_get_cache_stats_basic(self, mock_get_client):
-        """Test basic cache stats gathering."""
+        """Test basic cache stats gathering with Redis pipelining."""
         from posthog.storage.team_metadata_cache import get_cache_stats
 
-        # Mock Redis client
+        # Mock Redis client with pipelining support
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = [
-            b"cache:team_metadata:key1",
-            b"cache:team_metadata:key2",
+
+        # scan_iter is called twice: once for TTL collection, once for memory sampling
+        # Each call needs to return a fresh iterator
+        mock_redis.scan_iter.side_effect = [
+            iter([b"cache:team_metadata:key1", b"cache:team_metadata:key2"]),  # TTL scan
+            iter([b"cache:team_metadata:key1", b"cache:team_metadata:key2"]),  # Memory scan
         ]
-        mock_redis.ttl.side_effect = [3600, 86400]  # 1 hour, 1 day
-        mock_redis.memory_usage.side_effect = [1024, 2048]  # Sample memory sizes in bytes
+
+        # Mock pipeline for batched operations
+        mock_pipeline = MagicMock()
+        mock_redis.pipeline.return_value = mock_pipeline
+        mock_pipeline.execute.side_effect = [
+            [3600, 86400],  # TTL results: 1 hour, 1 day
+            [1024, 2048],  # Memory usage results
+        ]
+
+        # Mock zcard for expiry tracking count
+        mock_redis.zcard.return_value = 2
 
         with patch("posthog.models.team.team.Team.objects.count", return_value=5):
             stats = get_cache_stats()
 
         self.assertEqual(stats["total_cached"], 2)
         self.assertEqual(stats["total_teams"], 5)
+        self.assertEqual(stats["expiry_tracked"], 2)
         self.assertEqual(stats["ttl_distribution"]["expires_1h"], 1)
         self.assertEqual(stats["ttl_distribution"]["expires_24h"], 1)
+        self.assertEqual(stats["size_statistics"]["sample_count"], 2)
+        self.assertEqual(stats["size_statistics"]["avg_size_bytes"], 1536)  # (1024 + 2048) / 2
 
 
 class TestGetTeamsWithExpiringCaches(BaseTest):
     """Test get_teams_with_expiring_caches functionality."""
 
-    @patch("posthog.storage.team_metadata_cache.get_client")
-    @patch("posthog.storage.team_metadata_cache.time")
+    @patch("posthog.storage.cache_expiry_manager.get_client")
+    @patch("posthog.storage.cache_expiry_manager.time")
     def test_returns_teams_with_expiring_ttl(self, mock_time, mock_get_client):
         """Teams with expiration timestamp < threshold should be returned."""
         team1 = self.team
@@ -240,15 +257,17 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         self.assertIn(team1, result)
         self.assertIn(team2, result)
 
-        # Verify sorted set query was called correctly
+        # Verify sorted set query was called correctly with limit
         mock_redis.zrangebyscore.assert_called_once_with(
             "team_metadata_cache_expiry",
             "-inf",
             1000000 + (24 * 3600),  # current_time + 24 hours
+            start=0,
+            num=5000,
         )
 
-    @patch("posthog.storage.team_metadata_cache.get_client")
-    @patch("posthog.storage.team_metadata_cache.time")
+    @patch("posthog.storage.cache_expiry_manager.get_client")
+    @patch("posthog.storage.cache_expiry_manager.time")
     def test_skips_teams_with_fresh_ttl(self, mock_time, mock_get_client):
         """Teams with expiration timestamp > threshold should not be returned."""
         # Mock Redis sorted set returning empty (no teams expiring soon)
@@ -262,7 +281,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         # Team has fresh cache, not returned
         self.assertEqual(len(result), 0)
 
-    @patch("posthog.storage.team_metadata_cache.get_client")
+    @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_returns_empty_when_no_expiring_caches(self, mock_get_client):
         """Should return empty list when sorted set is empty."""
         # Mock Redis to return empty sorted set
@@ -273,3 +292,61 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
         self.assertEqual(len(result), 0)
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
+class TestWarmCachesExpiryTracking(BaseTest):
+    """
+    Test that warm_caches uses the correct identifier for expiry tracking.
+
+    This is a regression test for a bug where warm_caches used team IDs for
+    expiry tracking, but the team_metadata cache is token-based and expects
+    API tokens. This caused a mismatch between cache entries and expiry tracking.
+    """
+
+    @patch("posthog.storage.hypercache.get_client")
+    @patch("posthog.storage.hypercache.time")
+    def test_warm_caches_uses_api_token_for_token_based_cache(self, mock_time, mock_get_client):
+        """
+        Verify that warm_caches uses API token (not team ID) for token-based caches.
+
+        The team_metadata cache is token-based (token_based=True), so expiry
+        tracking should use the API token as the identifier, not the team ID.
+        """
+        from posthog.storage.hypercache_manager import warm_caches
+        from posthog.storage.team_metadata_cache import TEAM_CACHE_EXPIRY_SORTED_SET, TEAM_HYPERCACHE_MANAGEMENT_CONFIG
+
+        mock_time.time.return_value = 1000000
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        # Call warm_caches for this team
+        warm_caches(
+            TEAM_HYPERCACHE_MANAGEMENT_CONFIG,
+            stagger_ttl=False,
+            batch_size=1,
+            team_ids=[self.team.id],
+        )
+
+        # Verify zadd was called with the API TOKEN, not team ID
+        mock_redis.zadd.assert_called()
+        call_args = mock_redis.zadd.call_args
+
+        # First arg is the sorted set key
+        self.assertEqual(call_args[0][0], TEAM_CACHE_EXPIRY_SORTED_SET)
+
+        # Second arg is a dict with identifier -> timestamp
+        # The identifier should be the API token, NOT the team ID
+        identifier_dict = call_args[0][1]
+        self.assertIn(
+            self.team.api_token,
+            identifier_dict,
+            f"Expected API token '{self.team.api_token}' as identifier, "
+            f"but got: {list(identifier_dict.keys())}. "
+            "This indicates warm_caches is using the wrong identifier type for token-based caches.",
+        )
+        self.assertNotIn(
+            str(self.team.id),
+            identifier_dict,
+            f"Found team ID '{self.team.id}' as identifier, but token-based caches should use API tokens.",
+        )

@@ -2,6 +2,8 @@ from posthog.test.base import BaseTest
 
 from django.db.utils import IntegrityError
 
+from parameterized import parameterized
+
 from posthog.models import Dashboard, Insight, Team
 from posthog.models.insight import generate_insight_filters_hash
 
@@ -225,3 +227,43 @@ class TestInsightModel(BaseTest):
             assert data
             actual = data["source"]["filters"]
             assert expected_filters == actual
+
+    @parameterized.expand(
+        [
+            (
+                "query_with_show_legend_true",
+                {
+                    "query": {
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "trendsFilter": {"showLegend": True},
+                        },
+                    },
+                    "filters": None,
+                    "expected": True,
+                },
+            ),
+            (
+                "legacy_filters_with_show_legend_true",
+                {
+                    "query": None,
+                    "filters": {"show_legend": True},
+                    "expected": True,
+                },
+            ),
+            (
+                "defaults_to_false",
+                {
+                    "query": None,
+                    "filters": None,
+                    "expected": False,
+                },
+            ),
+        ]
+    )
+    def test_show_legend_property(self, name: str, test_case: dict) -> None:
+        insight = Insight.objects.create(
+            team=self.team, query=test_case["query"], filters=test_case.get("filters") or {}
+        )
+        assert insight.show_legend is test_case["expected"]

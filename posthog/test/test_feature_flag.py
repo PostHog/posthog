@@ -8,7 +8,7 @@ from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_que
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, connections
 from django.test import TransactionTestCase
 from django.utils import timezone
 
@@ -6097,7 +6097,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             hash_key_override="other_id",
         )
 
-        with connection.cursor() as cursor:
+        with connections["persons_db_writer"].cursor() as cursor:
             cursor.execute(
                 f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
             )
@@ -6160,7 +6160,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             hash_key_override="other_id",
         )
 
-        with connection.cursor() as cursor:
+        with connections["persons_db_writer"].cursor() as cursor:
             cursor.execute(
                 f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
             )
@@ -6175,7 +6175,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             hash_key_override="other_id",
         )
 
-        with connection.cursor() as cursor:
+        with connections["persons_db_writer"].cursor() as cursor:
             cursor.execute(
                 f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
             )
@@ -6373,7 +6373,10 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
             properties={"email": "tim@posthog.com", "team": "posthog"},
         )
 
-        with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(insert_fail):
+        with (
+            snapshot_postgres_queries_context(self, capture_all_queries=True),
+            connections["persons_db_writer"].execute_wrapper(insert_fail),
+        ):
             flags, reasons, payloads, errors = get_all_feature_flags(
                 team, "other_id", {}, hash_key_override="example_id"
             )

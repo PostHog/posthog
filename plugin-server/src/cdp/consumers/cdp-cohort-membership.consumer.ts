@@ -13,10 +13,11 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 
 // Zod schema for validation
 const CohortMembershipChangeSchema = z.object({
-    personId: z.string().uuid(),
-    cohortId: z.number(),
-    teamId: z.number(),
-    cohort_membership_changed: z.enum(['entered', 'left']),
+    person_id: z.string().uuid(),
+    cohort_id: z.number(),
+    team_id: z.number(),
+    status: z.enum(['entered', 'left', 'member', 'not_member']),
+    last_updated: z.string().optional(),
 })
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
@@ -40,7 +41,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
 
         const messages = changes.map((change) => ({
             value: JSON.stringify(change),
-            key: change.personId,
+            key: change.person_id,
         }))
 
         await this.kafkaProducer.queueMessages({
@@ -61,11 +62,11 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             let paramIndex = 1
 
             for (const change of changes) {
-                const inCohort = change.cohort_membership_changed === 'entered'
+                const inCohort = change.status === 'entered'
                 placeholders.push(
                     `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, CURRENT_TIMESTAMP)`
                 )
-                values.push(change.teamId, change.cohortId, change.personId, inCohort)
+                values.push(change.team_id, change.cohort_id, change.person_id, inCohort)
                 paramIndex += 4
             }
 

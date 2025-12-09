@@ -4,9 +4,13 @@ Django REST API endpoint for LLM trace and event summarization.
 This ViewSet provides AI-powered summarization of LLM traces and events using
 line-numbered text representations and LLM calls.
 
-Endpoint:
-- POST /api/projects/:id/llm_analytics/summarize/ - Summarize trace or event
+Endpoints:
+- POST /api/projects/:id/llm_analytics/summarization/ - Summarize trace or event
+- POST /api/projects/:id/llm_analytics/summarization/batch_check/ - Check cached summaries for multiple traces
 """
+
+import time
+from typing import cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -17,14 +21,24 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.event_usage import report_user_action
+from posthog.models import User
+from posthog.rate_limit import (
+    LLMAnalyticsSummarizationBurstThrottle,
+    LLMAnalyticsSummarizationDailyThrottle,
+    LLMAnalyticsSummarizationSustainedThrottle,
+)
 
-from products.llm_analytics.backend.summarization.constants import SUMMARIZATION_FEATURE_FLAG
+from products.llm_analytics.backend.summarization.constants import (
+    EARLY_ADOPTERS_FEATURE_FLAG,
+    SUMMARIZATION_FEATURE_FLAG,
+)
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
@@ -88,6 +102,29 @@ class SummarizeResponseSerializer(serializers.Serializer):
     )
 
 
+class BatchCheckRequestSerializer(serializers.Serializer):
+    trace_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="List of trace IDs to check for cached summaries",
+        max_length=100,
+    )
+    mode = serializers.ChoiceField(
+        choices=["minimal", "detailed"],
+        default="minimal",
+        help_text="Summary detail level to check for",
+    )
+
+
+class CachedSummarySerializer(serializers.Serializer):
+    trace_id = serializers.CharField()
+    title = serializers.CharField()
+    cached = serializers.BooleanField(default=True)
+
+
+class BatchCheckResponseSerializer(serializers.Serializer):
+    summaries = CachedSummarySerializer(many=True)
+
+
 class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     ViewSet for LLM trace and event summarization.
@@ -99,7 +136,11 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
 
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of summarization endpoint."""
-        return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        return [
+            LLMAnalyticsSummarizationBurstThrottle(),
+            LLMAnalyticsSummarizationSustainedThrottle(),
+            LLMAnalyticsSummarizationDailyThrottle(),
+        ]
 
     def _validate_feature_access(self, request: Request) -> None:
         """Validate that the user has access to the summarization feature."""
@@ -109,13 +150,33 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         if settings.DEBUG:
             return
 
-        # Check feature flag at team level in production
-        if not posthoganalytics.feature_enabled(
-            SUMMARIZATION_FEATURE_FLAG,
-            str(self.team.uuid),
-            groups={"team": str(self.team.uuid)},
+        user = cast(User, request.user)
+        distinct_id = str(user.distinct_id)
+        organization_id = str(self.team.organization_id)
+
+        # Include person properties for cohort-based targeting and
+        # groups/group_properties for organization-level targeting (including Early Access Features)
+        person_properties = {"email": user.email}
+        groups = {"organization": organization_id}
+        group_properties = {"organization": {"id": organization_id}}
+
+        if not (
+            posthoganalytics.feature_enabled(
+                SUMMARIZATION_FEATURE_FLAG,
+                distinct_id,
+                person_properties=person_properties,
+                groups=groups,
+                group_properties=group_properties,
+            )
+            or posthoganalytics.feature_enabled(
+                EARLY_ADOPTERS_FEATURE_FLAG,
+                distinct_id,
+                person_properties=person_properties,
+                groups=groups,
+                group_properties=group_properties,
+            )
         ):
-            raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this team")
+            raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this user")
 
     def _get_cache_key(self, summarize_type: str, entity_id: str, mode: str) -> str:
         """Generate cache key for summary results.
@@ -336,12 +397,14 @@ The response includes the summary text and optional metadata.
 
             text_repr = self._generate_text_repr(summarize_type, entity_data)
 
+            start_time = time.time()
             summary = async_to_sync(summarize)(
                 text_repr=text_repr,
                 team_id=self.team_id,
-                trace_id=entity_id,
                 mode=mode,
             )
+
+            duration_seconds = time.time() - start_time
 
             result = self._build_summary_response(summary, text_repr, summarize_type)
 
@@ -353,6 +416,21 @@ The response includes the summary text and optional metadata.
                 mode=mode,
                 team_id=self.team_id,
                 force_refresh=force_refresh,
+            )
+
+            # Track user action
+            report_user_action(
+                cast(User, self.request.user),
+                "llma summarization generated",
+                {
+                    "summarize_type": summarize_type,
+                    "entity_id": entity_id,
+                    "mode": mode,
+                    "text_repr_length": len(text_repr),
+                    "force_refresh": force_refresh,
+                    "duration_seconds": duration_seconds,
+                },
+                self.team,
             )
 
             return Response(result, status=status.HTTP_200_OK)
@@ -367,6 +445,69 @@ The response includes the summary text and optional metadata.
                 error=str(e),
             )
             return Response(
-                {"error": "Failed to generate summary", "detail": str(e)},
+                {"error": "Failed to generate summary", "detail": "An error occurred while generating the summary"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @extend_schema(
+        request=BatchCheckRequestSerializer,
+        responses={
+            200: BatchCheckResponseSerializer,
+            400: OpenApiTypes.OBJECT,
+            403: OpenApiTypes.OBJECT,
+        },
+        description="""
+Check which traces have cached summaries available.
+
+This endpoint allows batch checking of multiple trace IDs to see which ones
+have cached summaries. Returns only the traces that have cached summaries
+with their titles.
+
+**Use Cases:**
+- Load cached summaries on session view load
+- Avoid unnecessary LLM calls for already-summarized traces
+- Display summary previews without generating new summaries
+        """,
+        tags=["LLM Analytics"],
+    )
+    @action(detail=False, methods=["post"], url_path="batch_check")
+    @monitor(feature=None, endpoint="llm_analytics_summarize_batch_check", method="POST")
+    def batch_check(self, request: Request, **kwargs) -> Response:
+        """
+        Check which traces have cached summaries.
+
+        POST /api/projects/:id/llm_analytics/summarization/batch_check/
+        """
+        self._validate_feature_access(request)
+
+        serializer = BatchCheckRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        trace_ids = serializer.validated_data["trace_ids"]
+        mode = serializer.validated_data["mode"]
+
+        summaries = []
+        for trace_id in trace_ids:
+            cache_key = self._get_cache_key("trace", trace_id, mode)
+            cached_result = cache.get(cache_key)
+            if cached_result is not None:
+                summary_data = cached_result.get("summary", {})
+                title = summary_data.get("title", "Untitled trace")
+                summaries.append(
+                    {
+                        "trace_id": trace_id,
+                        "title": title,
+                        "cached": True,
+                    }
+                )
+
+        logger.info(
+            "Batch checked summaries",
+            trace_count=len(trace_ids),
+            cached_count=len(summaries),
+            mode=mode,
+            team_id=self.team_id,
+        )
+
+        return Response({"summaries": summaries}, status=status.HTTP_200_OK)

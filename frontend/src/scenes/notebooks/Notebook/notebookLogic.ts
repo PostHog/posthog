@@ -22,6 +22,7 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
+    AnyPropertyFilter,
     CommentType,
     InsightShortId,
     SidePanelTab,
@@ -51,6 +52,7 @@ export type NotebookLogicProps = {
     shortId: string
     mode?: NotebookLogicMode
     target?: NotebookTarget
+    canvasFiltersOverride?: AnyPropertyFilter[]
 }
 
 async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
@@ -151,6 +153,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setAccessDeniedToNotebook: true,
     }),
     reducers(({ props }) => ({
+        canvasFiltersOverride: [props.canvasFiltersOverride ?? ([] as AnyPropertyFilter[])],
         isShareModalOpen: [
             false,
             {
@@ -498,6 +501,17 @@ export const notebookLogic = kea<notebookLogicType>([
                     (node) => node.type === NotebookNodeType.Query && isSavedInsightNode(node?.attrs?.query)
                 )
                 return insightNodes?.map((node) => node?.attrs?.query?.shortId)
+            },
+        ],
+
+        personUUIDFromCanvasOverride: [
+            () => [(_, props) => props],
+            (props: NotebookLogicProps): string | null => {
+                if (!props.canvasFiltersOverride || props.canvasFiltersOverride.length === 0) {
+                    return null
+                }
+                return props.canvasFiltersOverride.find((filter: AnyPropertyFilter) => filter.key === 'person_id')
+                    ?.value as string
             },
         ],
     }),

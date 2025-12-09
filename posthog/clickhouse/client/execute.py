@@ -164,6 +164,9 @@ def sync_execute(
     ):
         workload = Workload.ONLINE
 
+    if tags.workload == Workload.ENDPOINTS:
+        workload = Workload.ENDPOINTS
+
     if workload == Workload.DEFAULT:
         workload = get_default_clickhouse_workload_type()
 
@@ -195,6 +198,9 @@ def sync_execute(
 
     if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
+
+    if tags.product == Product.ENDPOINTS:
+        ch_user = ClickHouseUser.ENDPOINTS
 
     while True:
         settings = {
@@ -267,12 +273,15 @@ def query_with_columns(
     *,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
+    settings: Optional[dict[str, Any]] = None,
 ) -> list[dict]:
     if columns_to_remove is None:
         columns_to_remove = []
     if columns_to_rename is None:
         columns_to_rename = {}
-    metrics, types = sync_execute(query, args, with_column_types=True, workload=workload, team_id=team_id)
+    metrics, types = sync_execute(
+        query, args, settings=settings, with_column_types=True, workload=workload, team_id=team_id
+    )
     type_names = [key for key, _type in types]
 
     rows = []

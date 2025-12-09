@@ -56,6 +56,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     ignoreActionsInSeriesLabels?: boolean
     /** Transform dataTableRows after they are created (e.g., to add date labels) */
     dataTableRowsTransformer?: (rows: DataTableRow[]) => DataTableRow[]
+    /** Compare filter for Web Analytics queries */
+    compareFilter?: any
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{
@@ -70,6 +72,7 @@ export type QueryContextColumnComponent = ComponentType<{
     recordIndex: number
     rowCount: number
     value: unknown
+    context?: QueryContext<any>
 }>
 
 export interface QueryContextColumn {

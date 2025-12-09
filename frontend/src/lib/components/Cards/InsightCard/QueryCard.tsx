@@ -26,11 +26,27 @@ export interface QueryCardProps extends Pick<InsightCardProps, 'highlighted' | '
     sceneSource?: InsightSceneSource
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
+    uniqueKey?: string | number
+    /** Additional controls to show in the top controls area */
+    extraControls?: JSX.Element | null
 }
 
 /** This is like InsightCard, except for presentation of queries that aren't saved insights. */
 export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(function QueryCard(
-    { query, title, description, context, highlighted, ribbonColor, className, sceneSource, attachTo, ...divProps },
+    {
+        query,
+        title,
+        description,
+        context,
+        highlighted,
+        ribbonColor,
+        className,
+        sceneSource,
+        attachTo,
+        uniqueKey,
+        extraControls,
+        ...divProps
+    },
     ref
 ): JSX.Element {
     const { theme } = useValues(themeLogic)
@@ -69,10 +85,18 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
                             ]}
                         />
                     }
+                    extraControls={extraControls}
                     showEditingControls
                 />
                 <div className="InsightCard__viz">
-                    <Query attachTo={attachTo} query={query} readOnly embedded context={context} />
+                    <Query
+                        attachTo={attachTo}
+                        query={query}
+                        readOnly
+                        embedded
+                        context={context}
+                        uniqueKey={uniqueKey}
+                    />
                 </div>
             </ErrorBoundary>
         </div>

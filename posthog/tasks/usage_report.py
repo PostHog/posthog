@@ -15,6 +15,7 @@ from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
+import posthoganalytics
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -28,7 +29,7 @@ from posthog import version_requirement
 from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
@@ -166,6 +167,8 @@ class UsageReportCounters:
     exceptions_captured_in_period: int
     # LLM Analytics
     ai_event_count_in_period: int
+    # AI Billing Credits (PostHog AI feature usage)
+    ai_credits_used_in_period: int
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
@@ -187,6 +190,14 @@ class UsageReportCounters:
     elixir_events_count_in_period: int
     active_hog_destinations_in_period: int
     active_hog_transformations_in_period: int
+    # Workflow metrics
+    workflow_emails_sent_in_period: int
+    workflow_push_sent_in_period: int
+    workflow_sms_sent_in_period: int
+    workflow_billable_invocations_in_period: int
+    # Logs
+    logs_bytes_in_period: int
+    logs_records_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -932,6 +943,160 @@ def get_teams_with_ai_event_count_in_period(
     return results
 
 
+# AI billing markup: 20% markup on top of cost
+AI_COST_MARKUP_PERCENT = 0.2
+# Region-to-team mapping for where AI events are stored
+CLOUD_REGION_TO_TEAM_ID = {
+    "EU": 1,
+    "US": 2,
+}
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_ai_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    """
+    Calculate AI credits used in the period for billable AI generations.
+
+    Billing is performed at the trace level. Traces are billable only if they contain
+    tool calls that include at least one non-search tool. Free (non-billable) traces:
+        - Traces that only contain 'search' tool calls
+
+    We are also performing additional filtering to maintain current trace tool calls and not all messages
+    in the ongoing conversation thread (otherwise we might end up billing for traces we would not want to)
+
+    Conversion logic:
+    1. Extract $ai_total_cost_usd from billable $ai_generation events
+    2. Filter out negative or zero costs (defensive)
+    3. Exclude generations from traces with only search docs tool calls
+    4. Convert to cents (multiply by 100)
+    5. Add markup
+    6. Convert 1:1 to credits
+
+    Events are stored in team 1 (EU) or team 2 (US), with the actual team (on which we group by) in properties.
+    At time of writing, events in the US have a materialized region but nothing present in EU.
+    Using the field from properties to filter events instead.
+    """
+    region = get_instance_region()
+    assert region is not None, "Region must be set in production infrastructure"
+    team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
+
+    with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
+        results = sync_execute(
+            """
+            WITH trace_analysis AS (
+                SELECT
+                    trace_id,
+                    multiIf(
+                        length(tool_calls) > 0
+                            AND arrayAll(
+                                tc ->
+                                    JSONExtractString(tc, 'name') = 'search'
+                                    AND JSONExtractString(
+                                        JSONExtractRaw(tc, 'args'),
+                                        'kind'
+                                    ) = 'docs',
+                                tool_calls
+                            ),
+                        0,  -- all tool calls are docs-search → NOT billable
+                        1   -- everything else (no tools OR any non-docs-search tool) → billable
+                    ) AS is_billable
+                FROM (
+                    SELECT
+                        JSONExtractString(properties, '$ai_trace_id') AS trace_id,
+                        arrayFlatten(
+                            arrayMap(
+                                msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
+                                -- Only get messages from current turn (after last human message)
+                                arraySlice(
+                                    JSONExtractArrayRaw(
+                                        JSONExtractRaw(properties, '$ai_output_state'),
+                                        'messages'
+                                    ),
+                                    -- Start from the position after the last human message
+                                    arrayLastIndex(
+                                        x -> JSONExtractString(x, 'type') = 'human',
+                                        JSONExtractArrayRaw(
+                                            JSONExtractRaw(properties, '$ai_output_state'),
+                                            'messages'
+                                        )
+                                    ) + 1
+                                )
+                            )
+                        ) AS tool_calls
+                    FROM events
+                    PREWHERE
+                        -- data inside PostHog project used as ground truth for billing (depends on region)
+                        team_id = %(team_to_query)s
+                        AND JSONExtractString(properties, 'region') = %(region)s
+                        AND timestamp >= %(begin)s
+                        AND timestamp < %(end)s
+                        AND event = '$ai_trace'
+                )
+            ),
+            costs AS (
+                SELECT
+                    customer_team_id,
+                    trace_id,
+                    cost_usd
+                FROM (
+                    SELECT
+                        JSONExtractInt(properties, 'team_id') AS customer_team_id,
+                        JSONExtractString(properties, '$ai_trace_id') AS trace_id,
+                        toDecimal32OrNull(
+                            JSONExtractString(properties, '$ai_total_cost_usd'),
+                            5
+                        ) AS cost_usd,
+                        JSONExtractBool(properties, '$ai_billable') AS ai_billable
+                    FROM events
+                    PREWHERE
+                        -- data inside PostHog project used as ground truth for billing (depends on region)
+                        team_id = %(team_to_query)s
+                        AND JSONExtractString(properties, 'region') = %(region)s
+                        AND timestamp >= %(begin)s
+                        AND timestamp < %(end)s
+                        AND event = '$ai_generation'
+                )
+                WHERE
+                    ai_billable = 1
+                    AND cost_usd > 0
+            )
+            SELECT
+                c.customer_team_id AS team,
+                toInt64(
+                    roundBankers(
+                        sum(c.cost_usd * 100 * %(markup_multiplier)s)
+                    )
+                ) AS ai_credits
+            FROM costs c
+            LEFT JOIN trace_analysis t ON c.trace_id = t.trace_id
+            WHERE
+                -- keep rows that are billable OR have no trace metadata
+                t.is_billable = 1 OR t.trace_id IS NULL
+            GROUP BY
+                c.customer_team_id
+            HAVING
+                ai_credits > 0
+            ORDER BY
+                ai_credits DESC
+            """,
+            {
+                "team_to_query": team_to_query,
+                "region": region,
+                "begin": begin,
+                "end": end,
+                "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
+            },
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+        )
+
+    return results
+
+
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
 dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
@@ -1220,6 +1385,132 @@ def get_teams_with_active_hog_transformations_in_period() -> list:
     )
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_emails_sent_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_flow' AND metric_name IN ('email_sent') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_push_sent_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_flow' AND metric_name IN ('push_sent') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_sms_sent_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_flow' AND metric_name IN ('sms_sent') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_billable_invocations_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_flow' AND metric_name IN ('billable_invocation') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_logs_bytes_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='logs' AND metric_name='bytes_ingested' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_logs_records_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='logs' AND metric_name='records_ingested' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def capture_report(
     *,
@@ -1266,6 +1557,11 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
+        or report.ai_credits_used_in_period > 0
+        or report.workflow_emails_sent_in_period > 0
+        or report.workflow_push_sent_in_period > 0
+        or report.workflow_sms_sent_in_period > 0
+        or report.workflow_billable_invocations_in_period > 0
     )
 
 
@@ -1289,6 +1585,11 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
 
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
+
+    # Check if AI billing usage report is enabled
+    is_ai_billing_enabled = posthoganalytics.feature_enabled(
+        "posthog-ai-billing-usage-report", "internal_billing_events"
+    )
 
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
@@ -1490,8 +1791,23 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
+        "teams_with_ai_credits_used_in_period": (
+            get_teams_with_ai_credits_used_in_period(period_start, period_end) if is_ai_billing_enabled else []
+        ),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
+        "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
+            period_start, period_end
+        ),
+        "teams_with_workflow_push_sent_in_period": get_teams_with_workflow_push_sent_in_period(
+            period_start, period_end
+        ),
+        "teams_with_workflow_sms_sent_in_period": get_teams_with_workflow_sms_sent_in_period(period_start, period_end),
+        "teams_with_workflow_billable_invocations_in_period": get_teams_with_workflow_billable_invocations_in_period(
+            period_start, period_end
+        ),
+        "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
+        "teams_with_logs_records_in_period": get_teams_with_logs_records_in_period(period_start, period_end),
     }
 
 
@@ -1604,10 +1920,19 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         exceptions_captured_in_period=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+        ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
         active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
             team.id, 0
         ),
+        workflow_emails_sent_in_period=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
+        workflow_push_sent_in_period=all_data["teams_with_workflow_push_sent_in_period"].get(team.id, 0),
+        workflow_sms_sent_in_period=all_data["teams_with_workflow_sms_sent_in_period"].get(team.id, 0),
+        workflow_billable_invocations_in_period=all_data["teams_with_workflow_billable_invocations_in_period"].get(
+            team.id, 0
+        ),
+        logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
+        logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
     )
 
 

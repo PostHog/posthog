@@ -10,7 +10,7 @@ import { objectClean } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
+import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -51,6 +51,7 @@ import {
     HelpType,
     InsightShortId,
     MultipleSurveyQuestion,
+    OnboardingStepKey,
     PersonType,
     QueryBasedInsightModel,
     type SDK,
@@ -104,14 +105,14 @@ export function getEventPropertiesForMetric(
     } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return {
             kind: NodeKind.ExperimentFunnelsQuery,
-            steps_count: metric.funnels_query.series.length,
-            filter_test_accounts: metric.funnels_query.filterTestAccounts,
+            steps_count: metric.funnels_query?.series?.length,
+            filter_test_accounts: metric.funnels_query?.filterTestAccounts,
         }
     }
     return {
         kind: NodeKind.ExperimentTrendsQuery,
-        series_kind: metric.count_query.series[0].kind,
-        filter_test_accounts: metric.count_query.filterTestAccounts,
+        series_kind: metric.count_query?.series?.[0]?.kind,
+        filter_test_accounts: metric.count_query?.filterTestAccounts,
     }
 }
 
@@ -188,7 +189,8 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
 
     if (isInsightVizNode(query) || isInsightQueryNode(query)) {
         const querySource = isInsightVizNode(query) ? query.source : query
-        const { dateRange, filterTestAccounts, samplingFactor, properties } = querySource
+        const { dateRange, filterTestAccounts, properties } = querySource
+        const samplingFactor = 'samplingFactor' in querySource ? querySource.samplingFactor : undefined
 
         // date range and sampling
         payload.date_from = dateRange?.date_from || undefined
@@ -500,6 +502,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId,
             metric,
         }),
+        reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -593,16 +596,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             survey,
         }),
         reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
+        reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
+            source,
+            meta,
+        }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
+        reportOnboardingStarted: (entrypoint: string) => ({ entrypoint }),
+        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey) => ({ stepKey }),
+        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey) => ({ stepKey }),
+        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
             recommendedProducts,
         }),
+        reportOnboardingUseCaseSkipped: true,
         // command bar
         reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
         reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
@@ -1197,6 +1209,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }) => {
             posthog.capture('experiment timeseries recalculated', { experiment_id: experimentId, metric })
         },
+        reportExperimentAiSummaryRequested: ({ experiment }) => {
+            posthog.capture('experiment ai summary requested', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
         },
@@ -1384,6 +1401,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
                 is_duplicate: isDuplicate ?? false,
+                linked_insight_id: survey.linked_insight_id,
                 events_count: survey.conditions?.events?.values.length,
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
                 recurring_survey_iteration_interval:
@@ -1467,6 +1485,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 end_date: survey.end_date,
             })
         },
+        reportUserFeedbackButtonClicked: ({ source, meta }) => {
+            posthog.capture('feedback button clicked', {
+                source,
+                ...meta,
+            })
+        },
         reportProductUnsubscribed: ({ product }) => {
             const property_key = `unsubscribed_from_${product}`
             posthog.capture('product unsubscribed', {
@@ -1480,11 +1504,34 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
+        reportOnboardingStarted: ({ entrypoint }) => {
+            posthog.capture('onboarding started', {
+                entry_point: entrypoint,
+            })
+        },
+        reportOnboardingStepCompleted: ({ stepKey }) => {
+            posthog.capture('onboarding step completed', {
+                step_key: stepKey,
+            })
+        },
+        reportOnboardingStepSkipped: ({ stepKey }) => {
+            posthog.capture('onboarding step skipped', {
+                step_key: stepKey,
+            })
+        },
+        reportOnboardingCompleted: ({ productKey }) => {
+            posthog.capture('onboarding completed', {
+                product_key: productKey,
+            })
+        },
         reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
             posthog.capture('onboarding use case selected', {
                 use_case: useCase,
                 recommended_products: recommendedProducts,
             })
+        },
+        reportOnboardingUseCaseSkipped: () => {
+            posthog.capture('onboarding use case skipped')
         },
         reportSDKSelected: ({ sdk }) => {
             posthog.capture('sdk selected', {

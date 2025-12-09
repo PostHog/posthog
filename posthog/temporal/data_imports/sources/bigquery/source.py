@@ -38,6 +38,12 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BIGQUERY
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
+            "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
+        }
+
     def get_schemas(self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
             config,

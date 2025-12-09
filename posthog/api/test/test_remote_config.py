@@ -17,6 +17,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         self.team.recording_domains = ["https://*.example.com"]
         self.team.session_recording_opt_in = True
         self.team.surveys_opt_in = True
+        self.team.extra_settings = {"recorder_script": "posthog-recorder"}
         self.team.save()
 
         # Force synchronous RemoteConfig creation for tests since signals are async now
@@ -50,10 +51,14 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
     def test_valid_config(self):
         # Not sure why but there is sometimes one extra query here
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
-            response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+            )
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Content-Type"] == "application/json"
@@ -92,7 +97,9 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         )
 
     def test_vary_header_response(self):
-        response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+        response = self.client.get(
+            f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+        )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert "Origin" in response.headers["Vary"]
         assert "Referer" in response.headers["Vary"]
@@ -100,26 +107,36 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
     def test_different_response_for_other_domains(self):
         # Not sure why but there is sometimes one extra query here
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 2)):
-            response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+            )
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["sessionRecording"]
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+            )
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["sessionRecording"]
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/config", HTTP_ORIGIN="https://bar.other.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config", headers={"origin": "https://bar.other.com"}
+            )
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert not response.json()["sessionRecording"]
 
     def test_valid_config_js(self):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT - 1, CONFIG_REFRESH_QUERY_COUNT + 1)):
-            response = self.client.get(f"/array/{self.team.api_token}/config.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config.js", headers={"origin": "https://foo.example.com"}
+            )
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/config.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config.js", headers={"origin": "https://foo.example.com"}
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Content-Type"] == "application/javascript"
@@ -131,10 +148,14 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
     @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_js(self, mock_get_array_js_content):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT - 1, CONFIG_REFRESH_QUERY_COUNT + 1)):
-            response = self.client.get(f"/array/{self.team.api_token}/array.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/array.js", headers={"origin": "https://foo.example.com"}
+            )
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/array.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/array.js", headers={"origin": "https://foo.example.com"}
+            )
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["Content-Type"] == "application/javascript"
         assert response.content
@@ -148,8 +169,12 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
     @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
     def test_valid_array_uses_config_js_cache(self, mock_get_array_js_content):
         with self.assertNumQueries(FuzzyInt(CONFIG_REFRESH_QUERY_COUNT, CONFIG_REFRESH_QUERY_COUNT + 1)):
-            response = self.client.get(f"/array/{self.team.api_token}/config.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/config.js", headers={"origin": "https://foo.example.com"}
+            )
 
         with self.assertNumQueries(0):
-            response = self.client.get(f"/array/{self.team.api_token}/array.js", HTTP_ORIGIN="https://foo.example.com")
+            response = self.client.get(
+                f"/array/{self.team.api_token}/array.js", headers={"origin": "https://foo.example.com"}
+            )
         assert response.status_code == status.HTTP_200_OK

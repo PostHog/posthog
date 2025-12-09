@@ -18,7 +18,7 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 import { StatusTagSetting } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
-import FireSaleBanner from '../FireSaleBanner'
+import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
 import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
@@ -34,7 +34,6 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
 
     return (
         <div>
-            <FireSaleBanner />
             <div className="flex gap-2 justify-between items-center mb-4">
                 <LemonInput
                     type="search"
@@ -163,6 +162,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     },
                 ]}
             />
+            <FreeHistoricalSyncsBanner />
         </div>
     )
 }

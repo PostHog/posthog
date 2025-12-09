@@ -291,8 +291,8 @@ export function SourceFormComponent({
                                     status={validationError ? 'danger' : undefined}
                                 />
                                 {validationError && <p className="text-danger text-xs mt-1">{validationError}</p>}
-                                <p>
-                                    Example table name:&nbsp;
+                                <p className="mb-0">
+                                    Table name will look like:&nbsp;
                                     <strong>{tableName}</strong>
                                 </p>
                             </>

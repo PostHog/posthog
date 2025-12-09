@@ -178,7 +178,7 @@ export function filterInspectorListItems({
         | undefined
     allowMatchingEventsFilter: boolean
     showOnlyMatching: boolean
-    trackedWindow: string | null
+    trackedWindow: number | null
     hasEventsToDisplay: boolean
 }): InspectorListItem[] {
     const items: InspectorListItem[] = []

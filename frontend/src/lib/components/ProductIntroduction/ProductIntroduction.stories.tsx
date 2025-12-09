@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductIntroduction } from './ProductIntroduction'
 

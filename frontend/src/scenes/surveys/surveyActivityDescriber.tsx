@@ -183,6 +183,7 @@ const surveyActionsMapping: Record<
             thankYouMessageCloseButtonText: 'thank you message close button text',
             autoDisappear: 'auto-disappear option',
             position: 'survey position',
+            tabPosition: 'survey button position',
             shuffleQuestions: 'question shuffling',
             surveyPopupDelaySeconds: 'survey popup delay',
             widgetType: 'widget type',
@@ -198,6 +199,7 @@ const surveyActionsMapping: Record<
             maxWidth: 'max width',
             textSubtleColor: 'text subtle color',
             inputBackground: 'input background',
+            inputTextColor: 'input text color',
         }
 
         Object.entries(fieldNameMapping).forEach(([field, readableFieldName]) => {

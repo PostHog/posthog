@@ -35,6 +35,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     redis_url: "redis://localhost:6379/".to_string(),
+    redis_response_timeout_ms: 100,
+    redis_connection_timeout_ms: 5000,
     overflow_enabled: false,
     overflow_preserve_partition_locality: false,
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
@@ -66,6 +68,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_metadata_max_age_ms: 60000,
         kafka_producer_max_retries: 2,
         kafka_producer_acks: "all".to_string(),
+        kafka_socket_timeout_ms: 60000,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -284,7 +287,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -319,7 +322,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -366,7 +369,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }

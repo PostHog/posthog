@@ -501,6 +501,44 @@ class LLMAnalyticsTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
+class LLMAnalyticsTranslationBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_translation_burst"
+    rate = "30/minute"
+
+
+class LLMAnalyticsTranslationSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_translation_sustained"
+    rate = "200/hour"
+
+
+class LLMAnalyticsTranslationDailyThrottle(PersonalApiKeyRateThrottle):
+    # Daily cap for LLM-powered translation endpoint
+    # Hard limit to prevent runaway costs
+    scope = "llm_analytics_translation_daily"
+    rate = "500/day"
+
+
+class LLMAnalyticsSummarizationBurstThrottle(PersonalApiKeyRateThrottle):
+    # Rate limit for LLM-powered summarization endpoint
+    # Conservative limits to control OpenAI API costs
+    scope = "llm_analytics_summarization_burst"
+    rate = "50/minute"
+
+
+class LLMAnalyticsSummarizationSustainedThrottle(PersonalApiKeyRateThrottle):
+    # Rate limit for LLM-powered summarization endpoint
+    # Conservative limits to control OpenAI API costs
+    scope = "llm_analytics_summarization_sustained"
+    rate = "200/hour"
+
+
+class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
+    # Daily cap for LLM-powered summarization endpoint
+    # Hard limit to prevent runaway costs
+    scope = "llm_analytics_summarization_daily"
+    rate = "500/day"
+
+
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"
@@ -570,6 +608,8 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
 
         sha_hash = hashlib.sha256(value.encode()).hexdigest()
 
+        # this value isn't use controllable and can't generate html/js, so there's no risk of xss
+        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"throttle_wizard_query_{sha_hash}"
 
 

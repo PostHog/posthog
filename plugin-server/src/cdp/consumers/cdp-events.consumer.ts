@@ -375,14 +375,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 metric_name: 'triggered',
                 count: 1,
             })
-
-            triggeredInvocationsMetrics.push({
-                team_id: item.teamId,
-                app_source_id: item.functionId,
-                metric_kind: 'billing',
-                metric_name: 'billable_invocation',
-                count: 1,
-            })
         })
 
         this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_flow')
