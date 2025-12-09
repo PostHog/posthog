@@ -65,6 +65,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['remoteWebVitalsLoading'],
         ],
         actions: [
+            toolbarConfigLogic,
+            ['logout'],
             actionsTabLogic,
             [
                 'showButtonActions',
@@ -110,6 +112,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         maybeSendNavigationMessage: true,
         togglePiiMasking: (enabled?: boolean) => ({ enabled }),
         setPiiMaskingColor: (color: string) => ({ color }),
+        startGracefulExit: true,
+        completeGracefulExit: true,
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -220,6 +224,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
             { persist: true },
             {
                 setPiiMaskingColor: (_, { color }) => color,
+            },
+        ],
+        isExiting: [
+            false,
+            {
+                startGracefulExit: () => true,
+                completeGracefulExit: () => false,
             },
         ],
     })),
@@ -556,6 +567,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
             if (styleElement && values.piiMaskingEnabled) {
                 styleElement.textContent = generatePiiMaskingCSS(color, values.posthog)
             }
+        },
+        startGracefulExit: () => {
+            actions.setVisibleMenu('none')
+            actions.toggleMinimized(true)
+        },
+        completeGracefulExit: () => {
+            actions.logout()
         },
     })),
     afterMount(({ actions, values, cache }) => {

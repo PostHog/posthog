@@ -196,7 +196,7 @@ function piiMaskingMenuItem(
 
 function MoreMenu(): JSX.Element {
     const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
-    const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor } =
+    const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor, startGracefulExit } =
         useActions(toolbarLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
@@ -211,8 +211,6 @@ function MoreMenu(): JSX.Element {
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
-
-    const { logout } = useActions(toolbarConfigLogic)
 
     return (
         <LemonMenu
@@ -256,7 +254,7 @@ function MoreMenu(): JSX.Element {
                             window.open(HELP_URL, '_blank')?.focus()
                         },
                     },
-                    { icon: <IconX />, label: 'Close toolbar', onClick: logout },
+                    { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
                 ].filter(Boolean) as LemonMenuItems
             }
             maxContentWidth={true}
@@ -333,8 +331,10 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isLoading } = useValues(toolbarLogic)
-    const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
+    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isLoading, isExiting } =
+        useValues(toolbarLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
+        useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
 
@@ -398,7 +398,12 @@ export function Toolbar(): JSX.Element | null {
                     title={isAuthenticated ? 'Minimize' : 'Authenticate the PostHog Toolbar'}
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 >
-                    <AnimatedLogomark animate={isLoading} className="Toolbar__logomark" />
+                    <AnimatedLogomark
+                        animate={isLoading}
+                        animateOnce={isExiting}
+                        onAnimationComplete={completeGracefulExit}
+                        className="Toolbar__logomark"
+                    />
                 </ToolbarButton>
                 {isAuthenticated ? (
                     <>
