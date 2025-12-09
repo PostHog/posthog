@@ -1,3 +1,11 @@
+from .browser import (
+    COMPUTER_TOOL_DEFINITION,
+    BrowserNavigateTool,
+    BrowserNavigateToolArgs,
+    BrowserSessionManager,
+    ComputerToolHandler,
+    HyperbrowserSession,
+)
 from .create_and_query_insight import CreateAndQueryInsightTool, CreateAndQueryInsightToolArgs
 from .create_dashboard import CreateDashboardTool, CreateDashboardToolArgs
 from .create_form import CreateFormTool, CreateFormToolArgs
@@ -12,6 +20,14 @@ from .task import TaskTool, TaskToolArgs
 from .todo_write import TodoWriteTool, TodoWriteToolArgs
 
 __all__ = [
+    # Browser automation tools
+    "BrowserNavigateTool",
+    "BrowserNavigateToolArgs",
+    "BrowserSessionManager",
+    "HyperbrowserSession",
+    "COMPUTER_TOOL_DEFINITION",
+    "ComputerToolHandler",
+    # Other tools
     "CreateAndQueryInsightTool",
     "CreateAndQueryInsightToolArgs",
     "CreateDashboardTool",

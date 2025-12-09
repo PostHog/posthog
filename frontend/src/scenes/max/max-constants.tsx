@@ -5,7 +5,9 @@ import {
     IconCheckbox,
     IconCreditCard,
     IconDocument,
+    IconGlobe,
     IconMemory,
+    IconMouse,
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
@@ -137,6 +139,50 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return `Task (${title})`
             }
             return `Running a task (${title})...`
+        },
+    },
+    browser_navigate: {
+        name: 'Navigate to a website',
+        description: 'Navigate to a website',
+        icon: <IconGlobe />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Navigated to a website'
+            }
+            return 'Navigating to a website...'
+        },
+    },
+    computer: {
+        name: 'Interact with a website',
+        description: 'Interact with a website',
+        icon: <IconMouse />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                if (toolCall.args.action === 'screenshot') {
+                    return 'Took a screenshot'
+                } else if (toolCall.args.action === 'left_click') {
+                    return 'Clicked the left mouse button'
+                } else if (toolCall.args.action === 'right_click') {
+                    return 'Clicked the right mouse button'
+                } else if (toolCall.args.action === 'left_click_drag') {
+                    return 'Dragged the left mouse button'
+                } else if (toolCall.args.action === 'double_click') {
+                    return 'Double-clicked'
+                } else if (toolCall.args.action === 'middle_click') {
+                    return 'Clicked the middle mouse button'
+                } else if (toolCall.args.action === 'mouse_move') {
+                    return 'Moved the mouse'
+                } else if (toolCall.args.action === 'type') {
+                    return 'Typed text'
+                } else if (toolCall.args.action === 'key') {
+                    return 'Pressed a key: ' + toolCall.args.key
+                } else if (toolCall.args.action === 'scroll') {
+                    return 'Scrolled'
+                } else if (toolCall.args.action === 'wait') {
+                    return 'Waited {' + toolCall.args.duration + '} seconds'
+                }
+            }
+            return 'Computering...'
         },
     },
     create_form: {
@@ -698,6 +744,12 @@ export const MODE_DEFINITIONS: Record<Exclude<AgentMode, AgentMode.Research>, Mo
             Scene.ReplayFilePlayback,
             Scene.ReplaySettings,
         ]),
+    },
+    [AgentMode.BrowserUse]: {
+        name: 'Browser use',
+        description: 'Uses a browser to browse websites and provide insights about user behavior.',
+        icon: <IconGlobe />,
+        scenes: new Set(),
     },
 }
 

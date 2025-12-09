@@ -23,7 +23,7 @@ class TitleGeneratorNode(AssistantNode):
             return None
 
         runnable = (
-            ChatPromptTemplate.from_messages([("system", TITLE_GENERATION_PROMPT), ("user", "{user_input}")])
+            ChatPromptTemplate.from_messages([("system", TITLE_GENERATION_PROMPT), ("user", "Brief: {user_input}")])
             | self._model
             | StrOutputParser()
         )

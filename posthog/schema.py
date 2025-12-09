@@ -40,6 +40,7 @@ class AgentMode(StrEnum):
     SESSION_REPLAY = "session_replay"
     PLAN = "plan"
     RESEARCH = "research"
+    BROWSER_USE = "browser_use"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -325,6 +326,8 @@ class AssistantTool(StrEnum):
     CREATE_FORM = "create_form"
     TASK = "task"
     CREATE_NOTEBOOK = "create_notebook"
+    BROWSER_NAVIGATE = "browser_navigate"
+    COMPUTER = "computer"
 
 
 class AssistantToolCall(BaseModel):

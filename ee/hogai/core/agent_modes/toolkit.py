@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Awaitable, Sequence
-from typing import TYPE_CHECKING, TypeVar, cast
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import structlog
 from langchain_core.messages import BaseMessage
@@ -34,6 +35,14 @@ T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class ToolsResult:
+    """Result from get_tools containing both MaxTools and native tool definitions."""
+
+    tools: list["MaxTool"]
+    native_tools: list[dict[str, Any]]
 
 
 class AgentToolkit:
@@ -72,6 +81,14 @@ class AgentToolkit:
         """
         return []
 
+    @property
+    def native_tools(self) -> list[dict[str, Any]]:
+        """
+        Native Anthropic tools that are passed directly to bind_tools.
+        These are special tools like computer_20250124 that have a specific format.
+        """
+        return []
+
 
 class AgentToolkitManager:
     _mode_registry: dict[AgentMode, "AgentModeDefinition"]
@@ -94,7 +111,7 @@ class AgentToolkitManager:
         cls._mode_toolkit = mode_toolkit
         cls._mode_registry = mode_registry
 
-    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
+    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> ToolsResult:
         toolkits = [self._agent_toolkit, self._mode_toolkit]
 
         # Accumulate positive and negative examples from all toolkits
@@ -103,6 +120,12 @@ class AgentToolkitManager:
         for toolkit_class in toolkits:
             positive_examples.extend(toolkit_class.POSITIVE_TODO_EXAMPLES or [])
             negative_examples.extend(toolkit_class.NEGATIVE_TODO_EXAMPLES or [])
+
+        # Collect native tools from all toolkits
+        native_tools: list[dict[str, Any]] = []
+        for toolkit_class in toolkits:
+            toolkit = toolkit_class(team=self._team, user=self._user, context_manager=self._context_manager)
+            native_tools.extend(toolkit.native_tools)
 
         # Initialize the static toolkit
         static_tools: list[Awaitable[MaxTool]] = []
@@ -145,4 +168,5 @@ class AgentToolkitManager:
                     )
                     static_tools.append(tool_future)
 
-        return await asyncio.gather(*static_tools)
+        tools = await asyncio.gather(*static_tools)
+        return ToolsResult(tools=list(tools), native_tools=native_tools)
