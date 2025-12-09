@@ -1483,11 +1483,6 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId).addPathComponent('revenue_analytics_config')
     }
 
-    // Direct Query (for query-only data sources)
-    public directQuery(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('direct_query')
-    }
-
     // Fix HogQL errors
     public fixHogQLErrors(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('fix_hogql')
@@ -4088,41 +4083,6 @@ const api = {
             data: Partial<ExternalDataSourceRevenueAnalyticsConfig>
         ): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSourceRevenueAnalyticsConfig(sourceId).update({ data })
-        },
-    },
-
-    directQuery: {
-        async execute(
-            sourceId: string,
-            sql: string,
-            maxRows: number = 1000
-        ): Promise<{
-            columns: string[]
-            rows: Record<string, any>[]
-            row_count: number
-            execution_time_ms: number
-            error?: string
-        }> {
-            return await new ApiRequest()
-                .directQuery()
-                .withAction('execute')
-                .create({ data: { source_id: sourceId, sql, max_rows: maxRows } })
-        },
-        async listSources(): Promise<{
-            sources: Array<{
-                id: string
-                source_type: string
-                prefix: string
-                created_at: string
-                status: string
-            }>
-        }> {
-            return await new ApiRequest().directQuery().withAction('sources').get()
-        },
-        async getSchema(sourceId: string): Promise<{
-            tables: Record<string, Array<{ column_name: string; data_type: string }>>
-        }> {
-            return await new ApiRequest().directQuery().withAction(`schema/${sourceId}`).get()
         },
     },
 

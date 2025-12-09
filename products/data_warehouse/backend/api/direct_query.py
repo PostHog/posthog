@@ -1,3 +1,4 @@
+import structlog
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -7,6 +8,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_warehouse.backend.models import ExternalDataSource
 from products.data_warehouse.backend.services import DirectQueryExecutor
+
+logger = structlog.get_logger(__name__)
 
 
 class DirectQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -117,8 +120,9 @@ class DirectQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             schema_info = executor.get_schema()
             return Response({"tables": schema_info.tables})
-        except RuntimeError as e:
+        except Exception as e:
+            logger.exception("direct_query_schema_error", source_id=source_id, error=str(e))
             return Response(
-                {"error": str(e)},
+                {"error": "Failed to retrieve schema. Please check your connection settings."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

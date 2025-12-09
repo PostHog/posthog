@@ -4,8 +4,13 @@ from dataclasses import dataclass
 from typing import Any
 
 import psycopg
+import structlog
 from psycopg.adapt import Loader
 from psycopg.rows import dict_row
+
+logger = structlog.get_logger(__name__)
+
+DEFAULT_QUERY_TIMEOUT_SECONDS = 30
 
 
 @dataclass
@@ -102,22 +107,37 @@ class DirectQueryExecutor:
 
         return connection
 
-    def execute_query(self, sql: str, max_rows: int = 1000) -> QueryResult:
+    def execute_query(
+        self, sql: str, max_rows: int = 1000, timeout_seconds: int = DEFAULT_QUERY_TIMEOUT_SECONDS
+    ) -> QueryResult:
         """Execute a SQL query and return results.
 
         Args:
             sql: The SQL query to execute
             max_rows: Maximum number of rows to return (default 1000)
+            timeout_seconds: Query timeout in seconds (default 30)
 
         Returns:
             QueryResult with columns, rows, execution time, and any errors
         """
         start_time = time.time()
 
+        logger.info(
+            "direct_query_execute_start",
+            database=self.database,
+            schema=self.schema,
+            max_rows=max_rows,
+            timeout_seconds=timeout_seconds,
+        )
+
         try:
             connection = self._get_connection()
 
             with connection.cursor(row_factory=dict_row) as cursor:
+                # Set query timeout and read-only mode for safety
+                cursor.execute(f"SET statement_timeout = '{timeout_seconds}s'")
+                cursor.execute("SET default_transaction_read_only = ON")
+
                 cursor.execute(sql)
 
                 # Get column names and types from description
@@ -144,6 +164,14 @@ class DirectQueryExecutor:
 
             execution_time_ms = (time.time() - start_time) * 1000
 
+            logger.info(
+                "direct_query_execute_success",
+                database=self.database,
+                schema=self.schema,
+                row_count=row_count,
+                execution_time_ms=execution_time_ms,
+            )
+
             return QueryResult(
                 columns=columns,
                 types=types,
@@ -154,13 +182,29 @@ class DirectQueryExecutor:
 
         except Exception as e:
             execution_time_ms = (time.time() - start_time) * 1000
+
+            # Sanitize error message to avoid leaking sensitive information
+            error_message = str(e)
+            if "password" in error_message.lower():
+                error_message = "Connection failed. Please check your credentials."
+            elif "timeout" in error_message.lower():
+                error_message = f"Query timed out after {timeout_seconds} seconds."
+
+            logger.warning(
+                "direct_query_execute_error",
+                database=self.database,
+                schema=self.schema,
+                execution_time_ms=execution_time_ms,
+                error=str(e),
+            )
+
             return QueryResult(
                 columns=[],
                 types=[],
                 rows=[],
                 row_count=0,
                 execution_time_ms=execution_time_ms,
-                error=str(e),
+                error=error_message,
             )
 
     def get_schema(self) -> SchemaInfo:

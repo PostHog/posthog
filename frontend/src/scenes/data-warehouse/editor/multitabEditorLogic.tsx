@@ -244,17 +244,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             sourceId,
             tablePrefix,
         }),
-        runDirectQuery: (queryOverride?: string) => ({ queryOverride }),
-        setDirectQueryResults: (
-            results: {
-                columns: string[]
-                rows: Record<string, any>[]
-                row_count: number
-                execution_time_ms: number
-                error?: string
-            } | null
-        ) => ({ results }),
-        setDirectQueryLoading: (loading: boolean) => ({ loading }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -409,27 +398,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             {
                 setDirectQuerySource: (_, { sourceId, tablePrefix }) =>
                     sourceId && tablePrefix ? { sourceId, tablePrefix } : null,
-            },
-        ],
-        directQueryResults: [
-            null as {
-                columns: string[]
-                rows: Record<string, any>[]
-                row_count: number
-                execution_time_ms: number
-                error?: string
-            } | null,
-            {
-                setDirectQueryResults: (_, { results }) => results,
-                setDirectQuerySource: () => null, // Clear results when source changes
-            },
-        ],
-        directQueryLoading: [
-            false,
-            {
-                setDirectQueryLoading: (_, { loading }) => loading,
-                runDirectQuery: () => true,
-                setDirectQueryResults: () => false,
             },
         ],
     })),
@@ -719,34 +687,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 key: values.dataLogicKey,
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
-        },
-        runDirectQuery: async ({ queryOverride }) => {
-            const directQuerySource = values.directQuerySource
-            if (!directQuerySource) {
-                return
-            }
-
-            let query = (queryOverride || values.queryInput) ?? ''
-
-            // Transform table names: remove the prefix to get the original table name
-            // e.g., "postgres_users" -> "users" when prefix is "postgres_"
-            if (directQuerySource.tablePrefix) {
-                const prefixPattern = new RegExp(`\\b${directQuerySource.tablePrefix}_`, 'gi')
-                query = query.replace(prefixPattern, '')
-            }
-
-            try {
-                const results = await api.directQuery.execute(directQuerySource.sourceId, query, 1000)
-                actions.setDirectQueryResults(results)
-            } catch (error: any) {
-                actions.setDirectQueryResults({
-                    columns: [],
-                    rows: [],
-                    row_count: 0,
-                    execution_time_ms: 0,
-                    error: error?.message || 'Failed to execute direct query',
-                })
-            }
         },
         setDirectQuerySource: async ({ sourceId }) => {
             // When setting a direct query source, also update directQueryLogic
