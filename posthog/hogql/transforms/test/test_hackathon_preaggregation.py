@@ -255,6 +255,34 @@ class TestQueryPatternDetection(BaseTest):
         # Should match and infer end date
         assert _is_daily_unique_persons_pageviews_query(node, context)
 
+    def test_with_single_breakdown(self):
+        """Test query with one breakdown dimension."""
+        query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp), properties.$browser
+        """
+        node = parse_select(query)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+        assert _is_daily_unique_persons_pageviews_query(node, context)
+
+    def test_with_multiple_breakdowns(self):
+        """Test query with multiple breakdown dimensions."""
+        query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp), properties.$browser, properties.$os
+        """
+        node = parse_select(query)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+        assert _is_daily_unique_persons_pageviews_query(node, context)
+
     @parameterized.expand(
         [
             (
@@ -297,6 +325,10 @@ class TestQueryPatternDetection(BaseTest):
                 "with_join",
                 "SELECT uniqExact(e.person_id) FROM events e JOIN sessions s ON e.session_id = s.id WHERE e.event = '$pageview' AND e.timestamp >= '2024-01-01' AND e.timestamp < '2024-02-01' GROUP BY toStartOfDay(e.timestamp)",
             ),
+            (
+                "breakdown_first_without_toStartOfDay",
+                "SELECT uniqExact(person_id) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-02-01' GROUP BY properties.$browser, toStartOfDay(timestamp)",
+            ),
         ]
     )
     def test_non_matching_queries(self, name, query):
@@ -333,8 +365,8 @@ class TestQueryTransformation(BaseTest, QueryMatchingTest):
         # Check that transformation occurred
         assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME in transformed
         assert "uniqExactMerge" in transformed
-        assert "persons_uniq_exact_state" in transformed
-        assert "day" in transformed
+        assert "uniq_exact_state" in transformed
+        assert "time_window_start" in transformed
 
         # Original elements should not be present
         assert "events" not in transformed
@@ -452,4 +484,80 @@ class TestQueryTransformation(BaseTest, QueryMatchingTest):
         # Check that the date range is in the transformed query
         assert "2024-06-15" in transformed
         assert "2024-07-20" in transformed
+        self.assertQueryMatchesSnapshot(transformed)
+
+    def test_single_breakdown_transformation(self):
+        """Test that breakdown dimensions are mapped to arrayElement calls."""
+        original_query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp), properties.$browser
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        # Check that transformation occurred
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME in transformed
+        assert "uniqExactMerge" in transformed
+
+        # Check that the breakdown is mapped to arrayElement
+        assert "arrayElement(breakdown_value, 1)" in transformed
+        assert "time_window_start" in transformed
+
+        # Original property reference should not be in transformed query
+        assert "properties.$browser" not in transformed
+
+        self.assertQueryMatchesSnapshot(transformed)
+
+    def test_multiple_breakdowns_transformation(self):
+        """Test that multiple breakdown dimensions are mapped to arrayElement calls."""
+        original_query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp), properties.$browser, properties.$os
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        # Check that transformation occurred
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME in transformed
+        assert "uniqExactMerge" in transformed
+
+        # Check that both breakdowns are mapped to arrayElement with correct indices
+        assert "arrayElement(breakdown_value, 1)" in transformed
+        assert "arrayElement(breakdown_value, 2)" in transformed
+        assert "time_window_start" in transformed
+
+        # Original property references should not be in transformed query
+        assert "properties.$browser" not in transformed
+        assert "properties.$os" not in transformed
+
+        self.assertQueryMatchesSnapshot(transformed)
+
+    def test_breakdown_with_aliases(self):
+        """Test that aliases on breakdown dimensions are preserved."""
+        original_query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp) AS day, properties.$browser AS browser, properties.$os AS os
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        # Check that transformation occurred
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME in transformed
+        assert "uniqExactMerge" in transformed
+
+        # Check that breakdowns are mapped with preserved aliases
+        assert "arrayElement(breakdown_value, 1)" in transformed
+        assert "arrayElement(breakdown_value, 2)" in transformed
+        assert "AS browser" in transformed or "browser" in transformed
+        assert "AS os" in transformed or "os" in transformed
+
         self.assertQueryMatchesSnapshot(transformed)

@@ -6,7 +6,9 @@ from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.visitor import CloningVisitor
 
-PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME = "daily_unique_persons_pageviews"
+from posthog.clickhouse.preaggregation.sql import SHARDED_PREAGGREGATION_RESULTS_TABLE
+
+PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME = SHARDED_PREAGGREGATION_RESULTS_TABLE()
 
 
 def _is_person_id_field(field: ast.Field) -> bool:
@@ -268,12 +270,13 @@ def _is_daily_unique_persons_pageviews_query(node: ast.SelectQuery, context: Hog
     if timestamp_range is None:
         return False
 
-    # 6. GROUP BY must contain toStartOfDay(timestamp)
-    if not node.group_by or len(node.group_by) != 1:
+    # 6. GROUP BY must contain toStartOfDay(timestamp) as first expression
+    # Additional GROUP BY expressions are allowed (for breakdowns)
+    if not node.group_by or len(node.group_by) < 1:
         return False
 
-    group_expr = _unwrap_alias(node.group_by[0])
-    if not _is_to_start_of_day_timestamp(group_expr, context):
+    first_group_expr = _unwrap_alias(node.group_by[0])
+    if not _is_to_start_of_day_timestamp(first_group_expr, context):
         return False
 
     # 7. No unsupported clauses
@@ -332,7 +335,6 @@ class Transformer(CloningVisitor):
         start_dt, end_dt = timestamp_range
 
         # For MVP, we stub out the job orchestration
-        # In production, this would trigger Celery tasks and wait
         result = _run_daily_unique_persons_pageviews(start_dt, end_dt)
 
         if not result["ready"]:
@@ -344,7 +346,7 @@ class Transformer(CloningVisitor):
         original_select = transformed_node.select[0]
         original_alias = original_select.alias if isinstance(original_select, ast.Alias) else None
 
-        transformed_select_expr = ast.Call(name="uniqExactMerge", args=[ast.Field(chain=["persons_uniq_exact_state"])])
+        transformed_select_expr = ast.Call(name="uniqExactMerge", args=[ast.Field(chain=["uniq_exact_state"])])
 
         # Preserve the original alias if it exists
         if original_alias:
@@ -354,26 +356,53 @@ class Transformer(CloningVisitor):
 
         # FROM daily_unique_persons_pageviews
         select_from = ast.JoinExpr(
-            table=ast.Field(chain=[PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME]),
+            table=ast.Field(chain=[SHARDED_PREAGGREGATION_RESULTS_TABLE()]),
             alias=transformed_node.select_from.alias if transformed_node.select_from else None,
             constraint=None,
             next_join=None,
             sample=None,
         )
 
-        # WHERE day >= start AND day < end
+        # WHERE time_window_start >= start AND time_window_start < end
         where_conditions = [
             ast.CompareOperation(
-                left=ast.Field(chain=["day"]), right=ast.Constant(value=start_dt.date()), op=CompareOperationOp.GtEq
+                left=ast.Field(chain=["time_window_start"]),
+                right=ast.Constant(value=start_dt.date()),
+                op=CompareOperationOp.GtEq,
             ),
             ast.CompareOperation(
-                left=ast.Field(chain=["day"]), right=ast.Constant(value=end_dt.date()), op=CompareOperationOp.Lt
+                left=ast.Field(chain=["time_window_start"]),
+                right=ast.Constant(value=end_dt.date()),
+                op=CompareOperationOp.Lt,
             ),
         ]
         where = ast.And(exprs=where_conditions) if len(where_conditions) > 1 else where_conditions[0]
 
-        # GROUP BY day (transformed to use 'day' field instead of toStartOfDay(timestamp))
-        group_by = [ast.Field(chain=["day"])]
+        # GROUP BY time_window_start + breakdown_value array indices
+        # First GROUP BY: toStartOfDay(timestamp) -> time_window_start
+        # Additional GROUP BY expressions: map to breakdown_value.1, breakdown_value.2, etc.
+        group_by = [ast.Field(chain=["time_window_start"])]
+
+        # Map additional GROUP BY expressions to breakdown_value array indices (1-indexed)
+        breakdown_mappings = []  # List of (original_expr, alias, index)
+        if len(transformed_node.group_by) > 1:
+            for idx, group_expr in enumerate(transformed_node.group_by[1:], start=1):
+                # Extract alias if present
+                original_alias = group_expr.alias if isinstance(group_expr, ast.Alias) else None
+
+                # Create breakdown_value.N reference using arrayElement(breakdown_value, N)
+                breakdown_ref = ast.Call(
+                    name="arrayElement", args=[ast.Field(chain=["breakdown_value"]), ast.Constant(value=idx)]
+                )
+
+                # If there was an alias, preserve it
+                if original_alias:
+                    breakdown_field = ast.Alias(alias=original_alias, expr=breakdown_ref)
+                else:
+                    breakdown_field = breakdown_ref
+
+                group_by.append(breakdown_field)
+                breakdown_mappings.append((group_expr, original_alias, idx))
 
         # Create transformed query
         final_transformed = ast.SelectQuery(
