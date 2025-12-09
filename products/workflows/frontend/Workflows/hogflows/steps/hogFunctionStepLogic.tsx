@@ -13,8 +13,6 @@ export type StepFunctionNode = Node<
     Extract<HogFlowAction, { type: 'function' } | { type: 'function_email' } | { type: 'function_sms' }>
 >
 
-export type StepHogFunctionNode = Node<Extract<HogFlowAction, { type: 'function' }>>
-
 export interface HogFunctionStepLogicProps {
     node?: StepFunctionNode
     template?: HogFunctionTemplateType
