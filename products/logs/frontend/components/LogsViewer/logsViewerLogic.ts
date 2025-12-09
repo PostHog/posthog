@@ -239,6 +239,17 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             props.onAddFilter?.(key, value, operator)
         },
         toggleExpandLog: ({ logId }) => {
+            // If cursor is at attribute level, check if we just collapsed the row it's in
+            if (values.cursor?.attributeIndex !== null) {
+                const cursorLog = values.logs[values.cursor?.logIndex ?? 0]
+                const cursorIsInThisLog = cursorLog?.uuid === logId
+                const thisLogWasJustCollapsed = !values.expandedLogIds[logId]
+
+                if (cursorIsInThisLog && thisLogWasJustCollapsed) {
+                    actions.setCursor({ logIndex: values.cursor?.logIndex ?? 0, attributeIndex: null })
+                }
+            }
+
             actions.recomputeRowHeights([logId])
         },
         moveCursorDown: () => {
