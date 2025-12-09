@@ -1,0 +1,7 @@
+# Generated files
+stack-images.tar.gz
+postgres-data.tar.gz
+clickhouse-data.tar.gz
+*.pkg
+installer-build/
+docker-compose.stack.yml

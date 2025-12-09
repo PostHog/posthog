@@ -177,7 +177,7 @@ RUN apt-get update && \
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
+    uv sync --locked --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime

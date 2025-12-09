@@ -111,6 +111,7 @@ services:
             - '9440:9440'
             - '9009:9009'
         volumes:
+            - clickhouse-data:/var/lib/clickhouse
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
@@ -170,3 +171,4 @@ services:
 volumes:
     postgres-15-data:
     redpanda-data:
+    clickhouse-data:

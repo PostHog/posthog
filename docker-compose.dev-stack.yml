@@ -1,0 +1,97 @@
+# PostHog Stack - Complete containerized development environment
+# Extends dev-minimal and adds web/worker/plugins services for fully self-contained installation
+
+include:
+  - docker-compose.dev-minimal.yml
+
+services:
+  web:
+    image: posthog/posthog:stack-1.0.0
+    ports:
+      - '8000:8000'
+    restart: on-failure
+    # Skip migrations - databases are pre-migrated in the installer
+    command:
+      - sh
+      - -c
+      - './bin/docker-worker & ./bin/docker-server'
+    environment:
+      # Production mode for demos (serves pre-built frontend)
+      DEBUG: '0'
+      SECRET_KEY: 'posthog-stack-demo-key-not-for-production-use'
+      ALLOWED_HOSTS: '*'
+      # Disable production features for demos
+      OTEL_SDK_DISABLED: 'true'
+      DISABLE_SECURE_SSL_REDIRECT: 'true'
+      # Database connections
+      DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+      PGHOST: db
+      PGUSER: posthog
+      PGPASSWORD: posthog
+      # ClickHouse
+      CLICKHOUSE_HOST: 'clickhouse'
+      CLICKHOUSE_DATABASE: 'posthog'
+      CLICKHOUSE_SECURE: 'false'
+      CLICKHOUSE_VERIFY: 'false'
+      # Kafka & Redis
+      KAFKA_HOSTS: 'kafka'
+      REDIS_URL: 'redis://redis:6379/'
+    depends_on:
+      - db
+      - redis
+      - clickhouse
+      - kafka
+
+  worker:
+    image: posthog/posthog:stack-1.0.0
+    restart: on-failure
+    command:
+      - ./bin/docker-worker-celery
+      - --with-scheduler
+    environment:
+      # Production mode for demos (serves pre-built frontend)
+      DEBUG: '0'
+      SECRET_KEY: 'posthog-stack-demo-key-not-for-production-use'
+      ALLOWED_HOSTS: '*'
+      # Disable production features for demos
+      OTEL_SDK_DISABLED: 'true'
+      DISABLE_SECURE_SSL_REDIRECT: 'true'
+      # Database connections
+      DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+      PGHOST: db
+      PGUSER: posthog
+      PGPASSWORD: posthog
+      # ClickHouse
+      CLICKHOUSE_HOST: 'clickhouse'
+      CLICKHOUSE_DATABASE: 'posthog'
+      CLICKHOUSE_SECURE: 'false'
+      CLICKHOUSE_VERIFY: 'false'
+      # Kafka & Redis
+      KAFKA_HOSTS: 'kafka'
+      REDIS_URL: 'redis://redis:6379/'
+    depends_on:
+      - db
+      - redis
+      - clickhouse
+      - kafka
+
+  plugins:
+    image: posthog/posthog:stack-1.0.0
+    restart: on-failure
+    command:
+      - ./bin/plugin-server
+      - --no-restart-loop
+    environment:
+      DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+      KAFKA_HOSTS: 'kafka:9092'
+      REDIS_URL: 'redis://redis:6379/'
+      CLICKHOUSE_HOST: 'clickhouse'
+      CLICKHOUSE_DATABASE: 'posthog'
+      CLICKHOUSE_SECURE: 'false'
+      CLICKHOUSE_VERIFY: 'false'
+    depends_on:
+      - db
+      - redis
+      - clickhouse
+      - kafka
+      - objectstorage
