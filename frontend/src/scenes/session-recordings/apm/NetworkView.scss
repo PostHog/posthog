@@ -1,7 +1,5 @@
-@layer base {
-    .NetworkView {
-        .NetworkView__table table {
-            table-layout: fixed;
-        }
+.NetworkView {
+    .NetworkView__table table {
+        table-layout: fixed;
     }
 }

@@ -49,6 +49,7 @@ PRODUCTS_APPS = [
     "products.experiments.backend.apps.ExperimentsConfig",
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
     "products.customer_analytics.backend.apps.CustomerAnalyticsConfig",
+    "products.product_tours.backend.apps.ProductToursConfig",
 ]
 
 INSTALLED_APPS = [

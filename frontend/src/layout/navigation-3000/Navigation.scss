@@ -1,699 +1,698 @@
-@layer base {
-    .Navigation3000 {
-        --breadcrumbs-height-full: 3.75rem;
-        --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
-        --scene-padding: 1rem;
-        --scene-padding-bottom: 4rem;
+@import '../../styles/vars';
 
-        // These are used in SceneLayout.css
-        --scene-layout-panel-width: 300px;
-        --scene-layout-header-height: 40px;
-        --scene-title-section-height: 50px;
+.Navigation3000 {
+    --breadcrumbs-height-full: 3.75rem;
+    --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
+    --scene-padding: 1rem;
+    --scene-padding-bottom: 4rem;
 
-        position: relative;
-        display: flex;
-        width: 100%;
-        height: 100vh;
-        overflow: hidden;
-        background: var(--color-bg-primary);
+    // These are used in SceneLayout.css
+    --scene-layout-panel-width: 300px;
+    --scene-layout-header-height: 40px;
+    --scene-title-section-height: 50px;
 
-        .storybook-test-runner & {
-            height: auto;
-        }
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--color-bg-primary);
 
-        > main {
-            flex: 1;
-            min-width: 0;
-            overflow: hidden auto;
-        }
-
-        .BridgePage {
-            height: 100%;
-            overflow: visible;
-            background: none;
-        }
-
-        @media screen and (max-width: var(--breakpoint-sm)) {
-            // handle notched devices and mobile safari's bottom nav bar
-            // provide a fallback of 80px as Safari's approach to safe-area-inset-bottom is not consistent across versions
-            --scene-padding-bottom: calc(var(--scene-padding) + max(env(safe-area-inset-bottom), 80px));
-        }
-
-        @media screen and (max-width: var(--breakpoint-lg)) {
-            --scene-padding: 0.5rem;
-        }
+    .storybook-test-runner & {
+        height: auto;
     }
 
-    // If flag is enabled, we use the scene header height for the breadcrumbs height
-    .Navigation3000--minimal-scene-layout {
-        --breadcrumbs-height-compact: var(--scene-layout-header-height);
-    }
-
-    .Navigation3000__scene {
-        // `relative` is for positioning of the scene-level spinner
-        position: relative;
-        min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom));
-        margin: var(--scene-padding);
-        margin-bottom: var(--scene-padding-bottom);
-
-        &.Navigation3000__scene--raw {
-            --scene-padding: 0px;
-            --scene-padding-bottom: 0px;
-
-            display: flex;
-            flex-direction: column;
-        }
-
-        &.Navigation3000__scene--raw-no-header {
-            --scene-padding: 0px;
-            --scene-padding-bottom: 0px;
-
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
-    }
-
-    // Navbar
-
-    .Navbar3000 {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        max-height: 100vh;
-        border-right-width: 1px;
-
-        // This terrible hack makes it so that the .Navbar3000__overlay background is rendered also _underneath_ .Navbar3000
-        // Otherwise when hiding the mobile navbar, there's a flash of un-dimmed area below the navbar as it slides out
-        opacity: 0.99999;
-        transition: transform 100ms ease-out;
-
-        .Navigation3000--mobile & {
-            position: fixed;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            z-index: var(--z-lemon-sidebar);
-        }
-
-        &.Navbar3000--hidden {
-            transform: translateX(-100%);
-        }
-
-        .Navbar3000__content {
-            z-index: var(--z-main-nav);
-            display: flex;
-            flex: 1;
-            flex-direction: column;
-            justify-content: space-between;
-            overflow-y: auto;
-            background: var(--color-bg-surface-secondary);
-
-            .LemonButton__chrome {
-                --lemon-button-padding-horizontal: 0.25rem !important;
-            }
-
-            .Navbar3000__top,
-            .Navbar3000__bottom {
-                padding: 0 0.375rem;
-            }
-
-            ul {
-                padding: 0.5rem 0;
-            }
-
-            ul + ul {
-                border-top-width: 1px;
-            }
-        }
-    }
-
-    .Navbar3000__top {
-        overflow: auto;
-    }
-
-    .Navbar3000__overlay {
-        position: fixed;
-        z-index: var(--z-mobile-nav-overlay);
-        width: 100%;
-        height: 100%;
-        background-color: var(--modal-backdrop-color);
-        backdrop-filter: blur(var(--modal-backdrop-blur));
-        opacity: 1;
-        transition:
-            opacity 100ms ease-out,
-            backdrop-filter 100ms ease-out;
-
-        &.Navbar3000--hidden {
-            pointer-events: none;
-            backdrop-filter: blur(0);
-            opacity: 0;
-        }
-    }
-
-    .NavbarButton {
-        position: relative;
-
-        &.NavbarButton--here {
-            &::after {
-                position: absolute;
-                right: 0;
-                bottom: 0.25rem;
-                left: 0;
-                font-size: 1.25rem;
-                line-height: 0.5625rem;
-                color: var(--text-3000);
-                text-align: center;
-                content: '•';
-            }
-
-            .LemonButton__icon {
-                color: var(--text-3000);
-                transform: translateY(-0.25rem);
-            }
-        }
-    }
-
-    // Sidebar
-
-    .Sidebar3000 {
-        --sidebar-slider-padding: 0.125rem;
-        --sidebar-horizontal-padding: 0.5rem;
-        --sidebar-row-height: 3rem;
-        --sidebar-background: var(--color-bg-primary);
-
-        position: relative;
-        box-sizing: content-box;
-        flex: 1 0 var(--sidebar-width);
-        height: 100%;
-
-        // This border is just for sizing, the visible border is on the content and slider
-        // Hidden when the sidebar is closed
-        border-right: min(1px, var(--sidebar-width)) solid transparent;
-
-        [theme='dark'] & {
-            --sidebar-background: var(--color-bg-surface-primary);
-        }
-
-        &.Sidebar3000--resizing {
-            will-change: flex-basis;
-        }
-
-        h3,
-        h4,
-        h5 {
-            margin: 0;
-            overflow: hidden;
-            line-height: inherit;
-            color: var(--text-3000);
-            text-overflow: ellipsis;
-        }
-
-        h3 {
-            font-size: 0.75rem;
-            font-weight: 600;
-            line-height: 2rem;
-        }
-
-        h4 {
-            flex-grow: 1;
-            font-size: 0.6875rem;
-            font-weight: 600;
-            line-height: 1.75rem;
-        }
-
-        h5 {
-            font-size: 0.75rem;
-            font-weight: 400;
-            text-transform: none;
-            letter-spacing: normal;
-        }
-
-        b {
-            font-weight: 700;
-        }
-
-        .LemonInput--type-search {
-            max-width: none;
-            height: 100%;
-            border-color: transparent; // Only show border on focus here
-            border-radius: 0;
-            transition: none;
-        }
-    }
-
-    .Sidebar3000__content {
-        box-sizing: content-box;
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        width: var(--sidebar-width);
-        height: 100%;
-        overflow: hidden;
-        font-size: 0.6875rem;
-        white-space: nowrap;
-
-        // Extend the border into viewport overscroll
-        border-right: min(1px, var(--sidebar-width)) solid var(--color-border-primary);
-
-        .Sidebar3000--resizing & {
-            will-change: width;
-        }
-
-        > div:not(:first-child) {
-            border-top-width: 1px;
-        }
-    }
-
-    .Sidebar3000__lists {
-        position: relative; // For SpinnerOverlay
-        display: flex;
-        flex-direction: column;
-        flex-grow: 1;
-        align-items: stretch;
+    > main {
+        flex: 1;
+        min-width: 0;
         overflow: hidden auto;
     }
 
-    .Sidebar3000__hint {
-        z-index: 1;
+    .BridgePage {
+        height: 100%;
+        overflow: visible;
+        background: none;
+    }
+
+    @media screen and (max-width: $sm) {
+        // handle notched devices and mobile safari's bottom nav bar
+        // provide a fallback of 80px as Safari's approach to safe-area-inset-bottom is not consistent across versions
+        --scene-padding-bottom: calc(var(--scene-padding) + max(env(safe-area-inset-bottom), 80px));
+    }
+
+    @media screen and (max-width: $lg) {
+        --scene-padding: 0.5rem;
+    }
+}
+
+// If flag is enabled, we use the scene header height for the breadcrumbs height
+.Navigation3000--minimal-scene-layout {
+    --breadcrumbs-height-compact: var(--scene-layout-header-height);
+}
+
+.Navigation3000__scene {
+    // `relative` is for positioning of the scene-level spinner
+    position: relative;
+    min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom));
+    margin: var(--scene-padding);
+    margin-bottom: var(--scene-padding-bottom);
+
+    &.Navigation3000__scene--raw {
+        --scene-padding: 0px;
+        --scene-padding-bottom: 0px;
+
         display: flex;
-        flex: 0 0 var(--sidebar-row-height);
-        align-items: center;
+        flex-direction: column;
+    }
+
+    &.Navigation3000__scene--raw-no-header {
+        --scene-padding: 0px;
+        --scene-padding-bottom: 0px;
+
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+    }
+}
+
+// Navbar
+
+.Navbar3000 {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    max-height: 100vh;
+    border-right-width: 1px;
+
+    // This terrible hack makes it so that the .Navbar3000__overlay background is rendered also _underneath_ .Navbar3000
+    // Otherwise when hiding the mobile navbar, there's a flash of un-dimmed area below the navbar as it slides out
+    opacity: 0.99999;
+    transition: transform 100ms ease-out;
+
+    .Navigation3000--mobile & {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: var(--z-lemon-sidebar);
+    }
+
+    &.Navbar3000--hidden {
+        transform: translateX(-100%);
+    }
+
+    .Navbar3000__content {
+        z-index: var(--z-main-nav);
+        display: flex;
+        flex: 1;
+        flex-direction: column;
         justify-content: space-between;
-        padding: 0 var(--sidebar-horizontal-padding);
-        font-weight: 500;
-        user-select: none;
-        background: var(--color-bg-primary);
+        overflow-y: auto;
+        background: var(--color-bg-surface-secondary);
+
+        .LemonButton__chrome {
+            --lemon-button-padding-horizontal: 0.25rem !important;
+        }
+
+        .Navbar3000__top,
+        .Navbar3000__bottom {
+            padding: 0 0.375rem;
+        }
+
+        ul {
+            padding: 0.5rem 0;
+        }
+
+        ul + ul {
+            border-top-width: 1px;
+        }
+    }
+}
+
+.Navbar3000__top {
+    overflow: auto;
+}
+
+.Navbar3000__overlay {
+    position: fixed;
+    z-index: var(--z-mobile-nav-overlay);
+    width: 100%;
+    height: 100%;
+    background-color: var(--modal-backdrop-color);
+    backdrop-filter: blur(var(--modal-backdrop-blur));
+    opacity: 1;
+    transition:
+        opacity 100ms ease-out,
+        backdrop-filter 100ms ease-out;
+
+    &.Navbar3000--hidden {
+        pointer-events: none;
+        backdrop-filter: blur(0);
+        opacity: 0;
+    }
+}
+
+.NavbarButton {
+    position: relative;
+
+    &.NavbarButton--here {
+        &::after {
+            position: absolute;
+            right: 0;
+            bottom: 0.25rem;
+            left: 0;
+            font-size: 1.25rem;
+            line-height: 0.5625rem;
+            color: var(--text-3000);
+            text-align: center;
+            content: '•';
+        }
+
+        .LemonButton__icon {
+            color: var(--text-3000);
+            transform: translateY(-0.25rem);
+        }
+    }
+}
+
+// Sidebar
+
+.Sidebar3000 {
+    --sidebar-slider-padding: 0.125rem;
+    --sidebar-horizontal-padding: 0.5rem;
+    --sidebar-row-height: 3rem;
+    --sidebar-background: var(--color-bg-primary);
+
+    position: relative;
+    box-sizing: content-box;
+    flex: 1 0 var(--sidebar-width);
+    height: 100%;
+
+    // This border is just for sizing, the visible border is on the content and slider
+    // Hidden when the sidebar is closed
+    border-right: min(1px, var(--sidebar-width)) solid transparent;
+
+    [theme='dark'] & {
+        --sidebar-background: var(--color-bg-surface-primary);
+    }
+
+    &.Sidebar3000--resizing {
+        will-change: flex-basis;
+    }
+
+    h3,
+    h4,
+    h5 {
+        margin: 0;
+        overflow: hidden;
+        line-height: inherit;
+        color: var(--text-3000);
+        text-overflow: ellipsis;
+    }
+
+    h3 {
+        font-size: 0.75rem;
+        font-weight: 600;
+        line-height: 2rem;
+    }
+
+    h4 {
+        flex-grow: 1;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        line-height: 1.75rem;
+    }
+
+    h5 {
+        font-size: 0.75rem;
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: normal;
+    }
+
+    b {
+        font-weight: 700;
+    }
+
+    .LemonInput--type-search {
+        max-width: none;
+        height: 100%;
+        border-color: transparent; // Only show border on focus here
+        border-radius: 0;
+        transition: none;
+    }
+}
+
+.Sidebar3000__content {
+    box-sizing: content-box;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: var(--sidebar-width);
+    height: 100%;
+    overflow: hidden;
+    font-size: 0.6875rem;
+    white-space: nowrap;
+
+    // Extend the border into viewport overscroll
+    border-right: min(1px, var(--sidebar-width)) solid var(--color-border-primary);
+
+    .Sidebar3000--resizing & {
+        will-change: width;
+    }
+
+    > div:not(:first-child) {
         border-top-width: 1px;
     }
+}
 
-    .Sidebar3000__slider {
+.Sidebar3000__lists {
+    position: relative; // For SpinnerOverlay
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    align-items: stretch;
+    overflow: hidden auto;
+}
+
+.Sidebar3000__hint {
+    z-index: 1;
+    display: flex;
+    flex: 0 0 var(--sidebar-row-height);
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--sidebar-horizontal-padding);
+    font-weight: 500;
+    user-select: none;
+    background: var(--color-bg-primary);
+    border-top-width: 1px;
+}
+
+.Sidebar3000__slider {
+    position: absolute;
+    top: 0;
+    right: calc(
+        -1 * var(--sidebar-slider-padding) - min(1px, var(--sidebar-width))
+    ); // Center around the original sidebar border
+
+    bottom: 0;
+    z-index: var(
+        --z-notifications-popover
+    ); // A bit above navbar for a nicer slider experience when the sidebar is closed
+
+    width: calc(2 * var(--sidebar-slider-padding) + 1px); // The interactive area is enlarged for easier interaction
+    cursor: col-resize;
+    user-select: none; // Fixes inadvertent selection of scene text when resizing
+    &::before,
+    &::after {
         position: absolute;
         top: 0;
-        right: calc(
-            -1 * var(--sidebar-slider-padding) - min(1px, var(--sidebar-width))
-        ); // Center around the original sidebar border
-
         bottom: 0;
-        z-index: var(
-            --z-notifications-popover
-        ); // A bit above navbar for a nicer slider experience when the sidebar is closed
+        left: var(--sidebar-slider-padding);
+        width: 1px;
+        pointer-events: none;
+        content: '';
+    }
 
-        width: calc(2 * var(--sidebar-slider-padding) + 1px); // The interactive area is enlarged for easier interaction
-        cursor: col-resize;
-        user-select: none; // Fixes inadvertent selection of scene text when resizing
-        &::before,
-        &::after {
+    &::before {
+        background: var(--color-border-primary);
+        transition: 100ms ease transform;
+    }
+
+    &::after {
+        background: var(--text-3000);
+        opacity: 0;
+        transition: 100ms ease transform;
+    }
+
+    &:hover::after,
+    .Sidebar3000--resizing &::after {
+        opacity: 0.25;
+    }
+
+    .Sidebar3000--resizing &::before,
+    .Sidebar3000--resizing &::after {
+        transform: scaleX(3);
+    }
+
+    .Sidebar3000[aria-hidden='true'] & {
+        cursor: e-resize;
+    }
+}
+
+.Sidebar3000__header {
+    display: flex;
+    flex: 0 0 var(--sidebar-row-height);
+    gap: 0.25rem;
+    align-items: center;
+    padding: 0 var(--sidebar-horizontal-padding);
+}
+
+// Accordion
+
+.Accordion {
+    --accordion-arrow-size: 1rem;
+    --accordion-row-height: 32px;
+    --accordion-inset-expandable: 1.25rem;
+    --accordion-header-background: var(--color-bg-surface-primary);
+    --accordion-inset: 0rem;
+
+    display: flex;
+    flex-basis: 0;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: var(--accordion-row-height);
+
+    [theme='dark'] & {
+        --accordion-header-background: var(--color-bg-primary);
+    }
+
+    &[aria-expanded] {
+        // This means: if accordion is expandable
+        --accordion-inset: var(--accordion-inset-expandable);
+    }
+
+    &:not([aria-expanded='false']) {
+        flex-grow: 1;
+
+        &:not(:last-child) {
+            border-bottom-width: 1px;
+        }
+    }
+}
+
+.Accordion[aria-disabled='true'] {
+    .Accordion__header {
+        cursor: default;
+
+        &:hover {
+            background: var(--accordion-header-background);
+        }
+    }
+}
+
+.Accordion__header {
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    height: var(--accordion-row-height);
+    padding: 0 var(--sidebar-horizontal-padding);
+    cursor: pointer;
+    user-select: none;
+    border-bottom-width: 1px;
+
+    &:hover {
+        background: var(--color-border-primary);
+    }
+
+    > .LemonIcon {
+        flex-shrink: 0;
+        margin-right: calc(var(--accordion-inset-expandable) - var(--accordion-arrow-size));
+        font-size: var(--accordion-arrow-size);
+        transition: 50ms ease transform;
+
+        .Accordion[aria-expanded='true'] & {
+            transform: rotate(90deg);
+        }
+    }
+}
+
+// New scoped accordion styles
+.SidebarListItemAccordion {
+    --accordion-arrow-size: 1rem;
+    --accordion-inset-expandable: 1.25rem;
+    --accordion-header-background: var(--color-bg-surface-primary);
+    --accordion-inset: 0rem;
+
+    display: flex;
+    flex-basis: 0;
+    flex-direction: column;
+    flex-shrink: 0;
+    height: 100%;
+
+    [theme='dark'] & {
+        --accordion-header-background: var(--color-bg-primary);
+    }
+
+    &[role='region'] {
+        // This means: if accordion is expandable
+        --accordion-inset: var(--accordion-inset-expandable);
+    }
+
+    &:not([aria-expanded='false']) {
+        flex-grow: 1;
+
+        &:not(:last-child) {
+            border-bottom-width: 1px;
+        }
+    }
+}
+
+.SidebarListItemAccordion__header {
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
+    cursor: pointer;
+    user-select: none;
+    border-bottom-width: 1px;
+
+    &:hover {
+        background: var(--color-border-primary);
+    }
+
+    > .LemonIcon {
+        flex-shrink: 0;
+        margin-right: calc(var(--accordion-inset-expandable) - var(--accordion-arrow-size));
+        font-size: var(--accordion-arrow-size);
+        transition: 50ms ease transform;
+
+        .SidebarListItemAccordion[aria-expanded='true'] & {
+            transform: rotate(90deg);
+        }
+    }
+
+    .SidebarListItemAccordion__icon {
+        margin-right: 4px;
+    }
+}
+
+.SidebarListItem {
+    --sidebar-list-item-status-color: var(--color-text-secondary);
+    --sidebar-list-item-fold-size: 0.5rem;
+    --sidebar-list-item-ribbon-width: 0.1875rem;
+    --sidebar-list-item-background: var(--sidebar-background);
+
+    position: relative;
+    line-height: 1.125rem;
+    color: var(--color-text-secondary);
+    list-style: none;
+    background: var(--sidebar-list-item-background);
+    border-bottom-width: 1px;
+    opacity: 0.9; // Make items slightly lower contrast when not hovered
+
+    &:hover:not([aria-disabled='true']),
+    &[aria-current='page'],
+    &.SidebarListItem--is-renaming {
+        --sidebar-list-item-background: var(--color-border-primary);
+
+        opacity: 1;
+    }
+
+    &:hover,
+    &:focus-within,
+    &[aria-current='page'],
+    &.SidebarListItem--is-renaming,
+    &.SidebarListItem--is-menu-open {
+        .SidebarListItem__actions {
+            display: flex;
+        }
+
+        // Accommodate menu button by moving stuff out of the way
+        &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link,
+        &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__button {
+            padding-right: calc(var(--sidebar-horizontal-padding) + 1.25rem);
+        }
+
+        &.SidebarListItem--has-menu.SidebarListItem--extended {
+            &::after {
+                position: absolute;
+
+                // Position 1px away so that the :focus-visible border isn't overlaid
+                top: 1px;
+                right: 1px;
+                bottom: 1px;
+                width: 3.5rem;
+                content: '';
+                background: linear-gradient(
+                    to left,
+                    var(--sidebar-list-item-background) 0%,
+                    var(--sidebar-list-item-background) 50%,
+                    transparent 100%
+                );
+            }
+        }
+    }
+
+    &.SidebarListItem--marker-fold,
+    &.SidebarListItem--marker-ribbon {
+        &::before {
             position: absolute;
             top: 0;
-            bottom: 0;
-            left: var(--sidebar-slider-padding);
-            width: 1px;
-            pointer-events: none;
-            content: '';
-        }
-
-        &::before {
-            background: var(--color-border-primary);
-            transition: 100ms ease transform;
-        }
-
-        &::after {
-            background: var(--text-3000);
-            opacity: 0;
-            transition: 100ms ease transform;
-        }
-
-        &:hover::after,
-        .Sidebar3000--resizing &::after {
-            opacity: 0.25;
-        }
-
-        .Sidebar3000--resizing &::before,
-        .Sidebar3000--resizing &::after {
-            transform: scaleX(3);
-        }
-
-        .Sidebar3000[aria-hidden='true'] & {
-            cursor: e-resize;
-        }
-    }
-
-    .Sidebar3000__header {
-        display: flex;
-        flex: 0 0 var(--sidebar-row-height);
-        gap: 0.25rem;
-        align-items: center;
-        padding: 0 var(--sidebar-horizontal-padding);
-    }
-
-    // Accordion
-
-    .Accordion {
-        --accordion-arrow-size: 1rem;
-        --accordion-row-height: 32px;
-        --accordion-inset-expandable: 1.25rem;
-        --accordion-header-background: var(--color-bg-surface-primary);
-        --accordion-inset: 0rem;
-
-        display: flex;
-        flex-basis: 0;
-        flex-direction: column;
-        flex-shrink: 0;
-        min-height: var(--accordion-row-height);
-
-        [theme='dark'] & {
-            --accordion-header-background: var(--color-bg-primary);
-        }
-
-        &[aria-expanded] {
-            // This means: if accordion is expandable
-            --accordion-inset: var(--accordion-inset-expandable);
-        }
-
-        &:not([aria-expanded='false']) {
-            flex-grow: 1;
-
-            &:not(:last-child) {
-                border-bottom-width: 1px;
-            }
-        }
-    }
-
-    .Accordion[aria-disabled='true'] {
-        .Accordion__header {
-            cursor: default;
-
-            &:hover {
-                background: var(--accordion-header-background);
-            }
-        }
-    }
-
-    .Accordion__header {
-        z-index: 1;
-        display: flex;
-        align-items: center;
-        height: var(--accordion-row-height);
-        padding: 0 var(--sidebar-horizontal-padding);
-        cursor: pointer;
-        user-select: none;
-        border-bottom-width: 1px;
-
-        &:hover {
-            background: var(--color-border-primary);
-        }
-
-        > .LemonIcon {
-            flex-shrink: 0;
-            margin-right: calc(var(--accordion-inset-expandable) - var(--accordion-arrow-size));
-            font-size: var(--accordion-arrow-size);
-            transition: 50ms ease transform;
-
-            .Accordion[aria-expanded='true'] & {
-                transform: rotate(90deg);
-            }
-        }
-    }
-
-    // New scoped accordion styles
-    .SidebarListItemAccordion {
-        --accordion-arrow-size: 1rem;
-        --accordion-inset-expandable: 1.25rem;
-        --accordion-header-background: var(--color-bg-surface-primary);
-        --accordion-inset: 0rem;
-
-        display: flex;
-        flex-basis: 0;
-        flex-direction: column;
-        flex-shrink: 0;
-        height: 100%;
-
-        [theme='dark'] & {
-            --accordion-header-background: var(--color-bg-primary);
-        }
-
-        &[role='region'] {
-            // This means: if accordion is expandable
-            --accordion-inset: var(--accordion-inset-expandable);
-        }
-
-        &:not([aria-expanded='false']) {
-            flex-grow: 1;
-
-            &:not(:last-child) {
-                border-bottom-width: 1px;
-            }
-        }
-    }
-
-    .SidebarListItemAccordion__header {
-        z-index: 1;
-        display: flex;
-        align-items: center;
-        height: 100%;
-        padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
-        cursor: pointer;
-        user-select: none;
-        border-bottom-width: 1px;
-
-        &:hover {
-            background: var(--color-border-primary);
-        }
-
-        > .LemonIcon {
-            flex-shrink: 0;
-            margin-right: calc(var(--accordion-inset-expandable) - var(--accordion-arrow-size));
-            font-size: var(--accordion-arrow-size);
-            transition: 50ms ease transform;
-
-            .SidebarListItemAccordion[aria-expanded='true'] & {
-                transform: rotate(90deg);
-            }
-        }
-
-        .SidebarListItemAccordion__icon {
-            margin-right: 4px;
-        }
-    }
-
-    .SidebarListItem {
-        --sidebar-list-item-status-color: var(--color-text-secondary);
-        --sidebar-list-item-fold-size: 0.5rem;
-        --sidebar-list-item-ribbon-width: 0.1875rem;
-        --sidebar-list-item-background: var(--sidebar-background);
-
-        position: relative;
-        line-height: 1.125rem;
-        color: var(--color-text-secondary);
-        list-style: none;
-        background: var(--sidebar-list-item-background);
-        border-bottom-width: 1px;
-        opacity: 0.9; // Make items slightly lower contrast when not hovered
-
-        &:hover:not([aria-disabled='true']),
-        &[aria-current='page'],
-        &.SidebarListItem--is-renaming {
-            --sidebar-list-item-background: var(--color-border-primary);
-
-            opacity: 1;
-        }
-
-        &:hover,
-        &:focus-within,
-        &[aria-current='page'],
-        &.SidebarListItem--is-renaming,
-        &.SidebarListItem--is-menu-open {
-            .SidebarListItem__actions {
-                display: flex;
-            }
-
-            // Accommodate menu button by moving stuff out of the way
-            &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link,
-            &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__button {
-                padding-right: calc(var(--sidebar-horizontal-padding) + 1.25rem);
-            }
-
-            &.SidebarListItem--has-menu.SidebarListItem--extended {
-                &::after {
-                    position: absolute;
-
-                    // Position 1px away so that the :focus-visible border isn't overlaid
-                    top: 1px;
-                    right: 1px;
-                    bottom: 1px;
-                    width: 3.5rem;
-                    content: '';
-                    background: linear-gradient(
-                        to left,
-                        var(--sidebar-list-item-background) 0%,
-                        var(--sidebar-list-item-background) 50%,
-                        transparent 100%
-                    );
-                }
-            }
-        }
-
-        &.SidebarListItem--marker-fold,
-        &.SidebarListItem--marker-ribbon {
-            &::before {
-                position: absolute;
-                top: 0;
-                left: 0;
-                z-index: 1;
-                display: block;
-                content: '';
-            }
-        }
-
-        &.SidebarListItem--marker-fold {
-            &::before {
-                width: 0;
-                height: 0;
-                border-bottom: var(--sidebar-list-item-fold-size) solid transparent;
-                border-left: var(--sidebar-list-item-fold-size) solid var(--sidebar-list-item-status-color);
-            }
-        }
-
-        &.SidebarListItem--marker-ribbon {
-            --sidebar-list-item-marker-offset: var(--sidebar-list-item-ribbon-width);
-
-            &::before {
-                width: var(--sidebar-list-item-ribbon-width);
-                height: 100%;
-                background: var(--sidebar-list-item-status-color);
-            }
-        }
-
-        &.SidebarListItem--marker-status-success {
-            --sidebar-list-item-status-color: var(--success);
-        }
-
-        &.SidebarListItem--marker-status-warning {
-            --sidebar-list-item-status-color: var(--warning);
-        }
-
-        &.SidebarListItem--marker-status-danger {
-            --sidebar-list-item-status-color: var(--danger);
-        }
-
-        &.SidebarListItem--marker-status-completion {
-            --sidebar-list-item-status-color: var(--purple);
-        }
-    }
-
-    .SidebarListItem__button,
-    .SidebarListItem__link,
-    .SidebarListItem__rename {
-        --sidebar-list-item-inset: calc(
-            var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) +
-                var(--sidebar-list-item-marker-offset, 0px)
-        );
-
-        position: relative;
-        display: flex;
-        width: 100%;
-        height: 100%;
-        color: var(--text-3000);
-
-        &:focus-visible::after {
-            position: absolute;
-            inset: 0 0 -1px;
-            pointer-events: none;
-            content: '';
-            border: 1px solid var(--color-border-primary);
-        }
-    }
-
-    .SidebarListItem__link {
-        flex-direction: column;
-        row-gap: 1px;
-        justify-content: center;
-        padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
-
-        .SidebarListItem[aria-disabled='true'] & {
-            cursor: default;
-        }
-    }
-
-    .SidebarListItem__button {
-        flex-direction: row;
-        gap: 0.25rem;
-        row-gap: 1px;
-        align-items: center;
-        padding: 0 var(--sidebar-horizontal-padding) 0
-            calc(0.25rem + var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
-        font-size: 1.125rem; // Make icons bigger
-        cursor: pointer;
-
-        &:hover {
-            background: var(--color-border-primary);
-        }
-
-        .SidebarListItem__icon {
-            flex-shrink: 0;
-        }
-    }
-
-    .SidebarListItem__rename {
-        flex-direction: column;
-        justify-content: center;
-
-        // Pseudo-elements don't work on inputs, so we use a wrapper div
-        background: var(--color-bg-surface-primary);
-
-        input {
-            width: 100%;
-            height: 100%;
-            padding: 0 calc(var(--sidebar-horizontal-padding) + 2.5rem) 0 var(--sidebar-list-item-inset);
-            font-size: 0.75rem;
-            color: var(--text-3000);
-            background: none;
-            outline: none;
-        }
-
-        &::after {
-            position: absolute;
-            inset: 0 0 -1px;
-            pointer-events: none;
-            content: '';
-            border: 1px solid var(--color-border-primary);
-
-            .SidebarListItem[aria-invalid='true'] & {
-                border-color: var(--danger);
-            }
-        }
-    }
-
-    .SidebarListItem__error {
-        position: absolute;
-        top: 2rem;
-        left: 0;
-        z-index: 1;
-        padding: 0 0.25rem;
-        line-height: 1.25rem;
-        color: #fff;
-        white-space: normal;
-        background: var(--danger);
-
-        &::before {
-            position: absolute;
-            top: -0.5rem;
             left: 0;
+            z-index: 1;
             display: block;
             content: '';
-            border: 0.25rem solid transparent;
-            border-bottom-color: var(--danger);
-            border-left-color: var(--danger);
         }
     }
 
-    .SidebarListItem__actions {
-        position: absolute;
-        top: 50%;
-        right: var(--sidebar-horizontal-padding);
-        z-index: 1; // Show above .SidebarListItem::after gradient
-        display: none; // Only show on hover/focus or for current page
-        transform: translateY(-50%);
+    &.SidebarListItem--marker-fold {
+        &::before {
+            width: 0;
+            height: 0;
+            border-bottom: var(--sidebar-list-item-fold-size) solid transparent;
+            border-left: var(--sidebar-list-item-fold-size) solid var(--sidebar-list-item-status-color);
+        }
     }
+
+    &.SidebarListItem--marker-ribbon {
+        --sidebar-list-item-marker-offset: var(--sidebar-list-item-ribbon-width);
+
+        &::before {
+            width: var(--sidebar-list-item-ribbon-width);
+            height: 100%;
+            background: var(--sidebar-list-item-status-color);
+        }
+    }
+
+    &.SidebarListItem--marker-status-success {
+        --sidebar-list-item-status-color: var(--success);
+    }
+
+    &.SidebarListItem--marker-status-warning {
+        --sidebar-list-item-status-color: var(--warning);
+    }
+
+    &.SidebarListItem--marker-status-danger {
+        --sidebar-list-item-status-color: var(--danger);
+    }
+
+    &.SidebarListItem--marker-status-completion {
+        --sidebar-list-item-status-color: var(--purple);
+    }
+}
+
+.SidebarListItem__button,
+.SidebarListItem__link,
+.SidebarListItem__rename {
+    --sidebar-list-item-inset: calc(
+        var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) + var(--sidebar-list-item-marker-offset, 0px)
+    );
+
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    color: var(--text-3000);
+
+    &:focus-visible::after {
+        position: absolute;
+        inset: 0 0 -1px;
+        pointer-events: none;
+        content: '';
+        border: 1px solid var(--color-border-primary);
+    }
+}
+
+.SidebarListItem__link {
+    flex-direction: column;
+    row-gap: 1px;
+    justify-content: center;
+    padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
+
+    .SidebarListItem[aria-disabled='true'] & {
+        cursor: default;
+    }
+}
+
+.SidebarListItem__button {
+    flex-direction: row;
+    gap: 0.25rem;
+    row-gap: 1px;
+    align-items: center;
+    padding: 0 var(--sidebar-horizontal-padding) 0
+        calc(0.25rem + var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
+    font-size: 1.125rem; // Make icons bigger
+    cursor: pointer;
+
+    &:hover {
+        background: var(--color-border-primary);
+    }
+
+    .SidebarListItem__icon {
+        flex-shrink: 0;
+    }
+}
+
+.SidebarListItem__rename {
+    flex-direction: column;
+    justify-content: center;
+
+    // Pseudo-elements don't work on inputs, so we use a wrapper div
+    background: var(--color-bg-surface-primary);
+
+    input {
+        width: 100%;
+        height: 100%;
+        padding: 0 calc(var(--sidebar-horizontal-padding) + 2.5rem) 0 var(--sidebar-list-item-inset);
+        font-size: 0.75rem;
+        color: var(--text-3000);
+        background: none;
+        outline: none;
+    }
+
+    &::after {
+        position: absolute;
+        inset: 0 0 -1px;
+        pointer-events: none;
+        content: '';
+        border: 1px solid var(--color-border-primary);
+
+        .SidebarListItem[aria-invalid='true'] & {
+            border-color: var(--danger);
+        }
+    }
+}
+
+.SidebarListItem__error {
+    position: absolute;
+    top: 2rem;
+    left: 0;
+    z-index: 1;
+    padding: 0 0.25rem;
+    line-height: 1.25rem;
+    color: #fff;
+    white-space: normal;
+    background: var(--danger);
+
+    &::before {
+        position: absolute;
+        top: -0.5rem;
+        left: 0;
+        display: block;
+        content: '';
+        border: 0.25rem solid transparent;
+        border-bottom-color: var(--danger);
+        border-left-color: var(--danger);
+    }
+}
+
+.SidebarListItem__actions {
+    position: absolute;
+    top: 50%;
+    right: var(--sidebar-horizontal-padding);
+    z-index: 1; // Show above .SidebarListItem::after gradient
+    display: none; // Only show on hover/focus or for current page
+    transform: translateY(-50%);
 }

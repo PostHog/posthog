@@ -662,7 +662,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
-                            className={cn('top-[var(--scene-layout-header-height)] !right-[-1px]', {
+                            className={cn('top-[var(--scene-layout-header-height)] right-[-1px]', {
                                 // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
                                 'top-[calc(var(--scene-layout-header-height)+10px)]': !firstTabIsActive,
                                 'top-0': isLayoutPanelVisible,

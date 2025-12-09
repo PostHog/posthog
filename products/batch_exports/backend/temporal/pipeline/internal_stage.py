@@ -78,8 +78,8 @@ def socket_factory(addr_info):
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
 
     if sys.platform == "linux":
-        # Start sending keepalive probes after 60s
-        # Ensure that any idle timeouts allow at least 60s
+        # Start sending keepalive probes after 30s
+        # Ensure that any idle timeouts allow at least 30s
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
         # Send keepalive probes every 10s
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
@@ -117,7 +117,7 @@ async def get_s3_client():
         config=AioConfig(
             connect_timeout=60,
             read_timeout=300,
-            connector_args={"keepalive_timeout": 300},
+            connector_args={"keepalive_timeout": 30},
             http_session_cls=AIOHTTPSession,
         ),
     ) as s3_client:
@@ -241,7 +241,7 @@ async def _get_query(
     data_interval_end: str,
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
-    filters: list[dict[str, str | list[str]]] | None = None,
+    filters: list[dict[str, str | list[str] | None]] | None = None,
     **parameters,
 ):
     logger = LOGGER.bind(model_name=model_name)

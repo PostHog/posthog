@@ -1,0 +1,16 @@
+%mixin-text-ellipsis {
+    max-width: calc(100% - 8px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@mixin screen($breakpoint) {
+    @if not $breakpoint {
+        @content;
+    } @else {
+        @media screen and (min-width: $breakpoint) {
+            @content;
+        }
+    }
+}

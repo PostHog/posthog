@@ -1,72 +1,70 @@
-@layer base {
-    .ActivityLog {
-        &.notifications-menu {
-            max-width: 25rem;
+.ActivityLog {
+    &.notifications-menu {
+        max-width: 25rem;
+    }
+
+    .ActivityDescription {
+        padding: 1rem;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+
+        .taxonomic-breakdown-filter.tag-pill {
+            padding: 0;
+            font-size: 0.8125rem;
+            vertical-align: unset;
+            background: none;
+            border: none;
+            border-radius: 0;
         }
 
-        .ActivityDescription {
-            padding: 1rem;
-            background: var(--color-bg-surface-primary);
-            border: 1px solid var(--color-border-primary);
-            border-radius: var(--radius);
-
-            .taxonomic-breakdown-filter.tag-pill {
-                padding: 0;
-                font-size: 0.8125rem;
-                vertical-align: unset;
-                background: none;
-                border: none;
-                border-radius: 0;
-            }
-
-            section:not(:last-child) {
-                margin-bottom: 0.5rem;
-            }
-        }
-
-        .page-caption {
-            max-width: 50rem;
+        section:not(:last-child) {
+            margin-bottom: 0.5rem;
         }
     }
 
-    .ActivityLogRow {
-        line-height: 24px;
-        overflow-wrap: anywhere;
+    .page-caption {
+        max-width: 50rem;
+    }
+}
 
-        &--unread {
-            background-color: var(--color-accent-highlight-secondary);
-            border-radius: var(--radius);
-        }
+.ActivityLogRow {
+    line-height: 24px;
+    overflow-wrap: anywhere;
 
-        .ProfilePicture {
-            flex-grow: 0;
-        }
+    &--unread {
+        background-color: var(--color-accent-highlight-secondary);
+        border-radius: var(--radius);
+    }
 
-        .ActivityLogRow__details {
-            .highlighted-activity {
-                display: inline;
-                background-color: var(--mark);
+    .ProfilePicture {
+        flex-grow: 0;
+    }
 
-                & > .PersonDisplay {
-                    min-width: 5.5rem;
-                }
+    .ActivityLogRow__details {
+        .highlighted-activity {
+            display: inline;
+            background-color: var(--mark);
+
+            & > .PersonDisplay {
+                min-width: 5.5rem;
             }
         }
+    }
 
-        .ActivityLogRow__description {
-            ul.bullet-list {
-                padding-left: 20px;
-                list-style-type: disc;
+    .ActivityLogRow__description {
+        ul.bullet-list {
+            padding-left: 20px;
+            list-style-type: disc;
 
-                li {
-                    display: list-item;
-                }
+            li {
+                display: list-item;
             }
         }
+    }
 
-        .ActivityLogRow__description__extended {
-            margin-top: 0.5rem;
-            margin-bottom: 0.5rem;
-        }
+    .ActivityLogRow__description__extended {
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
     }
 }
