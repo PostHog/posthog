@@ -2059,6 +2059,33 @@ class ShopifyIntegration:
 
     @classmethod
     def integration_from_shop(cls, team_id: int, shop: str, created_by: User | None = None) -> Integration:
+        # Validate that the shop exists by attempting to get an access token
+        access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(shop)
+        access_res = requests.post(
+            access_token_url,
+            data={
+                "client_id": settings.SHOPIFY_APP_CLIENT_ID,
+                "client_secret": settings.SHOPIFY_APP_CLIENT_SECRET,
+                "grant_type": SHOPIFY_ACCESS_TOKEN_GRANT,
+            },
+        )
+        if not access_res.ok:
+            if access_res.status_code == 404:
+                raise requests.HTTPError(
+                    f"Shopify store '{shop}' not found. Please verify the store name is correct.",
+                    response=access_res,
+                )
+            elif "application is not installed" in access_res.text:
+                raise requests.HTTPError(
+                    f"The PostHog app is not installed on the Shopify store '{shop}'. Please install the app first.",
+                    response=access_res,
+                )
+            else:
+                raise requests.HTTPError(
+                    f"Could not connect to Shopify store '{shop}': {access_res.text}",
+                    response=access_res,
+                )
+
         integration, _ = Integration.objects.update_or_create(
             team_id=team_id,
             kind=Integration.IntegrationKind.SHOPIFY.value,
