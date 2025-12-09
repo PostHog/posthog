@@ -128,6 +128,7 @@ function getConcurrencyController(
             Scene.WebAnalyticsWebVitals,
             Scene.WebAnalyticsPageReports,
             Scene.WebAnalyticsMarketing,
+            Scene.WebAnalyticsHealth,
         ].includes(activeScene as Scene) &&
         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HIGHER_CONCURRENCY] &&
         !currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables

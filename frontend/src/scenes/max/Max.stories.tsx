@@ -16,8 +16,6 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import {
     AssistantMessage,
@@ -73,7 +71,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
-        featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG],
     },
 }
 export default meta

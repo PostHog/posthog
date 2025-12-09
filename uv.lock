@@ -1004,24 +1004,22 @@ wheels = [
 ]
 
 [[package]]
-name = "cssselect"
-version = "1.3.0"
+name = "css-inline"
+version = "0.18.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/72/0a/c3ea9573b1dc2e151abfe88c7fe0c26d1892fe6ed02d0cdb30f0d57029d5/cssselect-1.3.0.tar.gz", hash = "sha256:57f8a99424cfab289a1b6a816a43075a4b00948c86b4dcf3ef4ee7e15f7ab0c7", size = 42870, upload-time = "2025-03-10T09:30:29.638Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/04/a9/270217cafcf5ed6109cc5e79983ad12f5ee316858a53516987a79b9c6c76/css_inline-0.18.0.tar.gz", hash = "sha256:dc07d7b19dd0bbe7600417c4213d42d5718b1a22cce5ff227cf36f0f585709c9", size = 61433, upload-time = "2025-11-01T22:04:24.126Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ee/58/257350f7db99b4ae12b614a36256d9cc870d71d9e451e79c2dc3b23d7c3c/cssselect-1.3.0-py3-none-any.whl", hash = "sha256:56d1bf3e198080cc1667e137bc51de9cadfca259f03c2d4e09037b3e01e30f0d", size = 18786, upload-time = "2025-03-10T09:30:28.048Z" },
-]
-
-[[package]]
-name = "cssutils"
-version = "2.11.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "more-itertools" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/33/9f/329d26121fe165be44b1dfff21aa0dc348f04633931f1d20ed6cf448a236/cssutils-2.11.1.tar.gz", hash = "sha256:0563a76513b6af6eebbe788c3bf3d01c920e46b3f90c8416738c5cfc773ff8e2", size = 711657, upload-time = "2024-06-04T15:51:39.373Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/ec/bb273b7208c606890dc36540fe667d06ce840a6f62f9fae7e658fcdc90fb/cssutils-2.11.1-py3-none-any.whl", hash = "sha256:a67bfdfdff4f3867fab43698ec4897c1a828eca5973f4073321b3bccaf1199b1", size = 385747, upload-time = "2024-06-04T15:51:37.499Z" },
+    { url = "https://files.pythonhosted.org/packages/42/ec/af8580574b22349aec1b9f52c042f6a2f4bd27be21491c9a6448c0fb0961/css_inline-0.18.0-cp39-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:78f5ebaed7531c29d0298c67749a40058f57815b7d1eb6c8a4386c174de6782b", size = 3524298, upload-time = "2025-11-01T22:04:05.76Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/08/e1d745a71a09533fa9dbb2326f174daa7098bcc96d99b15e04e6de13984f/css_inline-0.18.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:10d1f00c43de1e45d33f53f7e0c21374837298ec782fe47dab5e260d4ae18d05", size = 1821152, upload-time = "2025-11-01T22:04:07.671Z" },
+    { url = "https://files.pythonhosted.org/packages/22/55/810f76fc2695e379466afe492fcf4261d38198a49cdfa5f6b0fdc6332efb/css_inline-0.18.0-cp39-abi3-manylinux_2_12_i686.manylinux2010_i686.whl", hash = "sha256:13501197b040fb93ced4644aa280f485343fdc18b5ba4e05e4c0fa49106d099f", size = 1821433, upload-time = "2025-11-01T22:04:09.066Z" },
+    { url = "https://files.pythonhosted.org/packages/86/0c/ad60feba946726644fb748efe53ea0ef1d4171b93aa6871d257085cd4a63/css_inline-0.18.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:655ed62839cb436764139ee32fc065e3fcdc9a21b7f17246e8fa9162254c64f0", size = 1918513, upload-time = "2025-11-01T22:04:10.679Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/0f/ce9f3db1029b7ef695d9a4fd93180d44fe01ac231fb7355cfea9b18b7273/css_inline-0.18.0-cp39-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:4150e85496a438a86fa0a069102269d31d688a6653d6925c9fb58cc319d2cc9a", size = 1832192, upload-time = "2025-11-01T22:04:12.079Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/f9/232fc3904fa84778788e946eafcb9d4f44b271c59854b1cfa957872fd9f7/css_inline-0.18.0-cp39-abi3-manylinux_2_24_armv7l.whl", hash = "sha256:368d49fb97fdb23cb72912a5fa1ba488cf24d96e67148b7bad88d3dd2a131f09", size = 1717551, upload-time = "2025-11-01T22:04:13.295Z" },
+    { url = "https://files.pythonhosted.org/packages/77/c8/3bea8726432f9cb00440f50102408563e9d84c2d1e6f00a2cca57d62c0d0/css_inline-0.18.0-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:38269a3d9cfe3900193399db77ba1ed379ec807b31677d93f2eab3c320d43db9", size = 2025542, upload-time = "2025-11-01T22:04:14.581Z" },
+    { url = "https://files.pythonhosted.org/packages/79/fd/98b3149f4893417ec8d2daf69ba41257f09eaf0145f962fa3195bc2f0126/css_inline-0.18.0-cp39-abi3-musllinux_1_2_armv7l.whl", hash = "sha256:36ce7b1e103202cc1b53766b1b856bdd034f9dbb4f858f11a39a8379105bb727", size = 1937838, upload-time = "2025-11-01T22:04:15.85Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/d7/f306a14770a265bde2cfa31ea5cf8828b17ea7e6b8434482c7d5f87a94fb/css_inline-0.18.0-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:b9bbbda9984bc82f69ee0955dc2d7c5db11ba5368c4783d9535a9501bf9690d8", size = 2123575, upload-time = "2025-11-01T22:04:16.935Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/d3/0c6a8f915bc785de097c5e325ffc7848fec1a650f1136e9bc928a637d7ba/css_inline-0.18.0-cp39-abi3-win32.whl", hash = "sha256:156b6f2b2f095041fbe879e9d947f2fb0450ae30bf7841c69ea90c2cc87e91e0", size = 1549849, upload-time = "2025-11-01T22:04:18.056Z" },
+    { url = "https://files.pythonhosted.org/packages/04/8c/4bb682482932c158dbd383fd18f5d9eaf26c026bb0380f6e468e5a1cb69d/css_inline-0.18.0-cp39-abi3-win_amd64.whl", hash = "sha256:1404fd471ce6110382ad942bc93353bb17d92f5676c1126178db4a57dcb00438", size = 1835052, upload-time = "2025-11-01T22:04:19.317Z" },
 ]
 
 [[package]]
@@ -4395,6 +4393,7 @@ dependencies = [
     { name = "clickhouse-pool" },
     { name = "conditional-cache" },
     { name = "cryptography" },
+    { name = "css-inline" },
     { name = "dagster" },
     { name = "dagster-aws" },
     { name = "dagster-celery" },
@@ -4531,7 +4530,6 @@ dependencies = [
     { name = "textcase" },
     { name = "tiktoken" },
     { name = "token-bucket" },
-    { name = "toronado" },
     { name = "tree-sitter" },
     { name = "tree-sitter-bash" },
     { name = "tree-sitter-go" },
@@ -4644,6 +4642,7 @@ requires-dist = [
     { name = "clickhouse-pool", specifier = "==0.5.3" },
     { name = "conditional-cache", specifier = "==1.2" },
     { name = "cryptography", specifier = "==39.0.2" },
+    { name = "css-inline", specifier = "==0.18.0" },
     { name = "dagster", specifier = "==1.10.18" },
     { name = "dagster-aws", specifier = "==0.26.18" },
     { name = "dagster-celery", specifier = "==0.26.18" },
@@ -4780,7 +4779,6 @@ requires-dist = [
     { name = "textcase", specifier = ">=0.4.5" },
     { name = "tiktoken", specifier = "==0.9.*" },
     { name = "token-bucket", specifier = "==0.3.0" },
-    { name = "toronado", specifier = "==0.1.0" },
     { name = "tree-sitter", specifier = "==0.24.0" },
     { name = "tree-sitter-bash", specifier = "==0.23.3" },
     { name = "tree-sitter-go", specifier = "==0.23.4" },
@@ -6675,20 +6673,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/69/19/8e955d90985ecbd3b9adb2a759753a6840da2dff3c569d412b2c9217678b/toposort-1.10.tar.gz", hash = "sha256:bfbb479c53d0a696ea7402601f4e693c97b0367837c8898bc6471adfca37a6bd", size = 11132, upload-time = "2023-02-27T13:59:51.834Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f6/17/57b444fd314d5e1593350b9a31d000e7411ba8e17ce12dc7ad54ca76b810/toposort-1.10-py3-none-any.whl", hash = "sha256:cbdbc0d0bee4d2695ab2ceec97fe0679e9c10eab4b2a87a9372b929e70563a87", size = 8500, upload-time = "2023-02-25T20:07:06.538Z" },
-]
-
-[[package]]
-name = "toronado"
-version = "0.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cssselect" },
-    { name = "cssutils" },
-    { name = "lxml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/52/d8/d6b09784d9024f923686b7406c6a344c9556d02e9c506660fac6cd183cfe/toronado-0.1.0.tar.gz", hash = "sha256:150b45860f68572c6ab1c94524bbaa5fd2ba5db3812fe93943aa4a73a1886d04", size = 5001, upload-time = "2020-12-10T10:23:34.109Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/dd/4e/0e7515cc7eb30b5caffeb225fe2816bd7d9c207befa621477108938247f3/toronado-0.1.0-py2.py3-none-any.whl", hash = "sha256:9b387f2fd45fc600bc241711f7c56bb22e7bf38a8fb1a414546aea960770bb65", size = 8493, upload-time = "2020-12-10T10:23:32.814Z" },
 ]
 
 [[package]]

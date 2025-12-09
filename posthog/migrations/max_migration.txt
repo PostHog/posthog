@@ -1,1 +1,1 @@
-0929_remove_legacy_batch_export_notification_setting
+0937_remove_redundant_cohortcalculationhistory_indexes

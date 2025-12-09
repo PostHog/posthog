@@ -152,6 +152,8 @@ export interface ActionFilterRowProps {
     filtersLeftPadding?: boolean
     /** Doc link to show in the tooltip of the New Filter button */
     addFilterDocLink?: string
+    /** Allow adding non-captured events */
+    allowNonCapturedEvents?: boolean
 }
 
 export function ActionFilterRow({
@@ -186,7 +188,8 @@ export function ActionFilterRow({
     filtersLeftPadding = false,
     addFilterDocLink,
     excludedProperties,
-}: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties'>): JSX.Element {
+    allowNonCapturedEvents,
+}: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
@@ -347,6 +350,7 @@ export function ActionFilterRow({
             showNumericalPropsOnly={showNumericalPropsOnly}
             dataWarehousePopoverFields={dataWarehousePopoverFields}
             excludedProperties={excludedProperties}
+            allowNonCapturedEvents={allowNonCapturedEvents}
         />
     )
 

@@ -49,7 +49,6 @@
     .NotebookNode &,
     .InsightCard &,
     .ExportedInsight &,
-    .ErrorTracking__breakdowns &,
     .WebAnalyticsDashboard & {
         flex: 1;
         height: 100%;
@@ -197,5 +196,19 @@
 
     .LemonIcon {
         color: var(--color-bg-surface-primary);
+    }
+}
+
+.ErrorTracking__breakdowns {
+    .InsightViz {
+        height: 100%;
+    }
+
+    .InsightVizDisplay {
+        height: 100%;
+    }
+
+    .TrendsInsight {
+        min-height: 100%;
     }
 }

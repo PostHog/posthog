@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
+import { Message, MessageHeader } from 'node-rdkafka'
 import { promisify } from 'node:util'
 import { gunzip } from 'zlib'
 
@@ -132,6 +132,9 @@ export class KafkaMessageParser {
             return dropMessage('message_timestamp_diff_too_large')
         }
 
+        const tokenHeader = message.headers?.find((header: MessageHeader) => header.token)?.token
+        const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
+
         const parsedMessage = {
             metadata: {
                 partition: message.partition,
@@ -143,6 +146,7 @@ export class KafkaMessageParser {
             headers: message.headers,
             distinct_id: messageResult.data.distinct_id,
             session_id: $session_id,
+            token: token ?? null,
             eventsByWindowId: {
                 [$window_id ?? '']: validEvents,
             },
@@ -158,7 +162,7 @@ export class KafkaMessageParser {
         if (this.topTracker) {
             const parseEndTime = performance.now()
             const parseDurationMs = parseEndTime - parseStartTime
-            const trackingKey = `session_id:${$session_id}`
+            const trackingKey = `token:${parsedMessage.token ?? 'unknown'}:session_id:${$session_id}`
             this.topTracker.increment('parse_time_ms_by_session_id', trackingKey, parseDurationMs)
         }
 

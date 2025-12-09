@@ -7,6 +7,9 @@ name: E2E CI Playwright
 on:
     pull_request:
     workflow_dispatch:
+    push:
+        branches:
+            - master
 
 permissions:
     contents: write
@@ -51,23 +54,25 @@ env:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # Cancel in-progress runs when new commits are pushed
+    # Cancel in-progress runs on PRs when new commits are pushed
     # SHA verification ensures we don't commit stale snapshots if runs aren't cancelled in time
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        # Only run on PRs from the same repo (not forks) or on master push
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         name: Determine need to run E2E checks
         # Set job outputs to values from filter step
         outputs:
-            shouldRun: ${{ steps.changes.outputs.shouldRun }}
+            shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: changes
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       shouldRun:
@@ -128,8 +133,8 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   clean: false
             - name: Clean up data directories with container permissions

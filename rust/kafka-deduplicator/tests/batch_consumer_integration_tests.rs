@@ -122,6 +122,7 @@ fn create_captured_event() -> CapturedEvent {
     CapturedEvent {
         uuid: event_uuid,
         distinct_id: distinct_id.to_string(),
+        session_id: None,
         ip: "127.0.0.1".to_string(),
         now: now_rfc3339.clone(),
         token: token.to_string(),

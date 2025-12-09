@@ -3,7 +3,7 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Json;
 use axum_client_ip::InsecureClientIp;
-use common_types::CapturedEvent;
+use common_types::{CapturedEvent, HasEventName};
 use flate2::read::GzDecoder;
 use futures::stream;
 use multer::{parse_boundary, Multipart};
@@ -17,12 +17,13 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
+use crate::prometheus::report_dropped_events;
 use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartInfo {
     pub name: String,
     pub length: usize,
@@ -42,6 +43,21 @@ pub struct AIEndpointResponse {
 struct BlobPart {
     name: String,
     data: Bytes,
+}
+
+/// Metadata extracted from the event part for early checks (token dropper, quota)
+#[derive(Debug)]
+struct EventMetadata {
+    event_name: String,
+    distinct_id: String,
+    event_json: Value,
+    event_part_info: PartInfo,
+}
+
+impl HasEventName for EventMetadata {
+    fn event_name(&self) -> &str {
+        &self.event_name
+    }
 }
 
 /// Raw multipart parts retrieved from the request
@@ -132,25 +148,59 @@ pub async fn ai_handler(
     let token = &auth_header[7..]; // Remove "Bearer " prefix
     validate_token(token)?;
 
-    // Step 1: Retrieve and validate multipart parts
+    // Capture body size for logging (before we move the Bytes)
+    let body_size = decompressed_body.len();
+
+    // Step 1: Retrieve event metadata (parses only the first 'event' part)
+    // Bytes::clone() is cheap (ref-counted), no actual data copy
+    let event_metadata = retrieve_event_metadata(decompressed_body.clone(), &boundary).await?;
+
+    // Step 2: Check token dropper early - before parsing remaining parts
+    // Token dropper silently drops events (returns 200) to avoid alerting clients
+    if state
+        .token_dropper
+        .should_drop(token, &event_metadata.distinct_id)
+    {
+        report_dropped_events("token_dropper", 1);
+        // Return success response with empty accepted_parts to avoid alerting clients
+        return Ok(Json(AIEndpointResponse {
+            accepted_parts: vec![],
+        }));
+    }
+
+    // Step 3: Check quota limiter - drop if over quota
+    // We pass a single-element vec and check if it's filtered out
+    let filtered = state
+        .quota_limiter
+        .check_and_filter(token, vec![event_metadata])
+        .await?;
+
+    // If the event was filtered out by quota limiter, return billing limit error
+    let event_metadata = filtered
+        .into_iter()
+        .next()
+        .ok_or(CaptureError::BillingLimit)?;
+
+    // Step 4: Retrieve and validate remaining multipart parts
     let parts = retrieve_multipart_parts(
-        &decompressed_body,
+        decompressed_body,
         &boundary,
         state.ai_max_sum_of_parts_bytes,
+        event_metadata,
     )
     .await?;
 
-    // Step 2: Parse the parts and build event with blob placeholders
+    // Step 5: Parse the parts and build event with blob placeholders
     let parsed = parse_multipart_data(parts)?;
 
-    // Step 3: Build Kafka event
+    // Step 6: Build Kafka event
     // Extract IP address, defaulting to 127.0.0.1 if not available (e.g., in tests)
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
     let (accepted_parts, processed_event) = build_kafka_event(parsed, token, &client_ip, &state)?;
 
-    // Step 4: Send event to Kafka
+    // Step 7: Send event to Kafka
     state.sink.send(processed_event).await.map_err(|e| {
         warn!("Failed to send AI event to Kafka: {:?}", e);
         e
@@ -158,7 +208,7 @@ pub async fn ai_handler(
 
     // Log request details for debugging
     debug!("AI endpoint request validated and sent to Kafka successfully");
-    debug!("Body size: {} bytes", decompressed_body.len());
+    debug!("Body size: {} bytes", body_size);
     debug!("Content-Type: {}", content_type);
     debug!("Boundary: {}", boundary);
     debug!("Token: {}...", &token[..std::cmp::min(8, token.len())]);
@@ -192,6 +242,87 @@ fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
         decompressed.len()
     );
     Ok(Bytes::from(decompressed))
+}
+
+/// Retrieve event metadata from the first multipart part for early checks.
+/// This parses only the 'event' part to extract event_name and distinct_id
+/// before processing the rest of the multipart body.
+async fn retrieve_event_metadata(
+    body: Bytes,
+    boundary: &str,
+) -> Result<EventMetadata, CaptureError> {
+    // Create a stream from the body data - Bytes::clone() is cheap (ref-counted)
+    let body_stream = stream::once(async move { Ok::<Bytes, std::io::Error>(body) });
+
+    // Create multipart parser
+    let mut multipart = Multipart::new(body_stream, boundary);
+
+    // Get the first field - must be 'event'
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|e| {
+            warn!("Multipart parsing error: {}", e);
+            CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}"))
+        })?
+        .ok_or_else(|| {
+            CaptureError::RequestParsingError(
+                "Missing required 'event' part in multipart data".to_string(),
+            )
+        })?;
+
+    let field_name = field.name().unwrap_or("unknown").to_string();
+    let content_type = field.content_type().map(|ct| ct.to_string());
+    let content_encoding = field
+        .headers()
+        .get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Validate that the first part is the event part
+    if field_name != "event" {
+        return Err(CaptureError::RequestParsingError(format!(
+            "First part must be 'event', got '{field_name}'"
+        )));
+    }
+
+    // Read the field data
+    let field_data = field.bytes().await.map_err(|e| {
+        warn!("Failed to read event field data: {}", e);
+        CaptureError::RequestDecodingError(format!("Failed to read field data: {e}"))
+    })?;
+
+    // Process the event part
+    let (event_json, event_part_info) =
+        process_event_part(field_data, content_type, content_encoding)?;
+
+    // Extract event_name and distinct_id
+    let event_obj = event_json.as_object().ok_or_else(|| {
+        CaptureError::RequestParsingError("Event must be a JSON object".to_string())
+    })?;
+
+    let event_name = event_obj
+        .get("event")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            CaptureError::RequestParsingError("Event missing 'event' field".to_string())
+        })?
+        .to_string();
+
+    let distinct_id = event_obj
+        .get("distinct_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            CaptureError::RequestParsingError("Event missing 'distinct_id' field".to_string())
+        })?
+        .to_string();
+
+    Ok(EventMetadata {
+        event_name,
+        distinct_id,
+        event_json,
+        event_part_info,
+    })
 }
 
 /// Validate blob part content type
@@ -262,6 +393,7 @@ fn build_kafka_event(
     let captured_event = CapturedEvent {
         uuid: parsed.event_uuid,
         distinct_id: parsed.distinct_id.clone(),
+        session_id: None,
         ip: resolved_ip,
         data,
         now: now.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
@@ -406,33 +538,34 @@ fn process_blob_part(
     Ok((blob_part, part_info))
 }
 
-/// Retrieve and validate multipart parts from the request body
+/// Retrieve and validate multipart parts from the request body.
+/// The event metadata (first part) has already been parsed by retrieve_event_metadata.
 async fn retrieve_multipart_parts(
-    body: &[u8],
+    body: Bytes,
     boundary: &str,
     max_sum_of_parts_bytes: usize,
+    event_metadata: EventMetadata,
 ) -> Result<RetrievedMultipartParts, CaptureError> {
     // Size limits
     const MAX_COMBINED_SIZE: usize = 1024 * 1024 - 64 * 1024; // 1MB - 64KB = 960KB
 
-    // Create a stream from the body data - need to own the data
-    let body_owned = body.to_vec();
-    let body_stream = stream::once(async move { Ok::<Vec<u8>, std::io::Error>(body_owned) });
+    // Create a stream from the body data - Bytes::clone() is cheap (ref-counted)
+    let body_stream = stream::once(async move { Ok::<Bytes, std::io::Error>(body) });
 
     // Create multipart parser
     let mut multipart = Multipart::new(body_stream, boundary);
 
     let mut part_count = 0;
-    let mut has_event_part = false;
-    let mut first_part_processed = false;
     let mut accepted_parts = Vec::new();
     let mut seen_property_names = HashSet::new();
     let mut blob_parts: Vec<BlobPart> = Vec::new();
-    let mut event_json: Option<Value> = None;
     let mut properties_json: Option<Value> = None;
-    let mut event_size: usize = 0;
+    let event_size: usize = event_metadata.event_part_info.length;
     let mut properties_size: usize = 0;
-    let mut sum_of_parts_bytes: usize = 0;
+    let mut sum_of_parts_bytes: usize = event_size;
+
+    // Add the pre-parsed event part info
+    accepted_parts.push(event_metadata.event_part_info);
 
     // Parse each part
     while let Some(field) = multipart.next_field().await.map_err(|e| {
@@ -455,18 +588,11 @@ async fn retrieve_multipart_parts(
             field_name, part_count
         );
 
-        // Check if this is the first part
-        if !first_part_processed {
-            first_part_processed = true;
-
-            // Validate that the first part is the event part
-            if field_name != "event" {
-                return Err(CaptureError::RequestParsingError(format!(
-                    "First part must be 'event', got '{field_name}'"
-                )));
-            }
-
-            debug!("First part is 'event' as expected");
+        // Skip the event part - already processed in retrieve_event_metadata
+        if field_name == "event" {
+            // Consume the field data but don't process it again
+            drop(field.bytes().await);
+            continue;
         }
 
         // Read the field data to get the length (this consumes the field)
@@ -479,14 +605,7 @@ async fn retrieve_multipart_parts(
         sum_of_parts_bytes += field_data.len();
 
         // Process based on field name
-        if field_name == "event" {
-            has_event_part = true;
-            event_size = field_data.len();
-            let (event, part_info) =
-                process_event_part(field_data, content_type, content_encoding)?;
-            event_json = Some(event);
-            accepted_parts.push(part_info);
-        } else if field_name == "event.properties" {
+        if field_name == "event.properties" {
             properties_size = field_data.len();
             let (properties, part_info) =
                 process_properties_part(field_data, content_type, content_encoding)?;
@@ -528,13 +647,6 @@ async fn retrieve_multipart_parts(
         }
     }
 
-    // Validate that we have at least the event part
-    if !has_event_part {
-        return Err(CaptureError::RequestParsingError(
-            "Missing required 'event' part in multipart data".to_string(),
-        ));
-    }
-
     // Check combined size limit
     let combined_size = event_size + properties_size;
     if combined_size > MAX_COMBINED_SIZE {
@@ -550,8 +662,8 @@ async fn retrieve_multipart_parts(
         )));
     }
 
-    // Merge properties into the event
-    let event = event_json.unwrap();
+    // Use the event JSON from the pre-parsed metadata
+    let event = event_metadata.event_json;
 
     // Check for conflicting properties sources
     let has_embedded_properties = event

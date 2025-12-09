@@ -19,7 +19,7 @@ jobs:
         name: Determine need to run Rust checks
         # Set job outputs to values from filter step
         outputs:
-            rust: ${{ steps.filter.outputs.rust }}
+            rust: ${{ steps.filter.outputs.rust || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -28,6 +28,7 @@ jobs:
                   clean: false
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       rust:
@@ -42,6 +43,9 @@ jobs:
                         - 'docker-compose.dev.yml'
 
     build:
+        # TODO: Once "Rust Tests Pass" is the only required check, add:
+        #   if: needs.changes.outputs.rust == 'true'
+        # and remove the per-step `if` conditions to skip the entire job when no Rust changes.
         name: Build Rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
@@ -80,6 +84,9 @@ jobs:
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
     test:
+        # TODO: Once "Rust Tests Pass" is the only required check, add:
+        #   if: needs.changes.outputs.rust == 'true'
+        # and remove the per-step `if` conditions to skip the entire job when no Rust changes.
         name: Test Rust services
         strategy:
             matrix:
@@ -229,6 +236,9 @@ jobs:
                   echo "Cargo test completed"
 
     linting:
+        # TODO: Once "Rust Tests Pass" is the only required check, add:
+        #   if: needs.changes.outputs.rust == 'true'
+        # and remove the per-step `if` conditions to skip the entire job when no Rust changes.
         name: Lint Rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
@@ -277,6 +287,9 @@ jobs:
               run: cargo check --all-features
 
     shear:
+        # TODO: Once "Rust Tests Pass" is the only required check, add:
+        #   if: needs.changes.outputs.rust == 'true'
+        # and remove the per-step `if` conditions to skip the entire job when no Rust changes.
         name: Shear Rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
@@ -306,3 +319,54 @@ jobs:
 
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'
+
+    # Collate job to require a single passing status for branch protection.
+    # After merging, update the repository ruleset (Settings > Rules > Rulesets):
+    #   1. Add "Rust Tests Pass" to required status checks
+    #   2. Remove these 34 individual checks:
+    #      - "Build Rust services"
+    #      - "Lint Rust services"
+    #      - "Shear Rust services"
+    #      - "Test Rust services (*)" (all 31 matrix jobs)
+    #   3. Then apply the TODO comments above to skip jobs entirely when no Rust changes
+    rust_tests:
+        needs: [changes, build, test, linting, shear]
+        name: Rust Tests Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check all Rust jobs
+              run: |
+                  # Fail if change detection itself failed
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  # Pass if no Rust changes detected (jobs were skipped)
+                  if [[ "${{ needs.changes.outputs.rust }}" != "true" ]]; then
+                    echo "Rust checks were skipped (no relevant changes)"
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "Rust build failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
+                    echo "Rust tests failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.linting.result }}" != "success" && "${{ needs.linting.result }}" != "skipped" ]]; then
+                    echo "Rust linting failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.shear.result }}" != "success" && "${{ needs.shear.result }}" != "skipped" ]]; then
+                    echo "Rust shear failed."
+                    exit 1
+                  fi
+
+                  echo "All Rust checks passed."

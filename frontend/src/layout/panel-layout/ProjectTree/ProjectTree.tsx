@@ -7,6 +7,7 @@ import {
     IconChevronRight,
     IconEllipsis,
     IconFolderPlus,
+    IconGear,
     IconPencil,
     IconPlusSmall,
     IconShortcut,
@@ -15,6 +16,7 @@ import {
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -123,6 +125,8 @@ export function ProjectTree({
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
+    const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
+
     const { customProducts, customProductsLoading } = useValues(customProductsLogic)
     const { seed } = useActions(customProductsLogic)
 
@@ -167,11 +171,14 @@ export function ProjectTree({
         }
 
         if (root === 'custom-products://') {
-            const hasColleagueProducts = customProducts.some(
-                (item) => item.reason === UserProductListReason.USED_BY_COLLEAGUES
+            const hasRecommendedProducts = customProducts.some(
+                (item) =>
+                    item.reason === UserProductListReason.USED_BY_COLLEAGUES ||
+                    item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
             )
 
             if (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) {
+                const CustomIcon = isCustomProductsExperiment ? IconGear : IconPencil
                 treeData.push({
                     id: 'products/custom-products-helper-category',
                     name: 'Example custom products',
@@ -184,7 +191,7 @@ export function ProjectTree({
                         >
                             You can display your preferred apps here. You can configure what items show up in here by
                             clicking on the{' '}
-                            <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
+                            <CustomIcon className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
                             above. We'll automatically suggest new apps to this list as you use them.{' '}
                             {fullFileSystemFiltered.length > 0 && (
                                 <span
@@ -196,7 +203,7 @@ export function ProjectTree({
                             )}
                             <br />
                             <br />
-                            {!hasColleagueProducts && fullFileSystemFiltered.length <= 3 && (
+                            {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
                                 <span className="cursor-pointer underline" onClick={seed}>
                                     {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
                                 </span>

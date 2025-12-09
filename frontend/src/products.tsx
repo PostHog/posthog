@@ -520,6 +520,7 @@ export const productUrls = {
     logs: (): string => '/logs',
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
+    marketingAnalyticsApp: (): string => '/marketing',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
@@ -597,7 +598,21 @@ export const productUrls = {
             ...(order ? { order } : {}),
         }).url,
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
-    replaySingle: (id: string): string => `/replay/${id}`,
+    replaySingle: (
+        id: string,
+        options?: {
+            secondsOffsetFromStart?: number
+            unixTimestampMillis?: number
+        }
+    ): string => {
+        if (options?.unixTimestampMillis) {
+            return `/replay/${id}?timestamp=${options.unixTimestampMillis}`
+        }
+        if (options?.secondsOffsetFromStart) {
+            return `/replay/${id}?t=${options.secondsOffsetFromStart}`
+        }
+        return `/replay/${id}`
+    },
     replayFilePlayback: (): string => '/replay/file-playback',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     revenueAnalytics: (): string => '/revenue_analytics',
@@ -614,6 +629,7 @@ export const productUrls = {
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
     webAnalyticsMarketing: (): string => `/web/marketing`,
+    webAnalyticsHealth: (): string => `/web/health`,
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
@@ -909,7 +925,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
-        category: 'Unreleased',
+        category: 'Analytics',
         iconType: 'cohort',
         href: urls.customerAnalytics(),
         tags: ['alpha'],
@@ -1083,6 +1099,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Logs'],
     },
     {
+        path: 'Marketing analytics',
+        intents: [ProductKey.MARKETING_ANALYTICS],
+        category: 'Analytics',
+        href: urls.marketingAnalyticsApp(),
+        iconType: 'marketing_analytics' as FileSystemIconType,
+        iconColor: ['var(--color-product-marketing-analytics-light)'] as FileSystemIconColor,
+        tags: ['beta'],
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+        sceneKey: 'MarketingAnalytics',
+        sceneKeys: ['MarketingAnalytics'],
+    },
+    {
         path: 'Notebooks',
         category: 'Tools',
         type: 'notebook',
@@ -1172,7 +1200,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Web analytics',
-        intents: [ProductKey.WEB_ANALYTICS, ProductKey.MARKETING_ANALYTICS],
+        intents: [ProductKey.WEB_ANALYTICS],
         category: 'Analytics',
         iconType: 'web_analytics',
         iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
@@ -1270,7 +1298,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         category: 'Pipeline',
         iconType: 'ingestion_warning',
         href: urls.ingestionWarnings(),
-        flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         sceneKey: 'IngestionWarnings',
         sceneKeys: ['IngestionWarnings'],
     },

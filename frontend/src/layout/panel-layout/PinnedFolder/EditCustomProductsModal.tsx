@@ -3,11 +3,13 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { UserShortcutPosition } from '~/types'
 
 import { editCustomProductsModalLogic } from './editCustomProductsModalLogic'
 
@@ -19,11 +21,13 @@ export function EditCustomProductsModal(): JSX.Element {
         selectedPaths,
         allowSidebarSuggestions,
         sidebarSuggestionsLoading,
+        shortcutPosition,
+        shortcutPositionLoading,
         categories,
         productsByCategory,
         productLoading,
     } = useValues(editCustomProductsModalLogic)
-    const { toggleProduct, toggleCategory, toggleSidebarSuggestions, closeModal } =
+    const { toggleProduct, toggleCategory, toggleSidebarSuggestions, setShortcutPosition, closeModal } =
         useActions(editCustomProductsModalLogic)
 
     return (
@@ -147,6 +151,26 @@ export function EditCustomProductsModal(): JSX.Element {
                         <br />
                         You can always remove these suggestions later.
                     </span>
+                </div>
+
+                <div className="flex flex-col items-start gap-2 border-t pt-4">
+                    <div className="flex flex-col gap-2 w-full">
+                        <label className="text-sm font-semibold text-tertiary">Shortcut position</label>
+                        <LemonSelect<UserShortcutPosition>
+                            value={shortcutPosition}
+                            onChange={(value) => setShortcutPosition(value)}
+                            options={[
+                                { label: 'Above products', value: 'above' },
+                                { label: 'Below products', value: 'below' },
+                                { label: 'Hidden', value: 'hidden' },
+                            ]}
+                            disabledReason={shortcutPositionLoading ? 'Saving...' : undefined}
+                            fullWidth
+                        />
+                        <span className="text-sm text-muted">
+                            Choose where shortcuts appear in your sidebar when using custom products.
+                        </span>
+                    </div>
                 </div>
             </div>
         </LemonModal>
