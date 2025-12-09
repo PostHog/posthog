@@ -77,6 +77,8 @@ futures-util = { version = "0.3.31" }
 governor = { version = "0.5.1", features = ["dashmap"] }
 http = { version = "1.1.0" }
 http-body-util = "0.1.0"
+hyper = { version = "1.5", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto", "server-graceful"] }
 httpmock = "0.7.0"
 itoa = "1.0.15"
 metrics = "0.22.0"

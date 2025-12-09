@@ -119,6 +119,12 @@ pub struct Config {
     // if set in env, will configure a request timeout on the server's Axum router
     pub request_timeout_seconds: Option<u64>,
 
+    // graceful shutdown timeout for in-flight connections
+    // default is less than k8s term grace period, higher than
+    // deploy p99.99 resp times for all services (even replay)
+    #[envconfig(default = "10")]
+    pub shutdown_graceful_timeout_seconds: u64,
+
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
 }

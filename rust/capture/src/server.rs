@@ -1,12 +1,20 @@
 use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use common_redis::RedisClient;
 use health::{ComponentStatus, HealthRegistry};
+use hyper::body::Incoming;
+use hyper::service::service_fn;
+use hyper::Request;
+use hyper_util::rt::TokioIo;
+use hyper_util::server::graceful::GracefulShutdown;
 use limiters::redis::ServiceName;
 use tokio::net::TcpListener;
+use tower::Service;
+use tracing::{debug, info, warn};
 
 use crate::config::CaptureMode;
 use crate::config::Config;
@@ -203,18 +211,75 @@ where
         config.request_timeout_seconds,
     );
 
-    // run our app with hyper
-    tracing::info!("listening on {:?}", listener.local_addr().unwrap());
-    tracing::info!(
-        "config: is_mirror_deploy == {:?} ; log_level == {:?}",
+    let graceful_timeout = Duration::from_secs(config.shutdown_graceful_timeout_seconds);
+
+    info!("listening on {:?}", listener.local_addr().unwrap());
+    info!(
+        "config: is_mirror_deploy == {:?} ; log_level == {:?} ; shutdown_graceful_timeout_seconds == {:?}",
         config.is_mirror_deploy,
-        config.log_level
+        config.log_level,
+        config.shutdown_graceful_timeout_seconds
     );
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown)
-    .await
-    .unwrap()
+
+    // Use hyper-util directly to control graceful shutdown behavior
+    let mut make_service = app.into_make_service_with_connect_info::<SocketAddr>();
+
+    // Configure hyper server with HTTP/1 and HTTP/2 defaults matching Axum 0.7.5
+    let builder =
+        hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
+
+    let graceful = GracefulShutdown::new();
+    let mut shutdown_signal = pin!(shutdown);
+
+    loop {
+        tokio::select! {
+            conn = listener.accept() => {
+                let (stream, remote_addr) = match conn {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        warn!("failed to accept connection: {}", e);
+                        continue;
+                    }
+                };
+
+                let io = TokioIo::new(stream);
+                let tower_service = make_service.call(remote_addr).await.unwrap();
+
+                let hyper_service = service_fn(move |req: Request<Incoming>| {
+                    tower_service.clone().call(req)
+                });
+
+                let conn = builder.serve_connection_with_upgrades(io, hyper_service);
+                let conn = graceful.watch(conn.into_owned());
+
+                tokio::spawn(async move {
+                    if let Err(e) = conn.await {
+                        debug!("connection error: {}", e);
+                    }
+                });
+            }
+            _ = &mut shutdown_signal => {
+                info!("Graceful shutdown: signal received, stopping listener");
+                drop(listener);
+                break;
+            }
+        }
+    }
+
+    // Wait for all connections to complete with a timeout
+    let start_shutdown = tokio::time::Instant::now();
+    tokio::select! {
+        _ = graceful.shutdown() => {
+            info!(
+                elapsed = start_shutdown.elapsed().as_secs(),
+                "Graceful shutdown: all connections closed");
+        }
+        _ = tokio::time::sleep(graceful_timeout) => {
+            warn!(
+                elapsed = start_shutdown.elapsed().as_secs(),
+                configured = graceful_timeout.as_secs(),
+                "Graceful shutdown: timed out - forcing shutdown now",
+            );
+        }
+    }
 }
