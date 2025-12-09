@@ -48,7 +48,7 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
         it('returns realtime supported filters for a team', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
             const conditionHash = 'test_hash_001'
-            const filters = buildInlineFiltersForCohorts({ bytecode, conditionHash, type: 'event', key: '$browser' })
+            const filters = buildInlineFiltersForCohorts({ bytecode, conditionHash, key: '$browser' })
 
             // Create a realtime cohort
             const cohortId = await createCohort(postgres, teamId, 'Test Cohort', filters)
@@ -68,7 +68,6 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const filters = buildInlineFiltersForCohorts({
                 bytecode,
                 conditionHash: 'test_hash_001',
-                type: 'event',
                 key: '$browser',
             })
 
@@ -513,7 +512,6 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const filters = buildInlineFiltersForCohorts({
                 bytecode,
                 conditionHash: 'cached_hash',
-                type: 'event',
                 key: '$browser',
             })
 
@@ -542,13 +540,11 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const filters1 = buildInlineFiltersForCohorts({
                 bytecode,
                 conditionHash: 'team1_hash',
-                type: 'event',
                 key: '$browser',
             })
             const filters2 = buildInlineFiltersForCohorts({
                 bytecode,
                 conditionHash: 'team2_hash',
-                type: 'event',
                 key: '$browser',
             })
 
@@ -578,7 +574,6 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const filters = buildInlineFiltersForCohorts({
                 bytecode,
                 conditionHash: 'test_hash',
-                type: 'event',
                 key: '$browser',
             })
 
