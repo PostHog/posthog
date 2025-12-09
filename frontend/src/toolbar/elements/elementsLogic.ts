@@ -436,7 +436,7 @@ export const elementsLogic = kea<elementsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         enableInspect: () => {
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'inspect', enabled: true })
             actionsLogic.actions.getActions()
@@ -483,8 +483,13 @@ export const elementsLogic = kea<elementsLogicType>([
                 }
             }
 
-            const actionStep = element ? elementToActionStep(element, toolbarConfigLogic.values.dataAttributes) : null
-            const selectorQuality = actionStep?.selector ? checkSelectorFragilityCached(actionStep.selector) : null
+            const meta = getElementMetaWithSelectorQuality(
+                element,
+                values.elementMap,
+                values.actionsForElementMap,
+                toolbarConfigLogic.values.dataAttributes
+            )
+            const selector = meta?.actionStep?.selector
 
             toolbarPosthogJS.capture('toolbar selected HTML element', {
                 element_tag: element?.tagName.toLowerCase() ?? null,
@@ -496,11 +501,10 @@ export const elementsLogic = kea<elementsLogicType>([
                 has_data_attr: data_attributes.includes('data-attr'),
                 data_attributes: data_attributes,
                 attribute_length: element?.attributes.length ?? null,
-                selector_quality: selectorQuality?.isFragile ? 'fragile' : 'good',
-                selector_has_position_selectors: actionStep?.selector?.includes(':nth-') ?? false,
-                selector_depth: actionStep?.selector
-                    ? actionStep.selector.split(/\s+/).filter((part) => part !== '>' && part !== '+' && part !== '~')
-                          .length
+                selector_quality: meta?.selectorQuality?.isFragile ? 'fragile' : 'good',
+                selector_has_position_selectors: selector?.includes(':nth-') ?? false,
+                selector_depth: selector
+                    ? selector.split(/\s+/).filter((part) => part !== '>' && part !== '+' && part !== '~').length
                     : null,
             })
         },
