@@ -4400,6 +4400,39 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # Verify that inCohortVia stayed as AUTO
         assert runner.modifiers.inCohortVia == InCohortVia.AUTO
 
+    def test_cohort_filter_optimization_with_dashboard_filters(self):
+        """Test that cohort filters applied via dashboard filters_override trigger LEFTJOIN optimization"""
+        from posthog.schema import DashboardFilter
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Dashboard Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        # Create query without cohort filter
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Before dashboard filters, should be AUTO
+        assert runner.modifiers.inCohortVia == InCohortVia.AUTO
+
+        # Apply dashboard filters (simulating what happens when insight is on dashboard)
+        dashboard_filter = DashboardFilter(properties=[{"type": "cohort", "key": "id", "value": cohort.pk}])
+        runner.apply_dashboard_filters(dashboard_filter)
+
+        # After dashboard filters are applied, should switch to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+        # Verify the cohort filter was actually merged into query properties
+        assert runner.query.properties is not None
+
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
