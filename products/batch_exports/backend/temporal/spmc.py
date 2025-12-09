@@ -983,9 +983,9 @@ def compose_filters_clause(
     context = HogQLContext(
         team=team,
         team_id=team.id,
-        enable_select_queries=True,
+        enable_select_queries=False,
         limit_top_select=False,
-        within_non_hogql_query=True,
+        within_non_hogql_query=False,
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
