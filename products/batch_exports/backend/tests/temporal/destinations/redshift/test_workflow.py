@@ -236,7 +236,7 @@ async def test_redshift_export_workflow(
 
 
 async def test_redshift_export_workflow_handles_unexpected_insert_activity_errors(
-    event_loop, ateam, redshift_batch_export, interval, use_internal_stage
+    ateam, redshift_batch_export, interval, use_internal_stage
 ):
     """Test that Redshift Export Workflow can gracefully handle unexpected errors when inserting Redshift data.
 
