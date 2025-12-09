@@ -199,7 +199,7 @@ export function HogFunctionMappings(): JSX.Element | null {
         }
     }, [configuration.mappings?.length])
 
-    if (!useMapping && (!configuration.mappings || configuration.mappings?.length === 0)) {
+    if (!useMapping) {
         return null
     }
 
