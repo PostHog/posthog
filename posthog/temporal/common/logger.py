@@ -45,8 +45,20 @@ from structlog.processors import EventRenamer
 
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
-BACKGROUND_LOGGER_TASKS: dict[str, asyncio.Task[typing.Any]] = {}
+BATCH_EXPORT_WORKFLOW_TYPES = {
+    "s3-export",
+    "bigquery-export",
+    "snowflake-export",
+    "postgres-export",
+    "http-export",
+    "redshift-export",
+    "databricks-export",
+}
+_BACKGROUND_LOGGER_TASKS: dict[str, asyncio.Task[typing.Any]] = {}
+_DEFAULT_SERIALIZER = functools.partial(json.dumps, default=str)
 
+CoroRetType = typing.TypeVar("CoroRetType")
+LogMode = typing.Literal["ALL", "WRITE", "PRODUCE"]
 LogQueue = asyncio.Queue[bytes]
 
 
@@ -108,15 +120,25 @@ class Logger:
     fatal = failure = err = error = critical = exception = process
 
 
+class ProduceOnlyLogger(Logger):
+    """A logger that can only be used for producing."""
+
+    def write(self, message: str) -> None:
+        return None
+
+
+class WriteOnlyLogger(Logger):
+    """A logger that can only be used for writing."""
+
+    def produce(self, message: bytes) -> None:
+        return None
+
+
 class LogMessages(typing.TypedDict):
     """Typed dictionary returned by renderer passed to `Logger` ."""
 
     write_message: str | None
     produce_message: bytes | None
-
-
-DEFAULT_SERIALIZER = functools.partial(json.dumps, default=str)
-LOG_MODE = typing.Literal["ALL", "WRITE", "PRODUCE"]
 
 
 class LogMessagesRenderer:
@@ -128,8 +150,8 @@ class LogMessagesRenderer:
     def __init__(
         self,
         event_key: str = "event",
-        json_serializer: typing.Callable[[structlog.types.EventDict], str] = DEFAULT_SERIALIZER,
-        default_mode: LOG_MODE = "ALL",
+        json_serializer: typing.Callable[[structlog.types.EventDict], str] = _DEFAULT_SERIALIZER,
+        default_mode: LogMode = "ALL",
     ):
         """Initialize renderer.
 
@@ -147,18 +169,21 @@ class LogMessagesRenderer:
         """Return rendered messages meant for `Logger.process`.
 
         The 'write_only' and 'produce_only' context keys can be used to limit what gets
-        rendered. These are set by users when logging. When omitted,
-        ``self.default_mode`` controls which messages are rendered.
+        rendered. These are set by users when logging, derived from the current logger
+        subclass, or following ``self.default_mode``. Messages are only serialized when
+        they will actually be used.
         """
         write_only = event_dict.pop("write_only", self.default_mode == "WRITE")
         produce_only = event_dict.pop("produce_only", self.default_mode == "PRODUCE")
 
         write_message = None
-        if not produce_only:
+        needs_write_message = not produce_only and not isinstance(logger, ProduceOnlyLogger)
+        if needs_write_message:
             write_message = self.json_serializer(event_dict)
 
         produce_message = None
-        if not write_only:
+        needs_produce_message = not write_only and not isinstance(logger, WriteOnlyLogger)
+        if needs_produce_message:
             try:
                 log_source, log_source_id = resolve_log_source(event_dict["workflow_type"], event_dict["workflow_id"])
 
@@ -180,20 +205,6 @@ class LogMessagesRenderer:
                 produce_message = self.json_serializer(message_dict).encode("utf-8")
 
         return {"write_message": write_message, "produce_message": produce_message}
-
-
-class ProduceOnlyLogger(Logger):
-    """A logger that can only be used for producing."""
-
-    def write(self, message: str) -> None:
-        return None
-
-
-class WriteOnlyLogger(Logger):
-    """A logger that can only be used for writing."""
-
-    def produce(self, message: bytes) -> None:
-        return None
 
 
 class LoggerFactory:
@@ -478,7 +489,7 @@ def configure_logger(
     cache_logger_on_first_use: bool = True,
     loop: asyncio.AbstractEventLoop | None = None,
     file: typing.TextIO | None = None,
-    default_mode: LOG_MODE = "ALL",
+    default_mode: LogMode = "ALL",
 ) -> None:
     """Configure a structlog for Temporal workflows.
 
@@ -577,7 +588,7 @@ def configure_logger(
             logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
 
-    listen_task = create_background_task(
+    listen_task = _create_background_task(
         log_producer.listen(), loop or asyncio.get_running_loop(), name="log_producer_listen"
     )
 
@@ -596,34 +607,31 @@ def configure_logger(
 
         await asyncio.wait([listen_task])
 
-    create_background_task(handle_worker_shutdown(), loop or asyncio.get_running_loop(), name="handle_worker_shutdown")
+    _create_background_task(handle_worker_shutdown(), loop or asyncio.get_running_loop(), name="handle_worker_shutdown")
 
 
-CoroRetType = typing.TypeVar("CoroRetType")
-
-
-def create_background_task(
+def _create_background_task(
     coro: collections.abc.Coroutine[typing.Any, typing.Any, CoroRetType],
     loop: asyncio.AbstractEventLoop,
     name: str | None = None,
 ) -> asyncio.Task[CoroRetType]:
-    """Wrap coro in a task and add them to BACKGROUND_LOGGER_TASKS.
+    """Wrap coro in a task and add them to _BACKGROUND_LOGGER_TASKS.
 
-    Adding them to BACKGROUND_LOGGER_TASKS keeps a strong reference to the task, so they
+    Adding them to _BACKGROUND_LOGGER_TASKS keeps a strong reference to the task, so they
     won't be garbage collected and disappear mid execution.
 
     This function also prevents multiple tasks with the same name to be scheduled. This
     is used to prevent multiple log producers from starting, in case logging is
     accidentally configured more than once.
     """
-    if name is not None and name in BACKGROUND_LOGGER_TASKS:
-        return BACKGROUND_LOGGER_TASKS[name]
+    if name is not None and name in _BACKGROUND_LOGGER_TASKS:
+        return _BACKGROUND_LOGGER_TASKS[name]
 
     new_task = loop.create_task(coro, name=name)
-    BACKGROUND_LOGGER_TASKS[new_task.get_name()] = new_task
+    _BACKGROUND_LOGGER_TASKS[new_task.get_name()] = new_task
 
     def delitem(task: asyncio.Task[CoroRetType]):
-        del BACKGROUND_LOGGER_TASKS[task.get_name()]
+        del _BACKGROUND_LOGGER_TASKS[task.get_name()]
 
     new_task.add_done_callback(delitem)
 
@@ -816,17 +824,6 @@ def try_workflow_info() -> temporalio.workflow.Info | None:
         return None
     else:
         return workflow_info
-
-
-BATCH_EXPORT_WORKFLOW_TYPES = {
-    "s3-export",
-    "bigquery-export",
-    "snowflake-export",
-    "postgres-export",
-    "http-export",
-    "redshift-export",
-    "databricks-export",
-}
 
 
 def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None, str | None]:
