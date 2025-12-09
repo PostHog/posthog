@@ -406,6 +406,13 @@ export const directQueryLogic = kea({
 13. **[x] Error handling** - Nice error messages in output pane
 14. **[x] Prefix stripping** - Auto-strip `postgres.` prefix from table names for external queries
 
+### Unified API Integration
+
+15. **[x] Add DirectQuery to NodeKind enum** - `frontend/src/queries/schema/schema-general.ts`
+16. **[x] Add DirectQuery handler to process_query_model** - `posthog/api/services/query.py`
+17. **[x] Update frontend to use unified /query/ API** - `directQueryLogic.ts` uses `api.query()`
+18. **[x] Add is_direct_query flag to DataWarehouseTable** - Virtual tables for external schema
+
 ---
 
 ## Demo Setup - DVD Rental (Pagila) Database

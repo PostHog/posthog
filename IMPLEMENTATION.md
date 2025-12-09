@@ -11,10 +11,13 @@ Add the ability to execute SQL queries directly against connected external datab
 | Component | Status | Location |
 |-----------|--------|----------|
 | Query Only Model Field | ✅ Done | `products/data_warehouse/backend/models/external_data_source.py` |
-| Migration | ✅ Done | `products/data_warehouse/backend/migrations/0012_externaldatasource_query_only.py` |
+| Migration (query_only) | ✅ Done | `products/data_warehouse/backend/migrations/0012_externaldatasource_query_only.py` |
+| Migration (is_direct_query) | ✅ Done | `products/data_warehouse/backend/migrations/0013_add_is_direct_query_to_table.py` |
 | Backend Create API | ✅ Done | `products/data_warehouse/backend/api/external_data_source.py` |
 | DirectQueryExecutor | ✅ Done | `products/data_warehouse/backend/services/direct_query_executor.py` |
 | Direct Query API | ✅ Done | `products/data_warehouse/backend/api/direct_query.py` |
+| **Unified Query API** | ✅ Done | `posthog/api/services/query.py` |
+| **DirectQuery Schema Types** | ✅ Done | `frontend/src/queries/schema/schema-general.ts` |
 | Frontend Toggle | ✅ Done | `frontend/src/scenes/data-warehouse/external/forms/SourceForm.tsx` |
 | Source Wizard Logic | ✅ Done | `frontend/src/scenes/data-warehouse/new/sourceWizardLogic.tsx` |
 | Frontend DB Selector | ✅ Done | `frontend/src/scenes/data-warehouse/editor/DatabaseSelector.tsx` |

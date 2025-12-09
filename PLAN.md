@@ -209,6 +209,21 @@ We implemented a hybrid approach:
 - [x] Prefix stripping - Auto-strips source_type prefix from table names
 - [x] Loading states - Proper loading indicators in dropdown and results
 
+### Phase 1e: Unified Query API Integration ✅
+
+Integrated DirectQuery into PostHog's unified `/query/` API pattern:
+
+- [x] Add `DirectQuery` kind to `NodeKind` enum in TypeScript schema
+- [x] Add `DirectQuery` and `DirectQueryResponse` interfaces
+- [x] Generate Python schema via `pnpm schema:build`
+- [x] Add DirectQuery handler in `process_query_model()` (`posthog/api/services/query.py`)
+- [x] Update frontend to use `api.query({ kind: NodeKind.DirectQuery, ... })`
+- [x] Add `is_direct_query` field to `DataWarehouseTable` model
+- [x] Add PostgreSQL to HogQL type mapping for schema discovery
+- [x] Source validation - fall back to HogQL if source ID not found
+
+**Why unified API?** Follows the same pattern as `HogQLQuery`, `TrendsQuery`, etc. Makes DirectQuery a first-class query type in PostHog's architecture.
+
 ---
 
 ## Architecture
