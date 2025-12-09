@@ -742,9 +742,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             }
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
-        if "modifiers" in validated_data and validated_data["modifiers"] is not None and instance.modifiers is not None:
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
             validated_data["modifiers"] = {
-                **instance.modifiers,
+                **(instance.modifiers or {}),
                 **validated_data["modifiers"],
             }
 
