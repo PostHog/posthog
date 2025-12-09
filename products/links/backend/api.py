@@ -8,6 +8,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.validators import UniqueTogetherValidator
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -38,6 +39,13 @@ class LinkSerializer(serializers.ModelSerializer):
             "_create_in_folder",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+        validators = [
+            UniqueTogetherValidator(
+                queryset=Link.objects.all(),
+                fields=["short_link_domain", "short_code"],
+                message="A link with this short code already exists for this domain",
+            )
+        ]
 
     def create(self, validated_data: dict[str, Any]) -> Link:
         team = Team.objects.get(id=self.context["team_id"])
