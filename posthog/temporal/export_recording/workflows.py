@@ -25,7 +25,7 @@ class ExportRecordingWorkflow(PostHogWorkflow):
     async def run(self, input: ExportRecordingInput) -> None:
         export_context = await workflow.execute_activity(
             build_recording_export_context,
-            input.exported_asset_id,
+            input,
             start_to_close_timeout=timedelta(minutes=5),
             schedule_to_close_timeout=timedelta(hours=3),
             retry_policy=common.RetryPolicy(
