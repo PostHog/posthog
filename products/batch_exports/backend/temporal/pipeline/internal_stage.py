@@ -488,18 +488,29 @@ async def _write_batch_export_record_batches_to_internal_stage(
                     query_id=str(query_id),
                 )
                 # Sometimes we can't find the query in the query log, so make sure we retry a few times
+                num_attempts = 5
                 check_query = make_retryable_with_exponential_backoff(
                     client.acheck_query,
-                    max_attempts=5,
+                    max_attempts=num_attempts,
                     max_retry_delay=1,
                     retryable_exceptions=(ClickHouseQueryNotFound,),
                 )
 
-                status = await check_query(str(query_id), raise_on_error=True)
-
-                while status == ClickHouseQueryStatus.RUNNING:
-                    await asyncio.sleep(10)
+                try:
                     status = await check_query(str(query_id), raise_on_error=True)
+                    while status == ClickHouseQueryStatus.RUNNING:
+                        await asyncio.sleep(10)
+                        status = await check_query(str(query_id), raise_on_error=True)
+                except ClickHouseQueryNotFound:
+                    logger.exception(
+                        f"Query not found in query log after {num_attempts} attempts",
+                        query_id=str(query_id),
+                    )
+                    try:
+                        await client.acancel_query(str(query_id))
+                    except Exception as cancel_error:
+                        logger.warning("Failed to cancel query", query_id=str(query_id), error=str(cancel_error))
+                    raise
 
             except Exception as e:
                 logger.exception(

@@ -198,7 +198,7 @@ impl KafkaSink {
         let mut writer = Writer::with_codec(
             &schema,
             Vec::new(),
-            Codec::Zstandard(ZstandardSettings::default()),
+            Codec::Zstandard(ZstandardSettings::new(1)),
         );
 
         for row in &rows {
