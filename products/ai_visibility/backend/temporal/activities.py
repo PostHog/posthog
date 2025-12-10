@@ -137,6 +137,12 @@ class SaveResultsInput:
     combined: dict
 
 
+@dataclass
+class MarkFailedInput:
+    run_id: str
+    error_message: str
+
+
 def _compute_share_of_voice(probes: list[ProbeResult], target: str) -> ShareOfVoice:
     if not probes:
         return ShareOfVoice(you=0.0, competitors={})
@@ -327,3 +333,14 @@ async def save_results(payload: SaveResultsInput) -> str:
 
     logger.info("ai_visibility.save_results.complete", run_id=payload.run_id, s3_path=s3_key)
     return s3_key
+
+
+@activity.defn(name="markRunFailed")
+async def mark_run_failed(payload: MarkFailedInput) -> None:
+    await asyncio.sleep(0)
+    logger.info("ai_visibility.mark_run_failed", run_id=payload.run_id, error=payload.error_message)
+
+    run = await asyncio.to_thread(AiVisibilityRun.objects.get, id=payload.run_id)
+    await asyncio.to_thread(run.mark_failed, payload.error_message)
+
+    logger.info("ai_visibility.mark_run_failed.complete", run_id=payload.run_id)

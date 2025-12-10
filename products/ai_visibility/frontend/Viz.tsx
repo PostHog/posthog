@@ -1,6 +1,7 @@
 import 'chartjs-adapter-dayjs-3'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { IconCheck, IconTrending, IconX } from '@posthog/icons'
 import {
@@ -27,6 +28,15 @@ export interface VizProps {
     brand: string
 }
 
+function formatElapsedTime(seconds: number): string {
+    if (seconds < 60) {
+        return `${seconds}s`
+    }
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    return `${minutes}m ${remainingSeconds}s`
+}
+
 function WorkflowTriggerView({ brand }: { brand: string }): JSX.Element {
     const logic = vizLogic({ brand })
     const { loadTriggerResult } = useActions(logic)
@@ -39,7 +49,29 @@ function WorkflowTriggerView({ brand }: { brand: string }): JSX.Element {
         isPolling,
         triggerResult,
         brandDisplayName,
+        createdAt,
     } = useValues(logic)
+
+    const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+    useEffect(() => {
+        if (!createdAt) {
+            setElapsedSeconds(0)
+            return
+        }
+
+        const startTime = new Date(createdAt).getTime()
+
+        const updateElapsed = (): void => {
+            const now = Date.now()
+            setElapsedSeconds(Math.floor((now - startTime) / 1000))
+        }
+
+        updateElapsed()
+        const interval = setInterval(updateElapsed, 1000)
+
+        return () => clearInterval(interval)
+    }, [createdAt])
 
     // Only show loading spinner on initial load, not during polling
     const isInitialLoading = triggerResultLoading && !triggerResult
@@ -76,7 +108,7 @@ function WorkflowTriggerView({ brand }: { brand: string }): JSX.Element {
                 <div className="rounded border border-border bg-bg-300 p-3">
                     <div className="flex items-center gap-2">
                         <Spinner />
-                        <span>Processing... checking again in 5 seconds</span>
+                        <span>Processing... ({formatElapsedTime(elapsedSeconds)})</span>
                     </div>
                     {workflowId && (
                         <div className="mt-2 text-xs text-muted">

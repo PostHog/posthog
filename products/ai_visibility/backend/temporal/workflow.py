@@ -13,6 +13,7 @@ from .activities import (
     AICallsInput,
     CombineInput,
     ExtractInfoInput,
+    MarkFailedInput,
     PromptsInput,
     SaveResultsInput,
     TopicsInput,
@@ -21,6 +22,7 @@ from .activities import (
     generate_prompts,
     get_topics,
     make_ai_calls,
+    mark_run_failed,
     save_results,
 )
 
@@ -54,46 +56,56 @@ class AIVisibilityWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, input: AIVisibilityWorkflowInput) -> AIVisibilityWorkflowResult:
-        info: dict = await workflow.execute_activity(
-            extract_info_from_url,
-            ExtractInfoInput(domain=input.domain),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        try:
+            info: dict = await workflow.execute_activity(
+                extract_info_from_url,
+                ExtractInfoInput(domain=input.domain),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
-        topics: list[str] = await workflow.execute_activity(
-            get_topics,
-            TopicsInput(domain=input.domain, info=info),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+            topics: list[str] = await workflow.execute_activity(
+                get_topics,
+                TopicsInput(domain=input.domain, info=info),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
-        prompts: list[dict] = await workflow.execute_activity(
-            generate_prompts,
-            PromptsInput(domain=input.domain, topics=topics, info=info),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+            prompts: list[dict] = await workflow.execute_activity(
+                generate_prompts,
+                PromptsInput(domain=input.domain, topics=topics, info=info),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
-        ai_calls: list[dict] = await workflow.execute_activity(
-            make_ai_calls,
-            AICallsInput(domain=input.domain, prompts=prompts, info=info, topics=topics),
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+            ai_calls: list[dict] = await workflow.execute_activity(
+                make_ai_calls,
+                AICallsInput(domain=input.domain, prompts=prompts, info=info, topics=topics),
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
-        combined: dict = await workflow.execute_activity(
-            combine_calls,
-            CombineInput(domain=input.domain, info=info, topics=topics, ai_calls=ai_calls),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+            combined: dict = await workflow.execute_activity(
+                combine_calls,
+                CombineInput(domain=input.domain, info=info, topics=topics, ai_calls=ai_calls),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
-        s3_path = await workflow.execute_activity(
-            save_results,
-            SaveResultsInput(run_id=input.run_id, combined=combined),
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+            s3_path = await workflow.execute_activity(
+                save_results,
+                SaveResultsInput(run_id=input.run_id, combined=combined),
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
-        return AIVisibilityWorkflowResult(domain=input.domain, combined=combined, s3_path=s3_path)
+            return AIVisibilityWorkflowResult(domain=input.domain, combined=combined, s3_path=s3_path)
+        except Exception as e:
+            error_message = str(e)
+            await workflow.execute_activity(
+                mark_run_failed,
+                MarkFailedInput(run_id=input.run_id, error_message=error_message),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            raise
