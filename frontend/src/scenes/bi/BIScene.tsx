@@ -82,6 +82,7 @@ export function BIScene(): JSX.Element {
         selectedTableObject,
         selectedFields,
         queryResponse,
+        queryResponseLoading,
         filters,
         queryString,
         _queryString,
@@ -111,7 +112,7 @@ export function BIScene(): JSX.Element {
     const [openFilterPopover, setOpenFilterPopover] = useState<number | null>(null)
 
     const rows = useMemo(() => {
-        if (!queryResponse?.results) {
+        if (!queryResponse?.results || selectedFields.length === 0 || queryResponseLoading) {
             return []
         }
 
@@ -124,7 +125,7 @@ export function BIScene(): JSX.Element {
             })
             return asObject
         })
-    }, [queryResponse, selectedFields])
+    }, [queryResponse, selectedFields, queryResponseLoading])
 
     const numericColumns = useMemo(() => {
         if (rows.length === 0) {
@@ -270,7 +271,7 @@ export function BIScene(): JSX.Element {
                         </LemonCard>
                     )}
 
-                    {numericColumns.length > 0 && (
+                    {numericColumns.length > 0 && selectedFields.length > 0 && !queryResponseLoading && (
                         <LemonCard hoverEffect={false}>
                             <div className="flex items-center gap-4">
                                 <MiniPie values={chartValues} />
@@ -292,7 +293,7 @@ export function BIScene(): JSX.Element {
                             <div className="flex-1 min-h-0 overflow-auto">
                                 <LemonTable
                                     dataSource={rows}
-                                    loading={!queryResponse && selectedFields.length > 0}
+                                    loading={queryResponseLoading && selectedFields.length > 0}
                                     columns={selectedFields.map(({ column, field, alias }) => ({
                                         title: (
                                             <ColumnHeader
