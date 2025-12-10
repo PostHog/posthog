@@ -83,19 +83,20 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
 
         existing_run = None
         if not force:
-            # Check for existing run (prefer READY over RUNNING)
+            # Check for existing run (prefer READY over RUNNING, then most recent)
             existing_run = (
                 AiVisibilityRun.objects.filter(
                     domain=domain,
                     status__in=[AiVisibilityRun.Status.READY, AiVisibilityRun.Status.RUNNING],
                 )
                 .order_by(
-                    # READY first, then RUNNING
+                    # READY first, then RUNNING, then by most recent
                     models.Case(
                         models.When(status=AiVisibilityRun.Status.READY, then=0),
                         models.When(status=AiVisibilityRun.Status.RUNNING, then=1),
                         default=2,
-                    )
+                    ),
+                    "-created_at",
                 )
                 .first()
             )

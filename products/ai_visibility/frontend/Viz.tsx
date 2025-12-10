@@ -144,10 +144,21 @@ function CompetitorMentionsBar({
     visibilityScore: number
     competitors: { name: string; visibility: number }[]
 }): JSX.Element {
-    const allBrands = [{ name: brandName, visibility: visibilityScore }, ...competitors].sort(
-        (a, b) => b.visibility - a.visibility
-    )
-    const maxVisibility = Math.max(...allBrands.map((b) => b.visibility), 1)
+    // Build full sorted list to get accurate rankings
+    const fullList = [
+        { name: brandName, visibility: visibilityScore, isOurBrand: true },
+        ...competitors.map((c) => ({ ...c, isOurBrand: false })),
+    ].sort((a, b) => b.visibility - a.visibility)
+
+    // Add rank to each entry
+    const rankedList = fullList.map((brand, index) => ({ ...brand, rank: index + 1 }))
+
+    // Get top 9 competitors + our brand (with their true ranks)
+    const ourBrand = rankedList.find((b) => b.isOurBrand)!
+    const topCompetitors = rankedList.filter((b) => !b.isOurBrand).slice(0, 9)
+    const displayList = [...topCompetitors, ourBrand].sort((a, b) => a.rank - b.rank)
+
+    const maxVisibility = Math.max(...displayList.map((b) => b.visibility), 1)
 
     return (
         <div className="border rounded-lg p-4 bg-bg-light">
@@ -158,22 +169,29 @@ function CompetitorMentionsBar({
                 </Link>
             </div>
             <div className="space-y-3">
-                {allBrands.slice(0, 10).map((brand) => (
+                {displayList.map((brand) => (
                     <div key={brand.name} className="flex items-center gap-3">
-                        <span className="w-32 text-sm truncate text-right">{brand.name}</span>
+                        <span
+                            className={clsx(
+                                'w-6 text-sm text-muted text-right',
+                                brand.isOurBrand && 'text-[#f97316] font-semibold'
+                            )}
+                        >
+                            {brand.rank}
+                        </span>
+                        <span className={clsx('w-28 text-sm truncate', brand.isOurBrand && 'font-semibold')}>
+                            {brand.name}
+                        </span>
                         <div className="flex-1 h-4 bg-border rounded overflow-hidden">
                             <div
-                                className={clsx(
-                                    'h-full rounded',
-                                    brand.name === brandName ? 'bg-primary' : 'bg-gray-400'
-                                )}
+                                className={clsx('h-full rounded', brand.isOurBrand ? 'bg-[#f97316]' : 'bg-gray-400')}
                                 style={{ width: `${(brand.visibility / maxVisibility) * 100}%` }}
                             />
                         </div>
                         <span
                             className={clsx(
                                 'w-10 text-sm text-right',
-                                brand.name === brandName ? 'text-primary font-semibold' : ''
+                                brand.isOurBrand ? 'text-[#f97316] font-semibold' : ''
                             )}
                         >
                             {brand.visibility}%
@@ -667,37 +685,45 @@ export function Viz({ brand }: VizProps): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-3 p-4 max-w-2xl mx-auto">
-            <div>
-                <h2 className="text-lg font-semibold">AI Visibility</h2>
-                <p className="text-sm text-muted">
-                    Analyzing: <span className="font-mono">{brandDisplayName}</span>
-                </p>
+        <div className="flex flex-col h-full">
+            <div className="flex items-center px-4 py-2 border-b bg-bg-light">
+                <div className="flex items-center gap-2">
+                    <IconLogomark className="text-2xl" />
+                    <span className="font-semibold text-base">AI visibility</span>
+                </div>
             </div>
+            <div className="flex-1 overflow-auto">
+                <div className="p-6 max-w-2xl mx-auto space-y-4">
+                    <div>
+                        <h1 className="text-2xl font-bold mb-1">AI visibility for {brandDisplayName}</h1>
+                        <p className="text-muted">Track how AI assistants mention your brand across prompts</p>
+                    </div>
 
-            {lastError ? (
-                <div className="rounded border border-border bg-bg-300 p-3">
-                    <div className="flex flex-col gap-2">
-                        <span className="text-danger font-semibold">Failed to load results</span>
-                        <code className="text-xs break-all">{lastError}</code>
-                        <LemonButton type="primary" onClick={() => loadTriggerResult()}>
-                            Retry
-                        </LemonButton>
-                    </div>
-                </div>
-            ) : triggerResultLoading || isPolling ? (
-                <div className="rounded border border-border bg-bg-300 p-3">
-                    <div className="flex items-center gap-2">
-                        <Spinner />
-                        <span>{isPolling ? `Processing${'.'.repeat(dotCount)}` : 'Starting analysis...'}</span>
-                    </div>
-                    {workflowId && (
-                        <div className="mt-2 text-xs text-muted">
-                            Workflow ID: <span className="font-mono">{workflowId}</span>
+                    {lastError ? (
+                        <div className="rounded border border-border bg-bg-light p-4">
+                            <div className="flex flex-col gap-2">
+                                <span className="text-danger font-semibold">Failed to load results</span>
+                                <code className="text-xs break-all">{lastError}</code>
+                                <LemonButton type="primary" onClick={() => loadTriggerResult()}>
+                                    Retry
+                                </LemonButton>
+                            </div>
                         </div>
-                    )}
+                    ) : triggerResultLoading || isPolling ? (
+                        <div className="rounded border border-border bg-bg-light p-4">
+                            <div className="flex items-center gap-2">
+                                <Spinner />
+                                <span>{isPolling ? `Processing${'.'.repeat(dotCount)}` : 'Starting analysis...'}</span>
+                            </div>
+                            {workflowId && (
+                                <div className="mt-2 text-xs text-muted">
+                                    Workflow ID: <span className="font-mono">{workflowId}</span>
+                                </div>
+                            )}
+                        </div>
+                    ) : null}
                 </div>
-            ) : null}
+            </div>
         </div>
     )
 }
