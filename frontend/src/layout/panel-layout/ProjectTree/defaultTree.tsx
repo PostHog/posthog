@@ -356,7 +356,19 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
 export const getDefaultTreeData = (): FileSystemImport[] =>
     [...getTreeItemsMetadata()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
-    [...getTreeItemsProducts()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+    [
+        ...getTreeItemsProducts(),
+        {
+            path: `Geschäftsigel`,
+            category: 'Analytics',
+            type: 'hog_function',
+            iconType: 'data_pipeline',
+            iconColor: ['var(--color-product-data-pipeline-light)'],
+            href: urls.bi(),
+            sceneKey: 'BI',
+            sceneKeys: ['BI'],
+        },
+    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
