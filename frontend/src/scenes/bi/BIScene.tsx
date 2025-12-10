@@ -19,6 +19,7 @@ import {
     LemonButton,
     LemonCard,
     LemonInput,
+    LemonSegmentedButton,
     LemonTable,
     LemonTag,
     LemonTextArea,
@@ -26,6 +27,7 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { useChart } from 'lib/hooks/useChart'
 import { humanFriendlyNumber } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
@@ -53,30 +55,6 @@ export function formatFilter(filter: BIQueryFilter): JSX.Element {
         <LemonTag type="primary" key={columnKey(filter.column)}>
             {columnAlias(filter.column)} {filter.expression}
         </LemonTag>
-    )
-}
-
-function MiniPie({ values }: { values: number[] }): JSX.Element {
-    const total = values.reduce((acc, cur) => acc + cur, 0)
-    const normalized = values.map((value) => (total ? value / total : 0))
-    const gradient = normalized
-        .map((value, index) => {
-            const start = normalized.slice(0, index).reduce((acc, cur) => acc + cur, 0)
-            const end = start + value
-            return `${COLORS[index % COLORS.length]} ${start * 100}% ${end * 100}%`
-        })
-        .join(', ')
-
-    return <div className="h-12 w-12 rounded-full" style={{ background: `conic-gradient(${gradient})` }} />
-}
-
-function MiniLine({ values }: { values: number[] }): JSX.Element {
-    const maxValue = Math.max(...values, 1)
-    const points = values.map((value, index) => `${index},${Math.max(0, 100 - (value / maxValue) * 100)}`).join(' ')
-    return (
-        <svg viewBox="0 0 10 100" className="h-12 w-full text-primary">
-            <polyline fill="none" stroke="currentColor" strokeWidth="1" points={points} />
-        </svg>
     )
 }
 
@@ -287,6 +265,7 @@ export function BIScene(): JSX.Element {
     const [openFilterPopover, setOpenFilterPopover] = useState<number | null>(null)
     const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set())
     const [showGeneratedQuery, setShowGeneratedQuery] = useState(false)
+    const [chartType, setChartType] = useState<'pie' | 'line' | 'bar' | 'area'>('pie')
 
     useEffect(() => {
         setExpandedFields(new Set())
@@ -333,7 +312,133 @@ export function BIScene(): JSX.Element {
         })
     }, [rows])
 
-    const chartValues = numericColumns.length > 0 ? rows.map((row) => Number(row[numericColumns[0]])) : []
+    const isTimeSeries = timeColumns.length > 0
+
+    useEffect(() => {
+        if (isTimeSeries && chartType === 'pie') {
+            setChartType('line')
+        }
+    }, [chartType, isTimeSeries])
+
+    const effectiveChartType: 'pie' | 'line' | 'bar' | 'area' = isTimeSeries && chartType === 'pie' ? 'line' : chartType
+
+    const chartData = useMemo(() => {
+        if (numericColumns.length === 0 || rows.length === 0) {
+            return null
+        }
+
+        const valueKey = numericColumns[0]
+
+        if (isTimeSeries) {
+            const timeKey = timeColumns[0]
+            if (!timeKey) {
+                return null
+            }
+
+            return {
+                labels: rows.map((row) => String(row[timeKey] ?? '')),
+                values: rows.map((row) => Number(row[valueKey]) || 0),
+                labelKey: timeKey,
+                valueKey,
+            }
+        }
+
+        const labelKey =
+            Object.keys(rows[0] || {}).find(
+                (key) => key !== valueKey && !timeColumns.includes(key) && typeof rows[0]?.[key] !== 'number'
+            ) || Object.keys(rows[0] || {})[0]
+
+        return {
+            labels: rows.map((row, index) => {
+                const value = row[labelKey]
+                if (value === undefined || value === null || value === '') {
+                    return `Row ${index + 1}`
+                }
+                return String(value)
+            }),
+            values: rows.map((row) => Number(row[valueKey]) || 0),
+            labelKey,
+            valueKey,
+        }
+    }, [numericColumns, rows, timeColumns, isTimeSeries])
+
+    const availableChartTypes: Array<'pie' | 'line' | 'bar' | 'area'> = isTimeSeries
+        ? ['line', 'bar', 'area']
+        : ['pie', 'line', 'bar', 'area']
+
+    const chartHeight = 200
+
+    const { canvasRef: chartCanvasRef } = useChart({
+        getConfig: () => {
+            if (!chartData || chartData.values.length === 0) {
+                return null
+            }
+
+            const baseChartType = effectiveChartType === 'area' ? 'line' : effectiveChartType
+            const datasetColor = COLORS[0]
+            const pieColors = chartData.labels.map((_, index) => COLORS[index % COLORS.length])
+
+            return {
+                type: baseChartType,
+                data: {
+                    labels: chartData.labels,
+                    datasets: [
+                        {
+                            label: chartData.valueKey,
+                            data: chartData.values,
+                            backgroundColor: baseChartType === 'pie' ? pieColors : `${datasetColor}33`,
+                            borderColor: datasetColor,
+                            borderWidth: 2,
+                            fill: effectiveChartType === 'area',
+                            tension: 0.2,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: (context) => {
+                                    const label = context.label ? `${context.label}: ` : ''
+                                    return `${label}${context.formattedValue}`
+                                },
+                            },
+                        },
+                    },
+                    scales:
+                        baseChartType === 'pie'
+                            ? undefined
+                            : {
+                                  x: {
+                                      ticks: {
+                                          maxRotation: 45,
+                                          minRotation: 0,
+                                          autoSkip: true,
+                                      },
+                                      title: {
+                                          display: true,
+                                          text: chartData.labelKey,
+                                      },
+                                  },
+                                  y: {
+                                      beginAtZero: true,
+                                      title: {
+                                          display: true,
+                                          text: chartData.valueKey,
+                                      },
+                                  },
+                              },
+                },
+            }
+        },
+        deps: [chartData, effectiveChartType],
+    })
 
     const closePopovers = (): void => {
         setOpenColumnPopover(null)
@@ -475,15 +580,36 @@ export function BIScene(): JSX.Element {
 
                     {numericColumns.length > 0 && selectedFields.length > 0 && !queryResponseLoading && (
                         <LemonCard hoverEffect={false}>
-                            <div className="flex items-center gap-4">
-                                <MiniPie values={chartValues} />
-                                <div className="space-y-1">
-                                    <div className="text-muted">Pie of {numericColumns[0]}</div>
-                                    <div className="text-2xl font-semibold">
-                                        {humanFriendlyNumber(chartValues.reduce((acc, cur) => acc + cur, 0))}
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div>
+                                    <div className="text-muted">
+                                        {isTimeSeries
+                                            ? `${chartData?.valueKey || numericColumns[0]} over ${chartData?.labelKey || timeColumns[0]}`
+                                            : `${effectiveChartType === 'pie' ? 'Share of' : 'Chart of'} ${chartData?.valueKey || numericColumns[0]}`}
                                     </div>
+                                    {chartData && (
+                                        <div className="text-2xl font-semibold">
+                                            {humanFriendlyNumber(chartData.values.reduce((acc, cur) => acc + cur, 0))}
+                                        </div>
+                                    )}
                                 </div>
-                                {timeColumns.length > 0 && <MiniLine values={chartValues.slice(0, 20)} />}
+                                <LemonSegmentedButton
+                                    value={effectiveChartType}
+                                    onChange={(value) => setChartType(value)}
+                                    options={availableChartTypes.map((type) => ({
+                                        value: type,
+                                        label: type === 'area' ? 'Area' : type.charAt(0).toUpperCase() + type.slice(1),
+                                    }))}
+                                />
+                            </div>
+                            <div className="mt-2" style={{ maxHeight: chartHeight }}>
+                                {chartData && chartData.values.length > 0 ? (
+                                    <div className="w-full" style={{ height: chartHeight }}>
+                                        <canvas ref={chartCanvasRef} className="w-full" />
+                                    </div>
+                                ) : (
+                                    <div className="text-muted">Add columns to see a chart.</div>
+                                )}
                             </div>
                         </LemonCard>
                     )}
