@@ -11,7 +11,7 @@ inputs:
     push-image:
         required: false
         default: 'false'
-        description: Whether to push the built image - requires aws-access-key and aws-access-secret
+        description: Whether to push the built image - requires aws-role-to-assume
     aws-role-to-assume:
         required: false
         description: AWS role to assume for ECR access (required when push-image is true)
