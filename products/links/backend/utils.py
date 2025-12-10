@@ -31,7 +31,10 @@ def _get_inputs(redirect_url: str) -> dict:
         "debug": {"order": 2, "value": False, "templating": "hog"},
         "properties": {
             "order": 1,
-            "value": {"$$_extend_object": "{request.query}"},
+            "value": {
+                "$$_extend_object": "{request.query}",
+                "link_id": "{splitByString('/', source.url)[length(splitByString('/', source.url))]}",
+            },
             "templating": "hog",
         },
         "redirect_url": {"order": 0, "value": redirect_url, "templating": "hog"},
