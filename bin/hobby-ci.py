@@ -854,6 +854,21 @@ def main():
                 # Update deployment
                 ht.update_existing_deployment(sha)
 
+                # Export minimal info for test step
+                env_file_name = os.getenv("GITHUB_ENV")
+                if env_file_name:
+                    with open(env_file_name, "a") as env_file:
+                        env_file.write(f"HOBBY_DROPLET_ID={existing_droplet.id}\n")
+                        env_file.write(f"HOBBY_DROPLET_IP={existing_droplet.ip_address}\n")
+                        env_file.write(f"HOBBY_NAME={existing_droplet.name}\n")
+                    # Write SSH key for log fetching
+                    ssh_key_path = "/tmp/hobby_ci_ssh_key"
+                    with open(ssh_key_path, "w") as f:
+                        f.write(ssh_key)
+                    os.chmod(ssh_key_path, 0o600)
+                    with open(env_file_name, "a") as env_file:
+                        env_file.write(f"HOBBY_SSH_KEY_PATH={ssh_key_path}\n")
+
                 print(f"✅ Preview deployment updated successfully", flush=True)
                 print(f"🌐 URL: https://{ht.hostname}", flush=True)
             else:
