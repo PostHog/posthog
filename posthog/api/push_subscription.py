@@ -151,6 +151,12 @@ def sdk_push_subscription_register(request):
         "platform": "android" | "ios" | "web"
     }
     """
+    logger.info(
+        "push_subscription_register_request",
+        method=request.method,
+        content_type=request.content_type,
+        body_length=len(request.body) if request.body else 0,
+    )
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": "ok"}))
 

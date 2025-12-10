@@ -13,7 +13,7 @@ services:
             file: docker-compose.base.yml
             service: proxy
         ports:
-            - 127.0.0.1:8010:8000
+            - 8010:8000
         extra_hosts:
             - 'web:host-gateway'
             - 'plugins:host-gateway'
@@ -22,7 +22,10 @@ services:
             - 'feature-flags:host-gateway'
         environment:
             CADDYFILE: |
-                http://localhost:8000 {
+                {
+                    auto_https off
+                }
+                :8000 {
                     @replay-capture {
                         path /s
                         path /s/*
