@@ -707,68 +707,87 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.organization.is_active = True
         self.organization.save()
 
+        # API paths are skipped by middleware
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["email"], self.user.email)
+
+        # Non-API paths are checked
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_null_is_active_allows_request(self):
         self.organization.is_active = None
         self.organization.save()
 
+        # API paths are skipped by middleware
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["email"], self.user.email)
 
-    def test_inactive_organization_switches_to_active_org(self):
+        # Non-API paths are checked
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_api_paths_skipped_even_with_inactive_org(self):
+        """API paths should be skipped by middleware regardless of org status"""
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = "Test deactivation"
+        self.organization.save()
+
+        # API paths should work even with inactive org
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_inactive_organization_redirects_non_api_paths(self):
         other_org = Organization.objects.create(name="Other Org", is_active=True)
-        other_team = Team.objects.create(organization=other_org, name="Other Team")
         self.user.organizations.add(other_org)
 
         self.organization.is_active = False
         self.organization.is_not_active_reason = "Test deactivation"
         self.organization.save()
 
-        response = self.client.get("/api/users/@me/")
+        # Non-API paths should redirect
+        response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response.headers["Location"], f"/project/{other_team.id}")
+        self.assertEqual(response.headers["Location"], "/organization-deactivated")
 
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.current_organization, other_org)
-        self.assertEqual(self.user.current_team, other_team)
-
-    def test_inactive_organization_with_no_other_orgs_redirects_to_home(self):
+    def test_inactive_organization_allows_organization_deactivated_page(self):
         self.organization.is_active = False
         self.organization.is_not_active_reason = "Test deactivation"
         self.organization.save()
 
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response.headers["Location"], "/")
+        # Should allow access to the deactivated page itself
+        response = self.client.get("/organization-deactivated")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.user.refresh_from_db()
-        self.assertIsNone(self.user.current_organization)
-        self.assertIsNone(self.user.current_team)
-
-    def test_inactive_organization_skips_other_inactive_orgs(self):
-        inactive_org = Organization.objects.create(name="Inactive Org", is_active=False)
-        Team.objects.create(organization=inactive_org, name="Inactive Team")
-        self.user.organizations.add(inactive_org)
-
-        active_org = Organization.objects.create(name="Active Org", is_active=True)
-        active_team = Team.objects.create(organization=active_org, name="Active Team")
-        self.user.organizations.add(active_org)
-
+    def test_logout_path_skipped(self):
+        """Logout paths should be skipped by middleware"""
         self.organization.is_active = False
         self.organization.save()
 
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response.headers["Location"], f"/project/{active_team.id}")
+        response = self.client.get("/logout")
+        # Should not redirect, logout should work
+        self.assertNotEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertNotIn("organization-deactivated", response.get("Location", ""))
 
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.current_organization, active_org)
+    def test_static_paths_skipped(self):
+        """Static asset paths should be skipped by middleware"""
+        self.organization.is_active = False
+        self.organization.save()
+
+        response = self.client.get("/static/test.css")
+        # Should not redirect
+        self.assertNotEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertNotIn("organization-deactivated", response.get("Location", ""))
 
     def test_unauthenticated_user_not_affected(self):
         self.client.logout()
+        # API paths are skipped, so auth check happens in view
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Non-API paths are also skipped for unauthenticated users
+        response = self.client.get("/dashboard")
+        # Should redirect to login or show appropriate response
+        self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])

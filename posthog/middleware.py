@@ -34,7 +34,7 @@ from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, OrganizationMembership, Team, User
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
 from posthog.rate_limit import DecideRateThrottle
@@ -816,6 +816,10 @@ class ActiveOrganizationMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
+        # Skip middleware for static assets, logout, and org switching endpoints
+        if request.path.startswith("/static/") or request.path.startswith("/logout") or request.path.startswith("/api"):
+            return self.get_response(request)
+
         if not request.user.is_authenticated or request.user.is_anonymous:
             return self.get_response(request)
 
@@ -825,23 +829,10 @@ class ActiveOrganizationMiddleware:
             return self.get_response(request)
 
         if user.current_organization.is_active is not False:
-            return self.get_response(request)
+            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
 
-        # attempt to automatically update the session to a new organization
-        new_org_membership = (
-            OrganizationMembership.objects.filter(user=user).exclude(organization__is_active=False).first()
+        return (
+            self.get_response(request)
+            if request.path == "/organization-deactivated"
+            else redirect("/organization-deactivated")
         )
-
-        new_org = new_org_membership.organization if new_org_membership is not None else None
-        new_team = user.teams.filter(organization=new_org).first() if new_org is not None else None
-
-        user.team = new_team
-        user.current_team = new_team
-        user.current_organization_id = new_org.id if new_org is not None else None
-        user.current_organization = new_org
-        user.save()
-
-        if new_team is not None:
-            return redirect(f"/project/{new_team.id}")
-
-        return redirect("/")

@@ -86,7 +86,7 @@ export const groupsModel = kea<groupsModelType>([
             (s) => [s.groupTypesRaw],
             (groupTypesRaw) =>
                 new Map<GroupTypeIndex, GroupType>(
-                    groupTypesRaw.map((groupType) => [groupType.group_type_index, groupType])
+                    (groupTypesRaw ?? []).map((groupType) => [groupType.group_type_index, groupType])
                 ),
         ],
         groupTypesLoading: [(s) => [s.groupTypesRawLoading], (groupTypesRawLoading) => groupTypesRawLoading],

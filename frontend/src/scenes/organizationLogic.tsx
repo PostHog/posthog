@@ -140,6 +140,11 @@ export const organizationLogic = kea<organizationLogicType>([
                 return orgCreatedAt ? dayjs().diff(dayjs(orgCreatedAt), 'month') < 3 : false
             },
         ],
+        isNotActiveReason: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): string | null =>
+                currentOrganization?.is_active === false ? currentOrganization.is_not_active_reason : null,
+        ],
     }),
     listeners(({ actions, values }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
