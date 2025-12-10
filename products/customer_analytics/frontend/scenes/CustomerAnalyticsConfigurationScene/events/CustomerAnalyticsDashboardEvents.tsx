@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonLabel, Link } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -10,7 +10,8 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { urls } from 'scenes/urls'
 
-import { EntityTypes, FilterType } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { EntityTypes, FilterType, SidePanelTab } from '~/types'
 
 import { customerAnalyticsDashboardEventsLogic } from './customerAnalyticsDashboardEventsLogic'
 
@@ -19,50 +20,67 @@ export interface EventSelectorProps {
     filters: FilterType | null
     setFilters: (filters: FilterType) => void
     title: string
+    prompt: string
 }
 
-function EventSelector({ filters, setFilters, title, caption }: EventSelectorProps): JSX.Element {
+function EventSelector({ filters, setFilters, title, caption, prompt }: EventSelectorProps): JSX.Element {
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { eventsToHighlight } = useValues(customerAnalyticsDashboardEventsLogic)
     const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
 
     return (
         <div className={`py-2 ${highlight}`}>
             <div className="ml-1">
-                <LemonLabel>{title}</LemonLabel>
+                <div className="flex items-center gap-2">
+                    <LemonLabel>{title}</LemonLabel>
+                    <LemonButton
+                        size="small"
+                        type="tertiary"
+                        icon={<IconSparkles className="text-accent" />}
+                        tooltip="Configure with PostHog AI"
+                        onClick={() => openSidePanel(SidePanelTab.Max, prompt)}
+                        className="border border-accent border-dashed p-1"
+                        noPadding
+                    />
+                </div>
                 <p className="text-xs text-muted-alt">{caption}</p>
             </div>
             {filters ? (
-                <ActionFilter
-                    hideRename
-                    hideDuplicate
-                    hideFilter={false}
-                    propertyFiltersPopover
-                    filters={filters}
-                    setFilters={setFilters}
-                    typeKey={`customer-analytics-${title.toLowerCase()}`}
-                    mathAvailability={MathAvailability.None}
-                    actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                    buttonCopy="Select event or action"
-                    entitiesLimit={1}
-                />
+                <div className="flex">
+                    <ActionFilter
+                        hideRename
+                        hideDuplicate
+                        hideFilter={false}
+                        propertyFiltersPopover
+                        filters={filters}
+                        setFilters={setFilters}
+                        typeKey={`customer-analytics-${title.toLowerCase()}`}
+                        mathAvailability={MathAvailability.None}
+                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                        buttonCopy="Select event or action"
+                        entitiesLimit={1}
+                    />
+                </div>
             ) : (
-                <LemonButton
-                    type="tertiary"
-                    icon={<IconPlusSmall />}
-                    onClick={() => {
-                        setFilters({
-                            events: [
-                                {
-                                    id: '$pageview',
-                                    name: '$pageview',
-                                    type: EntityTypes.EVENTS,
-                                },
-                            ],
-                        })
-                    }}
-                >
-                    Select event or action
-                </LemonButton>
+                <div className="flex">
+                    <LemonButton
+                        type="tertiary"
+                        icon={<IconPlusSmall />}
+                        onClick={() => {
+                            setFilters({
+                                events: [
+                                    {
+                                        id: '$pageview',
+                                        name: '$pageview',
+                                        type: EntityTypes.EVENTS,
+                                    },
+                                ],
+                            })
+                        }}
+                    >
+                        Select event or action
+                    </LemonButton>
+                </div>
             )}
         </div>
     )
