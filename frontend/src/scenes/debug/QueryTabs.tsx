@@ -56,6 +56,7 @@ export function QueryTabs<Q extends Node>({
     const totalTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === '.')?.t ?? 0
     const hogQLTime = totalTime - explainTime - clickHouseTime
     const sqlQuery = response?.postgres ?? response?.clickhouse
+    const sqlLabel = 'SQL'
     const tabs: LemonTabsProps<string>['tabs'] = query
         ? [
               response?.error && {

@@ -227,7 +227,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         executor_postgres._generate_hogql(dialect="postgres")
 
         self.assertIn("custom_pg_function", executor_postgres.hogql)
-        self.assertEqual(executor_postgres.hogql_context.errors, [])
+        self.assertEqual(executor_postgres.hogql_context.errors, [])  # type: ignore
 
         printed = parse_and_print_hogql_postgres_query(query_text, self.team)
         self.assertIn("custom_pg_function(event)", printed)

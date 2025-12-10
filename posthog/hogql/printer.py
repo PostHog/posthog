@@ -733,7 +733,7 @@ class _Printer(Visitor[str]):
         values_tuple = ", ".join(self.visit(v) for v in values)
         return f"and({property_source.has_expr}, in({property_source.value_expr}, tuple({values_tuple})))"
 
-    def __get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
+    def _get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """
         Returns a printed expression corresponding to the provided compare operation, if one of the operands is part of
         a property group value and: the comparison can be rewritten so that it can be eligible for use by one or more
@@ -842,7 +842,7 @@ class _Printer(Visitor[str]):
 
         return None  # nothing to optimize
 
-    def __get_optimized_materialized_column_compare_operation(self, node: ast.CompareOperation) -> str | None:
+    def _get_optimized_materialized_column_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """
         Returns an optimized printed expression for comparisons involving individually materialized columns.
 
@@ -905,197 +905,56 @@ class _Printer(Visitor[str]):
         else:  # NotEq
             return f"notEquals({materialized_column_sql}, {constant_sql})"
 
+    def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
+        if op == ast.CompareOperationOp.Eq:
+            return f"equals({left}, {right})"
+        elif op == ast.CompareOperationOp.NotEq:
+            return f"notEquals({left}, {right})"
+        elif op == ast.CompareOperationOp.Like:
+            return f"like({left}, {right})"
+        elif op == ast.CompareOperationOp.NotLike:
+            return f"notLike({left}, {right})"
+        elif op == ast.CompareOperationOp.ILike:
+            return f"ilike({left}, {right})"
+        elif op == ast.CompareOperationOp.NotILike:
+            return f"notILike({left}, {right})"
+        elif op == ast.CompareOperationOp.In:
+            return f"in({left}, {right})"
+        elif op == ast.CompareOperationOp.NotIn:
+            return f"notIn({left}, {right})"
+        elif op == ast.CompareOperationOp.GlobalIn:
+            return f"globalIn({left}, {right})"
+        elif op == ast.CompareOperationOp.GlobalNotIn:
+            return f"globalNotIn({left}, {right})"
+        elif op == ast.CompareOperationOp.Regex:
+            return f"match({left}, {right})"
+        elif op == ast.CompareOperationOp.NotRegex:
+            return f"not(match({left}, {right}))"
+        elif op == ast.CompareOperationOp.IRegex:
+            return f"match({left}, concat('(?i)', {right}))"
+        elif op == ast.CompareOperationOp.NotIRegex:
+            return f"not(match({left}, concat('(?i)', {right})))"
+        elif op == ast.CompareOperationOp.Gt:
+            return f"greater({left}, {right})"
+        elif op == ast.CompareOperationOp.GtEq:
+            return f"greaterOrEquals({left}, {right})"
+        elif op == ast.CompareOperationOp.Lt:
+            return f"less({left}, {right})"
+        elif op == ast.CompareOperationOp.LtEq:
+            return f"lessOrEquals({left}, {right})"
+        # only used for hogql direct printing (no prepare called)
+        elif op == ast.CompareOperationOp.InCohort and self.dialect == "hogql":
+            return f"{left} IN COHORT {right}"
+        # only used for hogql direct printing (no prepare called)
+        elif op == ast.CompareOperationOp.NotInCohort and self.dialect == "hogql":
+            return f"{left} NOT IN COHORT {right}"
+        else:
+            raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
+
     def visit_compare_operation(self, node: ast.CompareOperation):
-        # If either side of the operation is a property that is part of a property group, special optimizations may
-        # apply here to ensure that data skipping indexes can be used when possible.
-        if optimized_property_group_compare_operation := self.__get_optimized_property_group_compare_operation(node):
-            return optimized_property_group_compare_operation
-
-        # If either side is an individually materialized column being compared to a string constant,
-        # we can skip the nullIf wrapping to allow skip index usage.
-        if optimized_materialized_column_compare := self.__get_optimized_materialized_column_compare_operation(node):
-            return optimized_materialized_column_compare
-
-        in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
         right = self.visit(node.right)
-        nullable_left = self._is_nullable(node.left)
-        nullable_right = self._is_nullable(node.right)
-        not_nullable = not nullable_left and not nullable_right
-
-        # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
-        # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
-            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
-        ):
-            not_nullable = True
-        hack_sessions_timestamp = (
-            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
-            "raw_sessions_v3.session_timestamp",
-        )
-        if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
-            not_nullable = True
-
-        # :HACK: Prevent ifNull() wrapping for $ai_trace_id, $ai_session_id, and $ai_is_error to allow index usage
-        # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
-        if (
-            "mat_$ai_trace_id" in left
-            or "mat_$ai_trace_id" in right
-            or "mat_$ai_session_id" in left
-            or "mat_$ai_session_id" in right
-            or "mat_$ai_is_error" in left
-            or "mat_$ai_is_error" in right
-            or "$ai_trace_id" in left
-            or "$ai_trace_id" in right
-            or "$ai_session_id" in left
-            or "$ai_session_id" in right
-            or "$ai_is_error" in left
-            or "$ai_is_error" in right
-        ):
-            not_nullable = True
-
-        constant_lambda = None
-        value_if_one_side_is_null = False
-        value_if_both_sides_are_null = False
-
-        if node.op == ast.CompareOperationOp.Eq:
-            op = f"equals({left}, {right})"
-            constant_lambda = lambda left_op, right_op: left_op == right_op
-            value_if_both_sides_are_null = True
-        elif node.op == ast.CompareOperationOp.NotEq:
-            op = f"notEquals({left}, {right})"
-            constant_lambda = lambda left_op, right_op: left_op != right_op
-            value_if_one_side_is_null = True
-        elif node.op == ast.CompareOperationOp.Like:
-            op = f"like({left}, {right})"
-            value_if_both_sides_are_null = True
-        elif node.op == ast.CompareOperationOp.NotLike:
-            op = f"notLike({left}, {right})"
-            value_if_one_side_is_null = True
-        elif node.op == ast.CompareOperationOp.ILike:
-            op = f"ilike({left}, {right})"
-            value_if_both_sides_are_null = True
-        elif node.op == ast.CompareOperationOp.NotILike:
-            op = f"notILike({left}, {right})"
-            value_if_one_side_is_null = True
-        elif node.op == ast.CompareOperationOp.In:
-            op = f"in({left}, {right})"
-            return op
-        elif node.op == ast.CompareOperationOp.NotIn:
-            op = f"notIn({left}, {right})"
-            return op
-        elif node.op == ast.CompareOperationOp.GlobalIn:
-            op = f"globalIn({left}, {right})"
-        elif node.op == ast.CompareOperationOp.GlobalNotIn:
-            op = f"globalNotIn({left}, {right})"
-        elif node.op == ast.CompareOperationOp.Regex:
-            op = f"match({left}, {right})"
-            value_if_both_sides_are_null = True
-        elif node.op == ast.CompareOperationOp.NotRegex:
-            op = f"not(match({left}, {right}))"
-            value_if_one_side_is_null = True
-        elif node.op == ast.CompareOperationOp.IRegex:
-            op = f"match({left}, concat('(?i)', {right}))"
-            value_if_both_sides_are_null = True
-        elif node.op == ast.CompareOperationOp.NotIRegex:
-            op = f"not(match({left}, concat('(?i)', {right})))"
-            value_if_one_side_is_null = True
-        elif node.op == ast.CompareOperationOp.Gt:
-            op = f"greater({left}, {right})"
-            constant_lambda = lambda left_op, right_op: (
-                left_op > right_op if left_op is not None and right_op is not None else False
-            )
-        elif node.op == ast.CompareOperationOp.GtEq:
-            op = f"greaterOrEquals({left}, {right})"
-            constant_lambda = lambda left_op, right_op: (
-                left_op >= right_op if left_op is not None and right_op is not None else False
-            )
-        elif node.op == ast.CompareOperationOp.Lt:
-            op = f"less({left}, {right})"
-            constant_lambda = lambda left_op, right_op: (
-                left_op < right_op if left_op is not None and right_op is not None else False
-            )
-        elif node.op == ast.CompareOperationOp.LtEq:
-            op = f"lessOrEquals({left}, {right})"
-            constant_lambda = lambda left_op, right_op: (
-                left_op <= right_op if left_op is not None and right_op is not None else False
-            )
-        # only used for hogql direct printing (no prepare called)
-        elif node.op == ast.CompareOperationOp.InCohort:
-            op = f"{left} IN COHORT {right}"
-        # only used for hogql direct printing (no prepare called)
-        elif node.op == ast.CompareOperationOp.NotInCohort:
-            op = f"{left} NOT IN COHORT {right}"
-        else:
-            raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
-
-        # Try to see if we can take shortcuts
-
-        # Can we compare constants?
-        if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant) and constant_lambda is not None:
-            return "1" if constant_lambda(node.left.value, node.right.value) else "0"
-
-        # Special cases when we should not add any null checks
-        if in_join_constraint or self.dialect == "hogql" or not_nullable:
-            return op
-
-        # Special optimization for "Eq" operator
-        if (
-            node.op == ast.CompareOperationOp.Eq
-            or node.op == ast.CompareOperationOp.Like
-            or node.op == ast.CompareOperationOp.ILike
-        ):
-            if isinstance(node.right, ast.Constant):
-                if node.right.value is None:
-                    return f"isNull({left})"
-                return f"ifNull({op}, 0)"
-            elif isinstance(node.left, ast.Constant):
-                if node.left.value is None:
-                    return f"isNull({right})"
-                return f"ifNull({op}, 0)"
-            return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
-
-        # Special optimization for "NotEq" operator
-        if (
-            node.op == ast.CompareOperationOp.NotEq
-            or node.op == ast.CompareOperationOp.NotLike
-            or node.op == ast.CompareOperationOp.NotILike
-        ):
-            if isinstance(node.right, ast.Constant):
-                if node.right.value is None:
-                    return f"isNotNull({left})"
-                return f"ifNull({op}, 1)"
-            elif isinstance(node.left, ast.Constant):
-                if node.left.value is None:
-                    return f"isNotNull({right})"
-                return f"ifNull({op}, 1)"
-            return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"  # Worse case performance, but accurate
-
-        # Return false if one, but only one of the two sides is a null constant
-        if isinstance(node.right, ast.Constant) and node.right.value is None:
-            # Both are a constant null
-            if isinstance(node.left, ast.Constant) and node.left.value is None:
-                return "1" if value_if_both_sides_are_null is True else "0"
-
-            # Only the right side is null. Return a value only if the left side doesn't matter.
-            if value_if_both_sides_are_null == value_if_one_side_is_null:
-                return "1" if value_if_one_side_is_null is True else "0"
-        elif isinstance(node.left, ast.Constant) and node.left.value is None:
-            # Only the left side is null. Return a value only if the right side doesn't matter.
-            if value_if_both_sides_are_null == value_if_one_side_is_null:
-                return "1" if value_if_one_side_is_null is True else "0"
-
-        # No constants, so check for nulls in SQL
-        if value_if_one_side_is_null is True and value_if_both_sides_are_null is True:
-            return f"ifNull({op}, 1)"
-        elif value_if_one_side_is_null is True and value_if_both_sides_are_null is False:
-            return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"
-        elif value_if_one_side_is_null is False and value_if_both_sides_are_null is True:
-            return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
-        elif value_if_one_side_is_null is False and value_if_both_sides_are_null is False:
-            return f"ifNull({op}, 0)"
-        else:
-            raise ImpossibleASTError("Impossible")
+        return self._get_compare_op(node.op, left, right)
 
     def visit_between_expr(self, node: ast.BetweenExpr):
         expr = self.visit(node.expr)
@@ -1960,7 +1819,43 @@ class PostgresPrinter(_Printer):
         return f"{node.name}({', '.join(args)})"
 
     def visit_table_type(self, type: ast.TableType):
-        return type.table.to_printed_hogql()
+        return type.table.to_printed_postgres()
+
+    def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
+        if op == ast.CompareOperationOp.Eq:
+            return f"({left} = {right})"
+        elif op == ast.CompareOperationOp.NotEq:
+            return f"({left} != {right})"
+        elif op == ast.CompareOperationOp.Like:
+            return f"({left} LIKE {right})"
+        elif op == ast.CompareOperationOp.NotLike:
+            return f"({left} NOT LIKE {right})"
+        elif op == ast.CompareOperationOp.ILike:
+            return f"({left} ILIKE {right})"
+        elif op == ast.CompareOperationOp.NotILike:
+            return f"({left} NOT ILIKE {right})"
+        elif op == ast.CompareOperationOp.In:
+            return f"({left} IN {right})"
+        elif op == ast.CompareOperationOp.NotIn:
+            return f"({left} NOT IN {right})"
+        # elif op == ast.CompareOperationOp.Regex:
+        #     return f"match({left}, {right})"
+        # elif op == ast.CompareOperationOp.NotRegex:
+        #     return f"not(match({left}, {right}))"
+        # elif op == ast.CompareOperationOp.IRegex:
+        #     return f"match({left}, concat('(?i)', {right}))"
+        # elif op == ast.CompareOperationOp.NotIRegex:
+        #     return f"not(match({left}, concat('(?i)', {right})))"
+        elif op == ast.CompareOperationOp.Gt:
+            return f"({left} > {right})"
+        elif op == ast.CompareOperationOp.GtEq:
+            return f"({left} >= {right})"
+        elif op == ast.CompareOperationOp.Lt:
+            return f"({left} < {right})"
+        elif op == ast.CompareOperationOp.LtEq:
+            return f"({left} <= {right})"
+        else:
+            raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
 
 
 class ClickHousePrinter(_Printer):
@@ -2130,6 +2025,183 @@ class ClickHousePrinter(_Printer):
                         return property_source.has_expr
 
         return None  # nothing to optimize
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        # If either side of the operation is a property that is part of a property group, special optimizations may
+        # apply here to ensure that data skipping indexes can be used when possible.
+        if optimized_property_group_compare_operation := self._get_optimized_property_group_compare_operation(node):
+            return optimized_property_group_compare_operation
+
+        # If either side is an individually materialized column being compared to a string constant,
+        # we can skip the nullIf wrapping to allow skip index usage.
+        if optimized_materialized_column_compare := self._get_optimized_materialized_column_compare_operation(node):
+            return optimized_materialized_column_compare
+
+        in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        nullable_left = self._is_nullable(node.left)
+        nullable_right = self._is_nullable(node.right)
+        not_nullable = not nullable_left and not nullable_right
+
+        # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
+        # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
+        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
+            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
+        ):
+            not_nullable = True
+        hack_sessions_timestamp = (
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
+            "raw_sessions_v3.session_timestamp",
+        )
+        if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
+            not_nullable = True
+
+        # :HACK: Prevent ifNull() wrapping for $ai_trace_id, $ai_session_id, and $ai_is_error to allow index usage
+        # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
+        if (
+            "mat_$ai_trace_id" in left
+            or "mat_$ai_trace_id" in right
+            or "mat_$ai_session_id" in left
+            or "mat_$ai_session_id" in right
+            or "mat_$ai_is_error" in left
+            or "mat_$ai_is_error" in right
+            or "$ai_trace_id" in left
+            or "$ai_trace_id" in right
+            or "$ai_session_id" in left
+            or "$ai_session_id" in right
+            or "$ai_is_error" in left
+            or "$ai_is_error" in right
+        ):
+            not_nullable = True
+
+        constant_lambda = None
+        value_if_one_side_is_null = False
+        value_if_both_sides_are_null = False
+
+        op = self._get_compare_op(node.op, left, right)
+        if node.op == ast.CompareOperationOp.Eq:
+            constant_lambda = lambda left_op, right_op: left_op == right_op
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotEq:
+            constant_lambda = lambda left_op, right_op: left_op != right_op
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.Like:
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotLike:
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.ILike:
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotILike:
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.In:
+            return op
+        elif node.op == ast.CompareOperationOp.NotIn:
+            return op
+        elif node.op == ast.CompareOperationOp.GlobalIn:
+            pass
+        elif node.op == ast.CompareOperationOp.GlobalNotIn:
+            pass
+        elif node.op == ast.CompareOperationOp.Regex:
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotRegex:
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.IRegex:
+            value_if_both_sides_are_null = True
+        elif node.op == ast.CompareOperationOp.NotIRegex:
+            value_if_one_side_is_null = True
+        elif node.op == ast.CompareOperationOp.Gt:
+            constant_lambda = lambda left_op, right_op: (
+                left_op > right_op if left_op is not None and right_op is not None else False
+            )
+        elif node.op == ast.CompareOperationOp.GtEq:
+            constant_lambda = lambda left_op, right_op: (
+                left_op >= right_op if left_op is not None and right_op is not None else False
+            )
+        elif node.op == ast.CompareOperationOp.Lt:
+            constant_lambda = lambda left_op, right_op: (
+                left_op < right_op if left_op is not None and right_op is not None else False
+            )
+        elif node.op == ast.CompareOperationOp.LtEq:
+            constant_lambda = lambda left_op, right_op: (
+                left_op <= right_op if left_op is not None and right_op is not None else False
+            )
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.InCohort:
+            op = f"{left} IN COHORT {right}"
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            op = f"{left} NOT IN COHORT {right}"
+        else:
+            raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
+
+        # Try to see if we can take shortcuts
+
+        # Can we compare constants?
+        if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant) and constant_lambda is not None:
+            return "1" if constant_lambda(node.left.value, node.right.value) else "0"
+
+        # Special cases when we should not add any null checks
+        if in_join_constraint or self.dialect == "hogql" or not_nullable:
+            return op
+
+        # Special optimization for "Eq" operator
+        if (
+            node.op == ast.CompareOperationOp.Eq
+            or node.op == ast.CompareOperationOp.Like
+            or node.op == ast.CompareOperationOp.ILike
+        ):
+            if isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    return f"isNull({left})"
+                return f"ifNull({op}, 0)"
+            elif isinstance(node.left, ast.Constant):
+                if node.left.value is None:
+                    return f"isNull({right})"
+                return f"ifNull({op}, 0)"
+            return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
+
+        # Special optimization for "NotEq" operator
+        if (
+            node.op == ast.CompareOperationOp.NotEq
+            or node.op == ast.CompareOperationOp.NotLike
+            or node.op == ast.CompareOperationOp.NotILike
+        ):
+            if isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    return f"isNotNull({left})"
+                return f"ifNull({op}, 1)"
+            elif isinstance(node.left, ast.Constant):
+                if node.left.value is None:
+                    return f"isNotNull({right})"
+                return f"ifNull({op}, 1)"
+            return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"  # Worse case performance, but accurate
+
+        # Return false if one, but only one of the two sides is a null constant
+        if isinstance(node.right, ast.Constant) and node.right.value is None:
+            # Both are a constant null
+            if isinstance(node.left, ast.Constant) and node.left.value is None:
+                return "1" if value_if_both_sides_are_null is True else "0"
+
+            # Only the right side is null. Return a value only if the left side doesn't matter.
+            if value_if_both_sides_are_null == value_if_one_side_is_null:
+                return "1" if value_if_one_side_is_null is True else "0"
+        elif isinstance(node.left, ast.Constant) and node.left.value is None:
+            # Only the left side is null. Return a value only if the right side doesn't matter.
+            if value_if_both_sides_are_null == value_if_one_side_is_null:
+                return "1" if value_if_one_side_is_null is True else "0"
+
+        # No constants, so check for nulls in SQL
+        if value_if_one_side_is_null is True and value_if_both_sides_are_null is True:
+            return f"ifNull({op}, 1)"
+        elif value_if_one_side_is_null is True and value_if_both_sides_are_null is False:
+            return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"
+        elif value_if_one_side_is_null is False and value_if_both_sides_are_null is True:
+            return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
+        elif value_if_one_side_is_null is False and value_if_both_sides_are_null is False:
+            return f"ifNull({op}, 0)"
+        else:
+            raise ImpossibleASTError("Impossible")
 
     def visit_call(self, node: ast.Call):
         # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
