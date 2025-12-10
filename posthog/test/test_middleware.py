@@ -767,9 +767,9 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.organization.save()
 
         response = self.client.get("/logout")
-        # Should not redirect, logout should work
-        self.assertNotEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertNotIn("organization-deactivated", response.get("Location", ""))
+        # Logout may redirect (302 is normal), but should not redirect to organization-deactivated
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertNotIn("organization-deactivated", response.headers.get("Location", ""))
 
     def test_static_paths_skipped(self):
         """Static asset paths should be skipped by middleware"""
