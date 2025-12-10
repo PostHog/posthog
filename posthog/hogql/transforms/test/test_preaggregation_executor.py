@@ -51,13 +51,13 @@ class TestComputeQueryHash(BaseTest):
         [
             (
                 "different_event_filter",
-                "SELECT uniqExact(person_id) FROM events WHERE event = '$pageview'",
-                "SELECT uniqExact(person_id) FROM events WHERE event = '$pageleave'",
+                ("SELECT uniqExact(person_id) FROM events WHERE event = '$pageview'", None),
+                ("SELECT uniqExact(person_id) FROM events WHERE event = '$pageleave'", None),
             ),
             (
                 "different_aggregation",
-                "SELECT uniqExact(person_id) FROM events WHERE event = '$pageview'",
-                "SELECT count() FROM events WHERE event = '$pageview'",
+                ("SELECT uniqExact(person_id) FROM events WHERE event = '$pageview'", None),
+                ("SELECT count() FROM events WHERE event = '$pageview'", None),
             ),
             (
                 "different_timezone",
@@ -66,13 +66,15 @@ class TestComputeQueryHash(BaseTest):
             ),
         ]
     )
-    def test_similar_queries_hash_differently(self, name, query1, query2):
-        if isinstance(query1, tuple):
-            query_info1 = QueryInfo(query=parse_select(query1[0]), timezone=query1[1])
-            query_info2 = QueryInfo(query=parse_select(query2[0]), timezone=query2[1])
-        else:
-            query_info1 = QueryInfo(query=parse_select(query1))
-            query_info2 = QueryInfo(query=parse_select(query2))
+    def test_similar_queries_hash_differently(self, name, qt1, qt2):
+        (q1, t1) = qt1
+        (q2, t2) = qt2
+        s1 = parse_select(q1)
+        s2 = parse_select(q2)
+        assert isinstance(s1, ast.SelectQuery)
+        assert isinstance(s2, ast.SelectQuery)
+        query_info1 = QueryInfo(query=s1, timezone=t1)
+        query_info2 = QueryInfo(query=s2, timezone=t2)
 
         hash1 = compute_query_hash(query_info1)
         hash2 = compute_query_hash(query_info2)
@@ -147,7 +149,9 @@ class TestBuildPreaggregationInsertSQL(BaseTest):
     def _make_select_query(self, where_clause: str = "") -> ast.SelectQuery:
         """Create a valid preaggregation select query with 3 expressions."""
         where = f"WHERE {where_clause}" if where_clause else ""
-        return parse_select(f"SELECT 1 as col1, 2 as col2, 3 as col3 FROM events {where}")
+        s = parse_select(f"SELECT 1 as col1, 2 as col2, 3 as col3 FROM events {where}")
+        assert isinstance(s, ast.SelectQuery)
+        return s
 
     def test_query_without_where(self):
         job_id = "11111111-1111-1111-1111-111111111111"
@@ -612,7 +616,7 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
         assert sorted_results[1][0] == 2  # 2 unique users on Jan 2
 
         # Verify the preaggregation table was used in the generated SQL
-        assert (
+        assert result_with.clickhouse and (
             "preaggregation_results" in result_with.clickhouse
         ), "Expected preaggregation_results table in generated SQL"
 
