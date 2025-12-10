@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
 
@@ -266,6 +267,140 @@ describe('CdpCyclotronWorker', () => {
 
             const results = await processor['loadHogFunctions']([createExampleInvocation(fn2, globals)])
             expect(results).toEqual([])
+        })
+
+        describe('e2e lag metrics tracking', () => {
+            let dateNowSpy: jest.SpyInstance
+            const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+
+            beforeEach(() => {
+                dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+            })
+
+            afterEach(() => {
+                dateNowSpy.mockRestore()
+            })
+
+            it('should track e2e lag for segment- invocation', async () => {
+                const capturedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
+                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+
+                const segmentFn = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        template_id: 'segment-actions-mixpanel',
+                    })
+                )
+
+                const segmentInvocation = createExampleInvocation(segmentFn, {
+                    ...globals,
+                    inputs: {
+                        ...globals.inputs,
+                        projectToken: 'test-token',
+                        apiSecret: 'test-secret',
+                        internal_partner_action: 'trackEvent',
+                    },
+                    event: {
+                        ...globals.event,
+                        captured_at: capturedAt,
+                    },
+                })
+
+                await processor.processInvocations([segmentInvocation])
+
+                expect(observeSpy).toHaveBeenCalledTimes(1)
+                expect(observeSpy).toHaveBeenCalledWith(1000)
+            })
+
+            it('should track e2e lag for plugin- invocation', async () => {
+                const capturedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
+                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+
+                const pluginFn = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        template_id: 'plugin-posthog-intercom-plugin',
+                    })
+                )
+
+                const pluginInvocation = createExampleInvocation(pluginFn, {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        captured_at: capturedAt,
+                    },
+                })
+
+                await processor.processInvocations([pluginInvocation])
+
+                expect(observeSpy).toHaveBeenCalledTimes(1)
+                expect(observeSpy).toHaveBeenCalledWith(1000)
+            })
+
+            it('should track e2e lag for native-webhook invocation', async () => {
+                const capturedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
+                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+
+                const nativeFn = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        template_id: 'native-webhook',
+                    })
+                )
+
+                const nativeInvocation = createExampleInvocation(nativeFn, {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        captured_at: capturedAt,
+                    },
+                })
+
+                await processor.processInvocations([nativeInvocation])
+
+                expect(observeSpy).toHaveBeenCalledTimes(1)
+                expect(observeSpy).toHaveBeenCalledWith(1000)
+            })
+
+            it('should track e2e lag for executeWithAsyncFunctions invocation', async () => {
+                const capturedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
+                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+
+                const hogFn = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    })
+                )
+
+                const hogInvocation = createExampleInvocation(hogFn, {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        captured_at: capturedAt,
+                    },
+                })
+
+                await processor.processInvocations([hogInvocation])
+
+                expect(observeSpy).toHaveBeenCalledTimes(1)
+                expect(observeSpy).toHaveBeenCalledWith(1000)
+            })
         })
 
         describe('thread relief', () => {

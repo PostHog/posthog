@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import { Task, TaskUpsertProps } from '../types'
+import { Task, TaskRun, TaskUpsertProps } from '../types'
 import type { tasksLogicType } from './tasksLogicType'
 
 export const tasksLogic = kea<tasksLogicType>([
@@ -14,6 +14,7 @@ export const tasksLogic = kea<tasksLogicType>([
 
     actions({
         openTask: (taskId: Task['id']) => ({ taskId }),
+        updateTaskRun: (taskId: Task['id'], run: TaskRun) => ({ taskId, run }),
     }),
 
     loaders(({ values }) => ({
@@ -37,6 +38,13 @@ export const tasksLogic = kea<tasksLogicType>([
             },
         ],
     })),
+
+    reducers({
+        tasks: {
+            updateTaskRun: (state, { taskId, run }) =>
+                state.map((task) => (task.id === taskId ? { ...task, latest_run: run } : task)),
+        },
+    }),
 
     selectors({
         repositories: [

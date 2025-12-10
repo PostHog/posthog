@@ -28,3 +28,4 @@ tracing-subscriber = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-kafka = { path = "../common/kafka" }
 common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
