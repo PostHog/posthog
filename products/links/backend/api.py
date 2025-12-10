@@ -38,6 +38,7 @@ class LinkSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "created_by",
+            "hog_function_id",
             "_create_in_folder",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]

@@ -5919,6 +5919,7 @@ export interface EmailSenderDomainStatus {
 // Representation of a `Link` model in our backend
 export type LinkType = {
     id: string
+    hog_function_id?: string
     redirect_url: string
     short_link_domain: string
     short_code: string

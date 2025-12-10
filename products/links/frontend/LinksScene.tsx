@@ -63,7 +63,7 @@ export function LinksScene(): JSX.Element {
                     // TODO: Update URL to link to page with all `$link_clicked` events
                     // for this specific link
                     <Link to="/insights">
-                        <LinkMetricSparkline id={link.id} />
+                        <LinkMetricSparkline id={link.hog_function_id ?? link.id} />
                     </Link>
                 )
             },
