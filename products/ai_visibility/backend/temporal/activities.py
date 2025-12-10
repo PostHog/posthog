@@ -29,11 +29,11 @@ BRAND_PROMPT_TEMPLATES = [
     "best {brand} alternatives",
     "{brand} reviews",
 ]
-# Limit concurrent probes to avoid flooding the LLM/API
-_PROBE_CONCURRENCY = 15
-# LLM call protection
-_LLM_TIMEOUT_SECONDS = 20
+
+_PROBE_CONCURRENCY = 20
+_LLM_TIMEOUT_SECONDS = 30
 _LLM_MAX_RETRIES = 3
+_PROMPT_GEN_CONCURRENCY = 8
 
 
 def get_client() -> OpenAI:
@@ -261,19 +261,15 @@ async def get_topics(payload: TopicsInput) -> list[dict]:
     return categories
 
 
-@activity.defn(name="generatePrompts")
-async def generate_prompts(payload: PromptsInput) -> list[dict]:
-    info = BusinessInfo.model_validate(payload.info)
-    categories = payload.topics  # Now list of dicts with name/description
+async def _generate_prompts_for_category(
+    info: BusinessInfo, category: dict | str, prompts_per_category: int
+) -> list[dict]:
+    """Generate prompts for a single category."""
+    cat_name = category["name"] if isinstance(category, dict) else category
+    cat_desc = category.get("description", "") if isinstance(category, dict) else ""
 
-    # Build category names for the LLM prompt
-    category_lines = "\n".join(
-        f"- {c['name']}: {c['description']}" if isinstance(c, dict) else f"- {c}" for c in categories
-    )
-
-    prompts_per_category = random.choice([3, 5, 7, 9])
     prompt = (
-        "Generate natural search prompts that customers would use when researching solutions in each category. "
+        "Generate natural search prompts that customers would use when researching solutions in this category. "
         "Prompts should be freeform, varied, and sound like real questions people ask AI assistants. "
         "Do NOT mechanically append words like 'alternatives' or 'ranked' - be creative and natural. "
         "Do NOT include the target business name in prompts - we're testing if AI would recommend them organically. "
@@ -285,26 +281,53 @@ async def generate_prompts(payload: PromptsInput) -> list[dict]:
         "- 'what's the best GA4 alternative that I can self-host'\n"
         "- 'comparing session replay tools for startups'\n\n"
         f"Business context: {info.name} - {info.summary}\n\n"
-        f"Categories:\n{category_lines}\n\n"
-        f"Generate exactly {prompts_per_category} diverse prompts per category. Keep prompts 6-15 words, natural, non-overlapping."
+        f"Category: {cat_name}"
+        + (f" - {cat_desc}" if cat_desc else "")
+        + f"\n\nGenerate exactly {prompts_per_category} diverse prompts for this category. Keep prompts 6-15 words, natural, non-overlapping."
     )
-    logger.info("ai_visibility.generate_prompts.start", domain=payload.domain)
     data = await _call_structured_llm(prompt, PromptsOutput, temperature=0.8)
     prompts = data.get("prompts", [])
 
-    # Dedupe LLM-generated prompts
-    deduped: list[dict] = []
-    seen: set[str] = set()
+    result: list[dict] = []
     for p in prompts:
         text = p.get("prompt") if isinstance(p, dict) else getattr(p, "prompt", None)
-        category = p.get("category") if isinstance(p, dict) else getattr(p, "category", "General")
-        if not text:
-            continue
-        key = text.strip().lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append({"category": category, "prompt": text})
+        if text:
+            result.append({"category": cat_name, "prompt": text})
+    return result
+
+
+@activity.defn(name="generatePrompts")
+async def generate_prompts(payload: PromptsInput) -> list[dict]:
+    info = BusinessInfo.model_validate(payload.info)
+    categories = payload.topics  # List of dicts with name/description
+
+    prompts_per_category = random.choice([3, 5, 7, 9])
+    semaphore = asyncio.Semaphore(_PROMPT_GEN_CONCURRENCY)
+
+    async def run_category(category: dict | str) -> list[dict]:
+        async with semaphore:
+            return await _generate_prompts_for_category(info, category, prompts_per_category)
+
+    logger.info("ai_visibility.generate_prompts.start", domain=payload.domain, categories=len(categories))
+
+    # Run all categories in parallel
+    tasks = [asyncio.create_task(run_category(cat)) for cat in categories]
+    all_prompts: list[dict] = []
+    for coro in asyncio.as_completed(tasks):
+        try:
+            result = await coro
+            all_prompts.extend(result)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ai_visibility.generate_prompts.category_error", error=str(exc))
+
+    # Dedupe prompts
+    deduped: list[dict] = []
+    seen: set[str] = set()
+    for p in all_prompts:
+        key = p["prompt"].strip().lower()
+        if key not in seen:
+            seen.add(key)
+            deduped.append(p)
 
     # Add hardcoded brand-based prompts
     brand_category = "Brand Comparison"
