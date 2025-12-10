@@ -48,6 +48,8 @@ export interface MaxRecordingEventFilter {
     type: 'events'
     /** Name of the event. */
     id: string
+    /** Optional display name for this event. */
+    name?: string
     /** Optional property filters for this event only. */
     properties?: AssistantPropertyFilter[]
 }

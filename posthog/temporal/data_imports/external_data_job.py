@@ -4,6 +4,7 @@ import typing
 import datetime as dt
 import dataclasses
 
+from django.conf import settings
 from django.db import close_old_connections
 
 import posthoganalytics
@@ -334,6 +335,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     schema_ids=[inputs.external_data_schema_id],
                 ),
                 id=f"ducklake-copy-data-imports-{job_id}",
+                task_queue=settings.DUCKLAKE_TASK_QUEUE,
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,
             )
 
