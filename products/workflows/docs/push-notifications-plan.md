@@ -18,7 +18,7 @@ PostHog acts as a conduit - customers provide their Firebase credentials, we sen
 
 ## Current Status
 
-**Slice 1 is ~90% complete.** Remaining: full end-to-end test through PostHog UI (blocked on local capture endpoint).
+**Slice 1 is complete.**
 
 ### What's Done
 
@@ -31,20 +31,17 @@ PostHog acts as a conduit - customers provide their Firebase credentials, we sen
 - ✅ Template tests for Hog function
 - ✅ Standalone FCM test script validated (push received on Android emulator)
 - ✅ Firebase integration created via Django shell
-
-### What's Left for Slice 1
-
-- [ ] End-to-end test through PostHog workflows (event → workflow → FCM push)
+- ✅ End-to-end test through PostHog workflows (event → destination → FCM push → notification on device)
 
 ## Vertical Slices
 
-### Slice 1: Backend can send a push (hardcoded token) ✅ ~90%
+### Slice 1: Backend can send a push (hardcoded token) ✅ Complete
 
 - ✅ Integration model: Add `FIREBASE` to `IntegrationKind`
 - ✅ Integration UI: Upload service account JSON
 - ✅ Hog template: Inputs for title, body, FCM token field
 - ✅ Push service: POST to FCM API with JWT auth
-- 🔄 Test with a manually-provided FCM token (direct FCM test passed, workflow test pending)
+- ✅ End-to-end tested with manually-provided FCM token
 
 ### Slice 2: iOS SDK captures and sends FCM token
 
