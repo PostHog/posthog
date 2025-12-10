@@ -301,10 +301,11 @@ function TopicsTable({ topics }: { topics: Topic[] }): JSX.Element {
                                                     <div className="flex items-center gap-2">
                                                         <CategoryTag category={prompt.category} />
                                                         {(prompt.competitors?.length
-                                                            ? prompt.competitors.slice(0, 2)
-                                                            : prompt.competitors_mentioned
-                                                                  .slice(0, 2)
-                                                                  .map((name) => ({ name, logo_url: undefined }))
+                                                            ? prompt.competitors
+                                                            : prompt.competitors_mentioned.map((name) => ({
+                                                                  name,
+                                                                  logo_url: undefined,
+                                                              }))
                                                         ).map((comp) => (
                                                             <LemonTag key={comp.name} type="muted" size="small">
                                                                 <span className="flex items-center gap-1">
@@ -450,10 +451,7 @@ function CompetitorTopicsHeatmap({
                             <tr key={topic.name} className="border-b">
                                 <td className="p-3 font-medium">{topic.name}</td>
                                 {allCompetitors.map((comp) => {
-                                    const isBrand = comp.name === brandName
-                                    const cellValue = isBrand
-                                        ? topic.visibility
-                                        : (getCell(topic.name, comp.name)?.visibility ?? 0)
+                                    const cellValue = getCell(topic.name, comp.name)?.visibility ?? 0
 
                                     return (
                                         <td key={comp.name} className="p-1">

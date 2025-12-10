@@ -479,11 +479,13 @@ export const vizLogic = kea<vizLogicType>([
                         })
                     }
 
-                    // Also store brand's rank for this topic
+                    // Also store brand's visibility and rank for this topic
+                    const brandVisibility =
+                        topic.prompts.length > 0 ? Math.round((brandMentions / topic.prompts.length) * 100) : 0
                     cells.push({
                         topic: topic.name,
                         competitor: brandName,
-                        visibility: topic.visibility,
+                        visibility: brandVisibility,
                         avgRank: ranks.get(brandName) ?? null,
                     })
                 }
