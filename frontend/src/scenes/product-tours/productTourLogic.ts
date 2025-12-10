@@ -74,6 +74,13 @@ function buildHogQLDateFilter(dateRange: DateRange | null, timestampColumn = 'ti
     return filter
 }
 
+/**
+ * Escapes special characters in SQL strings to prevent injection
+ */
+function escapeSqlString(value: string): string {
+    return value.replace(/['\\]/g, '\\$&')
+}
+
 export interface ProductTourLogicProps {
     id: string
 }
@@ -144,6 +151,7 @@ export const productTourLogic = kea<productTourLogicType>([
                 }
 
                 const dateFilter = buildHogQLDateFilter(values.dateRange)
+                const escapedTourId = escapeSqlString(props.id)
 
                 // Query for overall tour stats with unique and total counts
                 const tourStatsQuery = `
@@ -153,7 +161,7 @@ export const productTourLogic = kea<productTourLogicType>([
                         uniq(distinct_id) as unique_count
                     FROM events
                     WHERE event IN ('product tour shown', 'product tour completed', 'product tour dismissed')
-                        AND properties.$product_tour_id = '${props.id}'
+                        AND properties.$product_tour_id = '${escapedTourId}'
                         ${dateFilter}
                     GROUP BY event
                 `
@@ -167,7 +175,7 @@ export const productTourLogic = kea<productTourLogicType>([
                         uniq(distinct_id) as unique_count
                     FROM events
                     WHERE event IN ('product tour step shown', 'product tour step completed')
-                        AND properties.$product_tour_id = '${props.id}'
+                        AND properties.$product_tour_id = '${escapedTourId}'
                         ${dateFilter}
                     GROUP BY step_order, event
                     ORDER BY step_order

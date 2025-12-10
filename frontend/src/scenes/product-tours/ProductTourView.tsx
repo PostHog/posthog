@@ -340,7 +340,7 @@ function TargetingSummary({
             </span>
             {hasUrl && (
                 <div className="flex flex-col font-medium gap-1">
-                    <div className="flex-row">
+                    <div className="flex flex-row">
                         <span>URL {UrlMatchTypeLabels[conditions.urlMatchType || 'contains']}:</span>{' '}
                         <LemonTag>{conditions.url}</LemonTag>
                     </div>

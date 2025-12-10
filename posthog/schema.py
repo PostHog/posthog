@@ -1559,6 +1559,7 @@ class FileSystemIconType(StrEnum):
     HEATMAP = "heatmap"
     SESSION_REPLAY = "session_replay"
     SURVEY = "survey"
+    PRODUCT_TOUR = "product_tour"
     USER_INTERVIEW = "user_interview"
     EARLY_ACCESS_FEATURE = "early_access_feature"
     EXPERIMENT = "experiment"

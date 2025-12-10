@@ -6,6 +6,7 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag } from '@p
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
@@ -23,7 +24,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     )
 
     if (!productTour) {
-        return <div>Loading...</div>
+        return <LemonSkeleton />
     }
 
     const conditions = productTourForm.content?.conditions || {}

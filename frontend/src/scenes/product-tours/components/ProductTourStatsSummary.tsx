@@ -50,7 +50,7 @@ export function ProductTourStatsSummary({ stats, loading, headerAction }: Produc
                 <h3 className="font-semibold">Tour performance</h3>
                 {headerAction}
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-3 gap-4">
                 <StatCard
                     title="Unique users shown"
                     value={uniqueShown.toLocaleString()}
@@ -70,12 +70,6 @@ export function ProductTourStatsSummary({ stats, loading, headerAction }: Produc
                     value={uniqueDismissed.toLocaleString()}
                     subValue={`${totalDismissed.toLocaleString()} total`}
                     description={`${dismissalRate}% dismissal rate`}
-                    loading={loading}
-                />
-                <StatCard
-                    title="Completion rate"
-                    value={`${completionRate}%`}
-                    description="Users who finished all steps"
                     loading={loading}
                 />
             </div>
