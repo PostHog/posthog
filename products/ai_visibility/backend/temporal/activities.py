@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 from openai import OpenAI
@@ -78,8 +79,6 @@ class ShareOfVoice(BaseModel):
 
 class DashboardData(BaseModel):
     visibility_score: int
-    score_change: int
-    score_change_period: str
     share_of_voice: ShareOfVoice
     prompts: list[PromptResult]
 
@@ -265,17 +264,13 @@ async def combine_calls(payload: CombineInput) -> dict:
                 you_mentioned=probe.mentions_target,
                 platforms=platforms,
                 competitors_mentioned=probe.competitors,
-                last_checked=activity.info().start_time.isoformat(),
+                last_checked=timezone.now().isoformat(),
             )
         )
 
     visibility_score = int(min(100, max(0, share.you * 100)))
-    score_change = 0
-
     dashboard = DashboardData(
         visibility_score=visibility_score,
-        score_change=score_change,
-        score_change_period="week",
         share_of_voice=share,
         prompts=prompt_items,
     )
