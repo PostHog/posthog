@@ -1,7 +1,5 @@
 from typing import Any
 
-from django.conf import settings
-
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
@@ -10,7 +8,7 @@ from posthog.storage import object_storage
 from ee.hogai.tool import MaxTool
 
 from .models import Task, TaskRun
-from .temporal.client import execute_task_processing_workflow
+from .temporal.client import execute_task_processing_workflow_async
 
 
 class CreateTaskArgs(BaseModel):
@@ -87,7 +85,7 @@ By default, the task will be created and immediately executed. Set run=false to 
             if run:
                 task_run = task.create_run()
 
-            task_url = f"{settings.SITE_URL}/project/{self._team.project.id}/tasks/{task.id}"
+            task_url = f"/project/{self._team.project.id}/tasks/{task.id}"
             if task_run:
                 task_url = f"{task_url}?runId={task_run.id}"
 
@@ -113,7 +111,7 @@ By default, the task will be created and immediately executed. Set run=false to 
         if run and "latest_run" in result:
             slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
 
-            execute_task_processing_workflow(
+            await execute_task_processing_workflow_async(
                 task_id=result["task_id"],
                 run_id=result["latest_run"]["run_id"],
                 team_id=result["team_id"],
@@ -156,7 +154,7 @@ Use this tool when the user wants to:
                 return None
 
             task_run = task.create_run()
-            task_url = f"{settings.SITE_URL}/project/{task.team.project.id}/tasks/{task.id}?runId={task_run.id}"
+            task_url = f"/project/{task.team.project.id}/tasks/{task.id}?runId={task_run.id}"
             return {
                 "task_id": str(task.id),
                 "run_id": str(task_run.id),
@@ -174,7 +172,7 @@ Use this tool when the user wants to:
         # Extract slack thread context from config if available
         slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
 
-        execute_task_processing_workflow(
+        await execute_task_processing_workflow_async(
             task_id=result["task_id"],
             run_id=result["run_id"],
             team_id=result["team_id"],
@@ -186,12 +184,7 @@ Use this tool when the user wants to:
             f"Started execution of task '{result['title']}' ({result['slug']}).\n"
             f"Run ID: {result['run_id']}\n"
             f"View at {result['url']}",
-            {
-                "task_id": result["task_id"],
-                "run_id": result["run_id"],
-                "slug": result["slug"],
-                "url": result["url"],
-            },
+            result,
         )
 
 
@@ -531,7 +524,7 @@ Use this tool when the user wants to:
         if not repos:
             if search:
                 return f"No repositories found matching '{search}'", {"repositories": []}
-            settings_url = f"{settings.SITE_URL}/settings/project-integrations"
+            settings_url = "/settings/project-integrations"
             return (
                 f"No GitHub repositories available. Please connect a GitHub integration in Settings: {settings_url}",
                 {"repositories": [], "settings_url": settings_url},

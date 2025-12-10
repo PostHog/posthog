@@ -85,12 +85,26 @@ class SlackThreadHandler:
             logger.warning("slack_find_progress_message_failed", error=str(e))
         return None
 
-    def post_or_update_progress(self, stage: str) -> None:
+    def post_or_update_progress(self, stage: str, task_url: str | None = None) -> None:
         """Post a new progress message or update the existing one."""
         text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
-        blocks = [
+        blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
+
+        if task_url:
+            blocks.append(
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "View agent logs", "emoji": True},
+                            "url": task_url,
+                        },
+                    ],
+                }
+            )
 
         try:
             client = self._get_client()

@@ -41,7 +41,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             handler.post_error(error, task_url)
         else:
             stage = _get_stage_from_status(task_run.status)
-            handler.post_or_update_progress(stage)
+            handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 
@@ -51,8 +51,8 @@ def _get_stage_from_status(status: str) -> str:
     from products.tasks.backend.models import TaskRun
 
     status_map = {
-        TaskRun.Status.NOT_STARTED: "Starting...",
-        TaskRun.Status.QUEUED: "Queued...",
-        TaskRun.Status.RUNNING: "Executing task...",
+        TaskRun.Status.NOT_STARTED: "In progress...",
+        TaskRun.Status.QUEUED: "In progress...",
+        TaskRun.Status.IN_PROGRESS: "In progress...",
     }
-    return status_map.get(status, "Processing...")
+    return status_map.get(status, "In progress...")

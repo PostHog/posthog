@@ -96,16 +96,17 @@ class BaseTaskToolTest(BaseTest):
 
 
 class TestCreateTaskTool(BaseTaskToolTest):
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_task_success(self):
+    async def test_create_task_success(self, mock_execute_workflow):
         tool = self._create_tool(CreateTaskTool)
 
         content, artifact = await tool._arun_impl(
             title="New Task", description="Task description", repository="posthog/posthog-js"
         )
 
-        assert "Created task" in content
+        assert "Created and started task" in content
         assert "New Task" in content
         assert "task_id" in artifact
         assert "slug" in artifact
@@ -116,6 +117,7 @@ class TestCreateTaskTool(BaseTaskToolTest):
         assert task.title == "New Task"
         assert task.description == "Task description"
         assert task.repository == "posthog/posthog-js"
+        mock_execute_workflow.assert_called_once()
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -161,7 +163,7 @@ class TestCreateTaskTool(BaseTaskToolTest):
 
 
 class TestRunTaskTool(BaseTaskToolTest):
-    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow")
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_run_task_success(self, mock_execute_workflow):
@@ -187,7 +189,7 @@ class TestRunTaskTool(BaseTaskToolTest):
         assert "not found" in content
         assert artifact["error"] == "not_found"
 
-    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow")
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_run_task_deleted_task(self, mock_execute_workflow):
@@ -200,7 +202,7 @@ class TestRunTaskTool(BaseTaskToolTest):
         assert artifact["error"] == "not_found"
         mock_execute_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow")
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_run_task_creates_queued_run(self, mock_execute_workflow):
@@ -212,7 +214,7 @@ class TestRunTaskTool(BaseTaskToolTest):
         run = await sync_to_async(TaskRun.objects.get)(id=artifact["run_id"])
         assert run.status == TaskRun.Status.QUEUED
 
-    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow")
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_run_task_workflow_params(self, mock_execute_workflow):
@@ -227,7 +229,7 @@ class TestRunTaskTool(BaseTaskToolTest):
         assert call_kwargs["user_id"] == self.user.id
         assert "run_id" in call_kwargs
 
-    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow")
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_run_task_other_team(self, mock_execute_workflow):
