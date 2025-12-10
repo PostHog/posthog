@@ -152,12 +152,12 @@ export function BIScene(): JSX.Element {
                             fullWidth
                         />
                     </div>
-                    <div className="mt-2 space-y-1 overflow-y-auto" style={{ maxHeight: 'calc(100% - 60px)' }}>
+                    <div className="mt-2 overflow-y-auto" style={{ maxHeight: 'calc(100% - 60px)' }}>
                         {selectedTableObject ? (
                             <>
                                 <div className="font-semibold px-1">{selectedTableObject.name}</div>
                                 {filteredFields.length > 0 ? (
-                                    <div className="space-y-1">
+                                    <div>
                                         {filteredFields.map((field) => (
                                             <LemonButton
                                                 key={field.name}
