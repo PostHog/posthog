@@ -251,6 +251,62 @@ def get_foreign_keys(
     return dict(foreign_keys)
 
 
+def get_indexes(
+    host: str, database: str, user: str, password: str, schema: str, port: int
+) -> dict[str, list[dict[str, any]]]:
+    """Get indexes for all tables in a schema."""
+
+    connection = psycopg.connect(
+        host=host,
+        port=port,
+        dbname=database,
+        user=user,
+        password=password,
+        sslmode="prefer",
+        connect_timeout=15,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
+    )
+
+    indexes: dict[str, list[dict[str, any]]] = collections.defaultdict(list)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                t.relname AS table_name,
+                i.relname AS index_name,
+                ix.indisunique AS is_unique,
+                ix.indisprimary AS is_primary,
+                array_agg(a.attname ORDER BY array_position(ix.indkey, a.attnum)) AS columns
+            FROM pg_class t
+            JOIN pg_index ix ON t.oid = ix.indrelid
+            JOIN pg_class i ON i.oid = ix.indexrelid
+            JOIN pg_namespace n ON t.relnamespace = n.oid
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+            WHERE n.nspname = %(schema)s
+                AND t.relkind = 'r'
+            GROUP BY t.relname, i.relname, ix.indisunique, ix.indisprimary
+            ORDER BY t.relname, i.relname
+            """,
+            {"schema": schema},
+        )
+        for table_name, index_name, is_unique, is_primary, columns in cursor.fetchall():
+            indexes[table_name].append(
+                {
+                    "name": index_name,
+                    "columns": columns,
+                    "is_unique": is_unique,
+                    "is_primary": is_primary,
+                }
+            )
+
+    connection.close()
+
+    return dict(indexes)
+
+
 class JsonAsStringLoader(Loader):
     def load(self, data):
         if data is None:

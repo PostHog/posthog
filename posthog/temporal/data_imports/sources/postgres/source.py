@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.sources.generated_configs import PostgresSour
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     filter_postgres_incremental_fields,
     get_foreign_keys as get_postgres_foreign_keys,
+    get_indexes as get_postgres_indexes,
     get_postgres_row_count,
     get_primary_keys as get_postgres_primary_keys,
     get_schemas as get_postgres_schemas,
@@ -184,9 +185,18 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     database=config.database,
                     schema=config.schema,
                 )
+                indexes = get_postgres_indexes(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                )
             else:
                 primary_keys = {}
                 foreign_keys = {}
+                indexes = {}
 
         for table_name, columns in db_schemas.items():
             column_info = [(col_name, col_type) for col_name, col_type in columns]
@@ -215,6 +225,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     primary_key=primary_keys.get(table_name) if with_keys else None,
                     foreign_keys=foreign_keys.get(table_name) if with_keys else None,
                     columns=columns_metadata if with_keys else None,
+                    indexes=indexes.get(table_name) if with_keys else None,
                 )
             )
 
