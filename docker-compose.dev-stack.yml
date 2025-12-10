@@ -36,6 +36,17 @@ services:
       # Kafka & Redis
       KAFKA_HOSTS: 'kafka'
       REDIS_URL: 'redis://redis:6379/'
+      # Encryption (demo key - not for production!)
+      ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+      # CDP API endpoint
+      CDP_API_URL: 'http://plugins:6738'
+      # Object storage
+      OBJECT_STORAGE_ENABLED: 'true'
+      OBJECT_STORAGE_ENDPOINT: 'http://objectstorage:19000'
+      OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+      # Site URL
+      SITE_URL: 'http://localhost:8000'
     depends_on:
       - db
       - redis
@@ -69,6 +80,17 @@ services:
       # Kafka & Redis
       KAFKA_HOSTS: 'kafka'
       REDIS_URL: 'redis://redis:6379/'
+      # Encryption (demo key - not for production!)
+      ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+      # CDP API endpoint
+      CDP_API_URL: 'http://plugins:6738'
+      # Object storage
+      OBJECT_STORAGE_ENABLED: 'true'
+      OBJECT_STORAGE_ENDPOINT: 'http://objectstorage:19000'
+      OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+      # Site URL
+      SITE_URL: 'http://localhost:8000'
     depends_on:
       - db
       - redis
@@ -77,21 +99,51 @@ services:
 
   plugins:
     image: posthog/posthog:stack-1.0.0
-    restart: on-failure
+    restart: always
     command:
       - ./bin/plugin-server
       - --no-restart-loop
     environment:
+      # SECRET_KEY required for Django initialization (not for DEBUG mode)
+      SECRET_KEY: 'posthog-stack-demo-key-not-for-production-use'
+      # Database connections
       DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
       KAFKA_HOSTS: 'kafka:9092'
       REDIS_URL: 'redis://redis:6379/'
+      # Explicit Redis host for PubSub (ingestion Redis)
+      POSTHOG_REDIS_HOST: 'redis'
+      POSTHOG_REDIS_PORT: '6379'
       CLICKHOUSE_HOST: 'clickhouse'
       CLICKHOUSE_DATABASE: 'posthog'
       CLICKHOUSE_SECURE: 'false'
       CLICKHOUSE_VERIFY: 'false'
+      # Encryption (demo key - not for production!)
+      ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+      # Object storage
+      OBJECT_STORAGE_ENABLED: 'true'
+      OBJECT_STORAGE_ENDPOINT: 'http://objectstorage:19000'
+      OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+      # Session recording storage
+      SESSION_RECORDING_V2_S3_ENDPOINT: 'http://objectstorage:19000'
+      SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+      SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
+      # Database URLs for separate features
+      CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+      PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+      BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+      # Redis for CDP and logs (both use main Redis)
+      CDP_REDIS_HOST: 'redis'
+      CDP_REDIS_PORT: '6379'
+      LOGS_REDIS_HOST: 'redis'
+      LOGS_REDIS_PORT: '6379'
+      # Cookieless Redis (for feature-flags cookieless server)
+      COOKIELESS_REDIS_HOST: 'redis7'
+      COOKIELESS_REDIS_PORT: '6379'
     depends_on:
       - db
       - redis
+      - redis7
       - clickhouse
       - kafka
       - objectstorage
