@@ -3,6 +3,8 @@ from pathlib import PurePosixPath
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 
+from dlt.common.data_writers.escape import escape_postgres_identifier
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.errors import ExposedHogQLError
@@ -186,5 +188,10 @@ class S3Table(FunctionCallTable):
 
 class DataWarehouseTable(S3Table):
     """A table placeholder for checking warehouse tables"""
+
+    def to_printed_postgres(self):
+        # TODO: this is a hack to make simple db selects work
+        name = self.name.split(".")[-1]
+        return escape_postgres_identifier(name)
 
     pass

@@ -31,6 +31,7 @@ from posthog.hogql.escape_sql import (
     escape_clickhouse_string,
     escape_hogql_identifier,
     escape_hogql_string,
+    escape_postgres_identifier,
     safe_identifier,
 )
 from posthog.hogql.functions import (
@@ -553,8 +554,12 @@ class _Printer(Visitor[str]):
                     or (node.join_type and node.join_type.startswith("GLOBAL "))
                 ):
                     sql = f"(SELECT * FROM {sql})"
-            else:
+            elif self.dialect == "hogql":
                 sql = table_type.table.to_printed_hogql()
+            elif self.dialect == "postgres":
+                sql = table_type.table.to_printed_postgres()
+            else:
+                raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
 
             if isinstance(table_type.table, FunctionCallTable) and table_type.table.requires_args:
                 if node.table_args is None:
@@ -1837,7 +1842,10 @@ class _Printer(Visitor[str]):
         return None
 
     def _print_identifier(self, name: str) -> str:
-        return escape_hogql_identifier(name)
+        if self.dialect == "postgres":
+            return escape_postgres_identifier(name)
+        else:
+            return escape_hogql_identifier(name)
 
     def _print_hogql_identifier_or_index(self, name: str | int) -> str:
         # Regular identifiers can't start with a number. Print digit strings as-is for unescaped tuple access.
@@ -1950,6 +1958,9 @@ class PostgresPrinter(_Printer):
         # No function call validation for postgres
         args = [self.visit(arg) for arg in node.args]
         return f"{node.name}({', '.join(args)})"
+
+    def visit_table_type(self, type: ast.TableType):
+        return type.table.to_printed_hogql()
 
 
 class ClickHousePrinter(_Printer):

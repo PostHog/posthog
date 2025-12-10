@@ -63,3 +63,6 @@ class PostgresTable(FunctionCallTable):
 
     def to_printed_clickhouse(self, context):
         return build_function_call(self.postgres_table_name, context)
+
+    def to_printed_postgres(self) -> str:
+        return self.postgres_table_name

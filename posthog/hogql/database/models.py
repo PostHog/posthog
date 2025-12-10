@@ -180,6 +180,9 @@ class Table(FieldOrTable):
     def to_printed_hogql(self) -> str:
         raise NotImplementedError("Table.to_printed_hogql not overridden")
 
+    def to_printed_postgres(self) -> str:
+        raise NotImplementedError("Table.to_printed_postgres not overridden")
+
     def avoid_asterisk_fields(self) -> list[str]:
         return []
 
@@ -415,6 +418,12 @@ class SavedQuery(Table):
         return self.name
 
     def to_printed_hogql(self):
+        from products.data_warehouse.backend.models import validate_saved_query_name
+
+        validate_saved_query_name(self.name)
+        return self.name
+
+    def to_printed_postgres(self):
         from products.data_warehouse.backend.models import validate_saved_query_name
 
         validate_saved_query_name(self.name)

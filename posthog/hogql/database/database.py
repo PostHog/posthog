@@ -784,6 +784,9 @@ class Database(BaseModel):
                 def to_printed_hogql(self):
                     return self.parent_table.to_printed_hogql()
 
+                def to_printed_postgres(self):
+                    return self.parent_table.to_printed_postgres()
+
                 def to_printed_clickhouse(self, context):
                     return self.parent_table.to_printed_clickhouse(context)
 

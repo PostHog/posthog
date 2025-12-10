@@ -52,6 +52,11 @@ def escape_hogql_identifier(identifier: str | int) -> str:
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
+# Copied from dlt/common/data_writers/escape.py
+def escape_postgres_identifier(v: str) -> str:
+    return '"' + v.replace('"', '""').replace("\\", "\\\\") + '"'
+
+
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
 def escape_clickhouse_identifier(identifier: str) -> str:
     if "%" in identifier:
