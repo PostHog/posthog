@@ -1,0 +1,1 @@
+sudo apt install -y build-essential pkg-config libzstd-dev

@@ -363,18 +363,18 @@ def get_context_for_template(
             source_path = "src/exporter/index.tsx"
         elif template_name == "render_query.html":
             source_path = "src/render-query/index.tsx"
-        # Add vite dev scripts for development
+        # Add vite dev scripts for development (paths are relative so they go through Caddy proxy)
         context["vite_dev_scripts"] = f"""
         <script nonce="{request.csp_nonce}" type="module">
-            import RefreshRuntime from 'http://localhost:8234/@react-refresh'
+            import RefreshRuntime from '/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
             window.$RefreshReg$ = () => {{}}
             window.$RefreshSig$ = () => (type) => type
             window.__vite_plugin_react_preamble_installed__ = true
         </script>
         <!-- Vite development server -->
-        <script type="module" src="http://localhost:8234/@vite/client"></script>
-        <script type="module" src="http://localhost:8234/{source_path}"></script>"""
+        <script type="module" src="/@vite/client"></script>
+        <script type="module" src="/{source_path}"></script>"""
 
     context["js_posthog_ui_host"] = ""
 

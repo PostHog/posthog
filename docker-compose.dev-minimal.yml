@@ -21,9 +21,10 @@ services:
             - 'capture:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
+            - 'vite:host-gateway'
         environment:
             CADDYFILE: |
-                http://localhost:8000 {
+                :8000 {
                     @replay-capture {
                         path /s
                         path /s/*
@@ -51,6 +52,16 @@ services:
                         path /public/m/*
                     }
 
+                    @vite {
+                        path /@vite/*
+                        path /@react-refresh
+                        path /@fs/*
+                        path /@id/*
+                        path /src/*
+                        path /node_modules/*
+                        path /products/*
+                    }
+
                     handle @capture {
                         reverse_proxy capture:3307
                     }
@@ -65,6 +76,10 @@ services:
 
                     handle @webhooks {
                         reverse_proxy plugins:6738
+                    }
+
+                    handle @vite {
+                        reverse_proxy vite:8234
                     }
 
                     handle {

@@ -101,10 +101,12 @@ export default defineConfig(({ mode }) => {
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
             cors: {
                 // Allow Django backend to access Vite dev server
-                origin: ['http://localhost:8000', 'http://localhost:8010'],
+                origin: true,
             },
-            // Configure origin for proper asset URL generation
-            origin: 'http://localhost:8234',
+            hmr: {
+                // HMR connects through Caddy proxy on port 8010
+                clientPort: 8010,
+            },
         },
         define: {
             global: 'globalThis',
