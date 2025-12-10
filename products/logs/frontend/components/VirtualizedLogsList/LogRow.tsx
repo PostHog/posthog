@@ -109,7 +109,7 @@ export function LogRow({
             }
             case 'expand':
                 return (
-                    <div key={column.key} style={cellStyle} className="flex items-stretch self-stretch  justify-center">
+                    <div key={column.key} style={cellStyle} className="flex items-stretch self-stretch justify-center">
                         <LemonButton
                             size="xsmall"
                             icon={
