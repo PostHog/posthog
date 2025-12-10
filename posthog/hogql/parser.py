@@ -914,11 +914,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
-        # Updated to use betweenOperand children to prevent greedy AND/OR consumption
-        expr_children = [child for child in ctx.getChildren() if hasattr(child, "getRuleIndex")]
-        expr = self.visit(expr_children[0])
-        low = self.visit(expr_children[1])
-        high = self.visit(expr_children[2])
+        expr = self.visit(ctx.betweenOperand(0))
+        low = self.visit(ctx.betweenOperand(1))
+        high = self.visit(ctx.betweenOperand(2))
         return ast.BetweenExpr(expr=expr, low=low, high=high, negated=bool(ctx.NOT()))
 
     def visitColumnExprParens(self, ctx: HogQLParser.ColumnExprParensContext):
