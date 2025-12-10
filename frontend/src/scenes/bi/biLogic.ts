@@ -42,7 +42,7 @@ export const biLogic = kea([
         removeColumn: (column: BIQueryColumn) => ({ column }),
         addFilter: (filter: BIQueryFilter) => ({ filter }),
         setFilters: (filters: BIQueryFilter[]) => ({ filters }),
-        removeFilter: (column: BIQueryColumn) => ({ column }),
+        removeFilter: (index: number) => ({ index }),
         setSort: (column: BIQueryColumn | null) => ({ column }),
         setLimit: (limit: number) => ({ limit }),
         setSearchTerm: (term: string) => ({ term }),
@@ -92,14 +92,10 @@ export const biLogic = kea([
             [] as BIQueryFilter[],
             {
                 addFilter: (state, { filter }) => {
-                    const withoutExisting = state.filter(
-                        (item) =>
-                            !(item.column.table === filter.column.table && item.column.field === filter.column.field)
-                    )
-                    return [...withoutExisting, filter]
+                    return [...state, filter]
                 },
                 setFilters: (_, { filters }) => filters,
-                removeFilter: (state, { column }) => state.filter((item) => !columnsEqual(item.column, column)),
+                removeFilter: (state, { index }) => state.filter((_, filterIndex) => filterIndex !== index),
                 removeColumn: (state, { column }) => state.filter((item) => !columnsEqual(item.column, column)),
                 selectTable: () => [],
                 resetSelection: () => [],

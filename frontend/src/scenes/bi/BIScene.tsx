@@ -22,7 +22,7 @@ import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 import { SceneExport } from '../sceneTypes'
 import { Scene } from '../sceneTypes'
-import { BIAggregation, BIQueryColumn, BIQueryFilter, biLogic, columnAlias, columnKey } from './biLogic'
+import { BIAggregation, BIQueryFilter, biLogic, columnAlias, columnKey } from './biLogic'
 
 const COLORS = ['#5375ff', '#ff7a9e', '#2bc4ff', '#f6a700', '#7a49ff']
 
@@ -91,6 +91,9 @@ export function BIScene(): JSX.Element {
         resetSelection,
     } = useActions(biLogic)
 
+    const [openColumnPopover, setOpenColumnPopover] = useState<string | null>(null)
+    const [openFilterPopover, setOpenFilterPopover] = useState<number | null>(null)
+
     const rows = useMemo(() => {
         if (!queryResponse?.results) {
             return []
@@ -128,8 +131,13 @@ export function BIScene(): JSX.Element {
 
     const chartValues = numericColumns.length > 0 ? rows.map((row) => Number(row[numericColumns[0]])) : []
 
+    const closePopovers = (): void => {
+        setOpenColumnPopover(null)
+        setOpenFilterPopover(null)
+    }
+
     return (
-        <div className="flex flex-col gap-4 h-full">
+        <div className="flex flex-col gap-4 h-full" onClick={closePopovers}>
             <div className="flex gap-4 h-full min-h-0">
                 <LemonCard className="flex-1 max-w-80 h-full min-h-0" hoverEffect={false}>
                     <div className="flex items-center gap-2">
@@ -207,22 +215,30 @@ export function BIScene(): JSX.Element {
                             />
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            {filters.map((filter) => (
+                            {filters.map((filter, index) => (
                                 <Popover
-                                    key={columnKey(filter.column)}
+                                    key={`${columnKey(filter.column)}-${index}`}
+                                    visible={openFilterPopover === index}
+                                    onVisibilityChange={(visible) => {
+                                        setOpenColumnPopover(null)
+                                        setOpenFilterPopover(visible ? index : null)
+                                    }}
                                     overlay={
-                                        <div className="space-y-2">
+                                        <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
                                             <LemonButton
                                                 size="small"
                                                 type="secondary"
-                                                onClick={() => removeFilter(filter.column)}
+                                                onClick={() => {
+                                                    removeFilter(index)
+                                                    setOpenFilterPopover(null)
+                                                }}
                                             >
                                                 Remove filter
                                             </LemonButton>
                                         </div>
                                     }
                                 >
-                                    {formatFilter(filter)}
+                                    <div onClick={(event) => event.stopPropagation()}>{formatFilter(filter)}</div>
                                 </Popover>
                             ))}
                         </div>
@@ -261,7 +277,6 @@ export function BIScene(): JSX.Element {
                                     columns={selectedFields.map(({ column, field, alias }) => ({
                                         title: (
                                             <ColumnHeader
-                                                column={column}
                                                 alias={alias}
                                                 field={field}
                                                 onRemove={() => removeColumn(column)}
@@ -270,6 +285,11 @@ export function BIScene(): JSX.Element {
                                                 }
                                                 onSort={() => setSort(column)}
                                                 onAddAggregation={(aggregation) => addAggregation(column, aggregation)}
+                                                isPopoverOpen={openColumnPopover === columnKey(column)}
+                                                onPopoverVisibilityChange={(visible) => {
+                                                    setOpenFilterPopover(null)
+                                                    setOpenColumnPopover(visible ? columnKey(column) : null)
+                                                }}
                                             />
                                         ),
                                         dataIndex: alias,
@@ -298,41 +318,45 @@ function ColumnHeader({
     onAddFilter,
     onSort,
     onAddAggregation,
+    isPopoverOpen,
+    onPopoverVisibilityChange,
 }: {
-    column: BIQueryColumn
     field?: DatabaseSchemaField
     alias: string
     onRemove: () => void
     onAddFilter: (expression?: string) => void
     onSort: () => void
     onAddAggregation: (aggregation: BIAggregation) => void
+    isPopoverOpen: boolean
+    onPopoverVisibilityChange: (visible: boolean) => void
 }): JSX.Element {
     const [draft, setDraft] = useState('')
-    const [optionsOpen, setOptionsOpen] = useState(false)
     const isNumeric = isNumericField(field)
 
     return (
         <div className="flex items-center gap-1">
             <span className="font-semibold">{alias}</span>
             <Popover
-                visible={optionsOpen}
-                onVisibilityChange={setOptionsOpen}
+                visible={isPopoverOpen}
+                onVisibilityChange={onPopoverVisibilityChange}
                 overlay={
-                    <div className="space-y-2">
+                    <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
                         <LemonInput
                             placeholder="= 'value' or > 10"
                             value={draft}
                             onChange={setDraft}
                             onPressEnter={() => {
                                 onAddFilter(draft)
-                                setOptionsOpen(false)
+                                setDraft('')
+                                onPopoverVisibilityChange(false)
                             }}
                         />
                         <LemonButton
                             type="secondary"
                             onClick={() => {
                                 onAddFilter(draft)
-                                setOptionsOpen(false)
+                                setDraft('')
+                                onPopoverVisibilityChange(false)
                             }}
                             icon={<IconFilter />}
                         >
@@ -342,7 +366,7 @@ function ColumnHeader({
                             type="secondary"
                             onClick={() => {
                                 onAddAggregation('count')
-                                setOptionsOpen(false)
+                                onPopoverVisibilityChange(false)
                             }}
                         >
                             Count
@@ -355,7 +379,7 @@ function ColumnHeader({
                                         type="secondary"
                                         onClick={() => {
                                             onAddAggregation(aggregation)
-                                            setOptionsOpen(false)
+                                            onPopoverVisibilityChange(false)
                                         }}
                                     >
                                         {aggregation.toUpperCase()}
@@ -367,7 +391,7 @@ function ColumnHeader({
                             type="secondary"
                             onClick={() => {
                                 onSort()
-                                setOptionsOpen(false)
+                                onPopoverVisibilityChange(false)
                             }}
                         >
                             Sort
@@ -376,7 +400,7 @@ function ColumnHeader({
                             status="danger"
                             onClick={() => {
                                 onRemove()
-                                setOptionsOpen(false)
+                                onPopoverVisibilityChange(false)
                             }}
                         >
                             Remove column
@@ -389,7 +413,10 @@ function ColumnHeader({
                     type="secondary"
                     icon={<IconFilter />}
                     aria-label="Column options"
-                    onClick={() => setOptionsOpen((open) => !open)}
+                    onClick={(event) => {
+                        event.stopPropagation()
+                        onPopoverVisibilityChange(!isPopoverOpen)
+                    }}
                 />
             </Popover>
         </div>
