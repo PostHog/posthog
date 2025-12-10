@@ -79,7 +79,13 @@ function KeyValidationStatus({
     }
 
     if (!result) {
-        return <p className="text-xs text-muted mt-1">Your OpenAI API key. It will be encrypted and stored securely.</p>
+        return (
+            <p className="text-xs text-muted mt-1">
+                Your OpenAI API key. It will be encrypted and stored securely. Evaluations use GPT-5-mini - you pay
+                OpenAI directly for usage. Each evaluation sends the prompt template and generation input/output to the
+                judge.
+            </p>
+        )
     }
 
     if (result.state === 'ok') {
