@@ -144,9 +144,16 @@ export class GetNodeAtPositionTraverser extends TraversingVisitor {
                 if (this.selects.length > 0) {
                     this.nearestSelectQuery = this.selects[this.selects.length - 1]
                 }
-            } else if ((parentNode && 'declarations' in parentNode) || (parentNode && 'declarations' in parentNode)) {
+            } else if (
+                parentNode &&
+                ('declarations' in parentNode || parentNode.type === 'Program' || parentNode.type === 'Block')
+            ) {
+                // For Program and Block nodes, also capture nodes that start after the cursor
+                // This helps with autocomplete at the end of statements like "return "
                 if (
                     (this.node === null ||
+                        this.node.type === 'Program' ||
+                        this.node.type === 'Block' ||
                         ('declarations' in this.node && Array.isArray((this.node as any).declarations))) &&
                     node.start.offset >= this.start
                 ) {
@@ -196,13 +203,15 @@ class VariableFinder extends TraversingVisitor {
             return
         }
 
-        if (node === this.targetNode) {
+        // Check if this is our target node - collect variables and stop traversing
+        const isTarget = node === this.targetNode
+        if (isTarget) {
             for (const blockVars of this.vars) {
                 for (const v of blockVars) {
                     this.nodeVars.add(v)
                 }
             }
-            return
+            return // Stop here - don't visit children
         }
 
         const hasBlock =
@@ -405,9 +414,27 @@ export async function getHogQLAutocomplete(query: HogQLAutocomplete): Promise<Ho
     let sourceQuery: ast.SelectQuery | null = null
     if (query.sourceQuery) {
         try {
-            sourceQuery = (await parseHogQLSelect('select * from events')) as ast.SelectQuery
+            if (query.sourceQuery.kind === 'HogQLQuery') {
+                const queryText = query.sourceQuery.query || 'select 1'
+                const result = await parseHogQLSelect(queryText)
+                if (!isParseError(result)) {
+                    sourceQuery = result as ast.SelectQuery
+                }
+            }
         } catch {
             sourceQuery = null
+        }
+    }
+
+    // Default source query if none provided
+    if (!sourceQuery && query.language === HogLanguage.hogQLExpr) {
+        try {
+            const result = await parseHogQLSelect('select 1')
+            if (!isParseError(result)) {
+                sourceQuery = result as ast.SelectQuery
+            }
+        } catch {
+            // Ignore
         }
     }
 
@@ -530,8 +557,15 @@ export async function getHogQLAutocomplete(query: HogQLAutocomplete): Promise<Ho
                 query.language === HogLanguage.hogTemplate ||
                 query.language === HogLanguage.liquid
             ) {
-                if (node) {
-                    const hogVars = gatherHogVariablesInScope(rootNode, node)
+                // For Hog, we need a specific node to find variables in scope
+                // Use the found node, or try parent node, or fallback to a dummy end-of-program node
+                let targetNode = node || parentNode
+                if (!targetNode && rootNode) {
+                    // Create a synthetic position at the end for variable gathering
+                    targetNode = rootNode
+                }
+                if (targetNode) {
+                    const hogVars = gatherHogVariablesInScope(rootNode, targetNode)
                     extendResponses(hogVars, response.suggestions, 'Variable')
                 }
             }
@@ -548,6 +582,16 @@ export async function getHogQLAutocomplete(query: HogQLAutocomplete): Promise<Ho
                 addGlobalsToSuggestions(filteredGlobals, response)
             }
 
+            // For Hog programs without SELECT queries, we're done after adding variables/globals
+            if (
+                !selectAst &&
+                (query.language === HogLanguage.hog ||
+                    query.language === HogLanguage.hogTemplate ||
+                    query.language === HogLanguage.liquid)
+            ) {
+                break
+            }
+
             if (!selectAst) {
                 break
             }
@@ -561,6 +605,7 @@ export async function getHogQLAutocomplete(query: HogQLAutocomplete): Promise<Ho
                 nearestSelect.select_from.alias != null
 
             // Handle field suggestions
+            // Exclude cases where parent is JoinExpr (table name context) or Placeholder
             if (
                 node &&
                 'chain' in node &&
@@ -569,7 +614,7 @@ export async function getHogQLAutocomplete(query: HogQLAutocomplete): Promise<Ho
                 nearestSelect.select_from &&
                 parentNode &&
                 !('table' in parentNode) &&
-                !('expr' in parentNode && 'chain' in parentNode)
+                parentNode.type !== 'Placeholder'
             ) {
                 const field = node as ast.Field
                 const selectFrom = nearestSelect.select_from as ast.JoinExpr
@@ -604,7 +649,15 @@ export async function getHogQLAutocomplete(query: HogQLAutocomplete): Promise<Ho
                     const isLastPart = index >= chainLen - 2
 
                     if (isLastPart) {
-                        if ('fields' in currentTable) {
+                        // Check if this chain part exists in the current table
+                        if ('fields' in currentTable && chainPart in currentTable.fields) {
+                            // The field exists, navigate into it and show its fields
+                            currentTable = currentTable.fields[chainPart]
+                            if ('fields' in currentTable) {
+                                appendTableFieldsToResponse(currentTable, response.suggestions, query.language)
+                            }
+                        } else if ('fields' in currentTable) {
+                            // The field doesn't exist, show all fields at current level
                             appendTableFieldsToResponse(currentTable, response.suggestions, query.language)
                         }
                         break
