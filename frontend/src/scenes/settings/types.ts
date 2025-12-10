@@ -160,6 +160,7 @@ export type SettingId =
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
     | 'organization-ip-anonymization-default'
+    | 'allow-impersonation'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
