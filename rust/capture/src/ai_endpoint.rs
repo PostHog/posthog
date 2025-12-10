@@ -38,10 +38,12 @@ pub struct AIEndpointResponse {
     pub accepted_parts: Vec<PartInfo>,
 }
 
-/// A blob part from the multipart request
+/// A blob part from the multipart request, including headers for S3 storage
 #[derive(Debug)]
 struct BlobPart {
     name: String,
+    content_type: Option<String>,
+    content_encoding: Option<String>,
     data: Bytes,
 }
 
@@ -202,13 +204,18 @@ pub async fn ai_handler(
         })?;
 
         // Convert blob_parts to format expected by AiBlobStorage
-        let blobs: Vec<(String, Bytes)> = parsed
+        let blobs: Vec<crate::ai_s3::BlobData> = parsed
             .blob_parts
             .iter()
             .filter_map(|bp| {
-                bp.name
-                    .strip_prefix("event.properties.")
-                    .map(|prop_name| (prop_name.to_string(), bp.data.clone()))
+                bp.name.strip_prefix("event.properties.").map(|prop_name| {
+                    crate::ai_s3::BlobData {
+                        property_name: prop_name.to_string(),
+                        content_type: bp.content_type.clone(),
+                        content_encoding: bp.content_encoding.clone(),
+                        data: bp.data.clone(),
+                    }
+                })
             })
             .collect();
 
@@ -566,12 +573,14 @@ fn process_blob_part(
         name: field_name.clone(),
         length: field_data_len,
         content_type: content_type.clone(),
-        content_encoding,
+        content_encoding: content_encoding.clone(),
     };
 
-    // Create blob part - moves field_name, field_data
+    // Create blob part - moves field_name, field_data, includes headers for S3 storage
     let blob_part = BlobPart {
         name: field_name,
+        content_type,
+        content_encoding,
         data: field_data, // MOVE - no clone of actual blob data!
     };
 

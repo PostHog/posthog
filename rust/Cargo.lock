@@ -1560,6 +1560,7 @@ dependencies = [
  "flate2",
  "futures",
  "health",
+ "httparse",
  "limiters",
  "lz-str",
  "metrics",
