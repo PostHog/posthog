@@ -337,7 +337,7 @@ ssh_authorized_keys:
 
         # Update .env file with new image tag
         update_env_cmd = f"""
-cd /root && \
+cd /hobby && \
 sed -i 's/^POSTHOG_APP_TAG=.*/POSTHOG_APP_TAG={new_sha}/' .env && \
 grep POSTHOG_APP_TAG .env
 """
@@ -348,7 +348,7 @@ grep POSTHOG_APP_TAG .env
 
         # Pull new images with retry logic
         print("🐋 Pulling new Docker images...")
-        pull_cmd = 'cd /root && for attempt in 1 2 3; do echo "Pull attempt $attempt/3"; docker-compose pull && break || { echo "Pull failed, waiting 30s..."; sleep 30; }; done'
+        pull_cmd = 'cd /hobby && for attempt in 1 2 3; do echo "Pull attempt $attempt/3"; docker-compose pull && break || { echo "Pull failed, waiting 30s..."; sleep 30; }; done'
         result = self.run_ssh_command(pull_cmd, timeout=800)
         if result["exit_code"] != 0:
             raise RuntimeError(f"Failed to pull images after 3 attempts: {result['stderr']}")
@@ -356,7 +356,7 @@ grep POSTHOG_APP_TAG .env
 
         # Restart services with new images
         print("🔄 Restarting services...")
-        restart_cmd = "cd /root && docker-compose up -d"
+        restart_cmd = "cd /hobby && docker-compose up -d"
         result = self.run_ssh_command(restart_cmd, timeout=300)
         if result["exit_code"] != 0:
             raise RuntimeError(f"Failed to restart services: {result['stderr']}")
