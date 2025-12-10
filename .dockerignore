@@ -55,7 +55,11 @@ common/*/*/node_modules
 common/*/node_modules
 common/*/*/dist
 common/*/dist
-products/*/node_modules
+products/**/node_modules
+plugin-server/node_modules
+ee/**/node_modules
+docs/**/node_modules
+**/__pycache__
 rust/.env
 rust/.github
 rust/cyclotron-node/dist
