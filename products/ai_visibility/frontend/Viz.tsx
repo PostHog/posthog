@@ -320,52 +320,31 @@ function ComparisonCard({
     comparison: CompetitorComparison
     brandName: string
 }): JSX.Element {
-    const youWidth = comparison.youLeadPercentage
-    const theyWidth = 100 - comparison.youLeadPercentage
-    const tieWidth = 0 // simplified
-
     return (
         <div className="border rounded-lg p-4 bg-bg-light">
             <div className="flex items-center justify-between mb-2">
-                <span className="text-primary font-semibold">{brandName}</span>
+                <span className="font-semibold">{brandName}</span>
                 <span className="text-xs text-muted">vs</span>
                 <span className="font-semibold">{comparison.competitor}</span>
             </div>
             <p className="text-sm text-muted mb-2">
-                {brandName} appears higher for {comparison.youLeadPercentage}% of shared prompts
+                {brandName} appears higher in <span className="font-bold">{comparison.youLeadPercentage}%</span> of
+                prompts
             </p>
-            <p className="text-xs text-muted mb-3">{comparison.sharedPrompts} shared prompts</p>
+            <p className="text-xs text-muted mb-3">{comparison.sharedPrompts} prompts analyzed</p>
 
-            {/* Progress bar */}
-            <div className="flex h-3 rounded overflow-hidden mb-4">
-                <div className="bg-primary" style={{ width: `${youWidth}%` }} />
-                <div className="bg-gray-300" style={{ width: `${tieWidth}%` }} />
-                <div className="bg-warning" style={{ width: `${theyWidth}%` }} />
+            {/* Progress bar - brand percentage from left in blue */}
+            <div className="flex h-3 rounded overflow-hidden mb-4 bg-gray-200">
+                <div className="bg-[#3b82f6]" style={{ width: `${comparison.youLeadPercentage}%` }} />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <p className="text-xs text-primary font-medium mb-2">● {brandName} leads in:</p>
-                    <div className="space-y-1">
-                        {comparison.youLeadsIn.slice(0, 5).map((item) => (
-                            <div key={item.topic} className="flex justify-between text-xs">
-                                <span className="text-muted">{item.topic}</span>
-                                <span>{item.percentage}%</span>
-                            </div>
-                        ))}
+            <div className="space-y-1">
+                {comparison.topicResults.map((result) => (
+                    <div key={result.topic} className="flex justify-between text-xs">
+                        <span className="text-muted">{result.topic}</span>
+                        <span>{result.youPercentage}%</span>
                     </div>
-                </div>
-                <div>
-                    <p className="text-xs text-warning font-medium mb-2">● {comparison.competitor} leads in:</p>
-                    <div className="space-y-1">
-                        {comparison.theyLeadIn.slice(0, 5).map((item) => (
-                            <div key={item.topic} className="flex justify-between text-xs">
-                                <span className="text-muted">{item.topic}</span>
-                                <span>{item.percentage}%</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                ))}
             </div>
         </div>
     )
@@ -459,11 +438,11 @@ function CompetitorTopicsHeatmap({
                                                 )}
                                             >
                                                 {showRank
-                                                    ? isBrand
-                                                        ? topic.avgRank > 0
-                                                            ? `#${topic.avgRank.toFixed(1)}`
-                                                            : '-'
-                                                        : '-'
+                                                    ? (() => {
+                                                          const cell = getCell(topic.name, comp.name)
+                                                          const rank = cell?.avgRank
+                                                          return rank && rank > 0 ? `#${rank}` : '-'
+                                                      })()
                                                     : `${cellValue}%`}
                                             </div>
                                         </td>
