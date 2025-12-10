@@ -9,9 +9,9 @@ import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/Au
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
+import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
@@ -88,7 +88,10 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
                     <WebAnalyticsDomainSelector />
                     <WebAnalyticsDeviceToggle />
-                    <LiveUserCount docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user" />
+                    <LiveUserCount
+                        docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
+                        dataAttr="web-analytics-live-user-count"
+                    />
                 </>
             }
             right={

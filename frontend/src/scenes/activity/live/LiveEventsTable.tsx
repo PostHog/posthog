@@ -106,12 +106,8 @@ export function LiveEventsTable(): JSX.Element {
             />
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex gap-2">
-                    <LiveUserCount
-                        pollIntervalMs={LIVE_EVENTS_POLL_INTERVAL_MS}
-                        bordered={true}
-                        showUpdatedTimeInTooltip={false}
-                    />
-                    <LiveRecordingsCount pollIntervalMs={LIVE_EVENTS_POLL_INTERVAL_MS} bordered={true} />
+                    <LiveUserCount pollIntervalMs={LIVE_EVENTS_POLL_INTERVAL_MS} showUpdatedTimeInTooltip={false} />
+                    <LiveRecordingsCount pollIntervalMs={LIVE_EVENTS_POLL_INTERVAL_MS} />
                 </div>
 
                 <div className="flex gap-2">

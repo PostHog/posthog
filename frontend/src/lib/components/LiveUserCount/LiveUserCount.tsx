@@ -1,15 +1,16 @@
 import './LiveUserCount.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconPerson, IconVideoCamera } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LiveUserCountLogicProps, liveUserCountLogic } from './liveUserCountLogic'
@@ -60,17 +61,19 @@ function LiveUserCountTooltipContent({
     )
 }
 
-export interface LiveUserCountProps {
+interface LiveCountProps {
     pollIntervalMs?: number
-    docLink?: string
-    bordered?: boolean
-    showUpdatedTimeInTooltip?: boolean
 }
+
+export type LiveUserCountProps = {
+    docLink?: string
+    showUpdatedTimeInTooltip?: boolean
+    dataAttr?: string
+} & LiveCountProps
 
 export function LiveUserCount({
     pollIntervalMs = 30000,
     docLink,
-    bordered,
     showUpdatedTimeInTooltip = true,
 }: LiveUserCountProps): JSX.Element | null {
     const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs }))
@@ -85,7 +88,9 @@ export function LiveUserCount({
         }
     }, [isVisible, resumeStream, pauseStream])
 
-    return (
+    const isOnline = (liveUserCount ?? 0) > 0
+
+    return liveUserCount === null ? null : (
         <Tooltip
             title={
                 <LiveUserCountTooltipContent
@@ -98,30 +103,23 @@ export function LiveUserCount({
             docLink={docLink}
         >
             <div
-                className={clsx(
-                    'flex flex-row items-center justify-center gap-x-1',
-                    bordered && 'bg-surface-primary px-3 py-2 rounded border border-primary'
+                className={cn(
+                    'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
+                    isOnline ? 'bg-success-highlight' : 'bg-border-light'
                 )}
             >
-                <div className={clsx('live-user-indicator', (liveUserCount ?? 0) > 0 ? 'online' : 'offline')} />
-                <span className="whitespace-nowrap" data-attr="live-user-count">
-                    {liveUserCount === null ? '–' : <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong>}
+                <div className={cn('live-user-indicator', isOnline ? 'online' : 'offline')} />
+                <IconPerson className="size-4 shrink-0 min-[660px]:hidden" />
+                <span className="text-xs font-medium whitespace-nowrap" data-attr="web-analytics-live-user-count">
+                    <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong>
                 </span>
-                <span>recently active recordings</span>
+                <span className="hidden min-[660px]:inline">recently online</span>
             </div>
         </Tooltip>
     )
 }
 
-export interface LiveRecordingsCountProps {
-    pollIntervalMs?: number
-    bordered?: boolean
-}
-
-export function LiveRecordingsCount({
-    pollIntervalMs = 30000,
-    bordered,
-}: LiveRecordingsCountProps): JSX.Element | null {
+export function LiveRecordingsCount({ pollIntervalMs = 30000 }: LiveCountProps): JSX.Element | null {
     const { activeRecordings } = useValues(liveUserCountLogic({ pollIntervalMs }))
     const { pauseStream, resumeStream } = useActions(liveUserCountLogic({ pollIntervalMs }))
 
@@ -134,6 +132,12 @@ export function LiveRecordingsCount({
         }
     }, [isVisible, resumeStream, pauseStream])
 
+    const hasRecordings = (activeRecordings ?? 0) > 0
+
+    if (activeRecordings === null) {
+        return null
+    }
+
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.LIVE_EVENTS_ACTIVE_RECORDINGS}>
             <Tooltip
@@ -145,25 +149,17 @@ export function LiveRecordingsCount({
                 placement="right"
             >
                 <div
-                    className={clsx(
-                        'flex justify-center items-center gap-x-1',
-                        bordered && 'bg-surface-primary px-3 py-2 rounded border border-primary'
+                    className={cn(
+                        'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
+                        hasRecordings ? 'bg-success-highlight' : 'bg-border-light'
                     )}
                 >
-                    <div
-                        className={clsx(
-                            'live-user-indicator',
-                            activeRecordings != null && (activeRecordings ?? 0) > 0 ? 'online' : 'offline'
-                        )}
-                    />
-                    <span className="whitespace-nowrap" data-attr="live-recordings-count">
-                        {activeRecordings === null ? (
-                            '–'
-                        ) : (
-                            <strong>{humanFriendlyLargeNumber(activeRecordings)}</strong>
-                        )}
+                    <div className={cn('live-user-indicator', hasRecordings ? 'online' : 'offline')} />
+                    <IconVideoCamera className="size-4 shrink-0 min-[660px]:hidden" />
+                    <span className="text-xs font-medium whitespace-nowrap" data-attr="live-recordings-count">
+                        <strong>{humanFriendlyLargeNumber(activeRecordings)}</strong>
                     </span>
-                    <span>recently active recordings</span>
+                    <span className="hidden min-[660px]:inline">recently active recordings</span>
                 </div>
             </Tooltip>
         </FlaggedFeature>
