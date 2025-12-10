@@ -546,13 +546,10 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
         assert series_with["days"] == ["2025-01-01", "2025-01-02"]
         assert series_with["data"] == [2, 2]
 
-        # Verify the preaggregation table was used in the generated SQL
-        assert response_with.hogql is not None
-        assert (
-            "preaggregation_results" in response_with.hogql
-        ), f"Expected preaggregation_results table in generated HogQL, got: {response_with.hogql[:500]}..."
-
-        # Verify preaggregation rows were created in the table
+        # Note: TrendsQueryResponse only has `hogql` (not `clickhouse`), and `hogql` is generated
+        # before execute_hogql_query runs, so it shows the original AST. The transformation happens
+        # inside execute_hogql_query. To verify the transformation worked, we check that
+        # preaggregation rows were created in the table.
         preagg_results = sync_execute(
             f"""
             SELECT count()
