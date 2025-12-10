@@ -64,6 +64,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::init_with_defaults()?;
 
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            warn!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
+
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
     // dedicated PG conn pool for serving propdefs API queries only (not currently live in prod)

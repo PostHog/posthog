@@ -367,6 +367,12 @@ export type AssistantTool =
     | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
+    | 'create_task'
+    | 'run_task'
+    | 'get_task_run'
+    | 'get_task_run_logs'
+    | 'list_tasks'
+    | 'list_task_runs'
     // Below are modes-only
     | 'execute_sql'
     | 'switch_mode'

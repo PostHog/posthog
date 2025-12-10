@@ -1,5 +1,7 @@
 import { RGBColor } from 'd3'
 
+import { tryDecodeURIComponent } from 'lib/utils'
+
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 import { FunnelPathType } from '~/types'
 
@@ -109,6 +111,8 @@ export function pageUrl(d: PathNodeData, display?: boolean, showFullUrls?: boole
         if (url.hash?.includes('/')) {
             name += url.hash
         }
+        // Decode URL-encoded characters (e.g., %3C becomes <) to display path cleaning aliases correctly
+        name = tryDecodeURIComponent(name)
     } catch {
         // discard if invalid url
     }
