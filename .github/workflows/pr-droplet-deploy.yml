@@ -77,7 +77,7 @@ jobs:
                   if ! doctl compute ssh-key get ${{ env.SSH_KEY_NAME }} --format ID --no-header 2>/dev/null; then
                     echo "Creating SSH key in DigitalOcean..."
                     doctl compute ssh-key create ${{ env.SSH_KEY_NAME }} \
-                      --public-key "${{ secrets.DO_SSH_PUBLIC_KEY }}"
+                      --public-key "${{ secrets.DO_DEPLOY_SSH_PUBLIC_KEY }}"
                   fi
 
             - name: Create droplet
@@ -122,7 +122,7 @@ jobs:
             - name: Setup SSH key for connection
               run: |
                   mkdir -p ~/.ssh
-                  echo "${{ secrets.DO_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+                  echo "${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
                   chmod 600 ~/.ssh/id_rsa
                   ssh-keyscan -H ${{ steps.get-ip.outputs.ip }} >> ~/.ssh/known_hosts
 
