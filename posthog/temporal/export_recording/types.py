@@ -1,4 +1,4 @@
-from pathlib import Path
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -8,11 +8,7 @@ class ExportRecordingInput(BaseModel):
 
 
 class ExportContext(BaseModel):
+    export_id: UUID
+    exported_asset_id: int
     session_id: str
     team_id: int
-
-
-class ExportData(BaseModel):
-    export_context: ExportContext
-    clickhouse_rows: Path
-    recording_data: list[Path]

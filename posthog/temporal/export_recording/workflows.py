@@ -8,11 +8,13 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.export_recording.activities import (
     build_recording_export_context,
     cleanup_export_data,
-    export_clickhouse_rows,
+    export_event_clickhouse_rows,
     export_recording_data,
+    export_recording_data_prefix,
+    export_replay_clickhouse_rows,
     store_export_data,
 )
-from posthog.temporal.export_recording.types import ExportData, ExportRecordingInput
+from posthog.temporal.export_recording.types import ExportRecordingInput
 
 
 @workflow.defn(name="export-recording")
@@ -35,9 +37,9 @@ class ExportRecordingWorkflow(PostHogWorkflow):
         )
 
         async with asyncio.TaskGroup() as export_tasks:
-            clickhouse_task = export_tasks.create_task(
+            export_tasks.create_task(
                 workflow.execute_activity(
-                    export_clickhouse_rows,
+                    export_replay_clickhouse_rows,
                     export_context,
                     start_to_close_timeout=timedelta(minutes=30),
                     schedule_to_close_timeout=timedelta(hours=3),
@@ -47,7 +49,19 @@ class ExportRecordingWorkflow(PostHogWorkflow):
                     ),
                 )
             )
-            recording_task = export_tasks.create_task(
+            export_tasks.create_task(
+                workflow.execute_activity(
+                    export_event_clickhouse_rows,
+                    export_context,
+                    start_to_close_timeout=timedelta(minutes=30),
+                    schedule_to_close_timeout=timedelta(hours=3),
+                    retry_policy=common.RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(minutes=1),
+                    ),
+                )
+            )
+            export_tasks.create_task(
                 workflow.execute_activity(
                     export_recording_data,
                     export_context,
@@ -59,16 +73,22 @@ class ExportRecordingWorkflow(PostHogWorkflow):
                     ),
                 )
             )
-
-        export_data = ExportData(
-            export_context=export_context,
-            clickhouse_rows=clickhouse_task.result(),
-            recording_data=recording_task.result(),
-        )
+            export_tasks.create_task(
+                workflow.execute_activity(
+                    export_recording_data_prefix,
+                    export_context,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    schedule_to_close_timeout=timedelta(hours=3),
+                    retry_policy=common.RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(minutes=1),
+                    ),
+                )
+            )
 
         await workflow.execute_activity(
             store_export_data,
-            export_data,
+            export_context,
             start_to_close_timeout=timedelta(minutes=30),
             schedule_to_close_timeout=timedelta(hours=3),
             retry_policy=common.RetryPolicy(
@@ -79,7 +99,7 @@ class ExportRecordingWorkflow(PostHogWorkflow):
 
         await workflow.execute_activity(
             cleanup_export_data,
-            export_data,
+            export_context,
             start_to_close_timeout=timedelta(minutes=5),
             schedule_to_close_timeout=timedelta(hours=3),
             retry_policy=common.RetryPolicy(
