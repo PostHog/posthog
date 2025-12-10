@@ -107,6 +107,7 @@ export interface ProductTourForm {
     name: string
     description: string
     content: ProductTourContent
+    auto_launch: boolean
     targeting_flag_filters: FeatureFlagFilters | null
 }
 
@@ -114,6 +115,7 @@ const NEW_PRODUCT_TOUR: ProductTourForm = {
     name: '',
     description: '',
     content: { steps: [] },
+    auto_launch: false,
     targeting_flag_filters: null,
 }
 
@@ -267,6 +269,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     name: formValues.name,
                     description: formValues.description,
                     content: formValues.content,
+                    auto_launch: formValues.auto_launch,
                     targeting_flag_filters: formValues.targeting_flag_filters,
                 }
 
@@ -351,6 +354,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     name: productTour.name,
                     description: productTour.description,
                     content: productTour.content,
+                    auto_launch: productTour.auto_launch,
                     targeting_flag_filters: productTour.targeting_flag_filters,
                 })
             }
@@ -363,6 +367,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     name: values.productTour.name,
                     description: values.productTour.description,
                     content: values.productTour.content,
+                    auto_launch: values.productTour.auto_launch,
                     targeting_flag_filters: values.productTour.targeting_flag_filters,
                 })
             }
