@@ -2,7 +2,7 @@ import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, r
 import { loaders } from 'kea-loaders'
 
 import { BRAND_DISPLAY_NAMES, MOCK_DATA_BY_BRAND } from './mockData'
-import { DashboardData, PlatformMention, Prompt } from './types'
+import { DashboardData, MentionRateDataPoint, PlatformMention, Prompt, ShareOfVoice } from './types'
 import type { vizLogicType } from './vizLogicType'
 
 export interface VizLogicProps {
@@ -21,7 +21,7 @@ interface ReadyResponse {
     results: Record<string, unknown>
 }
 
-type ApiResponse = StartedResponse | ReadyResponse
+export type ApiResponse = StartedResponse | ReadyResponse
 
 const POLL_INTERVAL_MS = 5000
 
@@ -77,7 +77,7 @@ export const vizLogic = kea<vizLogicType>([
         lastError: [
             null as string | null,
             {
-                loadTriggerResultFailure: (_, { error }) => error?.message ?? 'Failed to start workflow',
+                loadTriggerResultFailure: (_, { error }) => error ?? 'Failed to start workflow',
                 loadTriggerResultSuccess: () => null,
             },
         ],
@@ -142,27 +142,32 @@ export const vizLogic = kea<vizLogicType>([
 
         filteredPrompts: [
             (s) => [s.prompts, s.filterCategory],
-            (prompts, category) => {
+            (prompts: Prompt[], category): Prompt[] => {
                 if (category === 'all') {
                     return prompts
                 }
-                return prompts.filter((p) => p.category === category)
+                return prompts.filter((p: Prompt) => p.category === category)
             },
         ],
 
         chartData: [
             (s) => [s.mentionRateOverTime],
-            (mentionRate) => {
+            (mentionRate: MentionRateDataPoint[]) => {
                 if (!mentionRate.length) {
-                    return { dates: [], series: [] }
+                    return {
+                        dates: [] as string[],
+                        series: [] as { id: number; label: string; data: number[]; dates: string[] }[],
+                    }
                 }
-                const dates = mentionRate.map((d) => d.date)
+                const dates = mentionRate.map((d: MentionRateDataPoint) => d.date)
                 const keys = Object.keys(mentionRate[0] || {}).filter((k) => k !== 'date')
 
                 const series = keys.map((key, index) => ({
                     id: index,
                     label: key === 'you' ? 'You' : key,
-                    data: mentionRate.map((d) => (typeof d[key] === 'number' ? (d[key] as number) * 100 : 0)),
+                    data: mentionRate.map((d: MentionRateDataPoint) =>
+                        typeof d[key] === 'number' ? (d[key] as number) * 100 : 0
+                    ),
                     dates,
                 }))
 
@@ -172,7 +177,7 @@ export const vizLogic = kea<vizLogicType>([
 
         shareOfVoiceChartData: [
             (s) => [s.shareOfVoice, s.brandDisplayName],
-            (sov, brandName) => {
+            (sov: ShareOfVoice, brandName: string) => {
                 const entries = [
                     { name: brandName, value: sov.you },
                     ...Object.entries(sov.competitors).map(([name, value]) => ({ name, value })),
@@ -183,17 +188,17 @@ export const vizLogic = kea<vizLogicType>([
 
         mentionStats: [
             (s) => [s.prompts],
-            (prompts) => {
+            (prompts: Prompt[]) => {
                 const total = prompts.length
-                const mentioned = prompts.filter((p) => p.you_mentioned).length
-                const topPosition = prompts.filter((p) => {
-                    return Object.values(p.platforms).some(
-                        (plat: PlatformMention | undefined) => plat?.mentioned && plat.position === 1
+                const mentioned = prompts.filter((p: Prompt) => p.you_mentioned).length
+                const topPosition = prompts.filter((p: Prompt) => {
+                    return (Object.values(p.platforms) as (PlatformMention | undefined)[]).some(
+                        (plat) => plat?.mentioned && plat.position === 1
                     )
                 }).length
-                const cited = prompts.filter((p) => {
-                    return Object.values(p.platforms).some(
-                        (plat: PlatformMention | undefined) => plat?.mentioned && plat.cited
+                const cited = prompts.filter((p: Prompt) => {
+                    return (Object.values(p.platforms) as (PlatformMention | undefined)[]).some(
+                        (plat) => plat?.mentioned && plat.cited
                     )
                 }).length
 
