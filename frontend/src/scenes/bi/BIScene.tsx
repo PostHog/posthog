@@ -439,11 +439,11 @@ export function BIScene(): JSX.Element {
                         </LemonCard>
                     )}
 
-                    <LemonCard className="flex-1 min-h-0 flex flex-col" hoverEffect={false}>
+                    <LemonCard className="flex-1 min-h-0 flex flex-col min-w-full max-w-full" hoverEffect={false}>
                         {selectedFields.length === 0 ? (
                             <div className="text-muted">Select a table from the left to start the analysis.</div>
                         ) : (
-                            <div className="flex-1 min-h-0 overflow-auto">
+                            <div className="flex-1 min-h-0 overflow-auto max-w-full">
                                 <LemonTable
                                     dataSource={rows}
                                     loading={queryResponseLoading && selectedFields.length > 0}
