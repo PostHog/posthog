@@ -109,8 +109,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     "PostgreSQLIncompatibleSchemaError",
     # Raised when a transaction fails to complete after a certain number of retries.
     "PostgreSQLTransactionError",
-    # Invalid filter used.
-    "InvalidFilterError",
 )
 
 
