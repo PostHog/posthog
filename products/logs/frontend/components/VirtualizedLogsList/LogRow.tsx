@@ -115,9 +115,12 @@ export function LogRow({
                             icon={
                                 <IconChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
                             }
-                            onClick={(e) => {
+                            onMouseDown={(e) => {
                                 e.stopPropagation()
                                 onToggleExpand()
+                            }}
+                            onClick={(e) => {
+                                e.stopPropagation()
                             }}
                         />
                     </div>
@@ -186,14 +189,17 @@ export function LogRow({
                             size="xsmall"
                             noPadding
                             icon={pinned ? <IconPinFilled /> : <IconPin />}
-                            onClick={(e) => {
+                            onMouseDown={(e) => {
                                 e.stopPropagation()
                                 onTogglePin(log)
+                            }}
+                            onClick={(e) => {
+                                e.stopPropagation()
                             }}
                             tooltip={pinned ? 'Unpin log' : 'Pin log'}
                             className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
                         />
-                        <div className="opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
+                        <div className="opacity-0 group-hover:opacity-100" onMouseDown={(e) => e.stopPropagation()}>
                             <LogsViewerRowActions log={log} />
                         </div>
                     </div>
@@ -212,7 +218,7 @@ export function LogRow({
                     pinned && 'bg-warning-highlight',
                     pinned && showPinnedWithOpacity && 'opacity-50'
                 )}
-                onClick={onSetCursor}
+                onMouseDown={onSetCursor}
             >
                 {LOG_COLUMNS.map(renderCell)}
             </div>
