@@ -204,11 +204,6 @@ urlpatterns = [
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
-    # SDK endpoint for push subscription registration (uses api_key for auth)
-    path(
-        "api/projects/<str:api_key>/push_subscriptions/register/",
-        push_subscription.sdk_push_subscription_register,
-    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(
@@ -235,6 +230,8 @@ urlpatterns = [
     path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
+    # SDK endpoints
+    opt_slash_path("sdk/push_subscriptions/register", push_subscription.sdk_push_subscription_register),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),

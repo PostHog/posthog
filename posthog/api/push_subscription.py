@@ -98,12 +98,20 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 @csrf_exempt
-def sdk_push_subscription_register(request, api_key: str):
+def sdk_push_subscription_register(request):
     """
     SDK endpoint for registering push notification tokens.
 
     This endpoint is called by mobile SDKs using the API key for authentication.
-    URL: POST /api/projects/{api_key}/push_subscriptions/register/
+    URL: POST /sdk/push_subscriptions/register/
+
+    Expected payload:
+    {
+        "api_key": "phc_xxx...",
+        "distinct_id": "user-123",
+        "token": "fcm-token-abc123...",
+        "platform": "android" | "ios" | "web"
+    }
     """
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": "ok"}))
@@ -112,15 +120,19 @@ def sdk_push_subscription_register(request, api_key: str):
         return cors_response(request, JsonResponse({"error": "Method not allowed"}, status=405))
 
     try:
-        team = Team.objects.get(api_token=api_key)
-    except Team.DoesNotExist:
-        return cors_response(request, JsonResponse({"error": "Invalid API key"}, status=401))
-
-    try:
         data = load_data_from_request(request)
     except Exception as e:
         logger.warning("push_subscription_register_parse_error", error=str(e))
         return cors_response(request, JsonResponse({"error": "Invalid request body"}, status=400))
+
+    api_key = data.get("api_key")
+    if not api_key:
+        return cors_response(request, JsonResponse({"error": "api_key is required"}, status=400))
+
+    try:
+        team = Team.objects.get(api_token=api_key)
+    except Team.DoesNotExist:
+        return cors_response(request, JsonResponse({"error": "Invalid API key"}, status=401))
 
     distinct_id = data.get("distinct_id")
     token = data.get("token")
