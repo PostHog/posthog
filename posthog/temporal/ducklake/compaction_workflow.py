@@ -36,8 +36,8 @@ async def run_ducklake_compaction(input: DucklakeCompactionInput) -> dict:
     conn = duckdb.connect()
 
     try:
-        # Configure S3 access and install DuckLake extension (from core_nightly for production)
-        configure_connection(conn, config, install_extension=True, use_core_nightly=True)
+        # Configure S3 access and install DuckLake extension
+        configure_connection(conn, config, install_extension=True)
 
         # Attach the DuckLake catalog
         attach_catalog(conn, config, alias="ducklake")
