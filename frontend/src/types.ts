@@ -3246,6 +3246,7 @@ export interface ProductTourContent {
     conditions?: {
         url?: string
         urlMatchType?: 'exact' | 'contains' | 'regex'
+        selector?: string
     }
 }
 
@@ -3257,6 +3258,7 @@ export interface ProductTour {
     feature_flag_key: string | null
     targeting_flag_filters: FeatureFlagFilters | null
     content: ProductTourContent
+    auto_launch: boolean
     start_date: string | null
     end_date: string | null
     created_at: string
