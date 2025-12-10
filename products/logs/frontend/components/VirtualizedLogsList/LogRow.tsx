@@ -191,9 +191,6 @@ export function LogRow({
                                 e.stopPropagation()
                                 onToggleExpand()
                             }}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                            }}
                         />
                     </div>
                 )
@@ -306,9 +303,6 @@ export function LogRow({
                             onMouseDown={(e) => {
                                 e.stopPropagation()
                                 onTogglePin(log)
-                            }}
-                            onClick={(e) => {
-                                e.stopPropagation()
                             }}
                             tooltip={pinned ? 'Unpin log' : 'Pin log'}
                             className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
