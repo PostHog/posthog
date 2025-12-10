@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PreIngestionEvent } from '~/types'
+import { PreIngestionEvent, Team } from '~/types'
 
 import { AI_EVENT_TYPES, processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
 import { logger } from '../../../utils/logger'
@@ -13,7 +13,8 @@ import { EventPipelineRunner } from './runner'
 export async function prepareEventStep(
     runner: EventPipelineRunner,
     event: PluginEvent,
-    processPerson: boolean
+    processPerson: boolean,
+    team: Team
 ): Promise<PreIngestionEvent> {
     const { team_id, uuid } = event
     const tsParsingIngestionWarnings: Promise<unknown>[] = []
@@ -37,7 +38,7 @@ export async function prepareEventStep(
     const preIngestionEvent = await runner.eventsProcessor.processEvent(
         String(event.distinct_id),
         event,
-        team_id,
+        team,
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid!, // it will throw if it's undefined,
         processPerson,
