@@ -134,6 +134,139 @@ describe('HogQL Autocomplete', () => {
         })
     })
 
+    describe('Lazy Joins and Nested Fields', () => {
+        it('should autocomplete lazy join fields (pdi)', async () => {
+            const query = 'select pdi. from events'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 11, 11))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames).toContain('distinct_id')
+            expect(fieldNames).toContain('person_id')
+        })
+
+        it('should autocomplete nested lazy joins (person)', async () => {
+            const query = 'select person. from events'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 14, 14))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames.length).toBeGreaterThan(0)
+            expect(fieldNames).toContain('id')
+            expect(fieldNames).toContain('created_at')
+        })
+
+        it('should autocomplete recursive fields through lazy joins', async () => {
+            const query = 'select pdi.person.properties. from events'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 29, 29))
+
+            // Should suggest person properties
+            expect(results.suggestions.length).toBeGreaterThan(0)
+        })
+
+        it('should autocomplete virtual tables (poe)', async () => {
+            const query = 'select poe. from events'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 11, 11))
+
+            // poe (person overrides events) is a virtual table that should have suggestions
+            expect(results.suggestions.length).toBeGreaterThan(0)
+        })
+    })
+
+    describe('Subqueries and CTEs', () => {
+        it('should autocomplete from subquery columns', async () => {
+            const query = 'select e from (select event from events)'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 7, 8))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames).toContain('event')
+            expect(fieldNames).not.toContain('properties')
+        })
+
+        it('should autocomplete from WITH CTE', async () => {
+            const query = 'with blah as (select event from events) select e from blah'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 47, 48))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames).toContain('event')
+            expect(fieldNames).not.toContain('properties')
+        })
+
+        it('should autocomplete aliased columns from subquery', async () => {
+            const query = 'select p from (select event as potato from events)'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 7, 8))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames).toContain('potato')
+            expect(fieldNames).not.toContain('event')
+            expect(fieldNames).not.toContain('properties')
+        })
+
+        it('should autocomplete constant typed columns from subquery', async () => {
+            const query = "select p from (select 'hello' as potato from events)"
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 7, 8))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames).toContain('potato')
+            expect(fieldNames).not.toContain('event')
+        })
+
+        it('should autocomplete in nested subqueries - inner', async () => {
+            const query = 'select event, (select  from persons) as blah from events'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 22, 22))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames).toContain('id')
+            expect(fieldNames).toContain('created_at')
+            expect(fieldNames).toContain('properties')
+        })
+
+        it('should autocomplete in nested subqueries - outer', async () => {
+            const query = 'select , (select id from persons) as blah from events'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 7, 7))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames).toContain('event')
+            expect(fieldNames).toContain('timestamp')
+        })
+    })
+
+    describe('JOIN Statements', () => {
+        it('should autocomplete fields from joined table', async () => {
+            const query = 'select p. from events e left join persons p on e.person_id = p.id'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 9, 9))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames.length).toBeGreaterThan(0)
+            expect(fieldNames).toContain('id')
+            expect(fieldNames).toContain('created_at')
+            expect(fieldNames).toContain('properties')
+        })
+
+        it('should autocomplete in JOIN constraints', async () => {
+            const query = 'select p.id from events e left join persons p on e.person_id = p.'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 65, 65))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames.length).toBeGreaterThan(0)
+            expect(fieldNames).toContain('id')
+        })
+
+        it('should suggest table aliases from JOIN', async () => {
+            const query = 'select  from events e left join persons p on e.person_id = p.id'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 7, 7))
+
+            const aliases = results.suggestions.filter((s) => s.kind === 'Folder').map((s) => s.label)
+            expect(aliases).toContain('e')
+            expect(aliases).toContain('p')
+        })
+
+        it('should not suggest non-existing aliases', async () => {
+            const query = 'select o. from events e'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 9, 9))
+
+            expect(results.suggestions.length).toBe(0)
+        })
+    })
+
     describe('Expression Autocomplete', () => {
         // TODO: Fix expression autocomplete - need to debug why field chain resolution isn't working
         // The condition checks or node finding logic may not be handling expression context correctly

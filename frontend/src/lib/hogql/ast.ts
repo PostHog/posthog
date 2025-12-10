@@ -150,13 +150,13 @@ export interface SelectQueryType extends Type {
     columns: Record<string, Type>
     tables: Record<string, TableOrSelectType>
     ctes: Record<string, CTE>
-    anonymous_tables: [SelectQueryType | SelectSetQueryType]
+    anonymous_tables: (SelectQueryType | SelectSetQueryType)[]
     parent?: SelectQueryType | SelectSetQueryType
     is_lambda_type?: boolean
 }
 
 export interface SelectSetQueryType extends Type {
-    types: [SelectQueryType | SelectSetQueryType]
+    types: (SelectQueryType | SelectSetQueryType)[]
 }
 
 export interface SelectQueryAliasType extends Type {
@@ -202,7 +202,7 @@ export interface AsteriskType extends Type {
 }
 
 export interface FieldTraverserType extends Type {
-    chain: [string | number]
+    chain: (string | number)[]
     table_type: TableOrSelectType
 }
 
@@ -223,7 +223,7 @@ export interface UnresolvedFieldType extends Type {
 }
 
 export interface PropertyType extends Type {
-    chain: [string | number]
+    chain: (string | number)[]
     field_type: FieldType
     joined_subquery?: SelectQueryAliasType
     joined_subquery_field_name?: string
@@ -279,7 +279,7 @@ export interface ThrowStatement extends Statement {
 
 export interface TryCatchStatement extends Statement {
     try_stmt: Statement
-    catches: [[string | null, string | null, Statement]]
+    catches: [string | null, string | null, Statement][]
     finally_stmt?: Statement
 }
 
@@ -378,7 +378,7 @@ export interface Array extends Expr {
 }
 
 export interface Dict extends Expr {
-    items: [[Expr, Expr]]
+    items: [Expr, Expr][]
 }
 
 export interface TupleAccess extends Expr {
@@ -401,13 +401,13 @@ export interface Constant extends Expr {
 }
 
 export interface Field extends Expr {
-    chain: [string | number]
+    chain: (string | number)[]
     from_asterisk?: boolean
 }
 
 export interface Placeholder extends Expr {
     expr: Expr
-    chain?: [string | number]
+    chain?: (string | number)[]
     field?: string
 }
 

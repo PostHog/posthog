@@ -11,33 +11,28 @@ import {
     HogQLAutocomplete,
     HogQLAutocompleteResponse,
 } from '~/queries/schema/schema-general'
+// ====================================
+// Database Schema Types
+// ====================================
+
+import type {
+    DatabaseSchemaField,
+    DatabaseSchemaQueryResponse,
+    DatabaseSchemaTable,
+} from '~/queries/schema/schema-general'
 
 import type * as ast from './ast'
 import { isParseError, parseHogQLExpr, parseHogQLProgram, parseHogQLSelect, parseHogQLTemplateString } from './parser'
+import { Database, type HogQLContext, resolveTypes } from './resolver'
 import { TraversingVisitor, cloneExpr } from './visitor'
 
 // Constants
 const MATCH_ANY_CHARACTER = '$$_POSTHOG_ANY_$$'
 const HOGQL_CHARACTERS_TO_BE_WRAPPED = [' ', '-', '.', ':', '[', ']', '(', ')']
 
-// ====================================
-// Database Schema Types
-// ====================================
-
-export interface DatabaseField {
-    name: string
-    type?: string
-    hidden?: boolean
-}
-
-export interface DatabaseTable {
-    name: string
-    fields: Record<string, DatabaseField | DatabaseTable>
-}
-
-export interface DatabaseSchema {
-    tables: Record<string, DatabaseTable>
-}
+// Re-export for convenience
+export type { DatabaseSchemaField, DatabaseSchemaTable }
+export type DatabaseSchema = DatabaseSchemaQueryResponse
 
 // Singleton for database schema cache
 let cachedDatabaseSchema: DatabaseSchema | null = null
@@ -74,40 +69,147 @@ export function resetDatabaseSchema(): void {
  */
 async function fetchDatabaseSchemaFromAPI(): Promise<DatabaseSchema> {
     // TODO: Replace with actual API call to externalDataSources.database_schema
-    // For now, return a basic schema structure
+    // For now, return a basic schema structure with lazy tables matching the API response format
     return {
         tables: {
             events: {
+                type: 'posthog',
+                id: 'events',
                 name: 'events',
+                row_count: undefined,
                 fields: {
-                    uuid: { name: 'uuid', type: 'String' },
-                    event: { name: 'event', type: 'String' },
-                    timestamp: { name: 'timestamp', type: 'DateTime' },
-                    distinct_id: { name: 'distinct_id', type: 'String' },
-                    properties: { name: 'properties', type: 'Object' },
-                    person_id: { name: 'person_id', type: 'String' },
-                    person_properties: { name: 'person_properties', type: 'Object' },
+                    uuid: {
+                        name: 'uuid',
+                        hogql_value: 'uuid',
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    event: {
+                        name: 'event',
+                        hogql_value: 'event',
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    timestamp: {
+                        name: 'timestamp',
+                        hogql_value: 'timestamp',
+                        type: 'datetime',
+                        schema_valid: true,
+                    },
+                    distinct_id: {
+                        name: 'distinct_id',
+                        hogql_value: 'distinct_id',
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    properties: {
+                        name: 'properties',
+                        hogql_value: 'properties',
+                        type: 'json',
+                        schema_valid: true,
+                    },
+                    person_id: {
+                        name: 'person_id',
+                        hogql_value: 'person_id',
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    // Lazy table: pdi references person_distinct_ids table
                     pdi: {
                         name: 'pdi',
-                        fields: {
-                            distinct_id: { name: 'distinct_id', type: 'String' },
-                            person_id: { name: 'person_id', type: 'String' },
-                            team_id: { name: 'team_id', type: 'Integer' },
-                            version: { name: 'version', type: 'Integer' },
-                        },
+                        hogql_value: 'pdi',
+                        type: 'lazy_table',
+                        schema_valid: true,
+                        fields: ['distinct_id', 'person_id', 'team_id', 'person'],
+                        id: 'pdi',
+                        table: 'person_distinct_ids',
+                    },
+                    // Virtual table: poe (person overrides events) - actually references persons fields
+                    poe: {
+                        name: 'poe',
+                        hogql_value: 'poe',
+                        type: 'virtual_table',
+                        schema_valid: true,
+                        fields: ['id', 'created_at', 'properties', 'is_identified'],
+                        table: 'persons',
+                    },
+                    // Field traverser: person
+                    person: {
+                        name: 'person',
+                        hogql_value: 'person',
+                        type: 'field_traverser',
+                        schema_valid: true,
+                        chain: ['poe'],
                     },
                 },
             },
             persons: {
+                type: 'posthog',
+                id: 'persons',
                 name: 'persons',
                 fields: {
-                    id: { name: 'id', type: 'String' },
-                    created_at: { name: 'created_at', type: 'DateTime' },
-                    properties: { name: 'properties', type: 'Object' },
-                    is_identified: { name: 'is_identified', type: 'Boolean' },
+                    id: {
+                        name: 'id',
+                        hogql_value: 'id',
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    created_at: {
+                        name: 'created_at',
+                        hogql_value: 'created_at',
+                        type: 'datetime',
+                        schema_valid: true,
+                    },
+                    properties: {
+                        name: 'properties',
+                        hogql_value: 'properties',
+                        type: 'json',
+                        schema_valid: true,
+                    },
+                    is_identified: {
+                        name: 'is_identified',
+                        hogql_value: 'is_identified',
+                        type: 'boolean',
+                        schema_valid: true,
+                    },
+                },
+            },
+            person_distinct_ids: {
+                type: 'posthog',
+                id: 'person_distinct_ids',
+                name: 'person_distinct_ids',
+                fields: {
+                    distinct_id: {
+                        name: 'distinct_id',
+                        hogql_value: 'distinct_id',
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    person_id: {
+                        name: 'person_id',
+                        hogql_value: 'person_id',
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    team_id: {
+                        name: 'team_id',
+                        hogql_value: 'team_id',
+                        type: 'integer',
+                        schema_valid: true,
+                    },
+                    person: {
+                        name: 'person',
+                        hogql_value: 'person',
+                        type: 'lazy_table',
+                        schema_valid: true,
+                        fields: ['id', 'created_at', 'properties', 'is_identified'],
+                        id: 'person',
+                        table: 'persons',
+                    },
                 },
             },
         },
+        joins: [],
     }
 }
 
@@ -275,10 +377,229 @@ function extendResponses(
 }
 
 /**
+ * Get table from a JoinExpr, handling CTEs and subqueries
+ */
+function getTableFromJoinExpr(
+    joinExpr: ast.JoinExpr,
+    schema: DatabaseSchema,
+    ctes?: Record<string, ast.CTE>,
+    resolvedCTEs?: Map<string, DatabaseSchemaTable>
+): DatabaseSchemaTable | null {
+    // Handle base table reference
+    if (joinExpr.table && 'chain' in joinExpr.table) {
+        const field = joinExpr.table as ast.Field
+        const tableName = String(field.chain[0])
+
+        // Check if it's a CTE
+        if (ctes && tableName in ctes) {
+            // Check if we've already resolved this CTE
+            if (resolvedCTEs && resolvedCTEs.has(tableName)) {
+                return resolvedCTEs.get(tableName)!
+            }
+
+            const cte = ctes[tableName]
+            if ('select' in cte.expr && Array.isArray((cte.expr as any).select)) {
+                const selectQuery = cte.expr as ast.SelectQuery
+                // For CTEs, we need to resolve the CTE's SELECT query to get its columns
+                // CTEs are not pre-resolved in the resolver, so we need to resolve them here
+                try {
+                    const database = new Database(schema)
+                    const context: HogQLContext = {
+                        database,
+                        teamId: 1,
+                        enableSelectQueries: true,
+                    }
+                    const resolvedCTE = resolveTypes(selectQuery, context, 'hogql') as ast.SelectQuery
+                    if (resolvedCTE.type && 'columns' in resolvedCTE.type) {
+                        const table = createTableFromColumns(resolvedCTE.type as ast.SelectQueryType, tableName)
+                        // Cache the resolved CTE
+                        if (resolvedCTEs) {
+                            resolvedCTEs.set(tableName, table)
+                        }
+                        return table
+                    }
+                } catch {
+                    // If resolution fails, continue
+                }
+            }
+        }
+
+        // Regular table lookup
+        return schema.tables[tableName] || null
+    }
+
+    // Handle subquery
+    if (joinExpr.table && 'select' in joinExpr.table && Array.isArray((joinExpr.table as any).select)) {
+        const selectQuery = joinExpr.table as ast.SelectQuery
+        // We need to resolve types for the subquery to extract its columns
+        // This matches the Python implementation's resolve_fields_on_table()
+        try {
+            const database = new Database(schema)
+            const context: HogQLContext = {
+                database,
+                teamId: 1,
+                enableSelectQueries: true,
+            }
+            const resolvedSubquery = resolveTypes(selectQuery, context, 'hogql') as ast.SelectQuery
+            if (resolvedSubquery.type && 'columns' in resolvedSubquery.type) {
+                return createTableFromColumns(
+                    resolvedSubquery.type as ast.SelectQueryType,
+                    joinExpr.alias || 'subquery'
+                )
+            }
+        } catch {
+            // If resolution fails, continue
+        }
+    }
+
+    return null
+}
+
+/**
+ * Create a virtual DatabaseSchemaTable from resolved SELECT query columns
+ */
+function createTableFromColumns(selectType: ast.SelectQueryType, tableName: string): DatabaseSchemaTable {
+    const fields: Record<string, DatabaseSchemaField> = {}
+
+    for (const [columnName, columnType] of Object.entries(selectType.columns)) {
+        // Extract the field type information
+        let fieldType = 'unknown'
+
+        if ('data_type' in columnType) {
+            const constType = columnType as ast.ConstantType
+            fieldType = constType.data_type
+        } else if ('alias' in columnType && 'type' in columnType) {
+            // FieldAliasType - get the underlying type
+            const aliasType = columnType as ast.FieldAliasType
+            if ('data_type' in aliasType.type) {
+                const constType = aliasType.type as ast.ConstantType
+                fieldType = constType.data_type
+            }
+        } else if ('name' in columnType) {
+            // FieldType - this is a reference to another field
+            fieldType = 'unknown'
+        }
+
+        fields[columnName] = {
+            name: columnName,
+            hogql_value: columnName,
+            type: fieldType as any,
+            schema_valid: true,
+        }
+    }
+
+    return {
+        type: 'posthog',
+        id: tableName,
+        name: tableName,
+        fields,
+    }
+}
+
+/**
+ * Get all table aliases from a SELECT query (handling JOINs)
+ */
+function getTableAliases(
+    selectQuery: ast.SelectQuery,
+    schema: DatabaseSchema,
+    ctes?: Record<string, ast.CTE>,
+    resolvedCTEs?: Map<string, DatabaseSchemaTable>
+): Record<string, DatabaseSchemaTable> {
+    const aliases: Record<string, DatabaseSchemaTable> = {}
+
+    if (!selectQuery.select_from) {
+        return aliases
+    }
+
+    // Traverse the JOIN chain
+    let currentJoin: ast.JoinExpr | null = selectQuery.select_from
+    while (currentJoin) {
+        const table = getTableFromJoinExpr(currentJoin, schema, ctes, resolvedCTEs)
+        if (table && currentJoin.alias) {
+            aliases[currentJoin.alias] = table
+        } else if (table && currentJoin.table && 'chain' in currentJoin.table) {
+            // If no alias, use the table name
+            const field = currentJoin.table as ast.Field
+            const tableName = String(field.chain[0])
+            aliases[tableName] = table
+        }
+
+        currentJoin = currentJoin.next_join || null
+    }
+
+    return aliases
+}
+
+/**
+ * Resolve a DatabaseSchemaField to a DatabaseSchemaTable if it references one
+ */
+function resolveFieldToTable(
+    field: DatabaseSchemaField,
+    schema: DatabaseSchema,
+    currentTable?: DatabaseSchemaTable
+): DatabaseSchemaTable | null {
+    // If the field is a lazy_table or virtual_table, resolve to the actual table
+    if (field.type === 'lazy_table' || field.type === 'virtual_table') {
+        if (field.table) {
+            return schema.tables[field.table] || null
+        }
+        // If it has fields but no table reference, create a virtual table structure
+        if (field.fields && Array.isArray(field.fields)) {
+            // This is unusual but we can't resolve it without a table reference
+            return null
+        }
+    }
+
+    // If field is a field_traverser, we need to follow the chain
+    if (field.type === 'field_traverser' && field.chain && currentTable) {
+        // Follow the chain to resolve the final table
+        let resolvedTable: DatabaseSchemaTable | null = currentTable
+        for (const chainPart of field.chain) {
+            const chainPartStr = String(chainPart)
+            const nextField = resolvedTable.fields[chainPartStr]
+            if (!nextField) {
+                return null
+            }
+            resolvedTable = resolveFieldToTable(nextField, schema, resolvedTable)
+            if (!resolvedTable) {
+                return null
+            }
+        }
+        return resolvedTable
+    }
+
+    return null
+}
+
+/**
+ * Capitalize type names for display (e.g., 'string' -> 'String', 'datetime' -> 'DateTime')
+ */
+function capitalizeTypeName(typeName: string | null | undefined): string | null {
+    if (!typeName) {
+        return null
+    }
+
+    // Special cases for compound type names
+    const specialCases: Record<string, string> = {
+        datetime: 'DateTime',
+        boolean: 'Boolean',
+        integer: 'Integer',
+        json: 'JSON',
+    }
+
+    if (typeName in specialCases) {
+        return specialCases[typeName]
+    }
+
+    // Default: capitalize first letter
+    return typeName.charAt(0).toUpperCase() + typeName.slice(1)
+}
+
+/**
  * Add table fields to suggestions
  */
 function appendTableFieldsToResponse(
-    table: DatabaseTable,
+    table: DatabaseSchemaTable,
     suggestions: AutocompleteCompletionItem[],
     language: HogLanguage
 ): void {
@@ -286,13 +607,8 @@ function appendTableFieldsToResponse(
     const details: (string | null)[] = []
 
     for (const [fieldName, field] of Object.entries(table.fields)) {
-        // Skip hidden fields
-        if ('hidden' in field && field.hidden) {
-            continue
-        }
-
         keys.push(fieldName)
-        details.push(field.type ?? null)
+        details.push(capitalizeTypeName(field.type))
     }
 
     extendResponses(
@@ -511,11 +827,16 @@ export async function getHogQLAutocomplete(query: HogQLAutocomplete): Promise<Ho
                 continue
             }
 
-            // Find node at position
+            // Find node at position FIRST (before resolving types)
             const extra = query.language === HogLanguage.hogTemplate ? 2 : 0
             const findNode = new GetNodeAtPositionTraverser(rootNode, queryStart + extra, queryEnd + extra)
             const node = findNode.node
             const parentNode = findNode.parentNode
+
+            // Note: We DON'T resolve types on the entire tree upfront like the old implementation did.
+            // Instead, we resolve types only when needed (e.g., in getTableFromJoinExpr for subqueries).
+            // This matches the Python implementation and avoids the issue of matching resolved nodes
+            // to unresolved nodes after the tree is cloned by resolveTypes().
 
             // Skip if we're in a constant in a template string
             if (query.language === HogLanguage.hogTemplate && node && 'value' in node) {
@@ -596,7 +917,9 @@ export async function getHogQLAutocomplete(query: HogQLAutocomplete): Promise<Ho
                 break
             }
 
-            const nearestSelect = findNode.nearestSelectQuery || selectAst
+            // Use the nearest SELECT from the traverser, or fall back to the root SELECT
+            // This matches the Python implementation: nearest_select = find_node.nearest_select_query or select_ast
+            const nearestSelect: ast.SelectQuery | null = findNode.nearestSelectQuery || selectAst
             const tableHasAlias =
                 nearestSelect &&
                 'select_from' in nearestSelect &&
@@ -619,52 +942,150 @@ export async function getHogQLAutocomplete(query: HogQLAutocomplete): Promise<Ho
                 const field = node as ast.Field
                 const selectFrom = nearestSelect.select_from as ast.JoinExpr
 
-                // Get table from schema
-                let tableName = 'events'
-                if (selectFrom.table && 'chain' in selectFrom.table) {
-                    const tableField = selectFrom.table as ast.Field
-                    tableName = String(tableField.chain[0])
-                }
+                // Get CTEs from the nearest select query
+                // After type resolution, CTEs are in the type, not directly on the node
+                const ctes =
+                    (nearestSelect.type && 'ctes' in nearestSelect.type
+                        ? nearestSelect.type.ctes
+                        : nearestSelect.ctes) || (selectAst?.ctes as Record<string, ast.CTE> | undefined)
 
-                const table = schema.tables[tableName]
+                // Create cache for resolved CTEs
+                const resolvedCTEs = new Map<string, DatabaseSchemaTable>()
+
+                // Get the base table (handles CTEs, subqueries, and regular tables)
+                let table = getTableFromJoinExpr(selectFrom, schema, ctes, resolvedCTEs)
                 if (!table) {
                     continue
                 }
 
                 const chainLen = field.chain.length
 
-                // Handle table alias
-                if (tableHasAlias && chainLen === 1) {
-                    const alias = (selectFrom as any).alias
-                    if (alias) {
-                        extendResponses([alias], response.suggestions, 'Folder', undefined, ['Table'])
-                    }
+                // Get all table aliases (for JOINs)
+                const tableAliases = getTableAliases(nearestSelect, schema, ctes, resolvedCTEs)
+
+                // Check if the FROM is a subquery without an alias - if so, use its columns directly
+                const isAnonymousSubquery =
+                    selectFrom.table &&
+                    'select' in selectFrom.table &&
+                    Array.isArray((selectFrom.table as any).select) &&
+                    !selectFrom.alias
+
+                // Handle table alias suggestion
+                if (tableHasAlias && chainLen === 1 && !isAnonymousSubquery) {
+                    const aliasNames = Object.keys(tableAliases)
+                    extendResponses(
+                        aliasNames,
+                        response.suggestions,
+                        'Folder',
+                        undefined,
+                        aliasNames.map(() => 'Table')
+                    )
                     break
                 }
 
-                // Navigate through field chain
-                let currentTable: DatabaseTable | DatabaseField = table
+                // Check if the first chain part is a table alias
+                if (chainLen > 0 && tableHasAlias && !isAnonymousSubquery) {
+                    const firstPart = String(field.chain[0])
+                    if (firstPart in tableAliases) {
+                        table = tableAliases[firstPart]
+                        // Start navigation from index 1
+                        const remainingChain = field.chain.slice(1)
+                        if (remainingChain.length === 0) {
+                            // Just the alias, show all fields
+                            appendTableFieldsToResponse(table, response.suggestions, query.language)
+                            break
+                        }
+                        // Navigate through remaining chain
+                        let currentTable: DatabaseSchemaTable = table
+                        for (let index = 0; index < remainingChain.length; index++) {
+                            const chainPart = String(remainingChain[index])
+                            const isLastPart = index >= remainingChain.length - 2
+
+                            if (isLastPart) {
+                                const currentField = currentTable.fields[chainPart]
+                                if (currentField) {
+                                    const resolvedTable = resolveFieldToTable(currentField, schema, currentTable)
+                                    if (resolvedTable) {
+                                        appendTableFieldsToResponse(resolvedTable, response.suggestions, query.language)
+                                    } else {
+                                        // Field exists but can't be resolved to a table (e.g., json field)
+                                        // Still show functions as suggestions
+                                        const functions =
+                                            query.language === HogLanguage.hogQL || query.language === HogQLExpr
+                                                ? HOGQL_FUNCTIONS
+                                                : []
+                                        extendResponses(
+                                            functions,
+                                            response.suggestions,
+                                            'Function',
+                                            (key) => `${key}()`
+                                        )
+                                    }
+                                } else {
+                                    appendTableFieldsToResponse(currentTable, response.suggestions, query.language)
+                                }
+                                break
+                            }
+
+                            const currentField = currentTable.fields[chainPart]
+                            if (currentField) {
+                                const resolvedTable = resolveFieldToTable(currentField, schema, currentTable)
+                                if (resolvedTable) {
+                                    currentTable = resolvedTable
+                                } else {
+                                    break
+                                }
+                            } else {
+                                break
+                            }
+                        }
+                        break
+                    } else {
+                        // When table has alias but first part doesn't match any alias,
+                        // don't show suggestions (invalid reference)
+                        break
+                    }
+                }
+
+                // Navigate through field chain (no alias)
+                let currentTable: DatabaseSchemaTable = table
                 for (let index = 0; index < chainLen; index++) {
                     const chainPart = String(field.chain[index])
                     const isLastPart = index >= chainLen - 2
 
                     if (isLastPart) {
                         // Check if this chain part exists in the current table
-                        if ('fields' in currentTable && chainPart in currentTable.fields) {
-                            // The field exists, navigate into it and show its fields
-                            currentTable = currentTable.fields[chainPart]
-                            if ('fields' in currentTable) {
-                                appendTableFieldsToResponse(currentTable, response.suggestions, query.language)
+                        const currentField = currentTable.fields[chainPart]
+                        if (currentField) {
+                            // The field exists, check if it references another table
+                            const resolvedTable = resolveFieldToTable(currentField, schema, currentTable)
+                            if (resolvedTable) {
+                                appendTableFieldsToResponse(resolvedTable, response.suggestions, query.language)
+                            } else {
+                                // Field exists but can't be resolved to a table (e.g., json field)
+                                // Still show functions as suggestions
+                                const functions =
+                                    query.language === HogLanguage.hogQL || query.language === HogLanguage.hogQLExpr
+                                        ? HOGQL_FUNCTIONS
+                                        : []
+                                extendResponses(functions, response.suggestions, 'Function', (key) => `${key}()`)
                             }
-                        } else if ('fields' in currentTable) {
+                        } else {
                             // The field doesn't exist, show all fields at current level
                             appendTableFieldsToResponse(currentTable, response.suggestions, query.language)
                         }
                         break
                     }
 
-                    if ('fields' in currentTable && chainPart in currentTable.fields) {
-                        currentTable = currentTable.fields[chainPart]
+                    // Navigate to the next level
+                    const currentField = currentTable.fields[chainPart]
+                    if (currentField) {
+                        const resolvedTable = resolveFieldToTable(currentField, schema, currentTable)
+                        if (resolvedTable) {
+                            currentTable = resolvedTable
+                        } else {
+                            break
+                        }
                     } else {
                         break
                     }
