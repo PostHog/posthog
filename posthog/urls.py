@@ -204,6 +204,8 @@ urlpatterns = [
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
+    # Internal endpoints (for plugin-server)
+    opt_slash_path("api/internal/push_subscriptions/lookup", push_subscription.internal_push_subscription_lookup),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(

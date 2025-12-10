@@ -11,56 +11,108 @@ export const template: HogFunctionTemplate = {
     category: ['Communication'],
     code_language: 'hog',
     code: `
-let fcmToken := inputs.fcm_token
 let title := inputs.title
 let body := inputs.body
 let projectId := inputs.firebase_account.project_id
-
-if (not fcmToken) {
-    throw Error('FCM token is required')
-}
 
 if (not title) {
     throw Error('Notification title is required')
 }
 
-let url := f'https://fcm.googleapis.com/v1/projects/{projectId}/messages:send'
+// Get FCM tokens - either from input or lookup by distinct_id
+let tokens := []
 
-let message := {
-    'message': {
-        'token': fcmToken,
-        'notification': {
-            'title': title,
-            'body': body
+if (inputs.fcm_token) {
+    // Manual token provided
+    tokens := [inputs.fcm_token]
+} else if (inputs.lookup_tokens) {
+    // Lookup tokens from PushSubscription model
+    let lookupUrl := f'{project.url}/api/internal/push_subscriptions/lookup/'
+    let lookupPayload := {
+        'method': 'POST',
+        'headers': {
+            'Content-Type': 'application/json'
+        },
+        'body': {
+            'team_id': project.id,
+            'distinct_id': event.distinct_id
+        }
+    }
+
+    if (inputs.debug) {
+        print('Looking up push tokens', lookupUrl, lookupPayload)
+    }
+
+    let lookupRes := fetch(lookupUrl, lookupPayload)
+
+    if (lookupRes.status >= 200 and lookupRes.status < 300) {
+        let lookupData := lookupRes.body
+        if (lookupData.tokens) {
+            for (let t in lookupData.tokens) {
+                tokens := arrayPushBack(tokens, t.token)
+            }
+        }
+    } else if (inputs.debug) {
+        print('Token lookup failed', lookupRes.status, lookupRes.body)
+    }
+}
+
+if (empty(tokens)) {
+    if (inputs.debug) {
+        print('No FCM tokens found for user', event.distinct_id)
+    }
+    return
+}
+
+let fcmUrl := f'https://fcm.googleapis.com/v1/projects/{projectId}/messages:send'
+let successCount := 0
+let failCount := 0
+
+for (let fcmToken in tokens) {
+    let message := {
+        'message': {
+            'token': fcmToken,
+            'notification': {
+                'title': title,
+                'body': body
+            }
+        }
+    }
+
+    if (inputs.data) {
+        message.message.data := inputs.data
+    }
+
+    let payload := {
+        'method': 'POST',
+        'headers': {
+            'Authorization': f'Bearer {inputs.firebase_account.access_token}',
+            'Content-Type': 'application/json'
+        },
+        'body': message
+    }
+
+    if (inputs.debug) {
+        print('Sending push notification', fcmUrl, payload)
+    }
+
+    let res := fetch(fcmUrl, payload)
+
+    if (res.status >= 200 and res.status < 300) {
+        successCount := successCount + 1
+        if (inputs.debug) {
+            print('Push notification sent', res)
+        }
+    } else {
+        failCount := failCount + 1
+        if (inputs.debug) {
+            print('Push notification failed', res.status, res.body)
         }
     }
 }
 
-if (inputs.data) {
-    message.message.data := inputs.data
-}
-
-let payload := {
-    'method': 'POST',
-    'headers': {
-        'Authorization': f'Bearer {inputs.firebase_account.access_token}',
-        'Content-Type': 'application/json'
-    },
-    'body': message
-}
-
 if (inputs.debug) {
-    print('Sending push notification', url, payload)
-}
-
-let res := fetch(url, payload)
-
-if (res.status < 200 or res.status >= 300) {
-    throw Error(f'Failed to send push notification via FCM: {res.status} {res.body}')
-}
-
-if (inputs.debug) {
-    print('Push notification sent', res)
+    print(f'Push notifications complete: {successCount} sent, {failCount} failed')
 }
 `,
     inputs_schema: [
@@ -75,13 +127,23 @@ if (inputs.debug) {
             required: true,
         },
         {
+            key: 'lookup_tokens',
+            type: 'boolean',
+            label: 'Automatically lookup device tokens',
+            secret: false,
+            required: false,
+            description:
+                'When enabled, automatically looks up FCM tokens registered by mobile SDKs for the user who triggered the event. Requires the mobile app to call PostHog.setFcmToken().',
+            default: true,
+        },
+        {
             key: 'fcm_token',
             type: 'string',
-            label: 'FCM device token',
+            label: 'FCM device token (manual)',
             secret: false,
-            required: true,
+            required: false,
             description:
-                'The Firebase Cloud Messaging token for the target device. In a future version, this will be automatically looked up from registered devices.',
+                'Manually specify an FCM token. Only used if "Automatically lookup device tokens" is disabled.',
             default: '',
             templating: 'liquid',
         },

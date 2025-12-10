@@ -96,6 +96,44 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"deactivated": count}, status=status.HTTP_200_OK)
 
+    @action(methods=["GET"], detail=False)
+    def lookup(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Lookup push tokens for a distinct_id.
+
+        Used internally by Hog functions to send push notifications.
+
+        Query params:
+            distinct_id: The user's distinct_id
+            platform: (optional) Filter by platform (android, ios, web)
+        """
+        distinct_id = request.query_params.get("distinct_id")
+        platform = request.query_params.get("platform")
+
+        if not distinct_id:
+            return Response({"error": "distinct_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        platform_enum = None
+        if platform:
+            try:
+                platform_enum = PushPlatform(platform)
+            except ValueError:
+                return Response(
+                    {"error": f"Invalid platform. Must be one of: {[p.value for p in PushPlatform]}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        subscriptions = PushSubscription.get_active_tokens_for_distinct_id(
+            team_id=self.team_id,
+            distinct_id=distinct_id,
+            platform=platform_enum,
+        )
+
+        return Response(
+            {"tokens": [{"token": sub.token, "platform": sub.platform} for sub in subscriptions]},
+            status=status.HTTP_200_OK,
+        )
+
 
 @csrf_exempt
 def sdk_push_subscription_register(request):
@@ -179,3 +217,61 @@ def sdk_push_subscription_register(request):
             }
         ),
     )
+
+
+@csrf_exempt
+def internal_push_subscription_lookup(request):
+    """
+    Internal endpoint for looking up push tokens by distinct_id.
+
+    Used by Hog functions (Firebase Push destination) to send push notifications.
+    URL: POST /api/internal/push_subscriptions/lookup/
+
+    Expected payload:
+    {
+        "team_id": 1,
+        "distinct_id": "user-123",
+        "platform": "android" (optional)
+    }
+
+    Note: This is an internal API - only accessible from plugin-server.
+    In production, this should be protected by internal networking.
+    """
+    if request.method == "OPTIONS":
+        return JsonResponse({"status": "ok"})
+
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        data = load_data_from_request(request)
+    except Exception as e:
+        logger.warning("push_subscription_lookup_parse_error", error=str(e))
+        return JsonResponse({"error": "Invalid request body"}, status=400)
+
+    team_id = data.get("team_id")
+    distinct_id = data.get("distinct_id")
+    platform = data.get("platform")
+
+    if not team_id:
+        return JsonResponse({"error": "team_id is required"}, status=400)
+    if not distinct_id:
+        return JsonResponse({"error": "distinct_id is required"}, status=400)
+
+    platform_enum = None
+    if platform:
+        try:
+            platform_enum = PushPlatform(platform)
+        except ValueError:
+            return JsonResponse(
+                {"error": f"Invalid platform. Must be one of: {[p.value for p in PushPlatform]}"},
+                status=400,
+            )
+
+    subscriptions = PushSubscription.get_active_tokens_for_distinct_id(
+        team_id=team_id,
+        distinct_id=distinct_id,
+        platform=platform_enum,
+    )
+
+    return JsonResponse({"tokens": [{"token": sub.token, "platform": sub.platform} for sub in subscriptions]})
