@@ -1,4 +1,8 @@
-import { IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+import { useCallback, useEffect, useRef } from 'react'
+import { useThrottledCallback } from 'use-debounce'
+
+import { IconChevronLeft, IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
@@ -9,6 +13,8 @@ import { LogMessage } from '~/queries/schema/schema-general'
 import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
 import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
+
+import { virtualizedLogsListLogic } from './virtualizedLogsListLogic'
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     trace: 'bg-muted-alt',
@@ -90,8 +96,69 @@ export function LogRow({
     onSetCursor,
     rowWidth,
 }: LogRowProps): JSX.Element {
+    const { messageScrollLeft } = useValues(virtualizedLogsListLogic)
+    const { setMessageScrollLeft } = useActions(virtualizedLogsListLogic)
+
     const isNew = 'new' in log && log.new
     const flexWidth = rowWidth ? rowWidth - getFixedColumnsWidth() : undefined
+    const messageScrollRef = useRef<HTMLDivElement>(null)
+    const isProgrammaticScrollRef = useRef(false)
+
+    // Sync scroll position from shared state (programmatic scroll)
+    useEffect(() => {
+        const el = messageScrollRef.current
+        if (el && Math.abs(el.scrollLeft - messageScrollLeft) > 1) {
+            isProgrammaticScrollRef.current = true
+            el.scrollLeft = messageScrollLeft
+            requestAnimationFrame(() => {
+                isProgrammaticScrollRef.current = false
+            })
+        }
+    }, [messageScrollLeft])
+
+    const handleMessageScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+        if (isProgrammaticScrollRef.current) {
+            return
+        }
+        setMessageScrollLeft(e.currentTarget.scrollLeft)
+    }
+
+    const scrollIntervalRef = useRef<number | null>(null)
+
+    const scrollMessage = useCallback(
+        (direction: 'left' | 'right'): void => {
+            const el = messageScrollRef.current
+            if (el) {
+                const scrollAmount = 8
+                const newScrollLeft = direction === 'left' ? el.scrollLeft - scrollAmount : el.scrollLeft + scrollAmount
+                el.scrollLeft = newScrollLeft
+                setMessageScrollLeft(newScrollLeft)
+            }
+        },
+        [setMessageScrollLeft]
+    )
+
+    const throttledScroll = useThrottledCallback(scrollMessage, 16) // ~60fps
+
+    const startScrolling = useCallback(
+        (direction: 'left' | 'right'): void => {
+            scrollMessage(direction) // Immediate first scroll
+            scrollIntervalRef.current = window.setInterval(() => {
+                throttledScroll(direction)
+            }, 16)
+        },
+        [scrollMessage, throttledScroll]
+    )
+
+    const stopScrolling = useCallback((): void => {
+        if (scrollIntervalRef.current) {
+            clearInterval(scrollIntervalRef.current)
+            scrollIntervalRef.current = null
+        }
+    }, [])
+
+    // Cleanup interval on unmount
+    useEffect(() => stopScrolling, [stopScrolling])
 
     const renderCell = (column: LogColumnConfig): JSX.Element => {
         const cellStyle = getCellStyle(column, flexWidth)
@@ -137,44 +204,85 @@ export function LogRow({
                 const isPrettyJson = prettifyJson && log.parsedBody
                 const content = isPrettyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody
 
+                const scrollButtons = !wrapBody && (
+                    <div
+                        className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-l from-bg-light via-bg-light to-transparent pl-4 pr-1"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <button
+                            type="button"
+                            title="Scroll left (← or h)"
+                            className="p-1 text-muted hover:text-default cursor-pointer select-none"
+                            onMouseDown={(e) => {
+                                e.preventDefault()
+                                startScrolling('left')
+                            }}
+                            onMouseUp={stopScrolling}
+                            onMouseLeave={stopScrolling}
+                        >
+                            <IconChevronLeft className="text-lg" />
+                        </button>
+                        <button
+                            type="button"
+                            title="Scroll right (→ or l)"
+                            className="p-1 text-muted hover:text-default cursor-pointer select-none"
+                            onMouseDown={(e) => {
+                                e.preventDefault()
+                                startScrolling('right')
+                            }}
+                            onMouseUp={stopScrolling}
+                            onMouseLeave={stopScrolling}
+                        >
+                            <IconChevronRight className="text-lg" />
+                        </button>
+                    </div>
+                )
+
                 if (isPrettyJson) {
                     return (
-                        <div
-                            key={column.key}
-                            style={cellStyle}
-                            className={cn('flex items-start py-1.5 overflow-hidden')}
-                        >
-                            <pre
+                        <div key={column.key} style={cellStyle} className="relative flex items-start py-1.5">
+                            <div
+                                ref={wrapBody ? undefined : messageScrollRef}
                                 className={cn(
-                                    'font-mono text-xs m-0',
-                                    wrapBody
-                                        ? 'overflow-hidden whitespace-pre-wrap break-all'
-                                        : 'overflow-x-auto hide-scrollbar'
+                                    'flex-1',
+                                    wrapBody ? 'overflow-hidden' : 'overflow-x-auto hide-scrollbar'
                                 )}
+                                onScroll={wrapBody ? undefined : handleMessageScroll}
                             >
-                                {content}
-                            </pre>
+                                <pre
+                                    className={cn(
+                                        'font-mono text-xs m-0',
+                                        wrapBody
+                                            ? 'overflow-hidden whitespace-pre-wrap break-all'
+                                            : 'whitespace-nowrap pr-16'
+                                    )}
+                                >
+                                    {content}
+                                </pre>
+                            </div>
+                            {scrollButtons}
                         </div>
                     )
                 }
 
                 return (
-                    <div
-                        key={column.key}
-                        style={cellStyle}
-                        className={cn(
-                            'flex items-start py-1.5',
-                            wrapBody ? 'overflow-hidden' : 'overflow-x-auto hide-scrollbar'
-                        )}
-                    >
-                        <span
-                            className={cn(
-                                'font-mono text-xs',
-                                wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap'
-                            )}
+                    <div key={column.key} style={cellStyle} className="relative flex items-start py-1.5">
+                        <div
+                            ref={wrapBody ? undefined : messageScrollRef}
+                            className={cn('flex-1', wrapBody ? 'overflow-hidden' : 'overflow-x-auto hide-scrollbar')}
+                            onScroll={wrapBody ? undefined : handleMessageScroll}
                         >
-                            {content}
-                        </span>
+                            <span
+                                className={cn(
+                                    'font-mono text-xs',
+                                    wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
+                                )}
+                            >
+                                {content}
+                            </span>
+                        </div>
+                        {scrollButtons}
                     </div>
                 )
             }
