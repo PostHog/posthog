@@ -1,3 +1,5 @@
+from typing import Any
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
@@ -27,7 +29,7 @@ class TestWebAvgTimeOnPageTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         prev_pageview_duration: float | None = None,
         prev_pageview_pathname: str | None = None,
     ):
-        properties = {
+        properties: dict[str, Any] = {
             "$session_id": session_id,
         }
         if prev_pageview_duration is not None:

@@ -91,7 +91,7 @@ class WebAvgTimeOnPageTrendsQueryRunner(WebAnalyticsQueryRunner[WebAvgTimeOnPage
             args=[ast.Field(chain=["timestamp"])],
         )
 
-    def _build_query(self) -> ast.SelectQuery:
+    def _build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query_compare_to_date_range:
             return parse_select(
                 """
@@ -188,7 +188,7 @@ class WebAvgTimeOnPageTrendsQueryRunner(WebAnalyticsQueryRunner[WebAvgTimeOnPage
             for row in raw_results
         ]
 
-    def run_query(self, query: ast.SelectQuery) -> Any:
+    def run_query(self, query: ast.SelectQuery | ast.SelectSetQuery) -> Any:
         return execute_hogql_query(
             query_type="web_avg_time_on_page_trends_query",
             query=query,
@@ -198,5 +198,5 @@ class WebAvgTimeOnPageTrendsQueryRunner(WebAnalyticsQueryRunner[WebAvgTimeOnPage
             limit_context=self.limit_context,
         )
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self._build_query()
