@@ -5861,6 +5861,7 @@ export interface Conversation {
     type: ConversationType
     has_unsupported_content?: boolean
     agent_mode?: string | null
+    slack_thread_key?: string | null
 }
 
 export interface ConversationDetail extends Conversation {
