@@ -510,9 +510,9 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
     def test_trends_query_dau_with_preaggregation_modifier(self):
         """Test that TrendsQuery with DAU returns same results with and without preaggregation modifier.
 
-        Note: TrendsQuery generates a complex query structure that doesn't currently match
-        our simple preaggregation pattern, so preaggregation rows won't be created.
-        This test verifies the modifier doesn't break the query.
+        TrendsQuery generates a nested query with count(DISTINCT person_id) which our
+        preaggregation pattern supports. The inner query should be transformed to use
+        the preaggregation_results table.
         """
         self._create_pageview_events()
 
@@ -545,6 +545,23 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
         # Verify expected data: 2 unique users on Jan 1, 2 unique users on Jan 2
         assert series_with["days"] == ["2025-01-01", "2025-01-02"]
         assert series_with["data"] == [2, 2]
+
+        # Verify the preaggregation table was used in the generated SQL
+        assert response_with.hogql is not None
+        assert (
+            "preaggregation_results" in response_with.hogql
+        ), f"Expected preaggregation_results table in generated HogQL, got: {response_with.hogql[:500]}..."
+
+        # Verify preaggregation rows were created in the table
+        preagg_results = sync_execute(
+            f"""
+            SELECT count()
+            FROM {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()}
+            WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.id},
+        )
+        assert preagg_results[0][0] > 0, "Expected preaggregation data to be created"
 
     def test_trends_line_inner_query_format(self):
         """Test the inner query format that TrendsQuery generates for DAU queries.
