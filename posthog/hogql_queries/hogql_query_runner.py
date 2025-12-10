@@ -241,7 +241,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
-        source = ExternalDataSource.objects.get(id=source_id, team_id=self.team.pk)
+        source = ExternalDataSource.objects.get(source_id=source_id, team_id=self.team.pk)
         job_inputs = source.job_inputs or {}
 
         host = job_inputs.get("host")
