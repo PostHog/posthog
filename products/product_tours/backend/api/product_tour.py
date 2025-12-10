@@ -1,22 +1,28 @@
 from typing import Any, cast
 
 from django.db import transaction
+from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
+from django.views.decorators.csrf import csrf_exempt
 
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from rest_framework import filters, serializers, viewsets
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import get_token
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
+from posthog.exceptions import generate_exception_response
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.utils_cors import cors_response
 
 from products.product_tours.backend.models import ProductTour
 
@@ -99,16 +105,8 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        # Update internal targeting flag if start_date or end_date changed
-        start_date_changed = "start_date" in validated_data and validated_data["start_date"] != instance.start_date
-        end_date_changed = "end_date" in validated_data and validated_data["end_date"] != instance.end_date
-        archived_changed = "archived" in validated_data and validated_data["archived"] != instance.archived
-
         instance = super().update(instance, validated_data)
-
-        if start_date_changed or end_date_changed or archived_changed:
-            self._update_internal_targeting_flag_state(instance)
-
+        self._update_internal_targeting_flag_state(instance)
         return instance
 
     def _create_internal_targeting_flag(self, instance: ProductTour) -> None:
@@ -145,7 +143,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "key": flag_key,
             "name": f"Product Tour: {instance.name}",
             "filters": filters,
-            "active": bool(instance.start_date) and not instance.archived,
+            "active": bool(instance.start_date) and not instance.end_date and not instance.archived,
             "creation_context": "product_tours",
         }
 
@@ -166,7 +164,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not flag:
             return
 
-        should_be_active = bool(instance.start_date) and not instance.archived
+        should_be_active = bool(instance.start_date) and not instance.end_date and not instance.archived
         if flag.active != should_be_active:
             flag.active = should_be_active
             flag.save(update_fields=["active"])
@@ -212,3 +210,87 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response(status=204)
+
+
+class ProductTourAPISerializer(serializers.ModelSerializer):
+    """
+    Serializer for the exposed /api/product_tours endpoint, to be used in posthog-js.
+    Only exposes fields needed by the SDK, no sensitive data.
+    """
+
+    internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
+    steps = serializers.SerializerMethodField()
+    conditions = serializers.SerializerMethodField()
+    appearance = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductTour
+        fields = [
+            "id",
+            "name",
+            "internal_targeting_flag_key",
+            "steps",
+            "conditions",
+            "appearance",
+            "start_date",
+            "end_date",
+        ]
+        read_only_fields = fields
+
+    def get_steps(self, tour: ProductTour) -> list:
+        return tour.content.get("steps", []) if tour.content else []
+
+    def get_conditions(self, tour: ProductTour) -> dict | None:
+        return tour.content.get("conditions") if tour.content else None
+
+    def get_appearance(self, tour: ProductTour) -> dict | None:
+        return tour.content.get("appearance") if tour.content else None
+
+
+def get_product_tours_response(team: Team) -> dict:
+    """Get active product tours for a team."""
+    tours = ProductTourAPISerializer(
+        ProductTour.objects.filter(
+            team__project_id=team.project_id,
+            archived=False,
+            start_date__isnull=False,
+        ).select_related("internal_targeting_flag"),
+        many=True,
+    ).data
+
+    return {"product_tours": tours}
+
+
+@csrf_exempt
+def product_tours(request):
+    token = get_token(None, request)
+
+    if request.method == "OPTIONS":
+        return cors_response(request, HttpResponse(""))
+
+    if not token:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "product_tours",
+                "API key not provided. You can find your project API key in your PostHog project settings.",
+                type="authentication_error",
+                code="missing_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
+
+    team = Team.objects.get_team_from_cache_or_token(token)
+    if team is None:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "product_tours",
+                "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                type="authentication_error",
+                code="invalid_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
+
+    return cors_response(request, JsonResponse(get_product_tours_response(team)))
