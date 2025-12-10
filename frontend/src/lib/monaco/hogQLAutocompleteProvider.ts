@@ -13,7 +13,7 @@ import {
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { getDatabaseSchema, getHogQLAutocomplete } from '../hogql/autocomplete'
-import { initParser } from '../hogql/parser'
+import { getHogQLParser } from '../hogql/parser'
 
 const convertCompletionItemKind = (kind: AutocompleteCompletionItemKind): languages.CompletionItemKind => {
     switch (kind) {
@@ -95,7 +95,7 @@ const kindToSortText = (kind: AutocompleteCompletionItemKind, label: string): st
 export async function initHogQLAutocomplete(): Promise<void> {
     // Initialize both in parallel
     await Promise.all([
-        initParser(), // Initialize WASM parser module
+        getHogQLParser(), // Initialize WASM parser module
         getDatabaseSchema(), // Fetch and cache database schema
     ])
 }
