@@ -216,19 +216,34 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     human_message = HumanMessage(content=combined_message)
 
     # Get or create conversation for this Slack thread, keyed by slack_thread_key
+    # First, fetch workspace domain from Slack API if we don't have it yet
+    slack_workspace_domain = await _get_slack_workspace_domain(integration)
+
     if inputs.conversation_id:
         # Continuing an existing conversation
         conversation, created = await Conversation.objects.aget_or_create(
             id=inputs.conversation_id,
-            defaults={"team": team, "user": user, "type": "slack", "slack_thread_key": inputs.slack_thread_key},
+            defaults={
+                "team": team,
+                "user": user,
+                "type": "slack",
+                "slack_thread_key": inputs.slack_thread_key,
+                "slack_workspace_domain": slack_workspace_domain,
+            },
         )
     else:
         # New conversation - use slack_thread_key as the unique identifier
         conversation, created = await Conversation.objects.aget_or_create(
             team=team,
             slack_thread_key=inputs.slack_thread_key,
-            defaults={"user": user, "type": "slack"},
+            defaults={"user": user, "type": "slack", "slack_workspace_domain": slack_workspace_domain},
         )
+
+    # Update domain if it was missing (for existing conversations)
+    if not created and not conversation.slack_workspace_domain and slack_workspace_domain:
+        conversation.slack_workspace_domain = slack_workspace_domain
+        await conversation.asave(update_fields=["slack_workspace_domain"])
+
     is_new_conversation = created
 
     assistant = ChatAgentRunner(
@@ -452,3 +467,19 @@ async def _remove_slack_reaction(
         slack.client.reactions_remove(channel=channel, timestamp=timestamp, name=name)
     except Exception as e:
         logger.exception("slack_reaction_remove_failed", error=str(e))
+
+
+async def _get_slack_workspace_domain(integration: "Integration") -> str | None:
+    """Fetch the Slack workspace domain (subdomain) using team.info API."""
+    from posthog.models.integration import SlackIntegration
+
+    slack = SlackIntegration(integration)
+    try:
+        response = slack.client.team_info()
+        if response.get("ok"):
+            team = response.get("team")
+            if isinstance(team, dict):
+                return team.get("domain")
+    except Exception as e:
+        logger.exception("slack_team_info_failed", error=str(e))
+    return None

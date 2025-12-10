@@ -64,7 +64,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                             {conversation.status === ConversationStatus.InProgress ? (
                                 <Spinner className="h-4 w-4" />
                             ) : (
-                                <span className="text-secondary">
+                                <span className="text-secondary whitespace-nowrap">
                                     {formatConversationDate(conversation.updated_at)}
                                 </span>
                             )}
@@ -73,7 +73,10 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                         {conversation.slack_thread_key && (
                             <LemonTag>
                                 <Link
-                                    to={getSlackThreadUrl(conversation.slack_thread_key)}
+                                    to={getSlackThreadUrl(
+                                        conversation.slack_thread_key,
+                                        conversation.slack_workspace_domain
+                                    )}
                                     target="_blank"
                                     className="flex items-center gap-1"
                                     onClick={(e) => e.stopPropagation()}
