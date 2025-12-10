@@ -4,7 +4,7 @@ export function VisibilityBar({ value, max = 100 }: { value: number; max?: numbe
     const percentage = Math.min(100, (value / max) * 100)
     const getColor = (pct: number): string => {
         if (pct >= 60) {
-            return 'bg-success'
+            return 'bg-[#f54e00]'
         }
         if (pct >= 30) {
             return 'bg-warning'
