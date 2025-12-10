@@ -59,6 +59,16 @@ async fn main() {
     info!("Starting up...");
 
     let config = Config::init_with_defaults().unwrap();
+
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            tracing::warn!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
+
     let health_registry = HealthRegistry::new("liveness");
 
     let sink_liveness = health_registry

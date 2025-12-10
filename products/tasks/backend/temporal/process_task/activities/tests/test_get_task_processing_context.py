@@ -13,6 +13,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 )
 
 
+@pytest.mark.requires_secrets
 class TestGetTaskProcessingContextActivity:
     def _create_task_with_repo(self, team, user, github_integration, repo_config):
         return Task.objects.create(

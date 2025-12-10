@@ -66,6 +66,11 @@ export enum TileId {
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
     PAGE_REPORTS_PREVIOUS_PAGE = 'PR_PREVIOUS_PAGE',
+    PAGE_REPORTS_UTM_SOURCE = 'PR_UTM_SOURCE',
+    PAGE_REPORTS_UTM_MEDIUM = 'PR_UTM_MEDIUM',
+    PAGE_REPORTS_UTM_CAMPAIGN = 'PR_UTM_CAMPAIGN',
+    PAGE_REPORTS_UTM_CONTENT = 'PR_UTM_CONTENT',
+    PAGE_REPORTS_UTM_TERM = 'PR_UTM_TERM',
 
     // Marketing Tiles
     MARKETING = 'MARKETING',
@@ -127,6 +132,11 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 14,
     [TileId.PAGE_REPORTS_LANGUAGES]: 15,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 16,
+    [TileId.PAGE_REPORTS_UTM_SOURCE]: 17,
+    [TileId.PAGE_REPORTS_UTM_MEDIUM]: 18,
+    [TileId.PAGE_REPORTS_UTM_CAMPAIGN]: 19,
+    [TileId.PAGE_REPORTS_UTM_CONTENT]: 20,
+    [TileId.PAGE_REPORTS_UTM_TERM]: 21,
 
     // Marketing Tiles
     [TileId.MARKETING_OVERVIEW]: 1,
@@ -189,6 +199,11 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.PAGE_REPORTS_LANGUAGES]: 'Languages',
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 'Top events',
     [TileId.PAGE_REPORTS_PREVIOUS_PAGE]: 'Previous page',
+    [TileId.PAGE_REPORTS_UTM_SOURCE]: 'UTM source',
+    [TileId.PAGE_REPORTS_UTM_MEDIUM]: 'UTM medium',
+    [TileId.PAGE_REPORTS_UTM_CAMPAIGN]: 'UTM campaign',
+    [TileId.PAGE_REPORTS_UTM_CONTENT]: 'UTM content',
+    [TileId.PAGE_REPORTS_UTM_TERM]: 'UTM term',
     [TileId.MARKETING]: 'Marketing',
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 'Campaign breakdown',
     [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 'Non-integrated conversions',
