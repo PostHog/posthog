@@ -45,6 +45,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
@@ -53,7 +54,6 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
-from posthog.event_usage import report_user_action
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.external_data_schema import (
