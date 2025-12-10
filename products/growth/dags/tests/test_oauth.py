@@ -37,6 +37,7 @@ class TestOAuthTokenCleanup(TestCase):
             algorithm="RS256",
         )
 
+    @pytest.mark.requires_secrets
     @freeze_time("2023-01-15 02:00:00")
     def test_oauth_cleanup_job_with_real_tokens(self):
         expired_time = timezone.now() - timedelta(days=95)  # Beyond retention period
@@ -89,6 +90,7 @@ class TestBatchDeleteFunctionality(TestCase):
             algorithm="RS256",
         )
 
+    @pytest.mark.requires_secrets
     @override_settings(CLEAR_EXPIRED_TOKENS_BATCH_SIZE=2, CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL=0.01)
     def test_batch_delete_model_with_small_batches(self):
         """Test batch deletion with small batch sizes."""
@@ -116,6 +118,7 @@ class TestBatchDeleteFunctionality(TestCase):
         self.assertEqual(deleted_count, 5)
         self.assertEqual(OAuthAccessToken.objects.count(), 0)
 
+    @pytest.mark.requires_secrets
     def test_batch_delete_model_with_no_tokens(self):
         """Test batch deletion when no tokens match the query."""
         query = Q(expires__lt=timezone.now() - timedelta(days=1))
@@ -126,6 +129,7 @@ class TestBatchDeleteFunctionality(TestCase):
 
         self.assertEqual(deleted_count, 0)
 
+    @pytest.mark.requires_secrets
     def test_clear_expired_tokens_by_type_multiple_queries(self):
         """Test clearing tokens by type with multiple query types."""
         now = timezone.now()
@@ -173,6 +177,7 @@ class TestBatchDeleteFunctionality(TestCase):
         self.assertFalse(OAuthRefreshToken.objects.filter(id=expired_refresh_token.id).exists())
         self.assertTrue(OAuthAccessToken.objects.filter(id=valid_access_token.id).exists())
 
+    @pytest.mark.requires_secrets
     @override_settings(OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD=3600)  # 1 hour
     def test_clear_expired_oauth_tokens_with_custom_retention(self):
         """Test the full cleanup function with custom retention period."""
@@ -211,6 +216,7 @@ class TestBatchDeleteFunctionality(TestCase):
         self.assertTrue(OAuthAccessToken.objects.filter(id=recent_expired_token.id).exists())
         self.assertFalse(OAuthGrant.objects.filter(id=old_grant.id).exists())
 
+    @pytest.mark.requires_secrets
     @unittest.mock.patch("products.growth.dags.oauth.batch_delete_model")
     def test_clear_expired_oauth_tokens_metadata_output(self, mock_batch_delete):
         mock_batch_delete.return_value = 5
@@ -220,6 +226,7 @@ class TestBatchDeleteFunctionality(TestCase):
 
         self.assertTrue(mock_batch_delete.called)
 
+    @pytest.mark.requires_secrets
     def test_token_cleanup_comprehensive_scenario(self):
         now = timezone.now()
         ninety_five_days_ago = now - timedelta(days=95)  # Beyond default retention
