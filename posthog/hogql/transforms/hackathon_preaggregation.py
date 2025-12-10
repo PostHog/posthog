@@ -4,9 +4,12 @@ from typing import Optional
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.transforms.preaggregation_executor import QueryInfo, execute_preaggregation_jobs
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.preaggregation.sql import SHARDED_PREAGGREGATION_RESULTS_TABLE
+from posthog.models import Team
 
 PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME = SHARDED_PREAGGREGATION_RESULTS_TABLE()
 
@@ -294,19 +297,45 @@ def _is_daily_unique_persons_pageviews_query(node: ast.SelectQuery, context: Hog
     return True
 
 
-def _run_daily_unique_persons_pageviews(start, end):
+def _run_daily_unique_persons_pageviews(
+    team: Team,
+    query: ast.SelectQuery,
+    start: datetime,
+    end: datetime,
+) -> dict:
     """
-    Stub for job orchestration (not implemented in MVP).
-    In production, this would:
-    - Check postgres for which days we already have that are between start & end
-    - Take the set difference for days we need to run now
-    - Trigger the missing days jobs
-    - Wait for completion
+    Orchestrate preaggregation jobs for daily unique persons pageviews.
 
-    For MVP, we just return ready=True to enable testing the transformation logic.
+    This function:
+    1. Creates a QueryInfo object from the query
+    2. Calls the executor to find/create preaggregation jobs
+    3. Returns the result with job IDs for the combiner query
     """
-    # TODO: Implement actual job orchestration with Celery
-    return {"ready": True, "task_ids": [], "errors": []}
+
+    # Create the select without time range filters, and map to columns in the preaggregation_results table
+    # TODO don't hard code this
+    insert_select = parse_select(
+        "select uniqExactState(person_id) as uniq_exact_state, toStartOfDay() as time_window_start FROM events WHERE event='$pageview' group by time_window_start"
+    )
+
+    query_info = QueryInfo(query=insert_select, timezone=team.timezone)
+
+    result = execute_preaggregation_jobs(
+        team=team,
+        query_info=query_info,
+        start=start,
+        end=end,
+    )
+
+    # return combiner_select
+    _combiner_select = parse_select(
+        "select uniqExactMerge(uniq_exact_state) from preaggregation_results where job_id in {job_ids}",
+        placeholders={"job_id": ast.Constant(value=result.job_ids)},
+    )
+
+    # TODO return combiner_select
+
+    return {}
 
 
 class Transformer(CloningVisitor):
