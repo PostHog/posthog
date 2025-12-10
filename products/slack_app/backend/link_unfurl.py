@@ -1,13 +1,8 @@
 import re
-<<<<<<< HEAD
-from typing import Optional
-from urllib.parse import urlparse
-=======
 import json
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
 from datetime import timedelta
->>>>>>> allow-share-insight-nodes
 
 import structlog
 import posthoganalytics
@@ -15,25 +10,17 @@ from celery import shared_task
 from slack_sdk.errors import SlackApiError
 
 from posthog.exceptions_capture import capture_exception
-<<<<<<< HEAD
-=======
 from posthog.jwt import PosthogJwtAudience, encode_jwt
->>>>>>> allow-share-insight-nodes
 from posthog.models import Insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
-<<<<<<< HEAD
-=======
 from posthog.models.user import User
->>>>>>> allow-share-insight-nodes
 from posthog.tasks import exporter
 
 logger = structlog.get_logger(__name__)
 
 
-<<<<<<< HEAD
-=======
 def get_posthog_user_from_slack_user(slack: SlackIntegration, slack_user_id: str, team_id: int) -> Optional[User]:
     """
     Get the PostHog user corresponding to a Slack user ID by matching email addresses.
@@ -79,7 +66,6 @@ def create_impersonated_user_token(user: User, asset_id: int, expiry_delta: Opti
     )
 
 
->>>>>>> allow-share-insight-nodes
 def extract_insight_id_from_url(url: str) -> Optional[str]:
     """
     Extract insight short_id from PostHog insight URLs.
@@ -123,8 +109,6 @@ def extract_dashboard_id_from_url(url: str) -> Optional[int]:
     return None
 
 
-<<<<<<< HEAD
-=======
 def extract_query_from_new_insight_url(url: str) -> Optional[dict]:
     """
     Extract query JSON from new insight URLs with query in hash.
@@ -333,7 +317,6 @@ def export_and_unfurl_query(
         capture_exception(e)
 
 
->>>>>>> allow-share-insight-nodes
 @shared_task(ignore_result=True)
 def export_and_unfurl_insight(
     integration_id: int,
@@ -343,10 +326,7 @@ def export_and_unfurl_insight(
     channel: str,
     source: str,
     message_ts: str,
-<<<<<<< HEAD
-=======
     slack_user_id: Optional[str] = None,
->>>>>>> allow-share-insight-nodes
 ) -> None:
     """
     Export an insight as an image and unfurl it in Slack.
@@ -560,20 +540,13 @@ def export_and_unfurl_dashboard(
             )
 
             # Export the image synchronously (this can take a while)
-<<<<<<< HEAD
-=======
             # Use max_height_pixels to limit image size for Slack (Slack has image size limits)
->>>>>>> allow-share-insight-nodes
             logger.info(
                 "slack_unfurl_exporting_dashboard",
                 asset_id=asset.id,
                 dashboard_id=dashboard_id,
             )
-<<<<<<< HEAD
-            exporter.export_asset_direct(asset)
-=======
             exporter.export_asset_direct(asset, max_height_pixels=2000)
->>>>>>> allow-share-insight-nodes
 
             # Wait for export to complete and get the public URL
             asset.refresh_from_db()
@@ -586,11 +559,6 @@ def export_and_unfurl_dashboard(
                 )
                 return
 
-<<<<<<< HEAD
-            image_url = asset.get_public_content_url()
-
-            # Unfurl the link in Slack - use section block with image as accessory
-=======
             # Get PostHog user from Slack user ID and create IMPERSONATED_USER token
             user = None
             token = None
@@ -607,7 +575,6 @@ def export_and_unfurl_dashboard(
                 image_url = asset.get_public_content_url()
 
             # Unfurl the link in Slack - use standalone image block for better display
->>>>>>> allow-share-insight-nodes
             unfurls = {
                 url: {
                     "blocks": [
@@ -615,16 +582,6 @@ def export_and_unfurl_dashboard(
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-<<<<<<< HEAD
-                                "text": dashboard.name or "Dashboard",
-                            },
-                            "accessory": {
-                                "type": "image",
-                                "image_url": image_url,
-                                "alt_text": dashboard.name or "Dashboard",
-                            },
-                        }
-=======
                                 "text": f"*{dashboard.name or 'Dashboard'}*",
                             },
                         },
@@ -633,7 +590,6 @@ def export_and_unfurl_dashboard(
                             "image_url": image_url,
                             "alt_text": dashboard.name or "Dashboard",
                         },
->>>>>>> allow-share-insight-nodes
                     ]
                 }
             }
@@ -727,10 +683,7 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
     channel = event.get("channel")
     source = event.get("source", "conversations")
     message_ts = event.get("message_ts")
-<<<<<<< HEAD
-=======
     slack_user_id = event.get("user")  # The Slack user who shared the link
->>>>>>> allow-share-insight-nodes
 
     if not links or not unfurl_id:
         logger.warning(
@@ -749,39 +702,6 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
 
     # Feature flag: check if Slack unfurling is enabled for this team
     # Uses feature flag 'slack-unfurl' if enabled, otherwise falls back to team_id=2
-<<<<<<< HEAD
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            "slack-unfurl",
-            str(integration.team_id),
-            groups={"organization": str(integration.team.organization_id), "project": str(integration.team_id)},
-            group_properties={
-                "organization": {"id": str(integration.team.organization_id)},
-                "project": {"id": str(integration.team_id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        if not enabled:
-            # Fallback to team_id=2 if feature flag is not enabled
-            if integration.team_id != 2:
-                logger.debug(
-                    "slack_unfurl_team_not_allowed",
-                    team_id=integration.team_id,
-                    slack_team_id=slack_team_id,
-                )
-                return
-    except Exception as e:
-        logger.debug("slack_unfurl_feature_flag_check_failed", error=str(e), team_id=integration.team_id)
-        # Fallback to team_id=2 if feature flag check fails
-        if integration.team_id != 2:
-            logger.debug(
-                "slack_unfurl_team_not_allowed",
-                team_id=integration.team_id,
-                slack_team_id=slack_team_id,
-            )
-            return
-=======
     # try:
     #     enabled = posthoganalytics.feature_enabled(
     #         "slack-unfurl",
@@ -813,7 +733,6 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
     #             slack_team_id=slack_team_id,
     #         )
     #         return
->>>>>>> allow-share-insight-nodes
 
     # Process each link
     for link in links:
@@ -821,12 +740,6 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
         domain = link.get("domain", "")
 
         # Only process PostHog URLs
-<<<<<<< HEAD
-        if "posthog.com" not in domain and "posthog.com" not in url:
-            continue
-
-        # Try to extract insight ID first
-=======
         # if "posthog.com" not in domain and "posthog.com" not in url:
         #     continue
 
@@ -854,7 +767,6 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
             continue
 
         # Try to extract insight ID
->>>>>>> allow-share-insight-nodes
         insight_id = extract_insight_id_from_url(url)
         if insight_id:
             logger.info(
@@ -874,10 +786,7 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
                 channel=channel or "",
                 source=source,
                 message_ts=message_ts or "",
-<<<<<<< HEAD
-=======
                 slack_user_id=slack_user_id,
->>>>>>> allow-share-insight-nodes
             )
             continue
 
@@ -901,10 +810,7 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
                 channel=channel or "",
                 source=source,
                 message_ts=message_ts or "",
-<<<<<<< HEAD
-=======
                 slack_user_id=slack_user_id,
->>>>>>> allow-share-insight-nodes
             )
             continue
 
