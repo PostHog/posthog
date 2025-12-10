@@ -8,6 +8,15 @@
      GROUP BY time_window_start)
   '''
 # ---
+# name: TestQueryTransformation.test_basic_transformation_count_distinct
+  '''
+  sql
+    (SELECT uniqExactMerge(uniq_exact_state)
+     FROM preaggregation_results
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     GROUP BY time_window_start)
+  '''
+# ---
 # name: TestQueryTransformation.test_breakdown_with_aliases
   '''
   sql

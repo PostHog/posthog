@@ -4,8 +4,11 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
+from posthog.schema import BaseMathType, DateRange, EventsNode, HogQLQueryModifiers, TrendsQuery
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregation_executor import (
     PreaggregationResult,
     QueryInfo,
@@ -17,6 +20,7 @@ from posthog.hogql.transforms.preaggregation_executor import (
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.preaggregation_job import PreaggregationJob
 
 
@@ -432,3 +436,179 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         assert ch_results[0][4] == 1  # Jan 1: user1
         assert ch_results[1][4] == 1  # Jan 2: user2
         assert ch_results[2][4] == 1  # Jan 3: user3
+
+
+class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
+    """Test execute_hogql_query with usePreaggregatedIntermediateResults modifier."""
+
+    def _create_pageview_events(self):
+        """Create pageview events for Jan 1-2, 2025."""
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="user1", timestamp=datetime(2025, 1, 1, 10, tzinfo=UTC)
+        )
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="user2", timestamp=datetime(2025, 1, 1, 14, tzinfo=UTC)
+        )
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="user3", timestamp=datetime(2025, 1, 2, 9, tzinfo=UTC)
+        )
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="user1", timestamp=datetime(2025, 1, 2, 16, tzinfo=UTC)
+        )
+        flush_persons_and_events()
+
+    def test_preaggregation_modifier_returns_same_results(self):
+        """Test that queries with and without preaggregation modifier return the same results."""
+        self._create_pageview_events()
+
+        # Query must match the pattern: SELECT uniqExact(person_id), toStartOfDay(timestamp) FROM events
+        # WHERE event='$pageview' AND timestamp >= ... AND timestamp < ...
+        # GROUP BY toStartOfDay(timestamp)
+        query = """
+            SELECT uniqExact(person_id),
+                toStartOfDay(timestamp) as day
+            FROM events
+            WHERE event = '$pageview'
+                AND timestamp >= '2025-01-01'
+                AND timestamp < '2025-01-03'
+            GROUP BY toStartOfDay(timestamp)
+        """
+
+        # Run without preaggregation modifier
+        result_without = execute_hogql_query(
+            parse_select(query),
+            team=self.team,
+        )
+
+        # Run with preaggregation modifier
+        result_with = execute_hogql_query(
+            parse_select(query),
+            team=self.team,
+            modifiers=HogQLQueryModifiers(usePreaggregatedIntermediateResults=True),
+        )
+
+        # Both should return the same results (order may differ, so compare sorted)
+        assert sorted(result_without.results) == sorted(result_with.results)
+
+        # Verify the expected data: Jan 1 has 2 unique users, Jan 2 has 2 unique users (user1 + user3)
+        assert len(result_with.results) == 2
+        sorted_results = sorted(result_with.results)
+        assert sorted_results[0][0] == 2  # 2 unique users on one day
+        assert sorted_results[1][0] == 2  # 2 unique users on the other day
+
+        # Verify data exists in preaggregation table
+        preagg_results = sync_execute(
+            f"""
+            SELECT count()
+            FROM {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()}
+            WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.id},
+        )
+        assert preagg_results[0][0] > 0
+
+    def test_trends_query_dau_with_preaggregation_modifier(self):
+        """Test that TrendsQuery with DAU returns same results with and without preaggregation modifier.
+
+        Note: TrendsQuery generates a complex query structure that doesn't currently match
+        our simple preaggregation pattern, so preaggregation rows won't be created.
+        This test verifies the modifier doesn't break the query.
+        """
+        self._create_pageview_events()
+
+        # Run TrendsQuery without preaggregation modifier
+        query_without = TrendsQuery(
+            series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.DAU)],
+            dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
+        )
+        runner_without = TrendsQueryRunner(team=self.team, query=query_without)
+        response_without = runner_without.calculate()
+
+        # Run TrendsQuery with preaggregation modifier
+        query_with = TrendsQuery(
+            series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.DAU)],
+            dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
+            modifiers=HogQLQueryModifiers(usePreaggregatedIntermediateResults=True),
+        )
+        runner_with = TrendsQueryRunner(team=self.team, query=query_with)
+        response_with = runner_with.calculate()
+
+        # Both should return the same results
+        assert len(response_without.results) == len(response_with.results) == 1
+        series_without = response_without.results[0]
+        series_with = response_with.results[0]
+
+        assert series_without["days"] == series_with["days"]
+        assert series_without["data"] == series_with["data"]
+        assert series_without["count"] == series_with["count"]
+
+        # Verify expected data: 2 unique users on Jan 1, 2 unique users on Jan 2
+        assert series_with["days"] == ["2025-01-01", "2025-01-02"]
+        assert series_with["data"] == [2, 2]
+
+    def test_trends_line_inner_query_format(self):
+        """Test the inner query format that TrendsQuery generates for DAU queries.
+
+        This format uses:
+        - and() function call instead of AND operator
+        - greaterOrEquals() and lessOrEquals() function calls
+        - toStartOfInterval(assumeNotNull(toDateTime(...)), toIntervalDay(1)) for date comparison
+        - Table alias (events AS e)
+        - SAMPLE 1
+        - GROUP BY uses alias (day_start) instead of toStartOfDay(timestamp)
+        """
+        self._create_pageview_events()
+
+        # This is the query format used by TrendsQuery for DAU, with count() replaced by uniqExact(person_id)
+        query = """
+            SELECT
+                uniqExact(person_id) AS total,
+                toStartOfDay(timestamp) AS day_start
+            FROM events AS e
+            SAMPLE 1
+            WHERE
+                and(
+                    greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-01-01 00:00:00')), toIntervalDay(1))),
+                    lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-01-02 23:59:59'))),
+                    equals(event, '$pageview')
+                )
+            GROUP BY day_start
+        """
+
+        # Run without preaggregation modifier
+        result_without = execute_hogql_query(
+            parse_select(query),
+            team=self.team,
+        )
+
+        # Run with preaggregation modifier
+        result_with = execute_hogql_query(
+            parse_select(query),
+            team=self.team,
+            modifiers=HogQLQueryModifiers(usePreaggregatedIntermediateResults=True),
+        )
+
+        # Both should return the same results
+        assert sorted(result_without.results) == sorted(result_with.results)
+
+        # Verify expected data: 2 unique users on Jan 1, 2 unique users on Jan 2
+        assert len(result_with.results) == 2
+        sorted_results = sorted(result_with.results, key=lambda r: str(r[1]))  # Sort by day
+        assert sorted_results[0][0] == 2  # 2 unique users on Jan 1
+        assert sorted_results[1][0] == 2  # 2 unique users on Jan 2
+
+        # Verify the preaggregation table was used in the generated SQL
+        assert (
+            "preaggregation_results" in result_with.clickhouse
+        ), "Expected preaggregation_results table in generated SQL"
+
+        # Verify preaggregation rows were created in the table
+        preagg_results = sync_execute(
+            f"""
+            SELECT count()
+            FROM {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()}
+            WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.id},
+        )
+        assert preagg_results[0][0] > 0, "Expected preaggregation data to be created"

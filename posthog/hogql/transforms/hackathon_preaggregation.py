@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression
 from posthog.hogql.transforms.preaggregation_executor import (
     PreaggregationResult,
     QueryInfo,
@@ -31,14 +32,18 @@ def _is_person_id_field(field: ast.Field) -> bool:
 
 def _is_timestamp_field(expr: ast.Expr, context: HogQLContext) -> bool:
     """Check if an expression is a simple timestamp field."""
-    if not isinstance(expr, ast.Field):
-        return False
+    # Use the robust timestamp field detection from timestamp_visitor
+    if is_simple_timestamp_field_expression(expr, context):
+        return True
 
-    return (
-        expr.chain == ["timestamp"]
-        or expr.chain == ["events", "timestamp"]
-        or (len(expr.chain) == 2 and expr.chain[1] == "timestamp")
-    )
+    # Also handle simple field patterns for unresolved ASTs
+    if isinstance(expr, ast.Field):
+        return (
+            expr.chain == ["timestamp"]
+            or expr.chain == ["events", "timestamp"]
+            or (len(expr.chain) == 2 and expr.chain[1] == "timestamp")
+        )
+    return False
 
 
 def _is_event_field(field: ast.Field) -> bool:
@@ -126,7 +131,15 @@ def _call_to_compare_op(call_name: str) -> CompareOperationOp:
 
 
 def _extract_datetime_constant(expr: ast.Expr, context: HogQLContext) -> Optional[datetime]:
-    """Extract a datetime from a constant or toStartOfDay(constant) expression."""
+    """Extract a datetime from a constant or wrapped constant expression.
+
+    Handles patterns like:
+    - '2024-01-01' (direct constant)
+    - toDateTime('2024-01-01 00:00:00')
+    - toStartOfDay('2024-01-01')
+    - assumeNotNull(toDateTime('2024-01-01 00:00:00'))
+    - toStartOfInterval(assumeNotNull(toDateTime('2024-01-01')), toIntervalDay(1))
+    """
     # Direct constant: '2024-01-01' or datetime object
     if isinstance(expr, ast.Constant):
         if isinstance(expr.value, datetime):
@@ -139,10 +152,14 @@ def _extract_datetime_constant(expr: ast.Expr, context: HogQLContext) -> Optiona
             except (ValueError, AttributeError):
                 return None
 
-    # toDateTime(...) or toStartOfDay(...)
-    if isinstance(expr, ast.Call) and expr.name in ["toDateTime", "toStartOfDay"]:
+    # Handle wrapper functions that pass through to their first argument
+    if isinstance(expr, ast.Call) and expr.name in ["toDateTime", "toStartOfDay", "assumeNotNull"]:
         if len(expr.args) > 0:
             return _extract_datetime_constant(expr.args[0], context)
+
+    # Handle toStartOfInterval(arg, toIntervalDay(1)) - extract datetime from first arg
+    if isinstance(expr, ast.Call) and expr.name == "toStartOfInterval" and len(expr.args) >= 1:
+        return _extract_datetime_constant(expr.args[0], context)
 
     return None
 
@@ -235,6 +252,11 @@ def _flatten_and(node: Optional[ast.Expr]) -> list[ast.Expr]:
     return [node]
 
 
+def _is_constant_one(expr: ast.Expr) -> bool:
+    """Check if an expression is a constant with value 1."""
+    return isinstance(expr, ast.Constant) and expr.value == 1
+
+
 def _is_valid_events_from(select_from: Optional[ast.JoinExpr]) -> bool:
     """Check if the FROM clause is a simple events table reference."""
     if not select_from or not isinstance(select_from.table, ast.Field):
@@ -244,7 +266,34 @@ def _is_valid_events_from(select_from: Optional[ast.JoinExpr]) -> bool:
     # No joins allowed
     if select_from.next_join or select_from.constraint:
         return False
+    # Allow SAMPLE 1 (or no sample), but not other sample values
+    if select_from.sample:
+        sample_value = select_from.sample.sample_value
+        if not _is_constant_one(sample_value.left) or not (
+            sample_value.right is None or _is_constant_one(sample_value.right)
+        ):
+            return False
     return True
+
+
+def _build_select_aliases(node: ast.SelectQuery, context: HogQLContext) -> dict[str, ast.Expr]:
+    """Build a mapping of alias names to their underlying expressions from SELECT."""
+    aliases = {}
+    if node.select:
+        for select_expr in node.select:
+            if isinstance(select_expr, ast.Alias):
+                aliases[select_expr.alias] = select_expr.expr
+    return aliases
+
+
+def _resolve_alias_in_group_by(expr: ast.Expr, aliases: dict[str, ast.Expr], context: HogQLContext) -> ast.Expr:
+    """Resolve an alias reference in GROUP BY to its underlying expression."""
+    # If it's a single-element field that matches an alias, return the aliased expression
+    if isinstance(expr, ast.Field) and len(expr.chain) == 1:
+        alias_name = expr.chain[0]
+        if alias_name in aliases:
+            return aliases[alias_name]
+    return expr
 
 
 def _is_daily_unique_persons_pageviews_query(node: ast.SelectQuery, context: HogQLContext) -> bool:
@@ -253,17 +302,29 @@ def _is_daily_unique_persons_pageviews_query(node: ast.SelectQuery, context: Hog
     SELECT uniqExact(person_id) FROM events WHERE event='$pageview' GROUP BY toStartOfDay(timestamp)
     """
 
-    # 1. Must select from 'events' table (no joins)
+    # 1. Must select from 'events' table (no joins, SAMPLE 1 allowed)
     if not _is_valid_events_from(node.select_from):
         return False
 
-    # 2. Must have exactly one SELECT expression
-    if not node.select or len(node.select) != 1:
+    # 2. Must have 1-2 SELECT expressions
+    if not node.select or len(node.select) < 1 or len(node.select) > 2:
         return False
 
-    # 3. SELECT must be uniqExact(person_id) or count(DISTINCT person_id)
-    select_expr = _unwrap_alias(node.select[0])
-    if not _is_uniq_exact_persons_call(select_expr):
+    # Build alias mapping for GROUP BY resolution
+    aliases = _build_select_aliases(node, context)
+
+    # 3. SELECT must contain uniqExact(person_id) and optionally toStartOfDay(timestamp)
+    has_uniq_exact = False
+    for select_expr in node.select:
+        expr = _unwrap_alias(select_expr)
+        if _is_uniq_exact_persons_call(expr):
+            has_uniq_exact = True
+        elif _is_to_start_of_day_timestamp(expr, context):
+            pass  # Allowed
+        else:
+            return False  # Unknown expression type
+
+    if not has_uniq_exact:
         return False
 
     # 4. WHERE must contain event='$pageview' filter
@@ -278,10 +339,13 @@ def _is_daily_unique_persons_pageviews_query(node: ast.SelectQuery, context: Hog
 
     # 6. GROUP BY must contain toStartOfDay(timestamp) as first expression
     # Additional GROUP BY expressions are allowed (for breakdowns)
+    # GROUP BY can reference aliases from SELECT (e.g., GROUP BY day_start where day_start is toStartOfDay(timestamp))
     if not node.group_by or len(node.group_by) < 1:
         return False
 
     first_group_expr = _unwrap_alias(node.group_by[0])
+    # Resolve alias if it references a SELECT alias
+    first_group_expr = _resolve_alias_in_group_by(first_group_expr, aliases, context)
     if not _is_to_start_of_day_timestamp(first_group_expr, context):
         return False
 
@@ -460,17 +524,26 @@ class Transformer(CloningVisitor):
             return transformed_node
 
         # Transform the query to use preaggregated table
-        # SELECT uniqExact(person_id) -> SELECT uniqExactMerge(persons_uniq_exact_state)
-        original_select = transformed_node.select[0]
-        original_alias = original_select.alias if isinstance(original_select, ast.Alias) else None
+        # Build SELECT expressions by transforming each original expression
+        select: list[ast.Expr] = []
+        for orig_select in transformed_node.select:
+            expr = _unwrap_alias(orig_select)
+            orig_alias = orig_select.alias if isinstance(orig_select, ast.Alias) else None
 
-        transformed_select_expr = ast.Call(name="uniqExactMerge", args=[ast.Field(chain=["uniq_exact_state"])])
+            if _is_uniq_exact_persons_call(expr):
+                # uniqExact(person_id) -> uniqExactMerge(uniq_exact_state)
+                transformed_expr = ast.Call(name="uniqExactMerge", args=[ast.Field(chain=["uniq_exact_state"])])
+            elif _is_to_start_of_day_timestamp(expr, self.context):
+                # toStartOfDay(timestamp) -> time_window_start
+                transformed_expr = ast.Field(chain=["time_window_start"])
+            else:
+                # Shouldn't happen if pattern detection worked, but defensive
+                continue
 
-        # Preserve the original alias if it exists
-        if original_alias:
-            select = [ast.Alias(alias=original_alias, expr=transformed_select_expr)]
-        else:
-            select = [transformed_select_expr]
+            if orig_alias:
+                select.append(ast.Alias(alias=orig_alias, expr=transformed_expr))
+            else:
+                select.append(transformed_expr)
 
         # FROM preaggregation_results (HogQL name, maps to sharded_preaggregation_results in ClickHouse)
         select_from = ast.JoinExpr(
@@ -482,6 +555,13 @@ class Transformer(CloningVisitor):
         )
 
         # WHERE time_window_start >= start AND time_window_start < end
+        # For the end date, we need to include the full day if the time is at end-of-day (23:59:59)
+        # e.g., timestamp <= '2025-01-02 23:59:59' should include time_window_start = '2025-01-02'
+        # So we use < (end_date + 1 day) to include the end day
+        end_date_for_query = end_dt.date()
+        if end_dt.hour == 23 and end_dt.minute == 59:
+            end_date_for_query = end_date_for_query + timedelta(days=1)
+
         where_conditions = [
             ast.CompareOperation(
                 left=ast.Field(chain=["time_window_start"]),
@@ -490,7 +570,7 @@ class Transformer(CloningVisitor):
             ),
             ast.CompareOperation(
                 left=ast.Field(chain=["time_window_start"]),
-                right=ast.Constant(value=end_dt.date()),
+                right=ast.Constant(value=end_date_for_query),
                 op=CompareOperationOp.Lt,
             ),
         ]

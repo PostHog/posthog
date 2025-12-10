@@ -67,6 +67,11 @@ def get_daily_windows(start: datetime, end: datetime) -> list[tuple[datetime, da
     current = datetime(start.year, start.month, start.day, tzinfo=UTC)
     end_normalized = datetime(end.year, end.month, end.day, tzinfo=UTC)
 
+    # If end has non-zero time (e.g., 23:59:59), include that day's window
+    # For example: end=2025-01-02 23:59:59 should include the Jan 2 window
+    if end.hour > 0 or end.minute > 0 or end.second > 0:
+        end_normalized = end_normalized + timedelta(days=1)
+
     while current < end_normalized:
         window_end = current + timedelta(days=1)
         windows.append((current, window_end))

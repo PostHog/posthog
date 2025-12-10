@@ -381,6 +381,29 @@ class TestQueryTransformation(BaseTest, QueryMatchingTest):
 
         self.assertQueryMatchesSnapshot(transformed)
 
+    def test_basic_transformation_count_distinct(self):
+        original_query = """
+            SELECT count(DISTINCT person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        # Check that transformation occurred
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME in transformed
+        assert "uniqExactMerge" in transformed
+        assert "uniq_exact_state" in transformed
+        assert "time_window_start" in transformed
+
+        # Original elements should not be present
+        assert "events" not in transformed
+        assert "toStartOfDay(timestamp)" not in transformed
+
+        self.assertQueryMatchesSnapshot(transformed)
+
     def test_preserves_alias(self):
         original_query = """
             SELECT uniqExact(person_id) AS unique_persons
