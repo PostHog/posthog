@@ -2988,12 +2988,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
   }
 
-  // Delegation methods for betweenOperand alternatives
-  // These contexts have the same structure as their columnExpr counterparts
-  // We visit child nodes directly to produce the same AST
-  // Minimal betweenOperand visitor methods
-  // Only 5 alternatives needed for BETWEEN fix
-
   VISIT(BetweenOperandLiteral) { return visit(ctx->literal()); }
 
   VISIT(BetweenOperandIdentifier) { return visit(ctx->columnIdentifier()); }

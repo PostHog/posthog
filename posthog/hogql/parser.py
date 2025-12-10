@@ -1278,11 +1278,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return self.visit(ctx.columnExpr())
         return ast.Constant(value="")
 
-    # Delegation methods for betweenOperand alternatives
-    # These delegate to existing visitor methods since AST nodes are identical
-    # Minimal betweenOperand visitor methods
-    # Only 5 alternatives needed for BETWEEN fix
-
     def visitBetweenOperandLiteral(self, ctx):
         return self.visitColumnExprLiteral(ctx)
 
