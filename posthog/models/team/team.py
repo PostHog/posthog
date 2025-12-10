@@ -175,7 +175,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.exclude(organization__is_active=False).get(api_token=token)
+            return Team.objects.get(api_token=token)
         except Team.DoesNotExist:
             return None
 
@@ -185,14 +185,9 @@ class TeamManager(models.Manager):
         try:
             team = get_team_in_cache(token)
             if team:
-                # Use cached org is_active to avoid extra query
-                cached_is_active = getattr(team, "_cached_organization_is_active", None)
-                if cached_is_active is not False:
-                    return team
+                return team
 
-            team = (
-                Team.objects.select_related("organization").exclude(organization__is_active=False).get(api_token=token)
-            )
+            team = Team.objects.get(api_token=token)
             set_team_in_cache(token, team)
             return team
 
@@ -205,16 +200,9 @@ class TeamManager(models.Manager):
         try:
             team = get_team_in_cache(secret_api_token)
             if team:
-                # Use cached org is_active to avoid extra query
-                cached_is_active = getattr(team, "_cached_organization_is_active", None)
-                if cached_is_active is not False:
-                    return team
+                return team
 
-            team = (
-                Team.objects.select_related("organization")
-                .exclude(organization__is_active=False)
-                .get(secret_api_token=secret_api_token)
-            )
+            team = Team.objects.get(secret_api_token=secret_api_token)
             set_team_in_cache(secret_api_token, team)
             return team
 

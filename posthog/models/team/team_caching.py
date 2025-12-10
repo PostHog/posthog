@@ -17,7 +17,7 @@ def set_team_in_cache(token: str, team: Optional["Team"] = None) -> None:
 
     if not team:
         try:
-            team = Team.objects.select_related("organization").get(api_token=token)
+            team = Team.objects.get(api_token=token)
         except (Team.DoesNotExist, Team.MultipleObjectsReturned):
             cache.delete(f"team_token:{token}")
             return
@@ -41,12 +41,7 @@ def get_team_in_cache(token: str) -> Optional["Team"]:
             parsed_data = json.loads(team_data)
             if "project_id" not in parsed_data:
                 parsed_data["project_id"] = parsed_data["id"]
-            # Extract organization_is_active before creating Team (not a model field)
-            organization_is_active = parsed_data.pop("organization_is_active", None)
-            team = Team(**parsed_data)
-            # Store as private attribute for cache-aware is_active check
-            team._cached_organization_is_active = organization_is_active
-            return team
+            return Team(**parsed_data)
         except Exception as e:
             capture_exception(e)
             return None

@@ -60,41 +60,41 @@ where
     }
 }
 
-/// SQL fragment for selecting all Team columns (prefixed with t. for use with "posthog_team t" alias)
+/// SQL fragment for selecting all Team columns
 const TEAM_COLUMNS: &str = "
-    t.id,
-    t.uuid,
-    t.name,
-    t.api_token,
-    t.organization_id,
-    t.cookieless_server_hash_mode,
-    t.timezone,
-    t.autocapture_opt_out,
-    t.autocapture_exceptions_opt_in,
-    t.autocapture_web_vitals_opt_in,
-    t.capture_performance_opt_in,
-    t.capture_console_log_opt_in,
-    t.session_recording_opt_in,
-    t.inject_web_apps,
-    t.surveys_opt_in,
-    t.heatmaps_opt_in,
-    t.capture_dead_clicks,
-    t.flags_persistence_default,
-    t.session_recording_sample_rate,
-    t.session_recording_minimum_duration_milliseconds,
-    t.autocapture_web_vitals_allowed_metrics,
-    t.autocapture_exceptions_errors_to_ignore,
-    t.session_recording_linked_flag,
-    t.session_recording_network_payload_capture_config,
-    t.session_recording_masking_config,
-    t.session_replay_config,
-    t.survey_config,
-    t.extra_settings,
-    t.session_recording_url_trigger_config,
-    t.session_recording_url_blocklist_config,
-    t.session_recording_event_trigger_config,
-    t.session_recording_trigger_match_type_config,
-    t.recording_domains
+    id,
+    uuid,
+    name,
+    api_token,
+    organization_id,
+    cookieless_server_hash_mode,
+    timezone,
+    autocapture_opt_out,
+    autocapture_exceptions_opt_in,
+    autocapture_web_vitals_opt_in,
+    capture_performance_opt_in,
+    capture_console_log_opt_in,
+    session_recording_opt_in,
+    inject_web_apps,
+    surveys_opt_in,
+    heatmaps_opt_in,
+    capture_dead_clicks,
+    flags_persistence_default,
+    session_recording_sample_rate,
+    session_recording_minimum_duration_milliseconds,
+    autocapture_web_vitals_allowed_metrics,
+    autocapture_exceptions_errors_to_ignore,
+    session_recording_linked_flag,
+    session_recording_network_payload_capture_config,
+    session_recording_masking_config,
+    session_replay_config,
+    survey_config,
+    extra_settings,
+    session_recording_url_trigger_config,
+    session_recording_url_blocklist_config,
+    session_recording_event_trigger_config,
+    session_recording_trigger_match_type_config,
+    recording_domains
 ";
 
 impl Team {
@@ -191,7 +191,7 @@ impl Team {
         let mut conn =
             get_connection_with_metrics(&client, "non_persons_reader", "fetch_team").await?;
 
-        let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team t JOIN posthog_organization o ON o.id = t.organization_id WHERE o.is_active IS DISTINCT FROM false AND t.api_token = $1");
+        let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team WHERE api_token = $1");
         let row = sqlx::query_as::<_, Team>(&query)
             .bind(token)
             .fetch_one(&mut *conn)
@@ -209,7 +209,7 @@ impl Team {
                 .await?;
 
         let query = format!(
-            "SELECT {TEAM_COLUMNS} FROM posthog_team t JOIN posthog_organization o ON o.id = t.organization_id WHERE o.is_active IS DISTINCT FROM false AND (t.secret_api_token = $1 OR t.secret_api_token_backup = $1)"
+            "SELECT {TEAM_COLUMNS} FROM posthog_team WHERE (secret_api_token = $1 OR secret_api_token_backup = $1)"
         );
         let row = sqlx::query_as::<_, Team>(&query)
             .bind(token)

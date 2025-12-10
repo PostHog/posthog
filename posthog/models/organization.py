@@ -631,13 +631,3 @@ def cache_organization_session_age(sender, instance, **kwargs):
         cache.set(f"org_session_age:{instance.id}", instance.session_cookie_age)
     else:
         cache.delete(f"org_session_age:{instance.id}")
-
-
-@receiver(post_save, sender=Organization)
-def invalidate_team_caches_on_org_inactive(sender, instance: Organization, **kwargs):
-    """Invalidate team caches when organization becomes inactive."""
-    if instance.is_active is False:
-        from posthog.models.team.team_caching import set_team_in_cache
-
-        for team in instance.teams.all():
-            set_team_in_cache(team.api_token, None)

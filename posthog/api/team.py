@@ -88,15 +88,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
     """
 
     organization_id = serializers.UUIDField(read_only=True)
-    organization_is_active = serializers.SerializerMethodField()
-
-    def get_organization_is_active(self, team: Team) -> bool | None:
-        # Check if organization is already loaded to avoid extra query
-        # Uses Django's internal _state to check if FK is cached
-        if hasattr(team, "_state") and "organization" in team._state.fields_cache:
-            return team.organization.is_active
-        # If org not prefetched, return None (will be treated as "not inactive" in cache check)
-        return None
 
     class Meta:
         model = Team
@@ -104,7 +95,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "id",
             "project_id",
             "organization_id",
-            "organization_is_active",
             "uuid",
             "name",
             "api_token",
