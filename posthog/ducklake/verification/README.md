@@ -1,6 +1,6 @@
 # DuckLake Copy Verification
 
-This document summarizes the automated checks executed after every DuckLake copy workflow. Both workflows (data modeling and data imports) run verification activities that issue direct DuckDB comparisons between the Delta source and the freshly created DuckLake table. YAML config files add configurable SQL checks (for example, a row-count delta), while the workflow code enforces structural comparisons (schema, partitions, key cardinality, null ratios). Together they catch schema drift or data loss before the workflow completes.
+This document summarizes the automated checks executed after every DuckLake copy workflow. Both workflows (data modeling and data imports) run verification activities that issue direct DuckDB comparisons between the Delta source and the freshly created DuckLake table. YAML config files add configurable SQL checks (for example, a row-count delta), while the workflow code enforces structural comparisons (schema and partitions). Together they catch schema drift or data loss before the workflow completes.
 
 | Workflow      | Verification Activity                                                                                                  | Config File          |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------- |
@@ -12,9 +12,7 @@ This document summarizes the automated checks executed after every DuckLake copy
 Both workflows follow the same pattern:
 
 1. **Metadata preparation** enriches each model with metadata so we know **what** to compare:
-   - `partition_column`: primary partition column (from Delta metadata or schema config)
-   - `key_columns`: inferred IDs (`person_id`, `distinct_id`, `*_id` columns) for distinct-count checks
-   - `non_nullable_columns`: any column that is not declared as `Nullable(...)`
+   - `partition_column`: primary partition column (from Delta metadata)
 
 2. **Verification activity** executes the SQL queries from the YAML config, then issues the built-in comparisons directly in DuckDB. Any failure stops the workflow.
 
@@ -26,19 +24,16 @@ Both workflows follow the same pattern:
 ### Data Imports specifics
 
 - Metadata derived from `ExternalDataSchema` and its associated `DataWarehouseTable.columns`
-- Partition column detected from schema's `partitioning_keys` config or the standard `_ph_partition_key` column
-- Key columns also consider `incremental_field` and `partitioning_keys` from the schema config
+- Partition column detected from Delta table metadata
 
 ## Built-in checks
 
 Both workflows run the same types of checks, but with different prefixes:
 
-| Check Type       | Data Modeling                    | Data Imports                            | Description                                                                                                                           |
-| ---------------- | -------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Schema hash      | `model.schema_hash`              | `data_imports.schema_hash`              | Compares Delta source schema with DuckLake table schema. Fails if they differ. Prevents silent schema drift.                          |
-| Partition counts | `model.partition_counts`         | `data_imports.partition_counts`         | When a partition column is available, compares row counts per partition between source and DuckLake. Any mismatch fails verification. |
-| Key cardinality  | `model.key_cardinality.<column>` | `data_imports.key_cardinality.<column>` | For each inferred key column, compares `COUNT(DISTINCT column)` between Delta and DuckLake to catch dropped/duplicate identifiers.    |
-| Null ratio       | `model.null_ratio.<column>`      | `data_imports.null_ratio.<column>`      | Ensures DuckLake null counts for columns marked non-nullable match the Delta source.                                                  |
+| Check Type       | Data Modeling            | Data Imports                    | Description                                                                                                                           |
+| ---------------- | ------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Schema hash      | `model.schema_hash`      | `data_imports.schema_hash`      | Compares Delta source schema with DuckLake table schema. Fails if they differ. Prevents silent schema drift.                          |
+| Partition counts | `model.partition_counts` | `data_imports.partition_counts` | When a partition column is available, compares row counts per partition between source and DuckLake. Any mismatch fails verification. |
 
 Additionally, YAML-defined checks (like `row_count_delta_vs_ducklake`) can be configured per workflow in the respective YAML files.
 
@@ -49,7 +44,7 @@ Additionally, YAML-defined checks (like `row_count_delta_vs_ducklake`) can be co
   - `posthog/ducklake/verification/data_imports.yaml` for data imports workflow
 - Each YAML file feeds into `DuckLakeCopyVerificationQuery` objects (see `posthog/ducklake/verification/config.py`), which are passed to the verification activity. The workflow renders the SQL, binds any listed parameters, and records the single numeric value returned by the query.
 - Each query may declare both an `expected` value and a `tolerance`. During runtime the workflow compares the observed value to `expected` and considers the query passing when `abs(observed - expected) <= tolerance`. If you omit either field, the runtime defaults to `0.0`, so set a tolerance whenever you expect minor drift.
-- Built-in checks (schema hash, partition counts, key-cardinality, null ratios) are intentionally hardcoded in the workflow files and always run after the YAML queries. They rely on metadata detected from each model, so changing their behavior still requires Python changes today.
+- Built-in checks (schema hash, partition counts) are intentionally hardcoded in the workflow files and always run after the YAML queries. They rely on metadata detected from each model, so changing their behavior still requires Python changes today.
 
 ### Per-model configuration
 
