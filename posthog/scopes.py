@@ -34,6 +34,7 @@ APIScopeObject = Literal[
     "integration",
     "link",
     "live_debugger",
+    "llm_provider_key",
     "logs",
     "notebook",
     "organization",
