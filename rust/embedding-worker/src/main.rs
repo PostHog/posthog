@@ -17,6 +17,7 @@ use embedding_worker::{
 };
 
 use tokio::task::JoinHandle;
+use tracing::level_filters::LevelFilter;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 use uuid::Uuid;
@@ -24,11 +25,12 @@ use uuid::Uuid;
 common_alloc::used!();
 
 fn setup_tracing() {
-    let log_layer: tracing_subscriber::filter::Filtered<
-        tracing_subscriber::fmt::Layer<tracing_subscriber::Registry>,
-        EnvFilter,
-        tracing_subscriber::Registry,
-    > = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    let log_layer = tracing_subscriber::fmt::layer().with_filter(
+        EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy()
+            .add_directive("pyroscope=warn".parse().unwrap()),
+    );
     tracing_subscriber::registry().with(log_layer).init();
 }
 

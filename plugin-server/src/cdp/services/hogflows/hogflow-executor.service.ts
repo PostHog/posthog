@@ -28,7 +28,13 @@ import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
-import { actionIdForLogging, ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
+import {
+    actionIdForLogging,
+    ensureCurrentAction,
+    findContinueAction,
+    shouldSkipAction,
+    trackE2eLag,
+} from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
@@ -163,6 +169,8 @@ export class HogFlowExecutorService {
                 } else {
                     this.log(result, 'info', `Workflow completed`)
                 }
+
+                trackE2eLag(result)
             }
 
             logs.push(...result.logs)

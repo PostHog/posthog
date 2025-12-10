@@ -25,8 +25,8 @@ export const LogsViewerToolbar = ({
     const { setWrapBody, setPrettifyJson } = useActions(logsViewerLogic)
 
     return (
-        <div className="flex justify-between">
-            <div className="flex gap-2">
+        <div className="flex justify-between flex-wrap gap-2">
+            <div className="flex gap-2 flex-wrap">
                 <LemonSegmentedButton
                     value={orderBy}
                     onChange={onChangeOrderBy}
@@ -51,7 +51,7 @@ export const LogsViewerToolbar = ({
                     size="small"
                 />
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
                 {totalLogsCount !== undefined && totalLogsCount > 0 && (
                     <span className="text-muted text-xs">
                         {humanFriendlyNumber(logsCount)} of {humanFriendlyNumber(totalLogsCount)} logs

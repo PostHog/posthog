@@ -582,6 +582,19 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Listing task runs...'
         },
     },
+    list_repositories: {
+        name: 'List repositories',
+        description: 'List repositories available via GitHub integration for creating tasks',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Listed repositories'
+            }
+            return 'Listing repositories...'
+        },
+    },
     switch_mode: {
         name: 'Switch agent mode',
         description:
