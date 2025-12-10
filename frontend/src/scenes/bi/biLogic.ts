@@ -267,7 +267,9 @@ export const biLogic = kea([
             const searchTerm = typeof searchParams.q === 'string' ? searchParams.q : ''
 
             if (!table) {
-                actions.resetSelection()
+                if (values.selectedTable) {
+                    actions.resetSelection()
+                }
                 if (limit !== values.limit) {
                     actions.setLimit(limit)
                 }
