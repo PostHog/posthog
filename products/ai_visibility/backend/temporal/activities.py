@@ -346,10 +346,10 @@ async def _probe_prompt(domain: str, info: BusinessInfo, search_prompt: str, cat
     llm_prompt = (
         f"This is a search prompt: {search_prompt}\n"
         "Respond to it, and then analyze your response.\n"
-        "For every company you mentioned in your response (brand names only, not generic categories), include it in the output."
+        "For every company you mentioned in your response (brand names only, not generic categories), include it in the output.\n"
         "Include the primary domain (no protocol) and a logo URL; "
-        "use https://www.google.com/s2/favicons?domain=<domain>&sz=128 when the domain is known, else leave logo_url null."
-        f"Exclude {info.name} from competitors.\n"
+        "use https://www.google.com/s2/favicons?domain=<domain>&sz=128 when the domain is known, else leave logo_url null.\n"
+        f"Exclude {info.name} from competitors. Instead, if the business is in the results, set mentions_target=true \n"
         "Provide one-sentence explaining why they were mentioned in the response.\n\n"
     )
     data = await _call_structured_llm(llm_prompt, ProbeResult)
