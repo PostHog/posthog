@@ -12,6 +12,7 @@ from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
 
 from posthog.models.team.team import Team
+from posthog.redis import get_client
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -92,6 +93,7 @@ class HyperCache:
         cache_alias: Optional[str] = None,
         batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
         enable_etag: bool = False,
+        expiry_sorted_set_key: Optional[str] = None,
     ):
         self.namespace = namespace
         self.value = value
@@ -101,6 +103,7 @@ class HyperCache:
         self.cache_miss_ttl = cache_miss_ttl
         self.batch_load_fn = batch_load_fn
         self.enable_etag = enable_etag
+        self.expiry_sorted_set_key = expiry_sorted_set_key
 
         # Derive cache_client and redis_url from cache_alias (single source of truth)
         if cache_alias:
@@ -118,6 +121,15 @@ class HyperCache:
             return Team.objects.get(api_token=key)
         else:
             return Team.objects.get(id=key)
+
+    def get_cache_identifier(self, team: Team) -> str | int:
+        """
+        Get the identifier used for cache keys and expiry tracking.
+
+        For token-based caches, returns api_token. For ID-based caches, returns team.id.
+        This ensures consistency between cache keys and expiry tracking entries.
+        """
+        return team.api_token if self.token_based else team.id
 
     def get_cache_key(self, key: KeyType) -> str:
         if self.token_based:
@@ -250,6 +262,9 @@ class HyperCache:
     ) -> None:
         self._set_cache_value_redis(key, data, ttl=ttl)
         self._set_cache_value_s3(key, data, ttl=ttl)
+        # Only track expiry when we have a Team object (avoids DB lookup)
+        if isinstance(key, Team):
+            self._track_expiry(key, data, ttl=ttl)
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
@@ -300,3 +315,34 @@ class HyperCache:
         else:
             # Use sort_keys for deterministic serialization (consistent ETags)
             object_storage.write(key, json.dumps(data, sort_keys=True))
+
+    def _track_expiry(self, team: Team, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None) -> None:
+        """
+        Track cache expiration in Redis sorted set for efficient expiry queries.
+
+        Only tracks if expiry_sorted_set_key is configured. Stores the cache identifier
+        (token or team ID based on token_based setting) with expiry timestamp as score.
+        """
+        if not self.expiry_sorted_set_key:
+            return
+
+        # Don't track expiry for missing values
+        if data is None or isinstance(data, HyperCacheStoreMissing):
+            return
+
+        try:
+            identifier = self.get_cache_identifier(team)
+            ttl_seconds = ttl if ttl is not None else self.cache_ttl
+            expiry_timestamp = int(time.time()) + ttl_seconds
+
+            redis_client = get_client(self.redis_url)
+            redis_client.zadd(self.expiry_sorted_set_key, {str(identifier): expiry_timestamp})
+        except Exception as e:
+            # Don't fail cache writes if expiry tracking fails
+            logger.warning(
+                "Failed to track cache expiry",
+                namespace=self.namespace,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            capture_exception(e)

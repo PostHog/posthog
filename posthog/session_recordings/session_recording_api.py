@@ -718,9 +718,14 @@ class SessionRecordingViewSet(
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="bulk_delete")
     def bulk_delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Bulk soft delete recordings by providing a list of recording IDs."""
+        """Bulk soft delete recordings by providing a list of recording IDs.
+
+        Accepts optional date_from parameter to optimize ClickHouse query performance by limiting the search range.
+        If not provided, defaults to the team's retention period to ensure all recordings can be found.
+        """
 
         session_recording_ids = request.data.get("session_recording_ids", [])
+        date_from = request.data.get("date_from", None)
 
         if not session_recording_ids or not isinstance(session_recording_ids, list):
             raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
@@ -731,13 +736,16 @@ class SessionRecordingViewSet(
             )
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
-        # Use retention period to ensure we find recordings even if they're older than the default 7 day lookback
-        retention_period = self.team.session_recording_retention_period or "90d"
+        # Use date_from from UI if provided (optimization for when UI knows the filter range)
+        # Otherwise fall back to retention period (handles direct links where no filter context exists)
+        if not date_from:
+            retention_period = self.team.session_recording_retention_period or "90d"
+            date_from = f"-{retention_period}"
 
         # Create minimal query with only session_ids - pass None for user to bypass access control filtering
         query_data = {
             "session_ids": session_recording_ids,
-            "date_from": f"-{retention_period}",
+            "date_from": date_from,
             "date_to": None,
             "kind": "RecordingsQuery",
         }
@@ -1116,7 +1124,15 @@ class SessionRecordingViewSet(
         has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
-        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+        if not posthoganalytics.feature_enabled(
+            "ai-session-summary", str(user.distinct_id)
+        ) and not posthoganalytics.feature_enabled(
+            "max-session-summarization",
+            str(user.distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            send_feature_flag_events=False,
+        ):
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
         # Track streaming summary start (no completion tracking for streaming)

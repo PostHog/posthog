@@ -325,3 +325,37 @@ class TestSummarizationAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("trace_ids", str(response.data).lower())
+
+    def test_feature_disabled_returns_permission_denied(self):
+        """Should return 403 when feature flags are disabled for user."""
+        with patch(
+            "products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=False
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+                {"summarize_type": "event", "mode": "minimal", "data": {"event": {"id": "test"}}},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertIn("not enabled", str(response.data).lower())
+
+    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled")
+    def test_feature_flag_called_with_organization_context(self, mock_feature_enabled):
+        """Should call feature_enabled with groups and group_properties for organization targeting."""
+        mock_feature_enabled.return_value = False
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {"summarize_type": "event", "mode": "minimal", "data": {"event": {"id": "test"}}},
+            format="json",
+        )
+
+        # Verify feature_enabled was called with correct parameters
+        self.assertTrue(mock_feature_enabled.called)
+        call_kwargs = mock_feature_enabled.call_args_list[0][1]
+        self.assertIn("groups", call_kwargs)
+        self.assertIn("group_properties", call_kwargs)
+        self.assertEqual(call_kwargs["groups"], {"organization": str(self.team.organization_id)})
+        self.assertEqual(call_kwargs["group_properties"], {"organization": {"id": str(self.team.organization_id)}})
+        self.assertIn("person_properties", call_kwargs)
+        self.assertEqual(call_kwargs["person_properties"], {"email": self.user.email})

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -16,7 +17,6 @@ from posthog.test.base import (
 from django.test import override_settings
 from django.utils import timezone
 
-from flaky import flaky
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -2492,7 +2492,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0],
         )
 
-    @flaky(max_runs=10, min_passes=1)
+    @pytest.mark.flaky(reruns=9)
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_standard_flow_v2_stats(self):
         feature_flag = self.create_feature_flag()

@@ -59,6 +59,8 @@ pub struct FlagRequest {
     pub group_properties: Option<HashMap<String, HashMap<String, Value>>>,
     #[serde(alias = "$anon_distinct_id", skip_serializing_if = "Option::is_none")]
     pub anon_distinct_id: Option<String>,
+    #[serde(alias = "$device_id", skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
     pub ip_address: Option<String>,
     #[serde(default, alias = "flag_keys_to_evaluate")]
     pub flag_keys: Option<Vec<String>>,

@@ -8,7 +8,6 @@ import {
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import type { Experiment } from '~/types'
 import { ExperimentMetricMathType } from '~/types'
 
 const VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2
@@ -304,39 +303,4 @@ export function calculateRemainingDays(
     }
 
     return remainingSample / exposureRate
-}
-
-// Caller must ensure metric, result.baseline, and experiment.start_date are present
-export function calculateExperimentTimeEstimate(
-    metric: ExperimentMetric,
-    result: CachedNewExperimentQueryResponse,
-    experiment: Experiment,
-    minimumDetectableEffect: number
-): {
-    currentExposures: number | null
-    recommendedSampleSize: number | null
-    exposureRate: number | null
-    estimatedRemainingDays: number | null
-} {
-    const baselineValue = calculateBaselineValue(result.baseline, metric)
-    if (baselineValue === null) {
-        return { currentExposures: null, recommendedSampleSize: null, exposureRate: null, estimatedRemainingDays: null }
-    }
-
-    const numberOfVariants = experiment.feature_flag?.filters.multivariate?.variants.length ?? 2
-
-    const recommendedSampleSize = calculateRecommendedSampleSize(
-        metric,
-        minimumDetectableEffect,
-        baselineValue,
-        numberOfVariants,
-        result.baseline
-    )
-
-    const currentExposures = calculateCurrentExposures(result)
-    const daysElapsed = calculateDaysElapsed(experiment.start_date!)
-    const exposureRate = calculateExposureRate(currentExposures, daysElapsed)
-    const estimatedRemainingDays = calculateRemainingDays(recommendedSampleSize, currentExposures, exposureRate)
-
-    return { currentExposures, recommendedSampleSize, exposureRate, estimatedRemainingDays }
 }

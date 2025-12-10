@@ -102,6 +102,13 @@
         },
         { "path": "Notebooks", "category": "Tools", "iconType": "notebook", "type": "notebook", "intents": [] },
         {
+            "path": "Product tours",
+            "category": "Behavior",
+            "iconType": "product_tour",
+            "type": "product_tour",
+            "intents": []
+        },
+        {
             "path": "Session replay",
             "category": "Behavior",
             "iconType": "session_replay",
