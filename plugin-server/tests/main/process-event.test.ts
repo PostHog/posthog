@@ -31,6 +31,7 @@ import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/rep
 import { fetchDistinctIdValues, fetchPersons } from '../../src/worker/ingestion/persons/repositories/test-helpers'
 import { createTestEventHeaders } from '../helpers/event-headers'
 import { resetKafka } from '../helpers/kafka'
+import { createTestMessage } from '../helpers/kafka-message'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/logger')
@@ -124,6 +125,7 @@ describe('processEvent', () => {
                 processPerson,
                 historicalMigration,
                 inputHeaders: createTestEventHeaders(),
+                inputMessage: createTestMessage(),
             })
 
             if (isOkResult(createResult)) {
@@ -260,6 +262,7 @@ describe('processEvent', () => {
                 processPerson,
                 historicalMigration,
                 inputHeaders: createTestEventHeaders(),
+                inputMessage: createTestMessage(),
             })
 
             if (isOkResult(createResult)) {

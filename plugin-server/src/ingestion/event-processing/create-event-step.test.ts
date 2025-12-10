@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
+import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { Person, PersonMode, PreIngestionEvent, ProjectId, TimestampFormat } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { castTimestampOrNow } from '../../utils/utils'
@@ -10,8 +12,10 @@ import { CreateEventStepInput, createCreateEventStep } from './create-event-step
 describe('create-event-step', () => {
     let mockPerson: Person
     let mockPreparedEvent: PreIngestionEvent
+    let mockMessage: Message
 
     beforeEach(() => {
+        mockMessage = createTestMessage()
         mockPerson = {
             team_id: 1,
             properties: { email: 'test@example.com', name: 'Test User' },
@@ -40,6 +44,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 inputHeaders: createTestEventHeaders(),
+                inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -74,6 +79,7 @@ describe('create-event-step', () => {
                 processPerson: false,
                 historicalMigration: false,
                 inputHeaders: createTestEventHeaders(),
+                inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -105,6 +111,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 inputHeaders: createTestEventHeaders(),
+                inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -137,6 +144,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 inputHeaders: createTestEventHeaders(),
+                inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -166,6 +174,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 inputHeaders: createTestEventHeaders(),
+                inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -201,6 +210,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 inputHeaders: createTestEventHeaders(),
+                inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -230,6 +240,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 inputHeaders: createTestEventHeaders(),
+                inputMessage: mockMessage,
                 customProperty: 'test',
                 lastStep: 'prepareEventStep',
             }
@@ -250,6 +261,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 inputHeaders: createTestEventHeaders(),
+                inputMessage: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -284,6 +296,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     inputHeaders: createTestEventHeaders(),
+                    inputMessage: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
@@ -309,6 +322,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: true,
                     inputHeaders: createTestEventHeaders(),
+                    inputMessage: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
@@ -332,6 +346,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     inputHeaders: createTestEventHeaders(),
+                    inputMessage: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
@@ -366,6 +381,7 @@ describe('create-event-step', () => {
                     processPerson: config.processPerson,
                     historicalMigration: false,
                     inputHeaders: createTestEventHeaders(),
+                    inputMessage: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
