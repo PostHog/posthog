@@ -834,13 +834,20 @@ def main():
                 print(f"  IP: {existing_droplet.ip_address}", flush=True)
                 print(f"  Updating to SHA: {sha[:7]}", flush=True)
 
-                # Create HobbyTester instance with existing droplet
+                # Use SSH key from secrets for accessing existing droplet
+                ssh_key = os.environ.get("DIGITALOCEAN_SSH_PRIVATE_KEY")
+                if not ssh_key:
+                    print("❌ DIGITALOCEAN_SSH_PRIVATE_KEY not set - cannot update existing droplet", flush=True)
+                    exit(1)
+
+                # Create HobbyTester instance with existing droplet and deploy key
                 ht = HobbyTester(
                     branch=branch,
                     name=existing_droplet.name,
                     sha=sha,
                     pr_number=pr_number,
                     droplet_id=existing_droplet.id,
+                    ssh_private_key=ssh_key,
                 )
                 ht.droplet = existing_droplet
 
