@@ -11,7 +11,7 @@ import {
     ShareOfVoice,
     TopCitedSource,
     Topic,
-    TopicResult,
+    TopicLead,
 } from './types'
 import type { vizLogicType } from './vizLogicType'
 
@@ -403,7 +403,8 @@ export const vizLogic = kea<vizLogicType>([
                     // Count mentions across all prompts
                     let youMentioned = 0
                     let theyMentioned = 0
-                    const topicResults: TopicResult[] = []
+                    const youLeadsIn: TopicLead[] = []
+                    const theyLeadIn: TopicLead[] = []
 
                     // Track per-topic mention counts
                     const topicMentions = new Map<string, { you: number; them: number; total: number }>()
@@ -437,16 +438,24 @@ export const vizLogic = kea<vizLogicType>([
                         continue
                     }
 
-                    // Calculate brand's percentage for ALL topics
+                    // Calculate who leads in each topic (skip ties)
                     for (const [topicName, data] of topicMentions) {
                         if (data.total === 0) {
                             continue
                         }
-                        // Brand's share of mentions in this topic (brand mentions / total mentions by brand + competitor)
                         const totalMentionsInTopic = data.you + data.them
-                        const youPct =
-                            totalMentionsInTopic > 0 ? Math.round((data.you / totalMentionsInTopic) * 100) : 50
-                        topicResults.push({ topic: topicName, youPercentage: youPct })
+                        if (totalMentionsInTopic === 0) {
+                            continue
+                        }
+                        const youPct = (data.you / totalMentionsInTopic) * 100
+                        const themPct = (data.them / totalMentionsInTopic) * 100
+
+                        if (youPct > themPct) {
+                            youLeadsIn.push({ topic: topicName, percentage: Math.round(youPct * 10) / 10 })
+                        } else if (themPct > youPct) {
+                            theyLeadIn.push({ topic: topicName, percentage: Math.round(themPct * 10) / 10 })
+                        }
+                        // Skip ties (youPct === themPct)
                     }
 
                     // Overall: what % of total mentions are yours vs theirs
@@ -457,7 +466,8 @@ export const vizLogic = kea<vizLogicType>([
                         competitor,
                         sharedPrompts: prompts.length,
                         youLeadPercentage,
-                        topicResults: topicResults.sort((a, b) => b.youPercentage - a.youPercentage),
+                        youLeadsIn: youLeadsIn.sort((a, b) => b.percentage - a.percentage),
+                        theyLeadIn: theyLeadIn.sort((a, b) => b.percentage - a.percentage),
                     })
                 }
 

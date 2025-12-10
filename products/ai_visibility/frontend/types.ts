@@ -60,16 +60,17 @@ export interface Topic {
     prompts: Prompt[]
 }
 
-export interface TopicResult {
+export interface TopicLead {
     topic: string
-    youPercentage: number
+    percentage: number
 }
 
 export interface CompetitorComparison {
     competitor: string
     sharedPrompts: number
     youLeadPercentage: number
-    topicResults: TopicResult[]
+    youLeadsIn: TopicLead[]
+    theyLeadIn: TopicLead[]
 }
 
 export interface MatrixCell {
