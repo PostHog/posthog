@@ -129,7 +129,7 @@ FROM {database}.{kafka_table}
 
 
 def TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {SHARDED_DOCUMENT_EMBEDDINGS} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    return f"TRUNCATE TABLE IF EXISTS {PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
 
 # Migration helpers for transitioning to partitioned tables
