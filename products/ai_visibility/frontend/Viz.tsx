@@ -25,6 +25,7 @@ function OverviewTab({ brand }: { brand: string }): JSX.Element {
     const logic = vizLogic({ brand })
     const { brandDisplayName, visibilityScore, brandRanking, topCompetitors, topics, topCitedSources } =
         useValues(logic)
+    const { setActiveTab } = useActions(logic)
 
     const rankingCompetitors = [{ name: brandDisplayName, visibility: visibilityScore }, ...topCompetitors].sort(
         (a, b) => b.visibility - a.visibility
@@ -38,10 +39,11 @@ function OverviewTab({ brand }: { brand: string }): JSX.Element {
                     brandName={brandDisplayName}
                     visibilityScore={visibilityScore}
                     competitors={topCompetitors}
+                    onViewAll={() => setActiveTab('competitors')}
                 />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <TopTopicsList topics={topics} />
+                <TopTopicsList topics={topics} onViewAll={() => setActiveTab('prompts')} />
                 <TopCitedSourcesList sources={topCitedSources} />
             </div>
         </div>

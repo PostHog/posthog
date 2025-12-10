@@ -1,5 +1,6 @@
 import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import {
     CompetitorComparison,
@@ -616,8 +617,31 @@ export const vizLogic = kea<vizLogicType>([
         },
     })),
 
+    actionToUrl(({ values }) => ({
+        setActiveTab: () => {
+            const hash = values.activeTab === 'overview' ? '' : `#${values.activeTab}`
+            return [router.values.location.pathname, router.values.searchParams, hash]
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        '/viz/:brand': () => {
+            const hash = router.values.location.hash.replace('#', '')
+            const tab = ['prompts', 'competitors'].includes(hash) ? (hash as DashboardTab) : 'overview'
+            if (tab !== values.activeTab) {
+                actions.setActiveTab(tab)
+            }
+        },
+    })),
+
     afterMount(({ actions }) => {
         actions.loadTriggerResult()
+        // Sync tab from URL hash on mount
+        const hash = window.location.hash.replace('#', '')
+        const tab = ['prompts', 'competitors'].includes(hash) ? (hash as DashboardTab) : 'overview'
+        if (tab !== 'overview') {
+            actions.setActiveTab(tab)
+        }
     }),
 
     beforeUnmount(({ cache }) => {

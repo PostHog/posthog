@@ -1,15 +1,15 @@
 import clsx from 'clsx'
 
-import { Link } from 'lib/lemon-ui/Link'
-
 export function CompetitorMentionsBar({
     brandName,
     visibilityScore,
     competitors,
+    onViewAll,
 }: {
     brandName: string
     visibilityScore: number
     competitors: { name: string; visibility: number }[]
+    onViewAll?: () => void
 }): JSX.Element {
     // Build full sorted list to get accurate rankings
     const fullList = [
@@ -31,9 +31,11 @@ export function CompetitorMentionsBar({
         <div className="border rounded-lg p-4 bg-bg-light">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold">Competitor mentions vs {brandName}</h3>
-                <Link to="#" className="text-xs text-primary">
-                    View all
-                </Link>
+                {onViewAll && (
+                    <button onClick={onViewAll} className="text-xs text-primary hover:underline cursor-pointer">
+                        View all
+                    </button>
+                )}
             </div>
             <div className="space-y-3">
                 {displayList.map((brand) => (
