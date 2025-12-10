@@ -95,7 +95,8 @@ export function BIScene(): JSX.Element {
         addFilter,
         updateFilter,
         removeFilter,
-        setSearchTerm,
+        setTableSearchTerm,
+        setColumnSearchTerm,
         setLimit,
         setSort,
         refreshQuery,
@@ -158,7 +159,9 @@ export function BIScene(): JSX.Element {
                         <LemonInput
                             type="search"
                             placeholder={selectedTableObject ? 'Search columns' : 'Search tables'}
-                            onChange={(value) => setSearchTerm(value)}
+                            onChange={(value) =>
+                                selectedTableObject ? setColumnSearchTerm(value) : setTableSearchTerm(value)
+                            }
                             value={searchTerm}
                             fullWidth
                         />
@@ -358,6 +361,8 @@ function ColumnHeader({
 }): JSX.Element {
     const [draft, setDraft] = useState('')
     const isTemporal = isTemporalField(field)
+    const isNumeric = isNumericField(field)
+    const availableAggregations: BIAggregation[] = isNumeric ? ['count', 'min', 'max', 'sum'] : ['count', 'min', 'max']
 
     return (
         <div className="flex items-center gap-1">
@@ -393,7 +398,7 @@ function ColumnHeader({
                             <div className="text-muted">Aggregation</div>
                             <div className="grid grid-cols-4 gap-1">
                                 <LemonButton
-                                    type="secondary"
+                                    type={!column.aggregation ? 'primary' : 'secondary'}
                                     size="small"
                                     active={!column.aggregation}
                                     status={!column.aggregation ? 'primary' : 'default'}
@@ -404,10 +409,10 @@ function ColumnHeader({
                                 >
                                     None
                                 </LemonButton>
-                                {(['count', 'min', 'max', 'sum'] as BIAggregation[]).map((aggregation) => (
+                                {availableAggregations.map((aggregation) => (
                                     <LemonButton
                                         key={aggregation}
-                                        type="secondary"
+                                        type={column.aggregation === aggregation ? 'primary' : 'secondary'}
                                         size="small"
                                         status={column.aggregation === aggregation ? 'primary' : 'default'}
                                         active={column.aggregation === aggregation}

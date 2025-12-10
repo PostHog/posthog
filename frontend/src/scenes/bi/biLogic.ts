@@ -64,7 +64,8 @@ export const biLogic = kea<biLogicType>([
         removeFilter: (index: number) => ({ index }),
         setSort: (column: BIQueryColumn | null, direction?: BISortDirection | null) => ({ column, direction }),
         setLimit: (limit: number) => ({ limit }),
-        setSearchTerm: (term: string) => ({ term }),
+        setTableSearchTerm: (term: string) => ({ term }),
+        setColumnSearchTerm: (term: string) => ({ term }),
         refreshQuery: true,
         resetSelection: true,
     }),
@@ -133,7 +134,20 @@ export const biLogic = kea<biLogicType>([
             },
         ],
         limit: [50 as number, { setLimit: (_, { limit }) => limit, resetSelection: () => 50 }],
-        searchTerm: ['', { setSearchTerm: (_, { term }) => term, resetSelection: () => '' }],
+        tableSearchTerm: [
+            '',
+            {
+                setTableSearchTerm: (_, { term }) => term,
+            },
+        ],
+        columnSearchTerm: [
+            '',
+            {
+                setColumnSearchTerm: (_, { term }) => term,
+                resetSelection: () => '',
+                selectTable: () => '',
+            },
+        ],
     }),
     selectors({
         allTables: [
@@ -148,13 +162,13 @@ export const biLogic = kea<biLogicType>([
             (tables, selectedTable) => tables.find((table) => table.name === selectedTable) || null,
         ],
         filteredTables: [
-            (s) => [s.allTables, s.searchTerm],
-            (tables, searchTerm) =>
+            (s) => [s.allTables, s.tableSearchTerm],
+            (tables, tableSearchTerm) =>
                 tables.filter(
                     (table) =>
-                        table.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        table.name.toLowerCase().includes(tableSearchTerm.toLowerCase()) ||
                         Object.values(table.fields || {}).some((field) =>
-                            field.name.toLowerCase().includes(searchTerm.toLowerCase())
+                            field.name.toLowerCase().includes(tableSearchTerm.toLowerCase())
                         )
                 ),
         ],
@@ -187,18 +201,23 @@ export const biLogic = kea<biLogicType>([
             },
         ],
         filteredFields: [
-            (s) => [s.selectedTableObject, s.searchTerm],
-            (table, searchTerm) => {
+            (s) => [s.selectedTableObject, s.columnSearchTerm],
+            (table, columnSearchTerm) => {
                 if (!table) {
                     return []
                 }
 
                 const fields = Object.values(table.fields || {})
-                if (!searchTerm) {
+                if (!columnSearchTerm) {
                     return fields
                 }
-                return fields.filter((field) => field.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                return fields.filter((field) => field.name.toLowerCase().includes(columnSearchTerm.toLowerCase()))
             },
+        ],
+        searchTerm: [
+            (s) => [s.selectedTableObject, s.tableSearchTerm, s.columnSearchTerm],
+            (selectedTableObject, tableSearchTerm, columnSearchTerm) =>
+                selectedTableObject ? columnSearchTerm : tableSearchTerm,
         ],
         queryString: [
             (s) => [s.selectedTableObject, s.selectedFields, s.filters, s.sort, s.limit],
@@ -298,7 +317,7 @@ export const biLogic = kea<biLogicType>([
         selectTable: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         setSort: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         setLimit: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
-        setSearchTerm: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        setTableSearchTerm: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         resetSelection: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         setColumns: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         setFilters: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
@@ -316,8 +335,8 @@ export const biLogic = kea<biLogicType>([
                 if (limit !== values.limit) {
                     actions.setLimit(limit)
                 }
-                if (searchTerm !== values.searchTerm) {
-                    actions.setSearchTerm(searchTerm)
+                if (searchTerm !== values.tableSearchTerm) {
+                    actions.setTableSearchTerm(searchTerm)
                 }
                 return
             }
@@ -332,8 +351,8 @@ export const biLogic = kea<biLogicType>([
             if (!columnsListsEqual(columns, values.selectedColumns)) {
                 actions.setColumns(columns)
             }
-            if (searchTerm !== values.searchTerm) {
-                actions.setSearchTerm(searchTerm)
+            if (searchTerm !== values.tableSearchTerm) {
+                actions.setTableSearchTerm(searchTerm)
             }
             if (!filtersEqual(filters, values.filters)) {
                 actions.setFilters(filters)
@@ -346,7 +365,7 @@ export const biLogic = kea<biLogicType>([
             }
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         addColumn: () => actions.loadQueryResponse(),
         setColumnAggregation: () => actions.loadQueryResponse(),
         setColumnTimeInterval: () => actions.loadQueryResponse(),
@@ -360,6 +379,11 @@ export const biLogic = kea<biLogicType>([
         setSort: () => actions.loadQueryResponse(),
         setLimit: () => actions.loadQueryResponse(),
         refreshQuery: () => actions.loadQueryResponse(),
+        loadDatabaseSuccess: () => {
+            if (values.queryString && values.selectedFields.length > 0 && !values.queryResponse) {
+                actions.loadQueryResponse()
+            }
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadDatabase()
@@ -378,7 +402,9 @@ export function columnAlias(column: BIQueryColumn): string {
     }
 
     if (column.aggregation) {
-        alias = `${column.aggregation}_of_${alias}`
+        alias = ['min', 'max'].includes(column.aggregation)
+            ? `${column.aggregation}_${alias}`
+            : `${column.aggregation}_of_${alias}`
     }
 
     return alias
@@ -463,8 +489,8 @@ function buildBiSearchParams(values: any): Record<string, any> {
     if (values.limit && values.limit !== 50) {
         params.limit = values.limit
     }
-    if (values.searchTerm) {
-        params.q = values.searchTerm
+    if (values.tableSearchTerm) {
+        params.q = values.tableSearchTerm
     }
     return params
 }
