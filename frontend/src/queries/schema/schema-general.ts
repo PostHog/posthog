@@ -3404,6 +3404,7 @@ export interface DatabaseSchemaSource {
     source_type: string
     prefix: string
     last_synced_at?: string
+    is_direct_query?: boolean
 }
 
 export interface DatabaseSchemaField {
@@ -3482,12 +3483,39 @@ export interface DatabaseSchemaSystemTable extends DatabaseSchemaTableCommon {
     type: 'system'
 }
 
+export interface DatabaseSchemaForeignKey {
+    column: string
+    target_table: string
+    target_column: string
+}
+
+export interface DatabaseSchemaColumnInfo {
+    name: string
+    data_type: string
+    is_nullable: boolean
+}
+
+export interface DatabaseSchemaIndexInfo {
+    name: string
+    columns: string[]
+    is_unique: boolean
+    is_primary: boolean
+}
+
+export interface DatabaseSchemaMetadata {
+    primary_key?: string[]
+    foreign_keys?: DatabaseSchemaForeignKey[]
+    columns?: DatabaseSchemaColumnInfo[]
+    indexes?: DatabaseSchemaIndexInfo[]
+}
+
 export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCommon {
     type: 'data_warehouse'
     format: string
     url_pattern: string
     schema?: DatabaseSchemaSchema
     source?: DatabaseSchemaSource
+    schema_metadata?: DatabaseSchemaMetadata
 }
 
 export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
