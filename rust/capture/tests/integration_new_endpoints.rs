@@ -2,12 +2,15 @@
 mod integration_utils;
 use integration_utils::{
     base64_payload, execute_test, form_data_base64_payload, form_lz64_urlencoded_payload,
-    form_urlencoded_payload, gzipped_payload, lz64_payload, plain_json_payload, Method, TestCase,
-    BATCH_EVENTS_JSON, DEFAULT_TEST_TIME, SINGLE_EVENT_JSON,
+    form_urlencoded_payload, gzipped_payload, lz64_payload, plain_json_payload,
+    setup_router_for_readiness_test, Method, TestCase, BATCH_EVENTS_JSON, DEFAULT_TEST_TIME,
+    SINGLE_EVENT_JSON,
 };
 
 use axum::http::StatusCode;
+use axum_test_helper::TestClient;
 use capture::config::CaptureMode;
+use std::sync::atomic::Ordering;
 
 //
 // The /i/v0/e/ and /batch/ endpoints are all processed by event_next
@@ -387,4 +390,37 @@ fn get_cases() -> Vec<TestCase> {
     ];
 
     units
+}
+
+#[tokio::test]
+async fn test_readiness_returns_503_during_shutdown() {
+    let unit = TestCase::new(
+        "readiness-shutdown-test".to_string(),
+        DEFAULT_TEST_TIME,
+        CaptureMode::Events,
+        "/i/v0/e",
+        SINGLE_EVENT_JSON,
+        Method::Post,
+        None,
+        None,
+        "application/json",
+        StatusCode::OK,
+        Box::new(plain_json_payload),
+    );
+
+    let (router, is_shutting_down) = setup_router_for_readiness_test(&unit);
+    let client = TestClient::new(router);
+
+    // Initially readiness should return 200
+    let response = client.get("/_readiness").send().await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.text().await, "capture");
+
+    // Set shutdown flag
+    is_shutting_down.store(true, Ordering::Relaxed);
+
+    // Now readiness should return 503
+    let response = client.get("/_readiness").send().await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.text().await, "shutting down");
 }

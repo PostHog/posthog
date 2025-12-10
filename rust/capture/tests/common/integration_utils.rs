@@ -956,6 +956,16 @@ impl Event for MemorySink {
 }
 
 fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
+    let (router, sink, _shutdown_flag) = setup_capture_router_internal(unit);
+    (router, sink)
+}
+
+pub fn setup_router_for_readiness_test(unit: &TestCase) -> (Router, Arc<AtomicBool>) {
+    let (router, _sink, shutdown_flag) = setup_capture_router_internal(unit);
+    (router, shutdown_flag)
+}
+
+fn setup_capture_router_internal(unit: &TestCase) -> (Router, MemorySink, Arc<AtomicBool>) {
     let liveness = HealthRegistry::new("integration_tests");
     let sink = MemorySink::default();
     let timesource = FixedTime {
@@ -977,6 +987,8 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
     let verbose_sample_percent = 0.0_f32;
 
+    let is_shutting_down = Arc::new(AtomicBool::new(false));
+
     (
         router(
             timesource,
@@ -996,9 +1008,10 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             verbose_sample_percent,
             26_214_400, // 25MB default for AI endpoint
             Some(10),   // request_timeout_seconds
-            Arc::new(AtomicBool::new(false)),
+            is_shutting_down.clone(),
         ),
         sink,
+        is_shutting_down,
     )
 }
 
