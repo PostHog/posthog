@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import structlog
 from pydantic import BaseModel
@@ -35,7 +35,7 @@ def get_insight_suggestions(
 ) -> list[InsightSuggestion]:
     suggestions: list[InsightSuggestion] = []
 
-    if query.source.kind == NodeKind.RETENTION_QUERY:
+    if isinstance(query.source, RetentionQuery):
         suggestions.extend(get_retention_suggestions(query.source, query))
 
     if insight_result:
@@ -51,7 +51,7 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
     if not returning_entity:
         return []
 
-    series = []
+    series: list[Union[EventsNode, ActionsNode]] = []
     entity_display_name = "event"
 
     # Handle Events
