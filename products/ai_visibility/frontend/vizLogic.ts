@@ -11,6 +11,7 @@ import {
     ShareOfVoice,
     TopCitedSource,
     Topic,
+    TopicResult,
 } from './types'
 import type { vizLogicType } from './vizLogicType'
 
@@ -352,7 +353,7 @@ export const vizLogic = kea<vizLogicType>([
             },
         ],
 
-        // Head-to-head competitor comparisons
+        // Head-to-head competitor comparisons based on mention counts
         competitorComparisons: [
             (s) => [s.prompts, s.topCompetitors, s.topics],
             (
@@ -363,70 +364,64 @@ export const vizLogic = kea<vizLogicType>([
                 const comparisons: CompetitorComparison[] = []
 
                 for (const { name: competitor } of topCompetitors.slice(0, 6)) {
-                    // Find prompts where both you and competitor are mentioned
-                    const sharedPrompts = prompts.filter(
-                        (p) => p.you_mentioned && p.competitors_mentioned.includes(competitor)
-                    )
+                    // Count mentions across all prompts
+                    let youMentioned = 0
+                    let theyMentioned = 0
+                    const topicResults: TopicResult[] = []
 
-                    if (sharedPrompts.length === 0) {
-                        continue
+                    // Track per-topic mention counts
+                    const topicMentions = new Map<string, { you: number; them: number; total: number }>()
+
+                    // Initialize all topics
+                    for (const topic of topics) {
+                        topicMentions.set(topic.name, { you: 0, them: 0, total: 0 })
                     }
 
-                    // Determine who "leads" based on position
-                    let youLead = 0
-                    let theyLead = 0
-                    const youLeadsIn: { topic: string; percentage: number }[] = []
-                    const theyLeadIn: { topic: string; percentage: number }[] = []
-
-                    // Group by topic
-                    const topicLeadership = new Map<string, { you: number; them: number; total: number }>()
-
-                    for (const p of sharedPrompts) {
-                        // Find which topic this prompt belongs to
+                    for (const p of prompts) {
                         const topic = topics.find((t) => t.prompts.some((tp) => tp.id === p.id))
                         const topicName = topic?.name || 'Other'
 
-                        const existing = topicLeadership.get(topicName) || { you: 0, them: 0, total: 0 }
+                        const existing = topicMentions.get(topicName) || { you: 0, them: 0, total: 0 }
+                        existing.total++
 
-                        // Check your best position across platforms
-                        let yourBestPos = Infinity
-                        for (const plat of Object.values(p.platforms) as (PlatformMention | undefined)[]) {
-                            if (plat?.mentioned && plat.position) {
-                                yourBestPos = Math.min(yourBestPos, plat.position)
-                            }
-                        }
-
-                        // Heuristic: if you're mentioned and they're just in competitors list, you likely rank better
-                        // In reality we'd need their position data too
-                        if (yourBestPos <= 2) {
-                            youLead++
+                        if (p.you_mentioned) {
+                            youMentioned++
                             existing.you++
-                        } else {
-                            theyLead++
+                        }
+                        if (p.competitors_mentioned.includes(competitor)) {
+                            theyMentioned++
                             existing.them++
                         }
-                        existing.total++
-                        topicLeadership.set(topicName, existing)
+
+                        topicMentions.set(topicName, existing)
                     }
 
-                    // Convert to percentages
-                    for (const [topicName, data] of topicLeadership) {
-                        const youPct = Math.round((data.you / data.total) * 100)
-                        const themPct = Math.round((data.them / data.total) * 100)
-                        if (youPct >= themPct && youPct > 0) {
-                            youLeadsIn.push({ topic: topicName, percentage: youPct })
-                        } else if (themPct > 0) {
-                            theyLeadIn.push({ topic: topicName, percentage: themPct })
-                        }
+                    // Skip if competitor never mentioned
+                    if (theyMentioned === 0) {
+                        continue
                     }
+
+                    // Calculate brand's percentage for ALL topics
+                    for (const [topicName, data] of topicMentions) {
+                        if (data.total === 0) {
+                            continue
+                        }
+                        // Brand's share of mentions in this topic (brand mentions / total mentions by brand + competitor)
+                        const totalMentionsInTopic = data.you + data.them
+                        const youPct =
+                            totalMentionsInTopic > 0 ? Math.round((data.you / totalMentionsInTopic) * 100) : 50
+                        topicResults.push({ topic: topicName, youPercentage: youPct })
+                    }
+
+                    // Overall: what % of total mentions are yours vs theirs
+                    const totalMentions = youMentioned + theyMentioned
+                    const youLeadPercentage = totalMentions > 0 ? Math.round((youMentioned / totalMentions) * 100) : 50
 
                     comparisons.push({
                         competitor,
-                        sharedPrompts: sharedPrompts.length,
-                        youLeadPercentage:
-                            youLead + theyLead > 0 ? Math.round((youLead / (youLead + theyLead)) * 100) : 50,
-                        youLeadsIn: youLeadsIn.sort((a, b) => b.percentage - a.percentage).slice(0, 5),
-                        theyLeadIn: theyLeadIn.sort((a, b) => b.percentage - a.percentage).slice(0, 5),
+                        sharedPrompts: prompts.length,
+                        youLeadPercentage,
+                        topicResults: topicResults.sort((a, b) => b.youPercentage - a.youPercentage),
                     })
                 }
 
@@ -434,30 +429,63 @@ export const vizLogic = kea<vizLogicType>([
             },
         ],
 
-        // Matrix data: competitors vs topics visibility
+        // Matrix data: competitors vs topics visibility with rankings
         competitorTopicsMatrix: [
-            (s) => [s.topics, s.topCompetitors],
-            (topics: Topic[], topCompetitors: { name: string; visibility: number }[]): MatrixCell[] => {
+            (s) => [s.topics, s.topCompetitors, s.brandDisplayName],
+            (
+                topics: Topic[],
+                topCompetitors: { name: string; visibility: number }[],
+                brandName: string
+            ): MatrixCell[] => {
                 const cells: MatrixCell[] = []
 
                 for (const topic of topics) {
+                    // Count mentions for each competitor and the brand in this topic
+                    const mentionCounts: { name: string; count: number }[] = []
+
+                    // Add brand
+                    const brandMentions = topic.prompts.filter((p) => p.you_mentioned).length
+                    mentionCounts.push({ name: brandName, count: brandMentions })
+
+                    // Add competitors
                     for (const { name: competitor } of topCompetitors) {
-                        // Calculate this competitor's visibility in this topic
-                        const relevantPrompts = topic.prompts.filter((p) =>
-                            p.competitors_mentioned.includes(competitor)
-                        )
+                        const count = topic.prompts.filter((p) => p.competitors_mentioned.includes(competitor)).length
+                        mentionCounts.push({ name: competitor, count })
+                    }
+
+                    // Sort by count descending and assign ranks
+                    mentionCounts.sort((a, b) => b.count - a.count)
+                    const ranks = new Map<string, number>()
+                    let currentRank = 1
+                    for (let i = 0; i < mentionCounts.length; i++) {
+                        // Handle ties: same count = same rank
+                        if (i > 0 && mentionCounts[i].count < mentionCounts[i - 1].count) {
+                            currentRank = i + 1
+                        }
+                        ranks.set(mentionCounts[i].name, mentionCounts[i].count > 0 ? currentRank : 0)
+                    }
+
+                    // Create cells for competitors (brand is handled separately in the component)
+                    for (const { name: competitor } of topCompetitors) {
+                        const count = topic.prompts.filter((p) => p.competitors_mentioned.includes(competitor)).length
                         const visibility =
-                            topic.prompts.length > 0
-                                ? Math.round((relevantPrompts.length / topic.prompts.length) * 100)
-                                : 0
+                            topic.prompts.length > 0 ? Math.round((count / topic.prompts.length) * 100) : 0
 
                         cells.push({
                             topic: topic.name,
                             competitor,
                             visibility,
-                            avgRank: null, // We don't have competitor rank data
+                            avgRank: ranks.get(competitor) ?? null,
                         })
                     }
+
+                    // Also store brand's rank for this topic
+                    cells.push({
+                        topic: topic.name,
+                        competitor: brandName,
+                        visibility: topic.visibility,
+                        avgRank: ranks.get(brandName) ?? null,
+                    })
                 }
 
                 return cells
