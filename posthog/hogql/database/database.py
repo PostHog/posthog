@@ -1092,6 +1092,8 @@ class Database(BaseModel):
                         fields=fields,
                     )
 
+                    _add_foreign_key_lazy_joins(pg_table, dq_schema)
+
                     # Add to warehouse tables using dot notation chain
                     table_chain = table_key.split(".")
                     warehouse_tables.add_child(TableNode.create_nested_for_chain(table_chain, pg_table))
@@ -1509,19 +1511,38 @@ def _foreign_key_join_function(
     return _join_function
 
 
-def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehouseTable) -> None:
+def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehouseTable | ExternalDataSchema) -> None:
     schemas_attr = getattr(warehouse_table, "externaldataschema_set", None)
 
     if hasattr(schemas_attr, "all"):
         schemas = list(schemas_attr.all())
     else:
         schemas = list(schemas_attr or [])
-    schema_with_foreign_keys = next((schema for schema in schemas if getattr(schema, "foreign_keys", None)), None)
 
-    if not schema_with_foreign_keys or not schema_with_foreign_keys.foreign_keys:
+    if not schemas:
+        schemas = [warehouse_table]
+
+    def _get_foreign_keys(schema: ExternalDataSchema | DataWarehouseTable) -> list[dict[str, str]] | None:
+        foreign_keys = getattr(schema, "foreign_keys", None)
+
+        if foreign_keys:
+            return foreign_keys
+
+        schema_metadata = getattr(schema, "schema_metadata", None)
+
+        if schema_metadata:
+            return schema_metadata.get("foreign_keys")
+
+        return None
+
+    schema_with_foreign_keys = next((schema for schema in schemas if _get_foreign_keys(schema)), None)
+
+    if not schema_with_foreign_keys:
         return
 
-    for foreign_key in schema_with_foreign_keys.foreign_keys:
+    foreign_keys = _get_foreign_keys(schema_with_foreign_keys) or []
+
+    for foreign_key in foreign_keys:
         column = foreign_key.get("column")
         target_table = foreign_key.get("target_table")
         target_column = foreign_key.get("target_column")

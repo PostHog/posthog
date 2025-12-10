@@ -273,6 +273,39 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert dashboard_join.from_field == ["dashboard_id"]
         assert dashboard_join.to_field == ["id"]
 
+    def test_add_foreign_key_lazy_joins_direct_query_schema_metadata(self):
+        hogql_table = HogQLDataWarehouseTable(
+            name="posthog_activitylog",
+            url="s3://placeholder",
+            format="CSV",
+            access_key=None,
+            access_secret=None,
+            fields={"user_id": IntegerDatabaseField(name="user_id")},
+            structure="`user_id` String",
+            table_id="test",
+        )
+
+        schema_metadata = {
+            "foreign_keys": [
+                {
+                    "column": "user_id",
+                    "target_table": "posthog_user",
+                    "target_column": "id",
+                }
+            ]
+        }
+
+        dq_schema = SimpleNamespace(schema_metadata=schema_metadata, foreign_keys=None)
+
+        _add_foreign_key_lazy_joins(hogql_table, dq_schema)
+
+        user_join = hogql_table.fields.get("user")
+
+        assert isinstance(user_join, LazyJoin)
+        assert user_join.join_table == "posthog_user"
+        assert user_join.from_field == ["user_id"]
+        assert user_join.to_field == ["id"]
+
     def test_serialize_database_warehouse_table_source(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
