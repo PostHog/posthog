@@ -151,13 +151,10 @@ export function LinksScene(): JSX.Element {
                 }
             />
 
-            <LemonBanner type="error">
-                <h2>Links are extremely WIP</h2>
+            <LemonBanner type="warning">
                 <p>
-                    Links were started on the Tulum 2025 hackathon, and are not currently in use. The UI and Django
-                    backend are fully functional, but there's no backend to actually track/redirect clicks. This should
-                    be implemented in the future, probably part of our NodeJS infrastructure - we've initially built it
-                    in Rust.
+                    Links are currently in an experimental state. For many cases this will work just fine but for others
+                    there may be unexpected issues and we do not offer official customer support for it in these cases.
                 </p>
             </LemonBanner>
 
