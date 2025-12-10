@@ -125,19 +125,19 @@ def parse_multipart_data(data: bytes, boundary: str) -> list[dict]:
     Returns:
         List of dicts with keys: name, content_type, content_encoding, body
     """
-    parts = []
+    parts: list[dict] = []
 
     # python-multipart uses callbacks
-    current_part = {}
+    current_part: dict = {}
 
-    def on_part_begin():
+    def on_part_begin() -> None:
         nonlocal current_part
         current_part = {"headers": {}, "body": b""}
 
-    def on_part_data(data: bytes, start: int, end: int):
+    def on_part_data(data: bytes, start: int, end: int) -> None:
         current_part["body"] += data[start:end]
 
-    def on_part_end():
+    def on_part_end() -> None:
         # Extract name from Content-Disposition
         content_disposition = current_part["headers"].get("Content-Disposition", "")
         name_match = re.search(r'name="([^"]+)"', content_disposition)
@@ -152,10 +152,10 @@ def parse_multipart_data(data: bytes, boundary: str) -> list[dict]:
             }
         )
 
-    def on_header_field(data: bytes, start: int, end: int):
+    def on_header_field(data: bytes, start: int, end: int) -> None:
         current_part["_header_field"] = data[start:end].decode("utf-8")
 
-    def on_header_value(data: bytes, start: int, end: int):
+    def on_header_value(data: bytes, start: int, end: int) -> None:
         field = current_part.get("_header_field", "")
         current_part["headers"][field] = data[start:end].decode("utf-8")
 
@@ -198,12 +198,21 @@ def parse_mime_part(data: bytes) -> tuple[dict[str, str], bytes]:
     msg = parser.parsebytes(data)
 
     # Extract headers (lowercase keys for consistency)
-    headers = {k.lower(): v for k, v in msg.items()}
+    headers: dict[str, str] = {k.lower(): str(v) for k, v in msg.items()}
 
     # Get raw body bytes
-    body = msg.get_payload(decode=True)
-    if body is None:
-        body = msg.get_payload().encode("utf-8") if msg.get_payload() else b""
+    payload = msg.get_payload(decode=True)
+    body: bytes
+    if payload is None:
+        raw_payload = msg.get_payload()
+        if isinstance(raw_payload, str):
+            body = raw_payload.encode("utf-8")
+        else:
+            body = b""
+    elif isinstance(payload, bytes):
+        body = payload
+    else:
+        body = b""
 
     return headers, body
 
