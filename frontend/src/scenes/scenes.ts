@@ -43,6 +43,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Track all changes and activities in your organization with detailed filtering and export capabilities.',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
+    [Scene.BI]: {
+        projectBased: true,
+        name: 'BI',
+        description: 'Build and visualize data warehouse queries visually.',
+        layout: 'app-full-scene-height',
+    },
     [Scene.Annotations]: {
         projectBased: true,
         name: 'Annotations',
@@ -623,6 +629,7 @@ export const redirects: Record<
 
 export const routes: Record<string, [Scene | string, string]> = {
     [urls.newTab()]: [Scene.NewTab, 'newTab'],
+    [urls.bi()]: [Scene.BI, 'bi'],
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
