@@ -1285,7 +1285,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitColumnExprIdentifier(ctx)
 
     def visitBetweenOperandNegate(self, ctx):
-        return self.visitColumnExprNegate(ctx)
+        return ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub,
+            left=ast.Constant(value=0),
+            right=self.visit(ctx.betweenOperand()),
+        )
 
     def visitBetweenOperandParens(self, ctx):
         return self.visitColumnExprParens(ctx)

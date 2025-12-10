@@ -747,6 +747,62 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_between_with_negative_numbers(self):
+            # Test negative number literals in BETWEEN operands (lexer handles as negative constant)
+            self.assertEqual(
+                self._expr("x BETWEEN -5 AND 10"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Constant(value=-5),
+                    high=ast.Constant(value=10),
+                    negated=False,
+                ),
+            )
+            # Test negated field in BETWEEN (parsed as 0 - field)
+            self.assertEqual(
+                self._expr("x BETWEEN -y AND 10"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Sub,
+                        left=ast.Constant(value=0),
+                        right=ast.Field(chain=["y"]),
+                    ),
+                    high=ast.Constant(value=10),
+                    negated=False,
+                ),
+            )
+            # Test negation on right operand too
+            self.assertEqual(
+                self._expr("x BETWEEN 1 AND -10"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Constant(value=1),
+                    high=ast.Constant(value=-10),
+                    negated=False,
+                ),
+            )
+
+        def test_between_with_parenthesized_arithmetic(self):
+            # Test parenthesized arithmetic expressions in BETWEEN operands
+            self.assertEqual(
+                self._expr("x BETWEEN (y * 2) AND (z + 3)"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Mult,
+                        left=ast.Field(chain=["y"]),
+                        right=ast.Constant(value=2),
+                    ),
+                    high=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=ast.Field(chain=["z"]),
+                        right=ast.Constant(value=3),
+                    ),
+                    negated=False,
+                ),
+            )
+
         def test_and_or(self):
             self.assertEqual(
                 self._expr("true or false"),

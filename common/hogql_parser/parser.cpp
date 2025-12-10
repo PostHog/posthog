@@ -2993,8 +2993,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(BetweenOperandIdentifier) { return visit(ctx->columnIdentifier()); }
 
   VISIT(BetweenOperandNegate) {
-    PyObject* expr = visitAsPyObject(ctx->betweenOperand());
-    RETURN_NEW_AST_NODE("ArithmeticOperation", "{s:s,s:N}", "op", "Neg", "right", expr);
+    PyObject* left = build_ast_node("Constant", "{s:i}", "value", 0);
+    if (!left) throw PyInternalError();
+    PyObject* op = get_ast_enum_member("ArithmeticOperationOp", "Sub");
+    if (!op) {
+      Py_DECREF(left);
+      throw PyInternalError();
+    }
+    PyObject* right = visitAsPyObject(ctx->betweenOperand());
+    RETURN_NEW_AST_NODE("ArithmeticOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
   }
 
   VISIT(BetweenOperandParens) { return visit(ctx->columnExpr()); }
