@@ -11,6 +11,9 @@ import { ElementInfoWindow } from '~/toolbar/elements/ElementInfoWindow'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
+import { StepEditor } from '~/toolbar/product-tours/StepEditor'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 
 import { toolbarLogic } from '../bar/toolbarLogic'
@@ -31,6 +34,12 @@ export function Elements(): JSX.Element {
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
     const { refreshClickmap } = useActions(heatmapToolbarMenuLogic)
+    const {
+        isInspecting: productToursInspecting,
+        hoverElementRect: productToursHoverRect,
+        selectedElementRect: productToursSelectedRect,
+        isEditingStep,
+    } = useValues(productToursLogic)
 
     const shiftPressed = useShiftKeyPressed(refreshClickmap)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
@@ -64,6 +73,14 @@ export function Elements(): JSX.Element {
                 <ScrollDepth />
                 {activeToolbarMode === 'heatmap' && <HeatmapCanvas context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
+                {productToursInspecting && isEditingStep && productToursSelectedRect ? (
+                    <>
+                        <ElementHighlight rect={productToursSelectedRect} />
+                        <StepEditor rect={productToursSelectedRect} />
+                    </>
+                ) : productToursInspecting && productToursHoverRect ? (
+                    <ElementHighlight rect={productToursHoverRect} />
+                ) : null}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
                     return (

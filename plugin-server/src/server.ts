@@ -411,21 +411,47 @@ export class PluginServer {
         }
 
         try {
+            const tags = this.collectK8sTags()
+
             Pyroscope.init({
                 serverAddress: this.config.PYROSCOPE_SERVER_ADDRESS,
                 appName: this.config.PYROSCOPE_APPLICATION_NAME || 'plugin-server',
-                tags: {
-                    service: 'plugin-server',
-                },
+                tags,
             })
 
             Pyroscope.start()
             logger.info('Continuous profiling started', {
                 serverAddress: this.config.PYROSCOPE_SERVER_ADDRESS,
                 appName: this.config.PYROSCOPE_APPLICATION_NAME || 'plugin-server',
+                tags,
             })
         } catch (error) {
             logger.error('Failed to start continuous profiling', { error })
         }
+    }
+
+    private collectK8sTags(): Record<string, string> {
+        // K8s metadata environment variables for Pyroscope tags
+        const k8sTagEnvVars: Record<string, string> = {
+            namespace: 'K8S_NAMESPACE',
+            pod: 'K8S_POD_NAME',
+            node: 'K8S_NODE_NAME',
+            pod_template_hash: 'K8S_POD_TEMPLATE_HASH',
+            app_instance: 'K8S_APP_INSTANCE',
+            app: 'K8S_APP',
+            container: 'K8S_CONTAINER_NAME',
+            controller_type: 'K8S_CONTROLLER_TYPE',
+        }
+
+        const tags: Record<string, string> = { src: 'SDK' }
+        for (const [tagName, envVar] of Object.entries(k8sTagEnvVars)) {
+            const value = process.env[envVar]
+            if (value) {
+                tags[tagName] = value
+            } else {
+                logger.warn(`K8s tag ${tagName} not set (env var ${envVar} is empty)`)
+            }
+        }
+        return tags
     }
 }
