@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconArrowLeft,
@@ -95,6 +95,7 @@ function FieldTree({
 }): JSX.Element {
     const [openJsonPopover, setOpenJsonPopover] = useState<string | null>(null)
     const [jsonPathDraft, setJsonPathDraft] = useState('')
+    const jsonTextAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
     return (
         <div className="flex flex-col">
@@ -103,39 +104,46 @@ function FieldTree({
                 const isExpanded = expandedFields.has(node.path)
                 const isJson = isJsonField(node.field)
 
+                const handleClick = (): void => {
+                    if (isJson) {
+                        setOpenJsonPopover(node.path)
+                        setJsonPathDraft(node.path)
+                    } else if (hasChildren) {
+                        onToggle(node.path)
+                    } else {
+                        onSelect(node.path)
+                    }
+                }
+
                 return (
                     <div key={node.path}>
                         <div className="flex items-center gap-2">
-                            <LemonButton
-                                size="small"
-                                fullWidth
-                                className="justify-start"
-                                icon={
-                                    hasChildren ? (
-                                        <span className="text-muted">{isExpanded ? '▾' : '▸'}</span>
-                                    ) : (
-                                        fieldTypeIcon(node.field)
-                                    )
-                                }
-                                onClick={() => (hasChildren ? onToggle(node.path) : onSelect(node.path))}
-                                style={{ paddingLeft: depth * 12 }}
-                            >
-                                {node.field.name}
-                            </LemonButton>
-                            {isJson && (
+                            {isJson ? (
                                 <Popover
                                     visible={openJsonPopover === node.path}
                                     onVisibilityChange={(visible) => {
                                         setOpenJsonPopover(visible ? node.path : null)
                                         setJsonPathDraft(visible ? node.path : '')
+                                        if (visible) {
+                                            requestAnimationFrame(() => {
+                                                const textArea = jsonTextAreaRef.current
+                                                if (textArea) {
+                                                    const length = textArea.value.length
+                                                    textArea.focus()
+                                                    textArea.setSelectionRange(length, length)
+                                                }
+                                            })
+                                        }
                                     }}
                                     overlay={
                                         <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
-                                            <div className="text-muted">Add nested field</div>
+                                            <div className="text-muted">Add column or nested field</div>
+                                            <div className="text-muted">e.g. properties.$browser</div>
                                             <LemonTextArea
+                                                ref={jsonTextAreaRef}
                                                 value={jsonPathDraft}
                                                 minRows={1}
-                                                onChange={(value) => setJsonPathDraft(value)}
+                                                onChange={(value) => setJsonPathDraft((value || '').trim())}
                                                 autoFocus
                                             />
                                             <LemonButton
@@ -156,17 +164,38 @@ function FieldTree({
                                 >
                                     <LemonButton
                                         size="small"
-                                        type="secondary"
-                                        status="primary"
-                                        icon={<IconExpand45 />}
-                                        tooltip="Add nested field"
-                                        onClick={(event) => {
-                                            event.stopPropagation()
-                                            setOpenJsonPopover((current) => (current === node.path ? null : node.path))
-                                            setJsonPathDraft(node.path)
-                                        }}
-                                    />
+                                        fullWidth
+                                        className="justify-start"
+                                        icon={
+                                            hasChildren ? (
+                                                <span className="text-muted">{isExpanded ? '▾' : '▸'}</span>
+                                            ) : (
+                                                fieldTypeIcon(node.field)
+                                            )
+                                        }
+                                        onClick={() => handleClick()}
+                                        style={{ paddingLeft: depth * 12 }}
+                                    >
+                                        {node.field.name}
+                                    </LemonButton>
                                 </Popover>
+                            ) : (
+                                <LemonButton
+                                    size="small"
+                                    fullWidth
+                                    className="justify-start"
+                                    icon={
+                                        hasChildren ? (
+                                            <span className="text-muted">{isExpanded ? '▾' : '▸'}</span>
+                                        ) : (
+                                            fieldTypeIcon(node.field)
+                                        )
+                                    }
+                                    onClick={() => handleClick()}
+                                    style={{ paddingLeft: depth * 12 }}
+                                >
+                                    {node.field.name}
+                                </LemonButton>
                             )}
                         </div>
                         {hasChildren && isExpanded && (
