@@ -139,9 +139,16 @@ export function LogRow({
                         <div
                             key={column.key}
                             style={cellStyle}
-                            className={cn('flex items-start py-1.5', wrapBody ? 'overflow-hidden' : 'overflow-x-auto')}
+                            className={cn('flex items-start py-1.5 overflow-hidden')}
                         >
-                            <pre className={cn('font-mono text-xs m-0', !wrapBody && 'whitespace-nowrap')}>
+                            <pre
+                                className={cn(
+                                    'font-mono text-xs m-0',
+                                    wrapBody
+                                        ? 'overflow-hidden whitespace-pre-wrap break-all'
+                                        : 'overflow-x-auto hide-scrollbar'
+                                )}
+                            >
                                 {content}
                             </pre>
                         </div>
@@ -152,7 +159,10 @@ export function LogRow({
                     <div
                         key={column.key}
                         style={cellStyle}
-                        className={cn('flex items-start py-1.5', wrapBody ? 'overflow-hidden' : 'overflow-x-auto')}
+                        className={cn(
+                            'flex items-start py-1.5',
+                            wrapBody ? 'overflow-hidden' : 'overflow-x-auto hide-scrollbar'
+                        )}
                     >
                         <span
                             className={cn(
