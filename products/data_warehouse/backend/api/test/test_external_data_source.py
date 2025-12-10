@@ -1528,3 +1528,111 @@ class TestExternalDataSource(APIBaseTest):
                     [200, 201],
                     f"Expected acceptance for valid prefix '{prefix}'",
                 )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.sync_external_data_job_workflow")
+    @patch("posthog.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas")
+    def test_create_direct_query_source_skips_workflow(self, mock_get_schemas, mock_sync_workflow):
+        """Test that creating a direct query source does not trigger any sync workflows."""
+        from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+
+        mock_get_schemas.return_value = [
+            SourceSchema(name="users", supports_incremental=True, supports_append=False, incremental_fields=[]),
+            SourceSchema(name="orders", supports_incremental=True, supports_append=False, incremental_fields=[]),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "is_direct_query": True,
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "test_db",
+                    "user": "test_user",
+                    "password": "test_password",
+                    "schema": "public",
+                    "schemas": [
+                        {"name": "users", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "orders", "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        mock_sync_workflow.assert_not_called()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        self.assertTrue(source.is_direct_query)
+        self.assertEqual(source.status, "Completed")
+
+        schemas = ExternalDataSchema.objects.filter(source=source)
+        self.assertEqual(schemas.count(), 2)
+        for schema in schemas:
+            self.assertFalse(schema.should_sync)
+            self.assertIsNone(schema.sync_type)
+
+    def test_direct_query_source_cannot_reload(self):
+        """Test that direct query sources cannot be reloaded (no sync to trigger)."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            status="Completed",
+            is_direct_query=True,
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "test_db",
+                "user": "test_user",
+                "password": "test_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/reload/")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Cannot reload a direct query source", response.json()["message"])
+
+    def test_direct_query_source_serialization(self):
+        """Test that is_direct_query field is included in API response."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            status="Completed",
+            is_direct_query=True,
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "test_db",
+                "user": "test_user",
+                "password": "test_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["is_direct_query"])
+        self.assertEqual(data["status"], "Direct query")
+
+    def test_regular_source_is_not_direct_query(self):
+        """Test that regular sources have is_direct_query=False."""
+        source = self._create_external_data_source()
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["is_direct_query"])
