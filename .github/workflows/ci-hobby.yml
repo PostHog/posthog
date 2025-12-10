@@ -244,7 +244,7 @@ jobs:
                           comment_id: parseInt(commentId),
                           body: updatedBody,
                       });
-                        - name: Run smoke tests on DO
+            - name: Run smoke tests on DO
               id: test
               timeout-minutes: 30
               run: |
