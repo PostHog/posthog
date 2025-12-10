@@ -118,6 +118,10 @@ class QueryTags(BaseModel):
     http_request_id: Optional[uuid.UUID] = None
     http_user_agent: Optional[str] = None
 
+    # frontend UI context (from QueryLogTags)
+    scene: Optional[str] = None
+    product_key: Optional[str] = None
+
     alert_config_id: Optional[uuid.UUID] = None
     batch_export_id: Optional[uuid.UUID] = None
     cache_key: Optional[str] = None

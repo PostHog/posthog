@@ -1049,8 +1049,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if tags := getattr(self.query, "tags", None):
                 if tags.productKey:
                     posthoganalytics.tag("product_key", tags.productKey)
+                    tag_queries(product_key=tags.productKey)
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
+                    tag_queries(scene=tags.scene)
 
             # Abort early if the user doesn't have access to the query runner
             # We'll proceed as usual if there's no user connected to this request
