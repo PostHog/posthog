@@ -34,7 +34,6 @@ PRODUCTS_APPS = [
     "products.ai_visibility.backend.apps.AiVisibilityConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
-    "products.ai_visibility.backend.apps.AiVisibilityConfig",
     "products.links.backend.apps.LinksConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
