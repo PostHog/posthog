@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
@@ -13,6 +13,8 @@ export interface StudyDetailsSceneLogicProps {
     id: string
 }
 
+const POLL_INTERVAL_MS = 2000
+
 export const studyDetailsSceneLogic = kea<studyDetailsSceneLogicType>([
     props({} as StudyDetailsSceneLogicProps),
     key(({ id }) => id),
@@ -21,6 +23,9 @@ export const studyDetailsSceneLogic = kea<studyDetailsSceneLogicType>([
     actions({
         setShowNewRoundModal: (show: boolean) => ({ show }),
         setSelectedRoundId: (roundId: string | null) => ({ roundId }),
+        startPolling: true,
+        stopPolling: true,
+        generateSessionsWithPolling: (roundId: string) => ({ roundId }),
     }),
 
     reducers({
@@ -34,6 +39,13 @@ export const studyDetailsSceneLogic = kea<studyDetailsSceneLogicType>([
             null as string | null,
             {
                 setSelectedRoundId: (_, { roundId }) => roundId,
+            },
+        ],
+        pollingIntervalId: [
+            null as number | null,
+            {
+                startPolling: (state) => state, // Handled in listener
+                stopPolling: () => null,
             },
         ],
     }),
@@ -119,7 +131,7 @@ export const studyDetailsSceneLogic = kea<studyDetailsSceneLogicType>([
         },
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, cache }) => ({
         createRoundSuccess: ({ createdRound }) => {
             lemonToast.success('Round created')
             actions.resetRoundForm()
@@ -132,13 +144,35 @@ export const studyDetailsSceneLogic = kea<studyDetailsSceneLogicType>([
         createRoundFailure: ({ error }) => {
             lemonToast.error(`Failed to create round: ${error}`)
         },
+        generateSessionsWithPolling: ({ roundId }) => {
+            // Start polling immediately, then kick off generation
+            actions.startPolling()
+            actions.generateSessions(roundId)
+        },
         generateSessionsSuccess: () => {
+            actions.stopPolling()
             lemonToast.success('Personas generated')
             actions.loadStudy()
         },
         generateSessionsFailure: ({ error }) => {
+            actions.stopPolling()
             lemonToast.error(`Failed to generate personas: ${error}`)
             actions.loadStudy()
+        },
+        startPolling: () => {
+            // Clear any existing interval
+            if (cache.pollingIntervalId) {
+                clearInterval(cache.pollingIntervalId)
+            }
+            cache.pollingIntervalId = setInterval(() => {
+                actions.loadStudy()
+            }, POLL_INTERVAL_MS)
+        },
+        stopPolling: () => {
+            if (cache.pollingIntervalId) {
+                clearInterval(cache.pollingIntervalId)
+                cache.pollingIntervalId = null
+            }
         },
         startRoundSuccess: () => {
             lemonToast.success('Round started')
@@ -165,5 +199,12 @@ export const studyDetailsSceneLogic = kea<studyDetailsSceneLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadStudy()
+    }),
+
+    beforeUnmount(({ cache }) => {
+        // Clean up polling on unmount
+        if (cache.pollingIntervalId) {
+            clearInterval(cache.pollingIntervalId)
+        }
     }),
 ])

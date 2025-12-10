@@ -123,7 +123,7 @@ class SyntheticUsersViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets
             return Response({"error": "No study id provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            study = Study.objects.prefetch_related("rounds").get(id=study_id, team=self.team)
+            study = Study.objects.prefetch_related("rounds__sessions").get(id=study_id, team=self.team)
         except Study.DoesNotExist:
             return Response({"error": "Study not found"}, status=status.HTTP_404_NOT_FOUND)
 
