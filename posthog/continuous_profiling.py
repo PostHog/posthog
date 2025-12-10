@@ -3,6 +3,30 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# K8s metadata environment variables for Pyroscope tags
+K8S_TAG_ENV_VARS = {
+    "namespace": "K8S_NAMESPACE",
+    "pod": "K8S_POD_NAME",
+    "node": "K8S_NODE_NAME",
+    "pod_template_hash": "K8S_POD_TEMPLATE_HASH",
+    "app_instance": "K8S_APP_INSTANCE",
+    "app": "K8S_APP",
+    "container": "K8S_CONTAINER_NAME",
+    "controller_type": "K8S_CONTROLLER_TYPE",
+}
+
+
+def _collect_k8s_tags() -> dict[str, str]:
+    """Collect K8s metadata tags from environment variables."""
+    tags = {"src": "SDK"}
+    for tag_name, env_var in K8S_TAG_ENV_VARS.items():
+        value = os.getenv(env_var, "")
+        if value:
+            tags[tag_name] = value
+        else:
+            logger.warning("K8s tag %s not set (env var %s is empty)", tag_name, env_var)
+    return tags
+
 
 def start_continuous_profiling() -> None:
     """
@@ -16,6 +40,10 @@ def start_continuous_profiling() -> None:
         PYROSCOPE_SERVER_ADDRESS: Pyroscope server URL (e.g., "http://pyroscope:4040")
         PYROSCOPE_APPLICATION_NAME: Application name to report to Pyroscope
         PYROSCOPE_SAMPLE_RATE: Sampling rate in Hz (default: 100)
+
+    K8s metadata tags (from Downward API or Helm):
+        K8S_NAMESPACE, K8S_POD_NAME, K8S_NODE_NAME, K8S_POD_TEMPLATE_HASH,
+        K8S_APP_INSTANCE, K8S_APP, K8S_CONTAINER_NAME, K8S_CONTROLLER_TYPE
     """
     try:
         # Read directly from environment to avoid Django settings import issues
@@ -31,6 +59,7 @@ def start_continuous_profiling() -> None:
 
         application_name = os.getenv("PYROSCOPE_APPLICATION_NAME", "")
         sample_rate = int(os.getenv("PYROSCOPE_SAMPLE_RATE", "100"))
+        tags = _collect_k8s_tags()
 
         import pyroscope
 
@@ -38,6 +67,7 @@ def start_continuous_profiling() -> None:
             application_name=application_name,
             server_address=server_address,
             sample_rate=sample_rate,
+            tags=tags,
         )
         logger.info(
             "Continuous profiling started",
@@ -45,6 +75,7 @@ def start_continuous_profiling() -> None:
                 "server_address": server_address,
                 "application_name": application_name,
                 "sample_rate": sample_rate,
+                "tags": tags,
             },
         )
     except ImportError:
