@@ -382,8 +382,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             breakdownAttributionType == BreakdownAttributionType.STEP
             and funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
         ):
+            default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
             prop = parse_expr(
-                f"if(step_{funnelsFilter.breakdownAttributionValue} = 1, prop_basic, {self._default_breakdown_selector()}) as prop"
+                f"if(step_{funnelsFilter.breakdownAttributionValue} = 1, prop_basic, {default_breakdown_selector}) as prop"
             )
             return [prop_basic, prop]
         elif (
