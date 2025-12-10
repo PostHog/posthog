@@ -3,6 +3,7 @@ import datetime as dt
 from typing import cast
 
 import pytest
+import unittest.mock
 
 from django.test import override_settings
 
@@ -13,9 +14,8 @@ from temporalio.testing import WorkflowEnvironment
 
 import posthog.ducklake.verification.config as verification_config
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
-from posthog.sync import database_sync_to_async
-from posthog.temporal.ducklake import ducklake_copy_workflow as ducklake_module
-from posthog.temporal.ducklake.ducklake_copy_workflow import (
+from posthog.temporal.ducklake import ducklake_copy_data_modeling_workflow as ducklake_module
+from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
     DuckLakeCopyActivityInputs,
     DuckLakeCopyModelMetadata,
     DuckLakeCopyVerificationResult,
@@ -38,12 +38,6 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
         name="ducklake_model",
         query={"query": "SELECT 1", "kind": "HogQLQuery"},
     )
-    saved_query.columns = {
-        "person_id": {"type": "UUID"},
-        "timestamp": {"type": "DateTime64"},
-        "optional_col": {"type": "Nullable(String)"},
-    }
-    await database_sync_to_async(saved_query.save)(update_fields=["columns"])
     job_id = uuid.uuid4().hex
     table_uri = f"s3://source/team_{ateam.pk}_model_{saved_query.id.hex}/modeling/{saved_query.normalized_name}"
     inputs = DataModelingDuckLakeCopyInputs(
@@ -58,6 +52,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
         ],
     )
     monkeypatch.setenv("DUCKLAKE_BUCKET", "ducklake-test-bucket")
+    # Mock Delta partition column detection
     monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: ["timestamp"])
 
     metadata = await activity_environment.run(prepare_data_modeling_ducklake_metadata_activity, inputs)
@@ -72,25 +67,16 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     assert model_metadata.verification_queries
     assert model_metadata.verification_queries[0].name == "row_count_delta_vs_ducklake"
     assert model_metadata.partition_column == "timestamp"
-    assert model_metadata.partition_column_type == "DateTime64"
-    assert "person_id" in model_metadata.key_columns
-    assert "person_id" in model_metadata.non_nullable_columns
-    assert "optional_col" not in model_metadata.non_nullable_columns
 
 
-def test_detect_partition_column_prefers_delta_metadata(monkeypatch):
-    columns = {
-        "timestamp": {"type": "DateTime64"},
-        "partition_ts": {"type": "Date"},
-    }
+def test_detect_partition_column_name_returns_first_partition(monkeypatch):
     monkeypatch.setattr(
         ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: ["partition_ts", "timestamp"]
     )
 
-    column, column_type = ducklake_module._detect_partition_column(columns, "s3://source/table")
+    column = ducklake_module._detect_partition_column_name("s3://source/table")
 
     assert column == "partition_ts"
-    assert column_type == "Date"
 
 
 @pytest.mark.asyncio
@@ -138,11 +124,6 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_ove
         name="inherit_model",
         query={"query": "SELECT 1", "kind": "HogQLQuery"},
     )
-    for saved_query in (override_query, inherit_query):
-        saved_query.columns = {
-            "person_id": {"type": "UUID"},
-        }
-        await database_sync_to_async(saved_query.save)(update_fields=["columns"])
 
     def _table_uri(saved_query):
         return f"s3://source/team_{ateam.pk}_model_{saved_query.id.hex}/modeling/{saved_query.normalized_name}"
@@ -283,8 +264,6 @@ async def test_verify_ducklake_copy_activity_runs_queries(monkeypatch, activity_
     monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
     monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
     monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
-    monkeypatch.setattr(ducklake_module, "_run_key_cardinality_verifications", lambda *args, **kwargs: [])
-    monkeypatch.setattr(ducklake_module, "_run_non_nullable_verifications", lambda *args, **kwargs: [])
 
     metadata = DuckLakeCopyModelMetadata(
         model_label="model_a",
@@ -410,8 +389,6 @@ async def test_verify_ducklake_copy_activity_reports_failures(monkeypatch, activ
     monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
     monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
     monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
-    monkeypatch.setattr(ducklake_module, "_run_key_cardinality_verifications", lambda *args, **kwargs: [])
-    monkeypatch.setattr(ducklake_module, "_run_non_nullable_verifications", lambda *args, **kwargs: [])
 
     metadata = DuckLakeCopyModelMetadata(
         model_label="model_b",
@@ -462,13 +439,13 @@ def test_run_partition_verification_without_temporal_type():
         table_name="model_partition_string",
         verification_queries=[],
         partition_column="event_id",
-        partition_column_type="String",
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-partition", model=metadata)
     fake_conn = FakeConn()
     conn = cast(duckdb.DuckDBPyConnection, fake_conn)
 
-    result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
+    with unittest.mock.patch.object(ducklake_module, "_fetch_delta_schema", return_value=[("event_id", "String")]):
+        result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
 
     assert result is not None and result.passed is True
     assert fake_conn.statements and "date_trunc" not in fake_conn.statements[0]
@@ -497,13 +474,13 @@ def test_run_partition_verification_with_temporal_type():
         table_name="model_partition_time",
         verification_queries=[],
         partition_column="timestamp",
-        partition_column_type="DateTime64",
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-partition", model=metadata)
     fake_conn = FakeConn()
     conn = cast(duckdb.DuckDBPyConnection, fake_conn)
 
-    result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
+    with unittest.mock.patch.object(ducklake_module, "_fetch_delta_schema", return_value=[("timestamp", "DateTime64")]):
+        result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
 
     assert result is not None and result.passed is True
     assert fake_conn.statements and "date_trunc" in fake_conn.statements[0]
@@ -544,8 +521,6 @@ async def test_verify_ducklake_copy_activity_respects_tolerance(
     monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
     monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
     monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
-    monkeypatch.setattr(ducklake_module, "_run_key_cardinality_verifications", lambda *args, **kwargs: [])
-    monkeypatch.setattr(ducklake_module, "_run_non_nullable_verifications", lambda *args, **kwargs: [])
 
     metadata = DuckLakeCopyModelMetadata(
         model_label="model_tolerance",
@@ -577,140 +552,6 @@ async def test_verify_ducklake_copy_activity_respects_tolerance(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_verify_ducklake_copy_activity_null_ratio_matches_source(monkeypatch, activity_environment):
-    class FakeResult:
-        def __init__(self, rows):
-            self.rows = rows
-
-        def fetchone(self):
-            return self.rows[0] if self.rows else None
-
-        def fetchall(self):
-            return self.rows
-
-    class FakeDuckDBConnection:
-        def __init__(self):
-            self.closed = False
-            self.sql_statements: list[str] = []
-
-        def execute(self, statement: str, params: list | None = None):
-            if "SELECT 0" in statement:
-                return FakeResult([(0,)])
-            if "delta_scan" in statement and '"issue_id"' in statement:
-                return FakeResult([(5,)])
-            if "delta_scan" in statement and '"event_issue_id"' in statement:
-                return FakeResult([(3,)])
-            if "ducklake_dev" in statement and '"issue_id"' in statement:
-                return FakeResult([(5,)])
-            if "ducklake_dev" in statement and '"event_issue_id"' in statement:
-                return FakeResult([(3,)])
-            return FakeResult([(0,)])
-
-        def close(self):
-            self.closed = True
-
-        def sql(self, statement: str):
-            self.sql_statements.append(statement)
-
-    fake_conn = FakeDuckDBConnection()
-    monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
-    monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
-    monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
-    monkeypatch.setattr(ducklake_module, "_run_key_cardinality_verifications", lambda *args, **kwargs: [])
-
-    metadata = DuckLakeCopyModelMetadata(
-        model_label="model_d",
-        saved_query_id=str(uuid.uuid4()),
-        saved_query_name="ducklake_model",
-        normalized_name="ducklake_model",
-        source_table_uri="s3://source/table",
-        schema_name="data_modeling_team_1",
-        table_name="model_d",
-        verification_queries=[
-            DuckLakeCopyVerificationQuery(
-                name="noop",
-                sql="SELECT 0",
-                tolerance=0,
-            )
-        ],
-        non_nullable_columns=["issue_id", "event_issue_id"],
-    )
-    inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-null", model=metadata)
-
-    results = activity_environment.run(verify_ducklake_copy_activity, inputs)
-
-    issue_result = next(result for result in results if result.name == "model.null_ratio.issue_id")
-    event_result = next(result for result in results if result.name == "model.null_ratio.event_issue_id")
-    assert issue_result.passed is True
-    assert event_result.passed is True
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_verify_ducklake_copy_activity_null_ratio_mismatch(monkeypatch, activity_environment):
-    class FakeResult:
-        def __init__(self, rows):
-            self.rows = rows
-
-        def fetchone(self):
-            return self.rows[0] if self.rows else None
-
-        def fetchall(self):
-            return self.rows
-
-    class FakeDuckDBConnection:
-        def __init__(self):
-            self.closed = False
-            self.sql_statements: list[str] = []
-
-        def execute(self, statement: str, params: list | None = None):
-            if "SELECT 0" in statement:
-                return FakeResult([(0,)])
-            if "delta_scan" in statement and '"issue_id"' in statement:
-                return FakeResult([(0,)])
-            if "ducklake_dev" in statement and '"issue_id"' in statement:
-                return FakeResult([(2,)])
-            return FakeResult([(0,)])
-
-        def close(self):
-            self.closed = True
-
-        def sql(self, statement: str):
-            self.sql_statements.append(statement)
-
-    fake_conn = FakeDuckDBConnection()
-    monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
-    monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
-    monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
-    monkeypatch.setattr(ducklake_module, "_run_key_cardinality_verifications", lambda *args, **kwargs: [])
-
-    metadata = DuckLakeCopyModelMetadata(
-        model_label="model_e",
-        saved_query_id=str(uuid.uuid4()),
-        saved_query_name="ducklake_model",
-        normalized_name="ducklake_model",
-        source_table_uri="s3://source/table",
-        schema_name="data_modeling_team_1",
-        table_name="model_e",
-        verification_queries=[
-            DuckLakeCopyVerificationQuery(
-                name="noop",
-                sql="SELECT 0",
-                tolerance=0,
-            )
-        ],
-        non_nullable_columns=["issue_id"],
-    )
-    inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-null", model=metadata)
-
-    results = activity_environment.run(verify_ducklake_copy_activity, inputs)
-
-    issue_result = next(result for result in results if result.name == "model.null_ratio.issue_id")
-    assert issue_result.passed is False
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
 async def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypatch, activity_environment):
     class FakeDuckDBConnection:
         def __init__(self):
@@ -738,13 +579,9 @@ async def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypa
 
     schema_result = DuckLakeCopyVerificationResult(name="model.schema_hash", passed=True)
     partition_result = DuckLakeCopyVerificationResult(name="model.partition_counts", passed=True)
-    key_results = [DuckLakeCopyVerificationResult(name="model.key_cardinality.person_id", passed=True)]
-    null_results = [DuckLakeCopyVerificationResult(name="model.null_ratio.person_id", passed=True)]
 
     monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: schema_result)
     monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: partition_result)
-    monkeypatch.setattr(ducklake_module, "_run_key_cardinality_verifications", lambda *args, **kwargs: key_results)
-    monkeypatch.setattr(ducklake_module, "_run_non_nullable_verifications", lambda *args, **kwargs: null_results)
 
     metadata = DuckLakeCopyModelMetadata(
         model_label="model_c",
@@ -762,8 +599,6 @@ async def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypa
             )
         ],
         partition_column="timestamp",
-        key_columns=["person_id"],
-        non_nullable_columns=["person_id"],
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-verify", model=metadata)
 
@@ -771,8 +606,6 @@ async def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypa
 
     assert schema_result in results
     assert partition_result in results
-    assert key_results[0] in results
-    assert null_results[0] in results
 
 
 @pytest.mark.asyncio

@@ -63,11 +63,7 @@ pub async fn event(
         }
 
         Err(err) => {
-            report_internal_error_metrics(
-                err.to_metric_tag(),
-                "parsing",
-                state.capture_mode.as_tag(),
-            );
+            report_internal_error_metrics(err.to_metric_tag(), "parsing");
             error!("event: request payload parsing error: {:?}", err);
             Err(err)
         }
@@ -83,11 +79,7 @@ pub async fn event(
             .await
             {
                 report_dropped_events(err.to_metric_tag(), events.len() as u64);
-                report_internal_error_metrics(
-                    err.to_metric_tag(),
-                    "processing",
-                    state.capture_mode.as_tag(),
-                );
+                report_internal_error_metrics(err.to_metric_tag(), "processing");
                 warn!("event: rejected payload: {}", err);
                 return Err(err);
             }
@@ -136,11 +128,7 @@ pub async fn recording(
             quota_limited: Some(vec!["recordings".to_string()]),
         }),
         Err(err) => {
-            report_internal_error_metrics(
-                err.to_metric_tag(),
-                "parsing",
-                state.capture_mode.as_tag(),
-            );
+            report_internal_error_metrics(err.to_metric_tag(), "parsing");
             error!("recordings: request payload parsing error: {:?}", err);
             Err(err)
         }
@@ -148,11 +136,7 @@ pub async fn recording(
             let count = events.len() as u64;
             if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 report_dropped_events(err.to_metric_tag(), count);
-                report_internal_error_metrics(
-                    err.to_metric_tag(),
-                    "processing",
-                    state.capture_mode.as_tag(),
-                );
+                report_internal_error_metrics(err.to_metric_tag(), "processing");
                 warn!("recordings:rejected payload: {:?}", err);
                 return Err(err);
             }

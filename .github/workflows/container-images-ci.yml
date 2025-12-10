@@ -48,8 +48,7 @@ jobs:
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
-                  aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-                  aws-access-secret: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
