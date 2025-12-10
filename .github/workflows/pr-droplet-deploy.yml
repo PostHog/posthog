@@ -155,8 +155,10 @@ jobs:
                     # Install flox
                     if ! command -v flox &> /dev/null; then
                       echo "Installing flox..."
-                      curl -fsSL https://downloads.flox.dev/by-env/stable/install | bash
-                      export PATH="${HOME}/.local/bin:${PATH}"
+                      curl https://downloads.flox.dev/by-env/stable/deb/flox-1.7.8.x86_64-linux.deb -o flox.deb
+                      dpkg -i flox.deb
+                      apt-get install -f
+                      flox --version
                     fi
 
                     # Clone or update repository
@@ -172,7 +174,7 @@ jobs:
                       git clean -fd
                     else
                       echo "Cloning repository..."
-                      git clone -b ${{ env.BRANCH }} ${{ env.REPO_URL }} ${REPO_DIR}
+                      git clone --filter=blob:none -b ${{ env.BRANCH }} ${{ env.REPO_URL }} ${REPO_DIR}
                       cd ${REPO_DIR}
                     fi
 
@@ -197,7 +199,6 @@ jobs:
                       fi
                       rm -f ${REPO_DIR}/hogli.pid
                     fi
-                    flox activate -- bash -c "hogli stop || true"
 
                     # Start services in background using nohup
                     # This keeps the process running after SSH session ends
@@ -209,7 +210,7 @@ jobs:
                     echo $! > ${REPO_DIR}/hogli.pid
 
                     # Give it a moment to start
-                    sleep 5
+                    sleep 30
 
                     # Check if process is still running
                     if ps -p $(cat ${REPO_DIR}/hogli.pid) > /dev/null 2>&1; then
