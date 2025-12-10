@@ -178,10 +178,9 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         await _remove_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hourglass_flowing_sand")
         await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "white_check_mark")
 
-    # Delete the initial "working on it" message and post the final response as a new message
+    # Post the final response as a new message, then delete the initial "working on it" message
     # (new messages trigger notifications, updates don't)
-    await _delete_slack_message(integration, inputs.channel, inputs.initial_message_ts)
-
+    # We post first so that if posting fails, the user still sees the "working on it" message
     if final_response:
         await _post_slack_message(
             integration,
@@ -204,6 +203,8 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
             "Sorry, I couldn't generate a response. Please try again.",
             conversation_url=conversation_url,
         )
+
+    await _delete_slack_message(integration, inputs.channel, inputs.initial_message_ts)
 
 
 def _build_slack_message_blocks(text: str, conversation_url: str | None = None) -> list[dict]:
