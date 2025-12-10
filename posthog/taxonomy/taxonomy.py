@@ -250,6 +250,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
             "examples": ["Unauthorized inline script", "Trying to load resources from unauthorized domain"],
         },
+        "$link_clicked": {
+            "label": "Link clicked",
+            "description": "When a user clicks on a tracked link.",
+        },
         "Application opened": {
             "label": "Application opened",
             "description": "When a user opens the mobile app either for the first time or from the foreground.",
@@ -499,6 +503,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "PostHog's internal ID for matching events to a pageview.",
             "system": True,
             "ignored_in_assistant": True,
+        },
+        "$link_id": {
+            "label": "Link ID",
+            "description": "The ID of the link that was clicked. This property is automatically set on $link_clicked events.",
+            "type": "String",
         },
         "$autocapture_disabled_server_side": {
             "label": "Autocapture disabled server-side",
