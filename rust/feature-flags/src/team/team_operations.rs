@@ -209,7 +209,7 @@ impl Team {
                 .await?;
 
         let query = format!(
-            "SELECT {TEAM_COLUMNS} FROM posthog_team WHERE (secret_api_token = $1 OR secret_api_token_backup = $1)"
+            "SELECT {TEAM_COLUMNS} FROM posthog_team WHERE secret_api_token = $1 OR secret_api_token_backup = $1"
         );
         let row = sqlx::query_as::<_, Team>(&query)
             .bind(token)
