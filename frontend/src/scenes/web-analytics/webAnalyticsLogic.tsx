@@ -25,6 +25,7 @@ import {
     updateDatesWithInterval,
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -2343,6 +2344,60 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
 
         return {
+            setWebAnalyticsFilters: ({ webAnalyticsFilters }) => {
+                const categories = new Set(webAnalyticsFilters.map((f) => f.type))
+                for (const category of categories) {
+                    eventUsageLogic.actions.reportWebAnalyticsFilterApplied({
+                        filter_type: 'property',
+                        property_filter_category: category,
+                        total_filter_count: webAnalyticsFilters.length,
+                    })
+                }
+            },
+            setDomainFilter: ({ domain }) => {
+                const action = domain ? 'reportWebAnalyticsFilterApplied' : 'reportWebAnalyticsFilterRemoved'
+                eventUsageLogic.actions[action]({
+                    filter_type: 'domain',
+                    total_filter_count: values.webAnalyticsFilters.length,
+                })
+            },
+            setDeviceTypeFilter: ({ deviceType }) => {
+                const action = deviceType ? 'reportWebAnalyticsFilterApplied' : 'reportWebAnalyticsFilterRemoved'
+                eventUsageLogic.actions[action]({
+                    filter_type: 'device_type',
+                    total_filter_count: values.webAnalyticsFilters.length,
+                })
+            },
+            setDates: ({ dateFrom, dateTo }) => {
+                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    interval: values.dateFilter.interval,
+                })
+            },
+            setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
+                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    interval,
+                })
+            },
+            setCompareFilter: ({ compareFilter }) => {
+                eventUsageLogic.actions.reportWebAnalyticsCompareToggled({
+                    enabled: compareFilter?.compare ?? false,
+                })
+            },
+            setIsPathCleaningEnabled: ({ isPathCleaningEnabled }) => {
+                eventUsageLogic.actions.reportWebAnalyticsPathCleaningToggled({
+                    enabled: isPathCleaningEnabled,
+                })
+            },
+            setWebVitalsPercentile: () => {
+                eventUsageLogic.actions.reportWebAnalyticsFilterApplied({
+                    filter_type: 'percentile',
+                    total_filter_count: values.webAnalyticsFilters.length,
+                })
+            },
             setProductTab: ({ tab }) => {
                 if (tab === ProductTab.HEALTH) {
                     actions.trackTabViewed()
@@ -2361,6 +2416,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         breakpoint,
                         actions.setConversionGoalWarning
                     ),
+                ({ conversionGoal }) => {
+                    let goalType: string | null = null
+                    if (conversionGoal && 'actionId' in conversionGoal) {
+                        goalType = 'action'
+                    } else if (conversionGoal && 'customEventName' in conversionGoal) {
+                        goalType = 'custom_event'
+                    }
+                    eventUsageLogic.actions.reportWebAnalyticsConversionGoalSet({ goal_type: goalType })
+                },
             ],
             [teamLogic.actionTypes.updateCurrentTeam]: async (action) => {
                 const isPreAggregatedEnabled =
