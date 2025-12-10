@@ -26,7 +26,83 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 60
         if: github.event_name == 'pull_request'
+        outputs:
+            preview-mode: ${{ steps.check-preview.outputs.preview }}
+            comment-id: ${{ steps.post-comment.outputs.comment-id }}
         steps:
+            - name: Check for preview mode
+              id: check-preview
+              run: |
+                  LABELS=$(gh pr view ${{ github.event.pull_request.number }} --json labels -q '.labels[].name' 2>/dev/null || echo "")
+                  if echo "$LABELS" | grep -q "hobby-preview"; then
+                    echo "preview=true" >> $GITHUB_OUTPUT
+                    echo "🔄 Preview mode enabled - will reuse droplet if exists"
+                  else
+                    echo "preview=false" >> $GITHUB_OUTPUT
+                    echo "🧪 Smoke test mode - ephemeral droplet"
+                  fi
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            - name: Post initial PR comment
+              id: post-comment
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              with:
+                  script: |
+                      const commentMarker = '<!-- hobby-ci-comment -->';
+                      const previewMode = '${{ steps.check-preview.outputs.preview }}' === 'true';
+
+                      // Find existing comment to update (in case of workflow retry)
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+
+                      const existingComment = comments.find(c => c.body.includes(commentMarker));
+
+                      const initialBody = `${commentMarker}
+                      ## 🦔 Hobby deployment instance
+
+                      ${previewMode ? '🔄 **Preview mode** - Reusing or creating persistent droplet' : '🧪 **Smoke test mode** - Creating ephemeral droplet'}
+
+                      ⏳ Setting up instance... (this takes ~30 minutes)
+
+                      **Commit:** \`${context.sha.substring(0, 7)}\`
+                      **Workflow run:** [#${context.runNumber}](${context.payload.repository.html_url}/actions/runs/${context.runId})
+                      `;
+
+                      let commentId;
+                      if (existingComment) {
+                          // Update existing comment
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existingComment.id,
+                              body: initialBody,
+                          });
+                          commentId = existingComment.id;
+                          console.log(`Updated existing comment ${commentId}`);
+                      } else {
+                          // Create new comment
+                          const { data: newComment } = await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: context.issue.number,
+                              body: initialBody,
+                          });
+                          commentId = newComment.id;
+                          console.log(`Created new comment ${commentId}`);
+                      }
+
+                      // Save comment ID for later update
+                      const fs = require('fs');
+                      const path = require('path');
+                      const outputFile = path.join(process.env.RUNNER_TEMP, 'hobby-comment-id.txt');
+                      fs.writeFileSync(outputFile, commentId.toString());
+
+                      // Also set as step output for the changes job to pick up
+                      const output = `comment-id=${commentId}`;
+                      fs.appendFileSync(process.env.GITHUB_OUTPUT, `${output}\n`);
             - name: Wait for container image build to complete
               uses: fountainhead/action-wait-for-check@4699210ccc66e2a13260803fadbb77085421b891 # v1.2.0
               id: wait-for-image
@@ -62,80 +138,21 @@ jobs:
                   python-version: '3.8'
             - name: Get python deps
               run: pip install python-digitalocean==1.17.0 requests==2.28.1 paramiko
-            - name: Check for preview mode
-              id: check-preview
+            - name: Set environment variables from previous job
               run: |
                   if [ "${{ github.event_name }}" = "pull_request" ]; then
-                    LABELS=$(gh pr view ${{ github.event.pull_request.number }} --json labels -q '.labels[].name' 2>/dev/null || echo "")
-                    if echo "$LABELS" | grep -q "hobby-preview"; then
-                      echo "PREVIEW_MODE=true" >> $GITHUB_ENV
-                      echo "preview=true" >> $GITHUB_OUTPUT
+                    PREVIEW_MODE="${{ needs.wait-for-docker-image.outputs.preview-mode }}"
+                    COMMENT_ID="${{ needs.wait-for-docker-image.outputs.comment-id }}"
+                    echo "PREVIEW_MODE=$PREVIEW_MODE" >> $GITHUB_ENV
+                    echo "HOBBY_COMMENT_ID=$COMMENT_ID" >> $GITHUB_ENV
+                    if [ "$PREVIEW_MODE" = "true" ]; then
                       echo "🔄 Preview mode enabled - will reuse droplet if exists"
                     else
-                      echo "PREVIEW_MODE=false" >> $GITHUB_ENV
-                      echo "preview=false" >> $GITHUB_OUTPUT
                       echo "🧪 Smoke test mode - ephemeral droplet"
                     fi
                   else
                     echo "PREVIEW_MODE=false" >> $GITHUB_ENV
-                    echo "preview=false" >> $GITHUB_OUTPUT
                   fi
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            - name: Post initial PR comment
-              if: github.event_name == 'pull_request'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
-              with:
-                  script: |
-                      const commentMarker = '<!-- hobby-ci-comment -->';
-                      const previewMode = process.env.PREVIEW_MODE === 'true';
-
-                      // Find existing comment to update (in case of workflow retry)
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-
-                      const existingComment = comments.find(c => c.body.includes(commentMarker));
-
-                      const initialBody = `${commentMarker}
-                      ## 🦔 Hobby deployment instance
-
-                      ${previewMode ? '🔄 **Preview mode** - Reusing or creating persistent droplet' : '🧪 **Smoke test mode** - Creating ephemeral droplet'}
-
-                      ⏳ Setting up instance... (this takes ~15 minutes)
-
-                      **Commit:** \`${context.sha.substring(0, 7)}\`
-                      **Workflow run:** [#${context.runNumber}](${context.payload.repository.html_url}/actions/runs/${context.runId})
-                      `;
-
-                      let commentId;
-                      if (existingComment) {
-                          // Update existing comment
-                          await github.rest.issues.updateComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existingComment.id,
-                              body: initialBody,
-                          });
-                          commentId = existingComment.id;
-                          console.log(`Updated existing comment ${commentId}`);
-                      } else {
-                          // Create new comment
-                          const { data: newComment } = await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: context.issue.number,
-                              body: initialBody,
-                          });
-                          commentId = newComment.id;
-                          console.log(`Created new comment ${commentId}`);
-                      }
-
-                      // Save comment ID for later update
-                      const fs = require('fs');
-                      fs.appendFileSync(process.env.GITHUB_ENV, `HOBBY_COMMENT_ID=${commentId}\n`);
             - name: Setup DO Hobby Instance
               run: python3 bin/hobby-ci.py create "$GITHUB_HEAD_REF" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}" 2>&1 | tee /tmp/hobby-ci-output.txt
               env:
