@@ -15,6 +15,7 @@ const K8S_TAG_ENV_VARS: &[(&str, &str)] = &[
     ("app", "K8S_APP"),
     ("container", "K8S_CONTAINER_NAME"),
     ("controller_type", "K8S_CONTROLLER_TYPE"),
+    ("service_name", "K8S_SERVICE_NAME"),
 ];
 
 #[derive(Envconfig, Clone, Debug)]
@@ -34,6 +35,17 @@ pub struct ContinuousProfilingConfig {
 
 /// A running Pyroscope agent handle. Keep this alive for the duration of profiling.
 pub type RunningAgent = PyroscopeAgent<PyroscopeAgentRunning>;
+
+impl Default for ContinuousProfilingConfig {
+    fn default() -> Self {
+        Self {
+            continuous_profiling_enabled: false,
+            pyroscope_server_address: String::new(),
+            pyroscope_application_name: String::new(),
+            pyroscope_sample_rate: 100,
+        }
+    }
+}
 
 /// Collect K8s metadata tags from environment variables.
 fn collect_k8s_tags() -> Vec<(String, String)> {
