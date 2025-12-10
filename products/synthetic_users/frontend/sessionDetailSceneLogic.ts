@@ -59,7 +59,7 @@ export const sessionDetailSceneLogic = kea<sessionDetailSceneLogicType>([
                     // Extract session from study data
                     if (study?.rounds) {
                         for (const round of study.rounds) {
-                            const session = round.sessions?.find((s) => s.id === props.sessionId)
+                            const session = round.sessions?.find((s: Session) => s.id === props.sessionId)
                             if (session) {
                                 actions.setSession(session)
                                 break
