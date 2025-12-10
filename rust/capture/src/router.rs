@@ -1,8 +1,10 @@
 use std::future::ready;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
-use axum::http::Method;
+use axum::http::{Method, StatusCode};
+use axum::response::IntoResponse;
 use axum::{
     routing::{get, post},
     Router,
@@ -40,6 +42,7 @@ pub struct State {
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
+    pub is_shutting_down: Arc<AtomicBool>,
 }
 
 #[derive(Clone)]
@@ -78,6 +81,14 @@ async fn index() -> &'static str {
     "capture"
 }
 
+async fn readiness(axum::extract::State(state): axum::extract::State<State>) -> impl IntoResponse {
+    if state.is_shutting_down.load(Ordering::Relaxed) {
+        (StatusCode::SERVICE_UNAVAILABLE, "shutting down")
+    } else {
+        (StatusCode::OK, "capture")
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
@@ -101,6 +112,7 @@ pub fn router<
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
     request_timeout_seconds: Option<u64>,
+    is_shutting_down: Arc<AtomicBool>,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -116,6 +128,7 @@ pub fn router<
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
+        is_shutting_down,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -221,7 +234,7 @@ pub fn router<
 
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(index))
+        .route("/_readiness", get(readiness))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     let recordings_router = Router::new()

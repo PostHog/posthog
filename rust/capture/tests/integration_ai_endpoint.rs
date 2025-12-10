@@ -21,6 +21,7 @@ use limiters::token_dropper::TokenDropper;
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
 use std::io::Write;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -171,6 +172,7 @@ fn setup_ai_test_router() -> Router {
         0.0_f32,
         26_214_400, // 25MB default for AI endpoint
         Some(10),   // request_timeout_seconds
+        Arc::new(AtomicBool::new(false)),
     )
 }
 
@@ -1494,6 +1496,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         0.0_f32,
         26_214_400, // 25MB default for AI endpoint
         Some(10),   // request_timeout_seconds
+        Arc::new(AtomicBool::new(false)),
     );
 
     (router, sink_clone)
@@ -2369,6 +2372,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         0.0_f32,
         26_214_400,
         Some(10),
+        Arc::new(AtomicBool::new(false)),
     );
 
     (router, sink_clone)
@@ -2566,6 +2570,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         0.0_f32,
         26_214_400,
         Some(10),
+        Arc::new(AtomicBool::new(false)),
     );
 
     (router, sink_clone)

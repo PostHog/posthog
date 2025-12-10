@@ -119,6 +119,11 @@ pub struct Config {
     // if set in env, will configure a request timeout on the server's Axum router
     pub request_timeout_seconds: Option<u64>,
 
+    // time to wait after SIGTERM before starting graceful shutdown, allowing
+    // readiness probe to fail and load balancer to stop routing new traffic
+    #[envconfig(default = "5")]
+    pub shutdown_readiness_drain_seconds: u64,
+
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
 }

@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,6 +8,7 @@ use common_redis::RedisClient;
 use health::{ComponentStatus, HealthRegistry};
 use limiters::redis::ServiceName;
 use tokio::net::TcpListener;
+use tracing::info;
 
 use crate::config::CaptureMode;
 use crate::config::Config;
@@ -183,6 +185,9 @@ where
         .await
         .expect("failed to create sink");
 
+    // Shutdown flag shared between router (for readiness) and shutdown handler
+    let is_shutting_down = Arc::new(AtomicBool::new(false));
+
     let app = router::router(
         crate::time::SystemTime {},
         liveness,
@@ -201,20 +206,39 @@ where
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
         config.request_timeout_seconds,
+        is_shutting_down.clone(),
     );
 
-    // run our app with hyper
-    tracing::info!("listening on {:?}", listener.local_addr().unwrap());
-    tracing::info!(
-        "config: is_mirror_deploy == {:?} ; log_level == {:?}",
+    // Create shutdown future that:
+    // 1. Waits for the original shutdown signal (SIGTERM)
+    // 2. Sets is_shutting_down flag (makes readiness return 503)
+    // 3. Waits for drain period (allows LB to stop routing)
+    // 4. Returns (triggers axum's graceful shutdown)
+    let drain_seconds = config.shutdown_readiness_drain_seconds;
+    let shutdown_with_drain = async move {
+        shutdown.await;
+        info!("Shutdown signal received, marking server as not ready");
+        is_shutting_down.store(true, Ordering::Relaxed);
+        info!(
+            "Waiting {} seconds for load balancer to drain traffic",
+            drain_seconds
+        );
+        tokio::time::sleep(Duration::from_secs(drain_seconds)).await;
+        info!("Drain period complete, starting graceful shutdown");
+    };
+
+    info!("listening on {:?}", listener.local_addr().unwrap());
+    info!(
+        "config: is_mirror_deploy == {:?} ; log_level == {:?} ; shutdown_readiness_drain_seconds == {:?}",
         config.is_mirror_deploy,
-        config.log_level
+        config.log_level,
+        config.shutdown_readiness_drain_seconds
     );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown)
+    .with_graceful_shutdown(shutdown_with_drain)
     .await
     .unwrap()
 }

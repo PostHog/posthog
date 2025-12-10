@@ -2,6 +2,7 @@
 use std::fs::read;
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -995,6 +996,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             verbose_sample_percent,
             26_214_400, // 25MB default for AI endpoint
             Some(10),   // request_timeout_seconds
+            Arc::new(AtomicBool::new(false)),
         ),
         sink,
     )
