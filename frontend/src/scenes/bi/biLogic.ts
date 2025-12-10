@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -11,6 +11,8 @@ import { urls } from 'scenes/urls'
 import { performQuery } from '~/queries/query'
 import { DatabaseSchemaField, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
+
+import type { biLogicType } from './biLogicType'
 
 export type BIAggregation = 'count' | 'min' | 'max' | 'sum'
 
@@ -25,7 +27,8 @@ export interface BIQueryFilter {
     expression: string
 }
 
-export const biLogic = kea([
+export const biLogic = kea<biLogicType>([
+    path(['scenes', 'bi', 'biLogic']),
     tabAwareScene(),
     connect({
         values: [
