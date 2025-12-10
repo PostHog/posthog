@@ -1,13 +1,16 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -18,12 +21,22 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductTour, ProgressStatus } from '~/types'
+import { Query } from '~/queries/Query/Query'
+import { DateRange, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import {
+    FeatureFlagFilters,
+    FunnelConversionWindowTimeUnit,
+    FunnelVizType,
+    ProductTour,
+    ProgressStatus,
+    PropertyFilterType,
+    PropertyOperator,
+    StepOrderValue,
+} from '~/types'
 
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
-import { ProductTourStats, productTourLogic } from './productTourLogic'
-import { getProductTourStatus, isProductTourRunning } from './productToursLogic'
-import { productToursLogic } from './productToursLogic'
+import { productTourLogic } from './productTourLogic'
+import { getProductTourStatus, isProductTourRunning, productToursLogic } from './productToursLogic'
 
 const UrlMatchTypeLabels: Record<string, string> = {
     contains: 'contains',
@@ -32,8 +45,10 @@ const UrlMatchTypeLabels: Record<string, string> = {
 }
 
 export function ProductTourView({ id }: { id: string }): JSX.Element {
-    const { productTour, productTourLoading, tourStats, tourStatsLoading } = useValues(productTourLogic({ id }))
-    const { editingProductTour, launchProductTour, stopProductTour, resumeProductTour } = useActions(
+    const { productTour, productTourLoading, tourStats, tourStatsLoading, dateRange, targetingFlagFilters } = useValues(
+        productTourLogic({ id })
+    )
+    const { editingProductTour, launchProductTour, stopProductTour, resumeProductTour, setDateRange } = useActions(
         productTourLogic({ id })
     )
     const { deleteProductTour } = useActions(productToursLogic)
@@ -207,11 +222,23 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                         label: 'Overview',
                         content: (
                             <div className="space-y-4">
-                                <ProductTourStatsSummary stats={tourStats} loading={tourStatsLoading} />
+                                <ProductTourStatsSummary
+                                    stats={tourStats}
+                                    loading={tourStatsLoading}
+                                    headerAction={
+                                        <DateFilter
+                                            dateFrom={dateRange.date_from}
+                                            dateTo={dateRange.date_to}
+                                            onChange={(dateFrom, dateTo) =>
+                                                setDateRange({ date_from: dateFrom, date_to: dateTo })
+                                            }
+                                        />
+                                    }
+                                />
                                 <LemonDivider />
-                                <StepsFunnel stats={tourStats} tour={productTour} loading={tourStatsLoading} />
+                                <StepsFunnel tour={productTour} dateRange={dateRange} />
                                 <LemonDivider />
-                                <TargetingSummary tour={productTour} />
+                                <TargetingSummary tour={productTour} targetingFlagFilters={targetingFlagFilters} />
                             </div>
                         ),
                     },
@@ -221,99 +248,119 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
     )
 }
 
-function StepsFunnel({
-    stats,
-    tour,
-    loading,
-}: {
-    stats: ProductTourStats | null
-    tour: ProductTour
-    loading: boolean
-}): JSX.Element {
-    if (loading) {
-        return <LemonSkeleton className="h-32" />
-    }
-
+function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRange }): JSX.Element {
     const steps = tour.content?.steps || []
-    const stepStats = stats?.stepStats || []
 
     if (steps.length === 0) {
         return <div className="text-secondary text-sm">No steps defined for this tour.</div>
     }
 
+    const tourIdFilter = {
+        type: PropertyFilterType.Event,
+        key: '$product_tour_id',
+        operator: PropertyOperator.Exact,
+        value: tour.id,
+    }
+
+    // Build funnel: tour shown → step 0 shown → step 1 shown → ... → tour completed
+    const series = [
+        {
+            kind: NodeKind.EventsNode,
+            event: 'product tour shown',
+            custom_name: 'Tour started',
+            properties: [tourIdFilter],
+        },
+        ...steps.map((_, index) => ({
+            kind: NodeKind.EventsNode,
+            event: 'product tour step shown',
+            custom_name: `Step ${index + 1}`,
+            properties: [
+                tourIdFilter,
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$product_tour_step_order',
+                    operator: PropertyOperator.Exact,
+                    value: String(index),
+                },
+            ],
+        })),
+        {
+            kind: NodeKind.EventsNode,
+            event: 'product tour completed',
+            custom_name: 'Completed',
+            properties: [tourIdFilter],
+        },
+    ]
+
+    const funnelsQuery: FunnelsQuery = {
+        kind: NodeKind.FunnelsQuery,
+        series: series as FunnelsQuery['series'],
+        funnelsFilter: {
+            funnelVizType: FunnelVizType.Steps,
+            funnelOrderType: StepOrderValue.ORDERED,
+            funnelWindowInterval: 14,
+            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+        },
+        dateRange: {
+            date_from: dateRange.date_from,
+            date_to: dateRange.date_to,
+        },
+    }
+
     return (
         <div>
             <h3 className="font-semibold mb-4">Step completion funnel</h3>
-            <div className="space-y-2">
-                {steps.map((step, index) => {
-                    const stepStat = stepStats.find((s) => s.stepOrder === index)
-                    const shown = stepStat?.shown ?? 0
-                    const completed = stepStat?.completed ?? 0
-                    const completionRate = shown > 0 ? Math.round((completed / shown) * 100) : 0
-
-                    return (
-                        <div key={index} className="flex items-center gap-4 p-3 border rounded">
-                            <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center font-semibold">
-                                {index + 1}
-                            </div>
-                            <div className="flex-1">
-                                <div className="font-medium">Step {index + 1}</div>
-                                <div className="text-secondary text-sm truncate">{step.selector}</div>
-                            </div>
-                            <div className="text-right">
-                                <div className="font-medium">{completionRate}%</div>
-                                <div className="text-secondary text-sm">
-                                    {completed} / {shown}
-                                </div>
-                            </div>
-                        </div>
-                    )
-                })}
-            </div>
+            <Query
+                query={{
+                    kind: NodeKind.InsightVizNode,
+                    source: funnelsQuery,
+                    showTable: false,
+                    showLastComputation: true,
+                    showLastComputationRefresh: false,
+                }}
+                readOnly
+            />
         </div>
     )
 }
 
-function TargetingSummary({ tour }: { tour: ProductTour }): JSX.Element {
+function TargetingSummary({
+    tour,
+    targetingFlagFilters,
+}: {
+    tour: ProductTour
+    targetingFlagFilters?: FeatureFlagFilters
+}): JSX.Element {
     const conditions = tour.content?.conditions || {}
     const hasUrl = conditions.url
     const hasTargetingFilters =
-        tour.targeting_flag_filters &&
-        tour.targeting_flag_filters.groups &&
-        tour.targeting_flag_filters.groups.length > 0
+        targetingFlagFilters && targetingFlagFilters.groups && targetingFlagFilters.groups.length > 0
+    const hasConditions = hasUrl || hasTargetingFilters
 
     return (
-        <div>
-            <h3 className="font-semibold mb-4">Display conditions</h3>
-            <div className="space-y-3">
-                {hasUrl && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-secondary">
-                            URL {UrlMatchTypeLabels[conditions.urlMatchType || 'contains']}:
-                        </span>
+        <div className="flex flex-col gap-2">
+            <h3 className="font-semibold">Display conditions</h3>
+            <span className="text-secondary">
+                {hasConditions
+                    ? 'Tour will be displayed to users that match the following conditions:'
+                    : 'Tour will be displayed to all users.'}
+            </span>
+            {hasUrl && (
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="flex-row">
+                        <span>URL {UrlMatchTypeLabels[conditions.urlMatchType || 'contains']}:</span>{' '}
                         <LemonTag>{conditions.url}</LemonTag>
                     </div>
-                )}
-                {hasTargetingFilters && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-secondary">Person properties:</span>
-                        <span className="text-sm">
-                            {tour.targeting_flag_filters!.groups!.length} condition group(s)
-                        </span>
-                    </div>
-                )}
-                {tour.internal_targeting_flag && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-secondary">Feature flag:</span>
-                        <LemonTag>{tour.feature_flag_key}</LemonTag>
-                    </div>
-                )}
-                {!hasUrl && !hasTargetingFilters && !tour.internal_targeting_flag && (
-                    <span className="text-secondary text-sm">
-                        No targeting conditions configured. Tour will display to all users.
-                    </span>
-                )}
-            </div>
+                </div>
+            )}
+            {hasTargetingFilters && (
+                <div>
+                    <BindLogic logic={featureFlagLogic} props={{ id: tour.internal_targeting_flag?.id || 'new' }}>
+                        <span className="font-medium">Person properties:</span>
+                        <FeatureFlagReleaseConditions readOnly excludeTitle filters={targetingFlagFilters} />
+                    </BindLogic>
+                </div>
+            )}
         </div>
     )
 }

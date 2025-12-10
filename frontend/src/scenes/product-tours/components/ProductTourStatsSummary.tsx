@@ -1,28 +1,27 @@
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
-interface ProductTourStats {
-    shown: number
-    completed: number
-    dismissed: number
-    stepStats: Array<{
-        stepOrder: number
-        shown: number
-        completed: number
-    }>
-}
+import { ProductTourStats } from '../productTourLogic'
 
 interface StatCardProps {
     title: string
     value: string | number
+    subValue?: string
     description?: string
     loading?: boolean
 }
 
-function StatCard({ title, value, description, loading }: StatCardProps): JSX.Element {
+function StatCard({ title, value, subValue, description, loading }: StatCardProps): JSX.Element {
     return (
         <div className="flex flex-col p-4 border rounded bg-surface-primary">
             <div className="text-secondary text-sm font-medium">{title}</div>
-            {loading ? <LemonSkeleton className="h-8 w-20 my-1" /> : <div className="text-2xl font-bold">{value}</div>}
+            {loading ? (
+                <LemonSkeleton className="h-8 w-20 my-1" />
+            ) : (
+                <div className="flex items-baseline gap-2">
+                    <div className="text-2xl font-bold">{value}</div>
+                    {subValue && <div className="text-secondary text-sm">({subValue})</div>}
+                </div>
+            )}
             {description && <div className="text-secondary text-xs">{description}</div>}
         </div>
     )
@@ -31,35 +30,45 @@ function StatCard({ title, value, description, loading }: StatCardProps): JSX.El
 interface ProductTourStatsSummaryProps {
     stats: ProductTourStats | null
     loading: boolean
+    headerAction?: React.ReactNode
 }
 
-export function ProductTourStatsSummary({ stats, loading }: ProductTourStatsSummaryProps): JSX.Element {
-    const shown = stats?.shown ?? 0
-    const completed = stats?.completed ?? 0
-    const dismissed = stats?.dismissed ?? 0
+export function ProductTourStatsSummary({ stats, loading, headerAction }: ProductTourStatsSummaryProps): JSX.Element {
+    const uniqueShown = stats?.uniqueShown ?? 0
+    const uniqueCompleted = stats?.uniqueCompleted ?? 0
+    const uniqueDismissed = stats?.uniqueDismissed ?? 0
+    const totalShown = stats?.totalShown ?? 0
+    const totalCompleted = stats?.totalCompleted ?? 0
+    const totalDismissed = stats?.totalDismissed ?? 0
 
-    const completionRate = shown > 0 ? Math.round((completed / shown) * 100) : 0
-    const dismissalRate = shown > 0 ? Math.round((dismissed / shown) * 100) : 0
+    const completionRate = uniqueShown > 0 ? Math.round((uniqueCompleted / uniqueShown) * 100) : 0
+    const dismissalRate = uniqueShown > 0 ? Math.round((uniqueDismissed / uniqueShown) * 100) : 0
 
     return (
         <div>
-            <h3 className="font-semibold mb-4">Tour performance</h3>
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold">Tour performance</h3>
+                {headerAction}
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <StatCard
-                    title="Impressions"
-                    value={shown.toLocaleString()}
-                    description="Times the tour was shown"
+                    title="Unique users shown"
+                    value={uniqueShown.toLocaleString()}
+                    subValue={`${totalShown.toLocaleString()} total`}
+                    description="Users who saw the tour"
                     loading={loading}
                 />
                 <StatCard
                     title="Completions"
-                    value={completed.toLocaleString()}
+                    value={uniqueCompleted.toLocaleString()}
+                    subValue={`${totalCompleted.toLocaleString()} total`}
                     description={`${completionRate}% completion rate`}
                     loading={loading}
                 />
                 <StatCard
                     title="Dismissals"
-                    value={dismissed.toLocaleString()}
+                    value={uniqueDismissed.toLocaleString()}
+                    subValue={`${totalDismissed.toLocaleString()} total`}
                     description={`${dismissalRate}% dismissal rate`}
                     loading={loading}
                 />

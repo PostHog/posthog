@@ -10,24 +10,89 @@ import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { hogql } from '~/queries/utils'
+import { DateRange } from '~/queries/schema/schema-general'
 import { Breadcrumb, FeatureFlagFilters, ProductTour, ProductTourContent } from '~/types'
 
 import type { productTourLogicType } from './productTourLogicType'
 import { productToursLogic } from './productToursLogic'
+
+/**
+ * Builds a HogQL date filter clause from a DateRange.
+ *
+ * Handles:
+ * - Relative dates like "-30d", "-7d", "-1w", "-1m" → `now() - INTERVAL X UNIT`
+ * - ISO dates like "2025-11-10T02:54:31Z" → `toDateTime('2025-11-10 02:54:31')`
+ *
+ * @param dateRange - The date range to filter by
+ * @param timestampColumn - The column name to filter (default: 'timestamp')
+ * @returns HogQL WHERE clause fragment (e.g., " AND timestamp >= ...")
+ */
+function buildHogQLDateFilter(dateRange: DateRange | null, timestampColumn = 'timestamp'): string {
+    if (!dateRange) {
+        return ''
+    }
+
+    const { date_from, date_to } = dateRange
+    let filter = ''
+
+    const formatDate = (dateStr: string): string => {
+        // For ISO dates, convert to YYYY-MM-DD HH:MM:SS format for ClickHouse
+        const date = new Date(dateStr)
+        if (!isNaN(date.getTime())) {
+            return date.toISOString().replace('T', ' ').replace('Z', '').split('.')[0]
+        }
+        return dateStr
+    }
+
+    const parseRelativeDate = (dateStr: string): { num: number; unit: string } | null => {
+        const match = dateStr.match(/^-(\d+)([dwmqy])$/)
+        if (!match) {
+            return null
+        }
+        const unitMap: Record<string, string> = { d: 'DAY', w: 'WEEK', m: 'MONTH', q: 'QUARTER', y: 'YEAR' }
+        return { num: parseInt(match[1], 10), unit: unitMap[match[2]] || 'DAY' }
+    }
+
+    if (date_from) {
+        const relative = parseRelativeDate(date_from)
+        if (relative) {
+            filter += ` AND ${timestampColumn} >= now() - INTERVAL ${relative.num} ${relative.unit}`
+        } else {
+            filter += ` AND ${timestampColumn} >= toDateTime('${formatDate(date_from)}')`
+        }
+    }
+
+    if (date_to) {
+        const relative = parseRelativeDate(date_to)
+        if (relative) {
+            filter += ` AND ${timestampColumn} <= now() - INTERVAL ${relative.num} ${relative.unit}`
+        } else {
+            filter += ` AND ${timestampColumn} <= toDateTime('${formatDate(date_to)}')`
+        }
+    }
+
+    return filter
+}
 
 export interface ProductTourLogicProps {
     id: string
 }
 
 export interface ProductTourStats {
-    shown: number
-    completed: number
-    dismissed: number
+    // Unique user counts (primary metrics)
+    uniqueShown: number
+    uniqueCompleted: number
+    uniqueDismissed: number
+    // Total event counts
+    totalShown: number
+    totalCompleted: number
+    totalDismissed: number
     stepStats: Array<{
         stepOrder: number
-        shown: number
-        completed: number
+        uniqueShown: number
+        uniqueCompleted: number
+        totalShown: number
+        totalCompleted: number
     }>
 }
 
@@ -56,6 +121,7 @@ export const productTourLogic = kea<productTourLogicType>([
         editingProductTour: (editing: boolean) => ({ editing }),
         setProductTourValue: (key: keyof ProductTourForm, value: any) => ({ key, value }),
         setFlagPropertyErrors: (errors: any) => ({ errors }),
+        setDateRange: (dateRange: DateRange) => ({ dateRange }),
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
@@ -77,26 +143,32 @@ export const productTourLogic = kea<productTourLogicType>([
                     return null
                 }
 
-                // Query for overall tour stats
-                const tourStatsQuery = hogql`
+                const dateFilter = buildHogQLDateFilter(values.dateRange)
+
+                // Query for overall tour stats with unique and total counts
+                const tourStatsQuery = `
                     SELECT
                         event,
-                        count() as count
+                        count() as total_count,
+                        uniq(distinct_id) as unique_count
                     FROM events
                     WHERE event IN ('product tour shown', 'product tour completed', 'product tour dismissed')
-                        AND properties.$product_tour_id = ${props.id}
+                        AND properties.$product_tour_id = '${props.id}'
+                        ${dateFilter}
                     GROUP BY event
                 `
 
-                // Query for step-level stats
-                const stepStatsQuery = hogql`
+                // Query for step-level stats with unique and total counts
+                const stepStatsQuery = `
                     SELECT
                         JSONExtractInt(properties, '$product_tour_step_order') as step_order,
                         event,
-                        count() as count
+                        count() as total_count,
+                        uniq(distinct_id) as unique_count
                     FROM events
                     WHERE event IN ('product tour step shown', 'product tour step completed')
-                        AND properties.$product_tour_id = ${props.id}
+                        AND properties.$product_tour_id = '${props.id}'
+                        ${dateFilter}
                     GROUP BY step_order, event
                     ORDER BY step_order
                 `
@@ -111,31 +183,47 @@ export const productTourLogic = kea<productTourLogicType>([
                     const stepResults = (stepStatsResponse as any)?.results || []
 
                     // Process tour stats
-                    let shown = 0
-                    let completed = 0
-                    let dismissed = 0
+                    let uniqueShown = 0,
+                        uniqueCompleted = 0,
+                        uniqueDismissed = 0
+                    let totalShown = 0,
+                        totalCompleted = 0,
+                        totalDismissed = 0
 
-                    for (const [event, count] of tourResults) {
+                    for (const [event, totalCount, uniqueCount] of tourResults) {
                         if (event === 'product tour shown') {
-                            shown = count
+                            totalShown = totalCount
+                            uniqueShown = uniqueCount
                         } else if (event === 'product tour completed') {
-                            completed = count
+                            totalCompleted = totalCount
+                            uniqueCompleted = uniqueCount
                         } else if (event === 'product tour dismissed') {
-                            dismissed = count
+                            totalDismissed = totalCount
+                            uniqueDismissed = uniqueCount
                         }
                     }
 
                     // Process step stats
-                    const stepStatsMap = new Map<number, { shown: number; completed: number }>()
-                    for (const [stepOrder, event, count] of stepResults) {
+                    const stepStatsMap = new Map<
+                        number,
+                        { uniqueShown: number; uniqueCompleted: number; totalShown: number; totalCompleted: number }
+                    >()
+                    for (const [stepOrder, event, totalCount, uniqueCount] of stepResults) {
                         if (!stepStatsMap.has(stepOrder)) {
-                            stepStatsMap.set(stepOrder, { shown: 0, completed: 0 })
+                            stepStatsMap.set(stepOrder, {
+                                uniqueShown: 0,
+                                uniqueCompleted: 0,
+                                totalShown: 0,
+                                totalCompleted: 0,
+                            })
                         }
                         const step = stepStatsMap.get(stepOrder)!
                         if (event === 'product tour step shown') {
-                            step.shown = count
+                            step.totalShown = totalCount
+                            step.uniqueShown = uniqueCount
                         } else if (event === 'product tour step completed') {
-                            step.completed = count
+                            step.totalCompleted = totalCount
+                            step.uniqueCompleted = uniqueCount
                         }
                     }
 
@@ -146,7 +234,15 @@ export const productTourLogic = kea<productTourLogicType>([
                             ...stats,
                         }))
 
-                    return { shown, completed, dismissed, stepStats }
+                    return {
+                        uniqueShown,
+                        uniqueCompleted,
+                        uniqueDismissed,
+                        totalShown,
+                        totalCompleted,
+                        totalDismissed,
+                        stepStats,
+                    }
                 } catch (error) {
                     console.error('Failed to load tour stats:', error)
                     return null
@@ -198,6 +294,12 @@ export const productTourLogic = kea<productTourLogicType>([
                 setFlagPropertyErrors: (_, { errors }) => errors,
             },
         ],
+        dateRange: [
+            { date_from: '-30d', date_to: null } as DateRange,
+            {
+                setDateRange: (_, { dateRange }) => dateRange,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         launchProductTour: async () => {
@@ -231,10 +333,21 @@ export const productTourLogic = kea<productTourLogicType>([
             }
         },
         loadProductTourSuccess: ({ productTour }) => {
-            actions.loadTourStats()
+            // Set date range to start from tour's start_date (or keep default -30d)
+            // This will trigger loadTourStats via the setDateRange listener
+            if (productTour?.start_date) {
+                actions.setDateRange({
+                    date_from: productTour.start_date,
+                    date_to: null,
+                })
+            } else {
+                // No start_date, load stats with default date range
+                actions.loadTourStats()
+            }
             // Populate form with loaded data
             if (productTour) {
-                actions.setProductTourFormValues({
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ;(actions.setProductTourFormValues as any)({
                     name: productTour.name,
                     description: productTour.description,
                     content: productTour.content,
@@ -245,13 +358,17 @@ export const productTourLogic = kea<productTourLogicType>([
         editingProductTour: ({ editing }) => {
             if (editing && values.productTour) {
                 // Reset form to current tour values when entering edit mode
-                actions.setProductTourFormValues({
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ;(actions.setProductTourFormValues as any)({
                     name: values.productTour.name,
                     description: values.productTour.description,
                     content: values.productTour.content,
                     targeting_flag_filters: values.productTour.targeting_flag_filters,
                 })
             }
+        },
+        setDateRange: () => {
+            actions.loadTourStats()
         },
     })),
     selectors({
@@ -273,19 +390,19 @@ export const productTourLogic = kea<productTourLogicType>([
         completionRate: [
             (s) => [s.tourStats],
             (tourStats: ProductTourStats | null): number | null => {
-                if (!tourStats || tourStats.shown === 0) {
+                if (!tourStats || tourStats.uniqueShown === 0) {
                     return null
                 }
-                return Math.round((tourStats.completed / tourStats.shown) * 100)
+                return Math.round((tourStats.uniqueCompleted / tourStats.uniqueShown) * 100)
             },
         ],
         dismissalRate: [
             (s) => [s.tourStats],
             (tourStats: ProductTourStats | null): number | null => {
-                if (!tourStats || tourStats.shown === 0) {
+                if (!tourStats || tourStats.uniqueShown === 0) {
                     return null
                 }
-                return Math.round((tourStats.dismissed / tourStats.shown) * 100)
+                return Math.round((tourStats.uniqueDismissed / tourStats.uniqueShown) * 100)
             },
         ],
         targetingFlagFilters: [
