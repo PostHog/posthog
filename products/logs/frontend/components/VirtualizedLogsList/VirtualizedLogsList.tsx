@@ -49,7 +49,11 @@ export function VirtualizedLogsList({
     const scrollTopRef = useRef<number>(0)
     const autosizerWidthRef = useRef<number>(0)
 
-    const minRowWidth = useMemo(() => getMinRowWidth(), [])
+    const { pinnedLogs, expandedLogIds, cursorIndex, recomputeRowHeightsRequest, attributeColumns } =
+        useValues(logsViewerLogic)
+    const { togglePinLog, toggleExpandLog, userSetCursorIndex, removeAttributeColumn } = useActions(logsViewerLogic)
+
+    const minRowWidth = useMemo(() => getMinRowWidth(attributeColumns.length), [attributeColumns.length])
 
     const cache = useMemo(
         () =>
@@ -60,9 +64,6 @@ export function VirtualizedLogsList({
             }),
         []
     )
-
-    const { pinnedLogs, expandedLogIds, cursorIndex, recomputeRowHeightsRequest } = useValues(logsViewerLogic)
-    const { togglePinLog, toggleExpandLog, userSetCursorIndex } = useActions(logsViewerLogic)
 
     // Handle recompute requests from child components (via the logic)
     const lastRecomputeTimestampRef = useRef<number>(0)
@@ -91,7 +92,7 @@ export function VirtualizedLogsList({
             cache.clearAll()
             listRef.current?.recomputeRowHeights()
         }
-    }, [containerWidth, cache, wrapBody, prettifyJson])
+    }, [containerWidth, cache, wrapBody, prettifyJson, attributeColumns])
 
     // Clear cache when display options change or when a fresh query starts
     useEffect(() => {
@@ -164,6 +165,7 @@ export function VirtualizedLogsList({
                                     onToggleExpand={() => toggleExpandLog(log.uuid)}
                                     onSetCursor={() => userSetCursorIndex(index)}
                                     rowWidth={rowWidth}
+                                    attributeColumns={attributeColumns}
                                 />
                             </div>
                         )}
@@ -183,6 +185,7 @@ export function VirtualizedLogsList({
             togglePinLog,
             toggleExpandLog,
             userSetCursorIndex,
+            attributeColumns,
         ]
     )
 
@@ -203,7 +206,11 @@ export function VirtualizedLogsList({
                         const rowWidth = Math.max(width, minRowWidth)
                         return (
                             <div className="overflow-x-auto" style={{ width, height: fixedHeight }}>
-                                <LogRowHeader rowWidth={rowWidth} />
+                                <LogRowHeader
+                                    rowWidth={rowWidth}
+                                    attributeColumns={attributeColumns}
+                                    onRemoveAttributeColumn={removeAttributeColumn}
+                                />
                                 <List
                                     ref={listRef}
                                     width={rowWidth}
@@ -236,7 +243,11 @@ export function VirtualizedLogsList({
 
                     return (
                         <div className="overflow-x-auto" style={{ width, height }}>
-                            <LogRowHeader rowWidth={rowWidth} />
+                            <LogRowHeader
+                                rowWidth={rowWidth}
+                                attributeColumns={attributeColumns}
+                                onRemoveAttributeColumn={removeAttributeColumn}
+                            />
                             <List
                                 ref={listRef}
                                 width={rowWidth}

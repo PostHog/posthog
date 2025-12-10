@@ -5,6 +5,7 @@ import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import { PropertyOperator } from '~/types'
@@ -20,8 +21,9 @@ export interface ExpandedLogContentProps {
 }
 
 export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): JSX.Element {
-    const { expandedAttributeBreakdowns, tabId, cursorIndex, cursorAttributeIndex } = useValues(logsViewerLogic)
-    const { addFilter, toggleAttributeBreakdown, recomputeRowHeights, userSetCursorAttribute } =
+    const { expandedAttributeBreakdowns, tabId, cursorIndex, cursorAttributeIndex, isAttributeColumn } =
+        useValues(logsViewerLogic)
+    const { addFilter, toggleAttributeBreakdown, toggleAttributeColumn, recomputeRowHeights, userSetCursorAttribute } =
         useActions(logsViewerLogic)
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -102,6 +104,17 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                                     }}
                                 >
                                     <IconFilter />
+                                </LemonButton>
+                                <LemonButton
+                                    tooltip={isAttributeColumn(record.key) ? 'Remove from columns' : 'Add as column'}
+                                    size="xsmall"
+                                    active={isAttributeColumn(record.key)}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        toggleAttributeColumn(record.key)
+                                    }}
+                                >
+                                    <IconTableChart />
                                 </LemonButton>
                             </div>
                         ),

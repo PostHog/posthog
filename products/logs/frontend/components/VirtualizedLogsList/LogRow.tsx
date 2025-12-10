@@ -1,4 +1,4 @@
-import { IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconChevronRight, IconPin, IconPinFilled, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
@@ -9,6 +9,8 @@ import { LogMessage } from '~/queries/schema/schema-general'
 import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
 import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
+
+const ATTRIBUTE_COLUMN_WIDTH = 150
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     trace: 'bg-muted-alt',
@@ -36,13 +38,16 @@ export const LOG_COLUMNS: LogColumnConfig[] = [
 ]
 
 // Calculate total width of fixed-width columns (excludes flex columns)
-export const getFixedColumnsWidth = (): number => {
-    return LOG_COLUMNS.reduce((sum, c) => sum + (c.width || 0), 0)
+export const getFixedColumnsWidth = (attributeColumnCount: number = 0): number => {
+    return LOG_COLUMNS.reduce((sum, c) => sum + (c.width || 0), 0) + attributeColumnCount * ATTRIBUTE_COLUMN_WIDTH
 }
 
 // Calculate total minimum width for horizontal scrolling
-export const getMinRowWidth = (): number => {
-    return LOG_COLUMNS.reduce((sum, col) => sum + (col.width || col.minWidth || 100), 0)
+export const getMinRowWidth = (attributeColumnCount: number = 0): number => {
+    return (
+        LOG_COLUMNS.reduce((sum, col) => sum + (col.width || col.minWidth || 100), 0) +
+        attributeColumnCount * ATTRIBUTE_COLUMN_WIDTH
+    )
 }
 
 export const LOG_ROW_HEADER_HEIGHT = 32
@@ -73,6 +78,7 @@ export interface LogRowProps {
     onToggleExpand: () => void
     onSetCursor: () => void
     rowWidth?: number
+    attributeColumns?: string[]
 }
 
 export function LogRow({
@@ -89,9 +95,10 @@ export function LogRow({
     onToggleExpand,
     onSetCursor,
     rowWidth,
+    attributeColumns = [],
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
-    const flexWidth = rowWidth ? rowWidth - getFixedColumnsWidth() : undefined
+    const flexWidth = rowWidth ? rowWidth - getFixedColumnsWidth(attributeColumns.length) : undefined
 
     const renderCell = (column: LogColumnConfig): JSX.Element => {
         const cellStyle = getCellStyle(column, flexWidth)
@@ -194,6 +201,29 @@ export function LogRow({
         }
     }
 
+    const renderAttributeCell = (attributeKey: string): JSX.Element => {
+        const value = log.attributes[attributeKey]
+        return (
+            <div
+                key={`attr-${attributeKey}`}
+                style={{ width: ATTRIBUTE_COLUMN_WIDTH, flexShrink: 0 }}
+                className="flex items-center px-1 overflow-x-auto hide-scrollbar"
+            >
+                <span
+                    className="font-mono text-xs text-muted whitespace-nowrap"
+                    title={value != null ? String(value) : '-'}
+                >
+                    {value != null ? String(value) : '-'}
+                </span>
+            </div>
+        )
+    }
+
+    // Split columns: fixed columns first, then attribute columns, then message, then actions
+    const fixedColumns = LOG_COLUMNS.filter((c) => c.key !== 'actions' && c.key !== 'message')
+    const messageColumn = LOG_COLUMNS.find((c) => c.key === 'message')
+    const actionsColumn = LOG_COLUMNS.find((c) => c.key === 'actions')
+
     return (
         <div className={cn('border-b border-border', isNew && 'VirtualizedLogsList__row--new')}>
             <div
@@ -205,26 +235,83 @@ export function LogRow({
                 )}
                 onClick={onSetCursor}
             >
-                {LOG_COLUMNS.map(renderCell)}
+                {fixedColumns.map(renderCell)}
+                {attributeColumns.map(renderAttributeCell)}
+                {messageColumn && renderCell(messageColumn)}
+                {actionsColumn && renderCell(actionsColumn)}
             </div>
             {isExpanded && <ExpandedLogContent log={log} logIndex={logIndex} />}
         </div>
     )
 }
 
-export function LogRowHeader({ rowWidth }: { rowWidth: number }): JSX.Element {
-    const flexWidth = rowWidth - getFixedColumnsWidth()
+export interface LogRowHeaderProps {
+    rowWidth: number
+    attributeColumns?: string[]
+    onRemoveAttributeColumn?: (attributeKey: string) => void
+}
+
+export function LogRowHeader({
+    rowWidth,
+    attributeColumns = [],
+    onRemoveAttributeColumn,
+}: LogRowHeaderProps): JSX.Element {
+    const flexWidth = rowWidth - getFixedColumnsWidth(attributeColumns.length)
+
+    // Split columns: fixed columns first, then attribute columns, then message, then actions
+    const fixedColumns = LOG_COLUMNS.filter((c) => c.key !== 'actions' && c.key !== 'message')
+    const messageColumn = LOG_COLUMNS.find((c) => c.key === 'message')
+    const actionsColumn = LOG_COLUMNS.find((c) => c.key === 'actions')
 
     return (
         <div
             className="flex items-center h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted sticky top-0 z-10"
             style={{ width: rowWidth }}
         >
-            {LOG_COLUMNS.map((column) => (
+            {fixedColumns.map((column) => (
                 <div key={column.key} style={getCellStyle(column, flexWidth)} className="flex items-center px-1">
                     {column.label || ''}
                 </div>
             ))}
+            {attributeColumns.map((attributeKey) => (
+                <div
+                    key={`attr-${attributeKey}`}
+                    style={{ width: ATTRIBUTE_COLUMN_WIDTH, flexShrink: 0 }}
+                    className="flex items-center px-1 gap-1 group/header"
+                >
+                    <span className="truncate" title={attributeKey}>
+                        {attributeKey}
+                    </span>
+                    {onRemoveAttributeColumn && (
+                        <LemonButton
+                            size="xsmall"
+                            noPadding
+                            icon={<IconX className="text-muted" />}
+                            onClick={() => onRemoveAttributeColumn(attributeKey)}
+                            tooltip="Remove column"
+                            className="opacity-0 group-hover/header:opacity-100"
+                        />
+                    )}
+                </div>
+            ))}
+            {messageColumn && (
+                <div
+                    key={messageColumn.key}
+                    style={getCellStyle(messageColumn, flexWidth)}
+                    className="flex items-center px-1"
+                >
+                    {messageColumn.label || ''}
+                </div>
+            )}
+            {actionsColumn && (
+                <div
+                    key={actionsColumn.key}
+                    style={getCellStyle(actionsColumn, flexWidth)}
+                    className="flex items-center px-1"
+                >
+                    {actionsColumn.label || ''}
+                </div>
+            )}
         </div>
     )
 }
