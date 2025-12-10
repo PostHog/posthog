@@ -3325,3 +3325,13 @@ class TestPostgresPrinter(BaseTest):
         self.assertIn("lag(", printed)
         self.assertNotIn("lagInFrame", printed)
         self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)
+
+    def test_and_or_functions_render_as_boolean_operators(self):
+        self.assertEqual(
+            self._expr("and(event = 'test', distinct_id = 'abc')"),
+            "((event = 'test') AND (distinct_id = 'abc'))",
+        )
+        self.assertEqual(
+            self._expr("or(event = 'test', distinct_id = 'abc')"),
+            "((event = 'test') OR (distinct_id = 'abc'))",
+        )

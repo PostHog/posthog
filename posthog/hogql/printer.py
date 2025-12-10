@@ -1816,6 +1816,17 @@ class PostgresPrinter(_Printer):
     def visit_call(self, node: ast.Call):
         # No function call validation for postgres
         args = [self.visit(arg) for arg in node.args]
+
+        if node.name.lower() in ["and", "or"]:
+            if len(args) == 0:
+                return f"{node.name}()"
+            if len(args) == 1:
+                return args[0]
+
+            operator = "AND" if node.name.lower() == "and" else "OR"
+            joined_args = f" {operator} ".join(args)
+            return f"({joined_args})"
+
         return f"{node.name}({', '.join(args)})"
 
     def visit_table_type(self, type: ast.TableType):
