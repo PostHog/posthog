@@ -39,9 +39,9 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
-import { NewTourModal } from '~/toolbar/product-tours/NewTourModal'
 import { ProductToursEditingBar } from '~/toolbar/product-tours/ProductToursEditingBar'
 import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
+import { TourGoalModal } from '~/toolbar/product-tours/TourGoalModal'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -347,7 +347,7 @@ export function Toolbar(): JSX.Element | null {
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
-    const { selectedTourId } = useValues(productToursLogic)
+    const { selectedTourId, isSelectingElements } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
@@ -385,10 +385,12 @@ export function Toolbar(): JSX.Element | null {
         return null
     }
 
+    const showEditingBar = selectedTourId !== null || isSelectingElements
+
     return (
         <>
-            {selectedTourId !== null && <ProductToursEditingBar />}
-            <NewTourModal />
+            <TourGoalModal />
+            {showEditingBar && <ProductToursEditingBar />}
             <ToolbarInfoMenu />
             <div
                 ref={ref}

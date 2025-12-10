@@ -15,6 +15,23 @@ import { TOOLBAR_ID, elementToActionStep, getRectForElement } from '~/toolbar/ut
 import { ProductTour } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
+import { captureScreenshot, getElementMetadata } from './utils'
+
+const RECENT_GOALS_KEY = 'posthog-product-tours-recent-goals'
+
+export type AIGenerationStep = 'idle' | 'capturing' | 'analyzing' | 'generating' | 'done' | 'error'
+
+function saveRecentGoal(goal: string): void {
+    try {
+        const stored = localStorage.getItem(RECENT_GOALS_KEY)
+        const goals: string[] = stored ? JSON.parse(stored) : []
+        const filtered = goals.filter((g) => g !== goal)
+        filtered.unshift(goal)
+        localStorage.setItem(RECENT_GOALS_KEY, JSON.stringify(filtered.slice(0, 5)))
+    } catch {
+        // Ignore localStorage errors
+    }
+}
 
 export interface TourStep {
     id: string
@@ -73,6 +90,26 @@ export const productToursLogic = kea<productToursLogicType>([
         updateRects: true,
         saveTour: true,
         deleteTour: (id: string) => ({ id }),
+        // Goal modal actions
+        openGoalModal: true,
+        closeGoalModal: true,
+        setUseAIGeneration: (useAI: boolean) => ({ useAI }),
+        startSelectionMode: true,
+        finishSelectionAndCreate: true,
+        // Quick add step (during selection mode - no editor)
+        quickAddStep: (element: HTMLElement) => ({ element }),
+        // AI generation actions
+        setAIGoal: (goal: string) => ({ goal }),
+        generateWithAI: true,
+        generateWithAISuccess: (steps: Array<{ selector: string; content: JSONContent }>, name?: string) => ({
+            steps,
+            name,
+        }),
+        generateWithAIFailure: (error: string) => ({ error }),
+        setAIGenerationStep: (step: AIGenerationStep) => ({ step }),
+        // Creation mode actions
+        startCreation: true,
+        setCachedScreenshot: (screenshot: string | null) => ({ screenshot }),
     }),
 
     loaders(() => ({
@@ -112,7 +149,6 @@ export const productToursLogic = kea<productToursLogicType>([
             {
                 inspectForElementWithIndex: (_, { index }) => index,
                 editStep: (_, { index }) => index,
-                inspectElementSelected: () => null,
                 selectTour: () => null,
                 newTour: () => null,
                 hideButtonProductTours: () => null,
@@ -136,6 +172,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 cancelStep: () => null,
                 inspectForElementWithIndex: () => null,
                 hideButtonProductTours: () => null,
+                // Note: confirmStep clears this AFTER the listener runs via actions.cancelStep()
             },
         ],
         rectUpdateCounter: [
@@ -144,13 +181,70 @@ export const productToursLogic = kea<productToursLogicType>([
                 updateRects: (state) => state + 1,
             },
         ],
-        // Tracks whether user has completed the initial tour setup modal
-        tourSetupCompleted: [
+        // Goal modal state
+        goalModalOpen: [
             false,
             {
-                inspectForElementWithIndex: () => true,
+                openGoalModal: () => true,
+                closeGoalModal: () => false,
+                startSelectionMode: () => false,
+            },
+        ],
+        useAIGeneration: [
+            true,
+            {
+                setUseAIGeneration: (_, { useAI }) => useAI,
+            },
+        ],
+        // AI generation state
+        aiGoal: [
+            '',
+            {
+                setAIGoal: (_, { goal }) => goal,
+                selectTour: () => '',
+            },
+        ],
+        aiGenerating: [
+            false,
+            {
+                generateWithAI: () => true,
+                generateWithAISuccess: () => false,
+                generateWithAIFailure: () => false,
+            },
+        ],
+        aiGenerationStep: [
+            'idle' as AIGenerationStep,
+            {
+                generateWithAI: () => 'capturing' as AIGenerationStep,
+                setAIGenerationStep: (_, { step }) => step,
+                generateWithAISuccess: () => 'done' as AIGenerationStep,
+                generateWithAIFailure: () => 'error' as AIGenerationStep,
+                selectTour: () => 'idle' as AIGenerationStep,
+            },
+        ],
+        aiError: [
+            null as string | null,
+            {
+                generateWithAI: () => null,
+                generateWithAIFailure: (_, { error }) => error,
+                selectTour: () => null,
+            },
+        ],
+        cachedScreenshot: [
+            null as string | null,
+            {
+                setCachedScreenshot: (_, { screenshot }) => screenshot,
+                selectTour: () => null,
+            },
+        ],
+        // Selection mode - true when actively clicking to select elements
+        isSelectingElements: [
+            false,
+            {
+                startSelectionMode: () => true,
+                finishSelectionAndCreate: () => false,
                 selectTour: () => false,
-                newTour: () => false,
+                hideButtonProductTours: () => false,
             },
         ],
     }),
@@ -210,7 +304,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     return newTour()
                 }
                 if (selectedTourId) {
-                    const tour = tours.find((t) => t.id === selectedTourId)
+                    const tour = tours.find((t: ProductTour) => t.id === selectedTourId)
                     if (tour) {
                         return tourToForm(tour)
                     }
@@ -219,8 +313,9 @@ export const productToursLogic = kea<productToursLogicType>([
             },
         ],
         isInspecting: [
-            (s) => [s.inspectingElement, s.selectedTourId],
-            (inspectingElement, selectedTourId) => selectedTourId !== null && inspectingElement !== null,
+            (s) => [s.inspectingElement, s.selectedTourId, s.isSelectingElements],
+            (inspectingElement, selectedTourId, isSelectingElements) =>
+                (selectedTourId !== null && inspectingElement !== null) || isSelectingElements,
         ],
         hoverElementRect: [
             (s) => [s.hoverElement, s.rectUpdateCounter],
@@ -240,7 +335,10 @@ export const productToursLogic = kea<productToursLogicType>([
                 return getRectForElement(selectedElement)
             },
         ],
-        isEditingStep: [(s) => [s.selectedElement], (selectedElement) => selectedElement !== null],
+        isEditingStep: [
+            (s) => [s.selectedElement, s.isSelectingElements],
+            (selectedElement, isSelectingElements) => selectedElement !== null && !isSelectingElements,
+        ],
         editingStep: [
             (s) => [s.inspectingElement, s.tourForm],
             (inspectingElement, tourForm): TourStep | null => {
@@ -250,6 +348,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 return tourForm?.steps?.[inspectingElement] ?? null
             },
         ],
+        stepCount: [(s) => [s.tourForm], (tourForm) => tourForm?.steps?.length ?? 0],
     }),
 
     subscriptions(({ actions }) => ({
@@ -293,8 +392,25 @@ export const productToursLogic = kea<productToursLogicType>([
                 }
 
                 actions.setTourFormValue('steps', steps)
-                actions.inspectForElementWithIndex(null)
+                // Clear editing state and go to selecting next element
+                actions.cancelStep()
+                actions.inspectForElementWithIndex(steps.length)
             }
+        },
+        // Quick add step during selection mode - doesn't show editor
+        quickAddStep: ({ element }) => {
+            const actionStep = elementToActionStep(element, values.dataAttributes)
+            const selector = actionStep.selector ?? ''
+
+            const steps = [...(values.tourForm?.steps || [])]
+            const newStep: TourStep = {
+                id: uuid(),
+                selector,
+                content: null,
+                element,
+            }
+            steps.push(newStep)
+            actions.setTourFormValue('steps', steps)
         },
         editStep: ({ index }) => {
             const step = values.tourForm?.steps?.[index]
@@ -311,10 +427,10 @@ export const productToursLogic = kea<productToursLogicType>([
             }
 
             if (element) {
+                // Scroll element into view so the card is visible
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' })
                 actions.selectElement(element)
             }
-            // If element not found, reducer already set inspectingElement
-            // so user will be in selection mode to pick a new element
         },
         addStep: () => {
             const nextIndex = values.tourForm?.steps?.length ?? 0
@@ -328,12 +444,10 @@ export const productToursLogic = kea<productToursLogicType>([
             }
         },
         newTour: () => {
-            // Close the sidebar menu when starting to edit a tour
             toolbarLogic.actions.setVisibleMenu('none')
         },
         selectTour: ({ id }) => {
             if (id !== null) {
-                // Close the sidebar menu when selecting a tour to edit
                 toolbarLogic.actions.setVisibleMenu('none')
             }
         },
@@ -357,6 +471,127 @@ export const productToursLogic = kea<productToursLogicType>([
         hideButtonProductTours: () => {
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'product-tours', enabled: false })
         },
+        generateWithAI: async () => {
+            const steps = values.tourForm?.steps ?? []
+
+            if (steps.length === 0) {
+                lemonToast.error('Add at least one element before generating')
+                actions.generateWithAIFailure('No elements selected')
+                return
+            }
+
+            try {
+                // Step 1: Use cached screenshot or capture new one
+                actions.setAIGenerationStep('capturing')
+                let screenshot = values.cachedScreenshot
+                if (!screenshot) {
+                    try {
+                        screenshot = await captureScreenshot()
+                    } catch (e) {
+                        console.warn('[AI Generate] Failed to capture screenshot:', e)
+                    }
+                }
+
+                // Step 2: Build element metadata
+                actions.setAIGenerationStep('analyzing')
+                const elements = steps.map((step) => {
+                    let metadata = { selector: step.selector, tag: 'unknown', text: '', attributes: {} }
+                    if (step.element && document.body.contains(step.element)) {
+                        metadata = {
+                            ...getElementMetadata(step.element),
+                            selector: step.selector,
+                        }
+                    } else if (step.selector) {
+                        const el = document.querySelector(step.selector) as HTMLElement | null
+                        if (el) {
+                            metadata = {
+                                ...getElementMetadata(el),
+                                selector: step.selector,
+                            }
+                        }
+                    }
+                    return metadata
+                })
+
+                // Step 3: Call AI
+                actions.setAIGenerationStep('generating')
+                const response = await toolbarFetch('/api/projects/@current/product_tours/generate/', 'POST', {
+                    screenshot,
+                    elements,
+                    goal: values.aiGoal,
+                })
+
+                if (!response.ok) {
+                    const error = await response.json()
+                    console.error('[AI Generate] API error:', error)
+                    throw new Error(error.error || 'Failed to generate tour content')
+                }
+
+                const data = await response.json()
+
+                // Save goal to recent goals
+                if (values.aiGoal.trim()) {
+                    saveRecentGoal(values.aiGoal.trim())
+                }
+
+                actions.generateWithAISuccess(data.steps, data.name)
+            } catch (e) {
+                console.error('[AI Generate] Error:', e)
+                const message = e instanceof Error ? e.message : 'Failed to generate tour content'
+                lemonToast.error(message)
+                actions.generateWithAIFailure(message)
+            }
+        },
+        generateWithAISuccess: ({ steps: generatedSteps, name }) => {
+            // Set name if provided
+            if (name) {
+                actions.setTourFormValue('name', name)
+            }
+
+            // Merge AI-generated content into existing steps
+            const currentSteps = [...(values.tourForm?.steps ?? [])]
+            generatedSteps.forEach((aiStep: { selector: string; content: JSONContent }, i: number) => {
+                if (i < currentSteps.length) {
+                    currentSteps[i] = {
+                        ...currentSteps[i],
+                        content: aiStep.content,
+                    }
+                }
+            })
+            actions.setTourFormValue('steps', currentSteps)
+            lemonToast.success('Tour content generated!')
+        },
+        // Opens the goal modal
+        startCreation: () => {
+            toolbarLogic.actions.setVisibleMenu('none')
+            actions.openGoalModal()
+        },
+        // After setting goal, enter selection mode
+        startSelectionMode: async () => {
+            actions.newTour()
+            actions.inspectForElementWithIndex(0)
+
+            // Capture screenshot in background for later AI generation
+            try {
+                const screenshot = await captureScreenshot().catch(() => null)
+                actions.setCachedScreenshot(screenshot)
+            } catch (e) {
+                console.warn('[Creation] Failed to capture screenshot:', e)
+            }
+        },
+        // When user clicks "Create Tour" after selecting elements
+        finishSelectionAndCreate: async () => {
+            const steps = values.tourForm?.steps ?? []
+            if (steps.length === 0) {
+                lemonToast.error('Select at least one element')
+                return
+            }
+
+            // If AI generation is enabled, generate content
+            if (values.useAIGeneration) {
+                actions.generateWithAI()
+            }
+        },
     })),
 
     events(({ actions, values, cache }) => ({
@@ -379,7 +614,13 @@ export const productToursLogic = kea<productToursLogicType>([
                 if (target && !isToolbarElement(target)) {
                     e.preventDefault()
                     e.stopPropagation()
-                    actions.selectElement(target)
+                    // In selection mode, just add the step without showing editor
+                    if (values.isSelectingElements) {
+                        actions.quickAddStep(target)
+                        actions.setHoverElement(null)
+                    } else {
+                        actions.selectElement(target)
+                    }
                 }
             }
 

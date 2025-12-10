@@ -1,13 +1,18 @@
+import logging
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from loginas.utils import is_impersonated_session
 from nanoid import generate
+from pydantic import BaseModel, Field
 from rest_framework import filters, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -25,6 +30,43 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.utils_cors import cors_response
 
 from products.product_tours.backend.models import ProductTour
+from products.product_tours.backend.prompts import TOUR_GENERATION_SYSTEM_PROMPT, TOUR_GENERATION_USER_PROMPT
+
+from ee.hogai.llm import MaxChatAnthropic
+
+logger = logging.getLogger(__name__)
+
+TOUR_GENERATION_MODEL = "claude-haiku-4-5"
+
+
+class TourStepContent(BaseModel):
+    """A single step in the generated tour."""
+
+    selector: str = Field(description="The CSS selector for this step's target element")
+    title: str = Field(description="Short, catchy title for this step (2-5 words)")
+    description: str = Field(description="Helpful description explaining what to do and why (1-2 sentences)")
+
+
+class TourGenerationResponse(BaseModel):
+    """Structured response from the tour generation LLM."""
+
+    name: str = Field(description="A short, descriptive name for this tour (3-6 words)")
+    steps: list[TourStepContent] = Field(description="List of tour steps with content for each element")
+
+
+class SuggestedElement(BaseModel):
+    """An element suggested for highlighting in the tour."""
+
+    selector: str = Field(description="The CSS selector for this element")
+    reason: str = Field(description="Why this element is important for the tour (1 sentence)")
+
+
+class TourSuggestionResponse(BaseModel):
+    """Structured response from the tour suggestion LLM."""
+
+    name: str = Field(description="Suggested tour name (3-6 words)")
+    goal: str = Field(description="What users will learn from this tour (1 sentence)")
+    elements: list[SuggestedElement] = Field(description="3-5 elements to highlight, in order")
 
 
 class ProductTourSerializer(serializers.ModelSerializer):
@@ -326,6 +368,103 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response(status=204)
+
+    @action(detail=False, methods=["POST"])
+    def generate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Generate tour step content using AI."""
+        screenshot = request.data.get("screenshot")
+        elements = request.data.get("elements", [])
+        goal = request.data.get("goal", "")
+
+        if not elements:
+            return Response(
+                {"error": "No elements provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Goal is optional - AI will infer from context if not provided
+
+        if not getattr(settings, "ANTHROPIC_API_KEY", None):
+            return Response(
+                {"error": "ANTHROPIC_API_KEY not configured"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Format elements for the prompt
+        elements_text = "\n".join(
+            f"{i + 1}. Selector: `{el.get('selector', 'unknown')}`\n"
+            f"   Tag: {el.get('tag', 'unknown')}\n"
+            f"   Text: {el.get('text', '')[:100] if el.get('text') else 'N/A'}\n"
+            f"   Attributes: {el.get('attributes', {})}"
+            for i, el in enumerate(elements)
+        )
+
+        user_prompt = TOUR_GENERATION_USER_PROMPT.format(
+            goal=goal,
+            elements=elements_text,
+            element_count=len(elements),
+        )
+
+        try:
+            llm = MaxChatAnthropic(
+                model=TOUR_GENERATION_MODEL,
+                user=cast(User, request.user),
+                team=self.team,
+                inject_context=False,
+                billable=False,
+                # TODO: add the API manually here in case it doesn't work
+                # api_key="add-api-key-here",
+            )
+
+            # Use structured output for reliable JSON parsing
+            structured_llm = llm.with_structured_output(TourGenerationResponse)
+
+            # Build message content
+            message_content: list[str | dict[str, Any]] = [{"type": "text", "text": user_prompt}]
+
+            if screenshot:
+                message_content.insert(
+                    0,
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{screenshot}"},
+                    },
+                )
+
+            messages = [
+                SystemMessage(content=TOUR_GENERATION_SYSTEM_PROMPT),
+                HumanMessage(content=message_content),
+            ]
+
+            result = cast(TourGenerationResponse, structured_llm.invoke(messages))
+
+            # Convert to TipTap format
+            steps = []
+            for step in result.steps:
+                tiptap_content = {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "heading",
+                            "attrs": {"level": 1},
+                            "content": [{"type": "text", "text": step.title}],
+                        },
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": step.description}],
+                        },
+                    ],
+                }
+                steps.append({"selector": step.selector, "content": tiptap_content})
+
+            return Response({"name": result.name, "steps": steps})
+
+        except Exception:
+            logger.exception("Error generating tour content")
+            return Response(
+                {"error": "An internal error occurred while generating tour content."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class ProductTourAPISerializer(serializers.ModelSerializer):

@@ -126,8 +126,6 @@ export const productTourLogic = kea<productTourLogicType>([
     })),
     actions({
         editingProductTour: (editing: boolean) => ({ editing }),
-        setProductTourValue: (key: keyof ProductTourForm, value: any) => ({ key, value }),
-        setFlagPropertyErrors: (errors: any) => ({ errors }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         launchProductTour: true,
         stopProductTour: true,
@@ -296,12 +294,6 @@ export const productTourLogic = kea<productTourLogicType>([
                 editingProductTour: (_, { editing }) => editing,
             },
         ],
-        flagPropertyErrors: [
-            null as any,
-            {
-                setFlagPropertyErrors: (_, { errors }) => errors,
-            },
-        ],
         dateRange: [
             { date_from: '-30d', date_to: null } as DateRange,
             {
@@ -394,24 +386,6 @@ export const productTourLogic = kea<productTourLogicType>([
                     path: productTour ? urls.productTour(productTour.id) : undefined,
                 },
             ],
-        ],
-        completionRate: [
-            (s) => [s.tourStats],
-            (tourStats: ProductTourStats | null): number | null => {
-                if (!tourStats || tourStats.uniqueShown === 0) {
-                    return null
-                }
-                return Math.round((tourStats.uniqueCompleted / tourStats.uniqueShown) * 100)
-            },
-        ],
-        dismissalRate: [
-            (s) => [s.tourStats],
-            (tourStats: ProductTourStats | null): number | null => {
-                if (!tourStats || tourStats.uniqueShown === 0) {
-                    return null
-                }
-                return Math.round((tourStats.uniqueDismissed / tourStats.uniqueShown) * 100)
-            },
         ],
         targetingFlagFilters: [
             (s) => [s.productTourForm],
