@@ -353,7 +353,7 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
         regeneratedSessionLoading,
         startedSessionLoading,
     } = useValues(studyDetailsSceneLogic)
-    const { setSelectedRoundId, generateSessions, startRound, regenerateSession, startSession } =
+    const { setSelectedRoundId, generateSessionsWithPolling, startRound, regenerateSession, startSession } =
         useActions(studyDetailsSceneLogic)
     const [selectedSession, setSelectedSession] = useState<Session | null>(null)
 
@@ -533,21 +533,32 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                             type="primary"
                             icon={<IconPlay />}
                             loading={generatedRoundLoading}
-                            onClick={() => generateSessions(selectedRound.id)}
+                            onClick={() => generateSessionsWithPolling(selectedRound.id)}
                         >
                             Generate {selectedRound.session_count} personas
                         </LemonButton>
                     </div>
                 )}
 
-                {/* Generating state: Loading */}
+                {/* Generating state: Show progress and sessions as they appear */}
                 {isGenerating && (
-                    <div className="border rounded-lg p-8 text-center">
-                        <div className="text-4xl mb-3 animate-pulse">🎭</div>
-                        <h4 className="font-semibold mb-2">Generating personas...</h4>
-                        <p className="text-muted text-sm">
-                            Creating {selectedRound.session_count} unique synthetic users
-                        </p>
+                    <div className="border rounded-lg p-4 bg-bg-light">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="text-2xl animate-pulse">🎭</div>
+                            <div>
+                                <h4 className="font-semibold">Generating personas...</h4>
+                                <p className="text-muted text-sm">
+                                    {sessions.length} of {selectedRound.session_count} created
+                                </p>
+                            </div>
+                        </div>
+                        <div className="w-full bg-border rounded-full h-2">
+                            <div
+                                className="bg-primary h-2 rounded-full transition-all duration-300"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ width: `${(sessions.length / selectedRound.session_count) * 100}%` }}
+                            />
+                        </div>
                     </div>
                 )}
 
@@ -556,7 +567,8 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                     <>
                         <div className="flex items-center justify-between">
                             <h4 className="font-medium">
-                                {canRegenerate ? 'Review personas' : 'Sessions'} ({sessions.length})
+                                {canRegenerate ? 'Review personas' : isGenerating ? 'Generated so far' : 'Sessions'} (
+                                {sessions.length})
                             </h4>
                             {canRegenerate && (
                                 <p className="text-sm text-muted">Click regenerate to get a different persona</p>
