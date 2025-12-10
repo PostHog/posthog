@@ -6,8 +6,6 @@ import sys
 import time
 import shlex
 import datetime
-import tempfile
-import subprocess
 
 import urllib3
 import requests
@@ -62,11 +60,9 @@ class HobbyTester:
         if record_id:
             self.record = digitalocean.Record(token=self.token, id=record_id)
 
-        # Use provided SSH private key, or generate a new one for droplet creation
-        self.ssh_private_key = ssh_private_key
-        self.ssh_public_key = None
-        if not ssh_private_key:
-            self._generate_ssh_key()
+        # SSH private key from secrets (DIGITALOCEAN_SSH_PRIVATE_KEY)
+        # This key matches posthog-ci-cd registered in DigitalOcean
+        self.ssh_private_key = ssh_private_key or os.environ.get("DIGITALOCEAN_SSH_PRIVATE_KEY")
 
         # Build user_data with SSH pubkey included (only for droplet creation, not test-only runs)
         # Only build if we don't already have a droplet (i.e., creating a new one)
@@ -74,41 +70,6 @@ class HobbyTester:
             self.user_data = self._build_user_data()
         else:
             self.user_data = None
-
-    def _generate_ssh_key(self):
-        """Generate ephemeral SSH keypair for droplet access"""
-        try:
-            # Create temp directory for keys
-            temp_dir = tempfile.mkdtemp()
-            key_path = os.path.join(temp_dir, "ci_key")
-
-            subprocess.run(
-                ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", ""],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-
-            with open(key_path) as f:
-                self.ssh_private_key = f.read()
-            with open(key_path + ".pub") as f:
-                self.ssh_public_key = f.read().strip()
-
-            # Cleanup
-            os.unlink(key_path)
-            os.unlink(key_path + ".pub")
-            os.rmdir(temp_dir)
-
-            print(f"✅ Generated ephemeral SSH key for droplet access", flush=True)
-        except subprocess.CalledProcessError as e:
-            error_details = f"exit code {e.returncode}"
-            if e.stderr:
-                error_details += f": {e.stderr}"
-            print(f"⚠️  Failed to generate SSH key ({error_details})", flush=True)
-        except FileNotFoundError:
-            print("⚠️  ssh-keygen not found - SSH log fetching unavailable", flush=True)
-        except Exception as e:
-            print(f"⚠️  Failed to generate SSH key: {e}", flush=True)
 
     def _get_wait_for_image_script(self):
         """Return bash script to wait for docker image on DockerHub with fallback to build.
@@ -186,13 +147,6 @@ runcmd:
                 cloud_config += f'  - "{escaped_cmd}"\n'
             else:
                 cloud_config += f"  - {cmd}\n"
-
-        # Add SSH pubkey if generated
-        if self.ssh_public_key:
-            cloud_config += f"""
-ssh_authorized_keys:
-  - {self.ssh_public_key}
-"""
 
         return cloud_config
 
@@ -682,6 +636,15 @@ grep POSTHOG_APP_TAG .env
     def handle_sigint(self):
         self.destroy_self()
 
+    def run_command_on_droplet(self, command, timeout=60):
+        """Run a command on the droplet via SSH and return stdout"""
+        if not self.droplet or not self.ssh_private_key:
+            return None
+        result = self.run_ssh_command(command, timeout=timeout)
+        if result["exit_code"] == 0:
+            return result["stdout"]
+        return None
+
     def fetch_cloud_init_logs(self):
         """Fetch cloud-init logs via SSH"""
         if not self.droplet:
@@ -691,47 +654,11 @@ grep POSTHOG_APP_TAG .env
             print("  (no SSH key)", flush=True)
             return None
 
-        try:
-            # Write SSH private key to temp file
-            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".pem") as f:
-                f.write(self.ssh_private_key)
-                key_file = f.name
-
-            os.chmod(key_file, 0o600)
-
-            # SSH to fetch logs
-            result = subprocess.run(
-                [
-                    "ssh",
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    "-o",
-                    "ConnectTimeout=5",
-                    "-i",
-                    key_file,
-                    f"root@{self.droplet.ip_address}",
-                    "cat /var/log/cloud-init-output.log",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            os.unlink(key_file)
-
-            if result.returncode == 0:
-                return result.stdout
-            else:
-                print(
-                    f"  (SSH failed: {result.returncode}, {result.stderr[:100] if result.stderr else 'no error'})",
-                    flush=True,
-                )
-                return None
-        except subprocess.TimeoutExpired:
-            print("  (SSH timeout)", flush=True)
-            return None
-        except Exception as e:
-            print(f"  ({type(e).__name__}: {str(e)[:100]})", flush=True)
+        result = self.run_ssh_command("cat /var/log/cloud-init-output.log", timeout=30)
+        if result["exit_code"] == 0:
+            return result["stdout"]
+        else:
+            print(f"  (SSH failed: {result['stderr'][:100] if result['stderr'] else 'unknown'})", flush=True)
             return None
 
     def check_cloud_init_status(self):
@@ -744,43 +671,15 @@ grep POSTHOG_APP_TAG .env
             return (False, False, None)
 
         try:
-            # Write SSH private key to temp file
-            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".pem") as f:
-                f.write(self.ssh_private_key)
-                key_file = f.name
-
-            os.chmod(key_file, 0o600)
-
-            # Check cloud-init status using cloud-init status --format=json
-            result = subprocess.run(
-                [
-                    "ssh",
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    "-o",
-                    "ConnectTimeout=5",
-                    "-i",
-                    key_file,
-                    f"root@{self.droplet.ip_address}",
-                    "cloud-init status --format=json",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            os.unlink(key_file)
-
-            if result.returncode == 0:
+            result = self.run_ssh_command("cloud-init status --format=json", timeout=15)
+            if result["exit_code"] == 0:
                 import json
 
-                status = json.loads(result.stdout)
+                status = json.loads(result["stdout"])
                 # status contains: {"status": "done", "errors": [], ...}
                 finished = status.get("status") in ["done", "error"]
                 success = status.get("status") == "done" and len(status.get("errors", [])) == 0
                 return (finished, success, status)
-            return (False, False, None)
-        except subprocess.TimeoutExpired:
             return (False, False, None)
         except Exception:
             return (False, False, None)
@@ -817,16 +716,6 @@ grep POSTHOG_APP_TAG .env
             env_file.write(f"HOBBY_DNS_RECORD_ID={record_id}\n")
             env_file.write(f"HOBBY_DNS_RECORD_NAME={record_name}\n")
             env_file.write(f"HOBBY_NAME={self.name}\n")
-
-        # Write SSH private key to a file (safer than env var which could be logged)
-        if self.ssh_private_key:
-            ssh_key_path = "/tmp/hobby_ci_ssh_key"
-            with open(ssh_key_path, "w") as f:
-                f.write(self.ssh_private_key)
-            os.chmod(ssh_key_path, 0o600)
-            # Tell test step where to find it
-            with open(env_file_name, "a") as env_file:
-                env_file.write(f"HOBBY_SSH_KEY_PATH={ssh_key_path}\n")
 
     def ensure_droplet(self, ssh_enabled=True):
         self.create_droplet(ssh_enabled=ssh_enabled)
@@ -887,13 +776,6 @@ def main():
                         env_file.write(f"HOBBY_DROPLET_ID={existing_droplet.id}\n")
                         env_file.write(f"HOBBY_DROPLET_IP={existing_droplet.ip_address}\n")
                         env_file.write(f"HOBBY_NAME={existing_droplet.name}\n")
-                    # Write SSH key for log fetching
-                    ssh_key_path = "/tmp/hobby_ci_ssh_key"
-                    with open(ssh_key_path, "w") as f:
-                        f.write(ssh_key)
-                    os.chmod(ssh_key_path, 0o600)
-                    with open(env_file_name, "a") as env_file:
-                        env_file.write(f"HOBBY_SSH_KEY_PATH={ssh_key_path}\n")
 
                 print(f"✅ Preview deployment updated successfully", flush=True)
                 print(f"🌐 URL: https://{ht.hostname}", flush=True)
@@ -949,22 +831,8 @@ def main():
     if command == "fetch-logs":
         print("Fetching logs from droplet", flush=True)
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
-        ssh_key_path = os.environ.get("HOBBY_SSH_KEY_PATH")
 
-        # Read SSH private key from file if available
-        ssh_private_key = None
-        if ssh_key_path and os.path.exists(ssh_key_path):
-            with open(ssh_key_path) as f:
-                ssh_private_key = f.read()
-
-        if not ssh_private_key:
-            print("No SSH key available - cannot fetch logs", flush=True)
-            exit(1)
-
-        ht = HobbyTester(
-            droplet_id=droplet_id,
-            ssh_private_key=ssh_private_key,
-        )
+        ht = HobbyTester(droplet_id=droplet_id)
 
         # Fetch and save cloud-init logs
         print("Fetching cloud-init logs...", flush=True)
@@ -995,13 +863,6 @@ def main():
         name = os.environ.get("HOBBY_NAME")
         record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
-        ssh_key_path = os.environ.get("HOBBY_SSH_KEY_PATH")
-
-        # Read SSH private key from file if available
-        ssh_private_key = None
-        if ssh_key_path and os.path.exists(ssh_key_path):
-            with open(ssh_key_path) as f:
-                ssh_private_key = f.read()
 
         print("Waiting for deployment to become healthy", flush=True)
         print(f"Record ID: {record_id}", flush=True)
@@ -1011,7 +872,6 @@ def main():
             name=name,
             record_id=record_id,
             droplet_id=droplet_id,
-            ssh_private_key=ssh_private_key,
         )
         health_success = ht.test_deployment()
         if health_success:
@@ -1024,21 +884,8 @@ def main():
     if command == "generate-demo-data":
         print("Generating demo data on droplet", flush=True)
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
-        ssh_key_path = os.environ.get("HOBBY_SSH_KEY_PATH")
 
-        ssh_private_key = None
-        if ssh_key_path and os.path.exists(ssh_key_path):
-            with open(ssh_key_path) as f:
-                ssh_private_key = f.read()
-
-        if not ssh_private_key:
-            print("❌ No SSH key available - cannot generate demo data", flush=True)
-            exit(1)
-
-        ht = HobbyTester(
-            droplet_id=droplet_id,
-            ssh_private_key=ssh_private_key,
-        )
+        ht = HobbyTester(droplet_id=droplet_id)
         success = ht.generate_demo_data()
         exit(0 if success else 1)
 
