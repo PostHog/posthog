@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -30,11 +31,37 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
 
     connect(() => ({
         values: [teamLogic, ['currentTeam'], reverseProxyCheckerLogic, ['hasReverseProxy', 'hasReverseProxyLoading']],
-        actions: [teamLogic, ['updateCurrentTeam'], reverseProxyCheckerLogic, ['loadHasReverseProxy']],
+        actions: [
+            teamLogic,
+            ['updateCurrentTeam'],
+            reverseProxyCheckerLogic,
+            ['loadHasReverseProxy'],
+            eventUsageLogic,
+            [
+                'reportWebAnalyticsHealthStatus',
+                'reportWebAnalyticsHealthTabViewed',
+                'reportWebAnalyticsHealthSectionToggled',
+                'reportWebAnalyticsHealthActionClicked',
+                'reportWebAnalyticsHealthRefreshed',
+            ],
+        ],
     })),
 
     actions({
         refreshHealthChecks: true,
+        trackTabViewed: true,
+        trackSectionToggled: (category: HealthCheckCategory, isExpanded: boolean) => ({ category, isExpanded }),
+        trackActionClicked: (
+            checkId: HealthCheckId,
+            category: HealthCheckCategory,
+            status: HealthCheckStatus,
+            isUrgent: boolean
+        ) => ({
+            checkId,
+            category,
+            status,
+            isUrgent,
+        }),
     }),
 
     loaders(({}) => ({
@@ -159,14 +186,13 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         ],
 
         configurationChecks: [
-            (s) => [s.currentTeam, s.hasReverseProxy, s.hasReverseProxyLoading],
+            (s) => [s.currentTeam, s.hasReverseProxy, s.hasReverseProxyLoading, s.hasAuthorizedUrls],
             (
                 currentTeam: TeamType | null,
                 hasReverseProxy: boolean | null,
-                hasReverseProxyLoading: boolean
+                hasReverseProxyLoading: boolean,
+                hasAuthorizedUrls: boolean
             ): HealthCheck[] => {
-                const hasAuthorizedUrls = !!currentTeam?.app_urls && currentTeam.app_urls.length > 0
-
                 const reverseProxyCheck: HealthCheck = hasReverseProxyLoading
                     ? createLoadingCheck(HealthCheckId.REVERSE_PROXY, 'configuration', 'Reverse proxy')
                     : {
@@ -317,12 +343,61 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 return urgentFailedChecks.length > 0
             },
         ],
+
+        hasAuthorizedUrls: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | null): boolean => {
+                return !!currentTeam?.app_urls && currentTeam.app_urls.length > 0
+            },
+        ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         refreshHealthChecks: () => {
+            const { overallHealthStatus } = values
+            actions.reportWebAnalyticsHealthRefreshed({
+                overall_status: overallHealthStatus.status,
+                passed_count: overallHealthStatus.passedCount,
+            })
             actions.loadWebAnalyticsHealthStatus()
             actions.loadHasReverseProxy()
+        },
+        loadWebAnalyticsHealthStatusSuccess: () => {
+            const { webAnalyticsHealthStatus, hasAuthorizedUrls, hasReverseProxy, overallHealthStatus } = values
+            if (webAnalyticsHealthStatus && overallHealthStatus.status !== 'loading') {
+                actions.reportWebAnalyticsHealthStatus({
+                    has_pageviews: webAnalyticsHealthStatus.isSendingPageViews,
+                    has_pageleaves: webAnalyticsHealthStatus.isSendingPageLeaves,
+                    has_scroll_depth: webAnalyticsHealthStatus.isSendingPageLeavesScroll,
+                    has_web_vitals: webAnalyticsHealthStatus.isSendingWebVitals,
+                    has_authorized_urls: hasAuthorizedUrls,
+                    has_reverse_proxy: hasReverseProxy ?? false,
+                    overall_status: overallHealthStatus.status,
+                })
+            }
+        },
+        trackTabViewed: () => {
+            const { overallHealthStatus } = values
+            actions.reportWebAnalyticsHealthTabViewed({
+                overall_status: overallHealthStatus.status,
+                passed_count: overallHealthStatus.passedCount,
+                warning_count: overallHealthStatus.warningCount,
+                error_count: overallHealthStatus.errorCount,
+            })
+        },
+        trackSectionToggled: ({ category, isExpanded }) => {
+            actions.reportWebAnalyticsHealthSectionToggled({
+                category,
+                is_expanded: isExpanded,
+            })
+        },
+        trackActionClicked: ({ checkId, category, status, isUrgent }) => {
+            actions.reportWebAnalyticsHealthActionClicked({
+                check_id: checkId,
+                category,
+                status,
+                is_urgent: isUrgent,
+            })
         },
     })),
 
