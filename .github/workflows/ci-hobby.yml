@@ -55,7 +55,7 @@ jobs:
               with:
                   python-version: '3.8'
             - name: Get python deps
-              run: pip install python-digitalocean==1.17.0 requests==2.28.1
+              run: pip install python-digitalocean==1.17.0 requests==2.28.1 paramiko
             - name: Check for preview mode
               id: check-preview
               run: |
