@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { useState } from 'react'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
 import { MatrixCell, Topic } from '../types'
 
@@ -47,7 +48,12 @@ export function CompetitorTopicsHeatmap({
     return (
         <div className="border rounded-lg bg-bg-light overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b">
-                <h3 className="text-sm font-semibold">Competitors vs topics matrix</h3>
+                <h3 className="text-sm font-semibold flex items-center gap-1">
+                    Competitors vs topics matrix
+                    <Tooltip title="Shows visibility percentage for each brand across different topics. Darker blue = higher visibility. Use this to identify which topics you dominate vs where competitors are winning.">
+                        <IconInfo className="w-4 h-4 text-muted" />
+                    </Tooltip>
+                </h3>
                 <LemonSegmentedButton
                     size="small"
                     value={showRank ? 'rank' : 'visibility'}

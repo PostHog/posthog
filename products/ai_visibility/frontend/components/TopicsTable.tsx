@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useState } from 'react'
 
-import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconInfo, IconX } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Topic } from '../types'
@@ -24,7 +24,12 @@ export function TopicsTable({ topics }: { topics: Topic[] }): JSX.Element {
     return (
         <div className="border rounded-lg bg-bg-light">
             <div className="p-4 border-b">
-                <h3 className="text-sm font-semibold">Topics</h3>
+                <h3 className="text-sm font-semibold flex items-center gap-1">
+                    Topics
+                    <Tooltip title="All topics where your brand or competitors are mentioned. Expand a row to see the individual prompts and which brands were mentioned in each.">
+                        <IconInfo className="w-4 h-4 text-muted" />
+                    </Tooltip>
+                </h3>
             </div>
             <table className="w-full">
                 <thead>

@@ -1,5 +1,8 @@
 import clsx from 'clsx'
 
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
 export function CompetitorMentionsBar({
     brandName,
     brandDomain,
@@ -32,7 +35,12 @@ export function CompetitorMentionsBar({
     return (
         <div className="border rounded-lg p-4 bg-bg-light">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold">Competitor mentions vs {brandName}</h3>
+                <h3 className="text-sm font-semibold flex items-center gap-1">
+                    Competitor mentions vs {brandName}
+                    <Tooltip title="Compares how often your brand is mentioned vs competitors across all AI responses. Higher percentage = more visibility.">
+                        <IconInfo className="w-4 h-4 text-muted" />
+                    </Tooltip>
+                </h3>
                 {onViewAll && (
                     <button onClick={onViewAll} className="text-xs text-primary hover:underline cursor-pointer">
                         View all

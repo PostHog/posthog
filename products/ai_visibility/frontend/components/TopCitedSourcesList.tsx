@@ -1,3 +1,6 @@
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { Link } from 'lib/lemon-ui/Link'
 
 import { TopCitedSource } from '../types'
@@ -12,7 +15,12 @@ export function TopCitedSourcesList({
     return (
         <div className="border rounded-lg p-4 bg-bg-light">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold">Top cited sources</h3>
+                <h3 className="text-sm font-semibold flex items-center gap-1">
+                    Top cited sources
+                    <Tooltip title="Domains most frequently cited by AI models in their responses. These are external sources AI uses to back up its recommendations.">
+                        <IconInfo className="w-4 h-4 text-muted" />
+                    </Tooltip>
+                </h3>
                 <Link className="text-xs text-primary" onClick={onViewAll}>
                     View all
                 </Link>
