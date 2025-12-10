@@ -65,7 +65,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         )
         with self.timings.measure("parse_select"):
             if isinstance(self.query, HogQLQuery):
-                parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
+                parsed_select = parse_select(
+                    self.query.query,
+                    timings=self.timings,
+                    placeholders=values,
+                    allow_reserved_identifiers=uses_postgres_dialect(self.query.query),
+                )
             elif isinstance(self.query, HogQLASTQuery):
                 parsed_select = cast(ast.SelectQuery, deserialize_hx_ast(self.query.query))
 

@@ -1,15 +1,20 @@
 import { actions, afterMount, connect, kea, listeners, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
 import { DatabaseSchemaField, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
+export type BIAggregation = 'count' | 'min' | 'max' | 'sum'
+
 export interface BIQueryColumn {
     table: string
     field: string
+    aggregation?: BIAggregation
 }
 
 export interface BIQueryFilter {
@@ -23,35 +28,48 @@ export const biLogic = kea([
         actions: [databaseTableListLogic, ['loadDatabase', 'loadDatabaseSuccess']],
     }),
     actions({
-        selectTable: (table: string) => ({ table }),
+        selectTable: (table: string | null) => ({ table }),
         addColumn: (column: BIQueryColumn) => ({ column }),
+        addAggregation: (column: BIQueryColumn, aggregation: BIAggregation) => ({ column, aggregation }),
+        setColumns: (columns: BIQueryColumn[]) => ({ columns }),
         removeColumn: (column: BIQueryColumn) => ({ column }),
         addFilter: (filter: BIQueryFilter) => ({ filter }),
+        setFilters: (filters: BIQueryFilter[]) => ({ filters }),
         removeFilter: (column: BIQueryColumn) => ({ column }),
         setSort: (column: BIQueryColumn | null) => ({ column }),
         setLimit: (limit: number) => ({ limit }),
         setSearchTerm: (term: string) => ({ term }),
         refreshQuery: true,
+        resetSelection: true,
     }),
     reducers({
         selectedTable: [
             null as string | null,
             {
-                selectTable: (state, { table }) => (state === table ? null : table),
+                selectTable: (_, { table }) => table,
+                resetSelection: () => null,
             },
         ],
         selectedColumns: [
             [] as BIQueryColumn[],
             {
                 addColumn: (state, { column }) => {
-                    if (state.find((col) => col.table === column.table && col.field === column.field)) {
+                    if (state.find((col) => columnsEqual(col, column))) {
                         return state
                     }
                     return [...state, column]
                 },
-                removeColumn: (state, { column }) =>
-                    state.filter((col) => !(col.table === column.table && col.field === column.field)),
+                addAggregation: (state, { column, aggregation }) => {
+                    const aggregatedColumn = { ...column, aggregation }
+                    if (state.find((col) => columnsEqual(col, aggregatedColumn))) {
+                        return state
+                    }
+                    return [...state, aggregatedColumn]
+                },
+                removeColumn: (state, { column }) => state.filter((col) => !columnsEqual(col, column)),
                 selectTable: (state, { table }) => state.filter((col) => col.table === table),
+                setColumns: (_, { columns }) => uniqueColumns(columns),
+                resetSelection: () => [],
             },
         ],
         filters: [
@@ -64,16 +82,19 @@ export const biLogic = kea([
                     )
                     return [...withoutExisting, filter]
                 },
-                removeFilter: (state, { column }) =>
-                    state.filter((item) => !(item.column.table === column.table && item.column.field === column.field)),
-                removeColumn: (state, { column }) =>
-                    state.filter((item) => !(item.column.table === column.table && item.column.field === column.field)),
+                setFilters: (_, { filters }) => filters,
+                removeFilter: (state, { column }) => state.filter((item) => !columnsEqual(item.column, column)),
+                removeColumn: (state, { column }) => state.filter((item) => !columnsEqual(item.column, column)),
                 selectTable: () => [],
+                resetSelection: () => [],
             },
         ],
-        sort: [null as BIQueryColumn | null, { setSort: (_, { column }) => column, selectTable: () => null }],
-        limit: [50 as number, { setLimit: (_, { limit }) => limit }],
-        searchTerm: ['', { setSearchTerm: (_, { term }) => term }],
+        sort: [
+            null as BIQueryColumn | null,
+            { setSort: (_, { column }) => column, selectTable: () => null, resetSelection: () => null },
+        ],
+        limit: [50 as number, { setLimit: (_, { limit }) => limit, resetSelection: () => 50 }],
+        searchTerm: ['', { setSearchTerm: (_, { term }) => term, resetSelection: () => '' }],
     }),
     selectors({
         allTables: [
@@ -102,11 +123,39 @@ export const biLogic = kea([
             (s) => [s.selectedColumns, s.selectedTableObject],
             (columns, table) =>
                 columns
-                    .map((column) => ({
-                        column,
-                        field: table?.fields?.[column.field] as DatabaseSchemaField | undefined,
-                    }))
-                    .filter((item) => !!item.field) as { column: BIQueryColumn; field: DatabaseSchemaField }[],
+                    .map((column) => {
+                        const field = table?.fields?.[column.field] as DatabaseSchemaField | undefined
+                        if (!field) {
+                            return null
+                        }
+
+                        return {
+                            column,
+                            field,
+                            alias: columnAlias(column),
+                            expression: columnExpression(column, field),
+                        }
+                    })
+                    .filter(Boolean) as {
+                    column: BIQueryColumn
+                    field: DatabaseSchemaField
+                    alias: string
+                    expression: string
+                }[],
+        ],
+        filteredFields: [
+            (s) => [s.selectedTableObject, s.searchTerm],
+            (table, searchTerm) => {
+                if (!table) {
+                    return []
+                }
+
+                const fields = Object.values(table.fields || {})
+                if (!searchTerm) {
+                    return fields
+                }
+                return fields.filter((field) => field.name.toLowerCase().includes(searchTerm.toLowerCase()))
+            },
         ],
         queryString: [
             (s) => [s.selectedTableObject, s.selectedFields, s.filters, s.sort, s.limit],
@@ -115,9 +164,7 @@ export const biLogic = kea([
                     return ''
                 }
 
-                const selectParts = selectedFields.map(
-                    ({ field, column }) => `${field.hogql_value} AS "${column.field}"`
-                )
+                const selectParts = selectedFields.map(({ expression, alias }) => `${expression} AS "${alias}"`)
                 const whereParts = filters
                     .map(({ column, expression }) => {
                         const field = table.fields[column.field]
@@ -125,9 +172,7 @@ export const biLogic = kea([
                     })
                     .filter(Boolean)
 
-                const orderBy = sort
-                    ? `\nORDER BY ${table.fields[sort.field]?.hogql_value || sort.field} ${sort ? 'ASC' : ''}`
-                    : ''
+                const orderBy = sort ? `\nORDER BY "${columnAlias(sort)}" ASC` : ''
                 const where = whereParts.length > 0 ? `\nWHERE ${whereParts.join(' AND ')}` : ''
                 const limitSql = limit ? `\nLIMIT ${limit}` : ''
 
@@ -164,23 +209,79 @@ export const biLogic = kea([
                     )
                 },
             },
+            {
+                resetSelection: () => null,
+                selectTable: () => null,
+            },
         ],
+    })),
+    actionToUrl(({ values }) => ({
+        addColumn: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        addAggregation: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        removeColumn: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        addFilter: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        removeFilter: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        selectTable: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        setSort: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        setLimit: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        setSearchTerm: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        resetSelection: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        setColumns: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        setFilters: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.bi()]: (_params, searchParams) => {
+            const table = typeof searchParams.table === 'string' ? searchParams.table : null
+            const limit = Number.isFinite(Number(searchParams.limit)) ? Number(searchParams.limit) : 50
+            const searchTerm = typeof searchParams.q === 'string' ? searchParams.q : ''
+
+            if (!table) {
+                actions.resetSelection()
+                if (limit !== values.limit) {
+                    actions.setLimit(limit)
+                }
+                if (searchTerm !== values.searchTerm) {
+                    actions.setSearchTerm(searchTerm)
+                }
+                return
+            }
+
+            const columns = parseColumnsParam(searchParams.columns, table)
+            const filters = parseFiltersParam(searchParams.filters, table)
+            const sort = parseSortParam(searchParams.sort, table)
+
+            if (table !== values.selectedTable) {
+                actions.selectTable(table)
+            }
+            if (!columnsListsEqual(columns, values.selectedColumns)) {
+                actions.setColumns(columns)
+            }
+            if (searchTerm !== values.searchTerm) {
+                actions.setSearchTerm(searchTerm)
+            }
+            if (!filtersEqual(filters, values.filters)) {
+                actions.setFilters(filters)
+            }
+            if (!columnsEqual(sort, values.sort)) {
+                actions.setSort(sort)
+            }
+            if (limit !== values.limit) {
+                actions.setLimit(limit)
+            }
+        },
     })),
     listeners(({ actions }) => ({
         addColumn: () => actions.loadQueryResponse(),
+        addAggregation: () => actions.loadQueryResponse(),
+        setColumns: () => actions.loadQueryResponse(),
         removeColumn: () => actions.loadQueryResponse(),
         addFilter: () => actions.loadQueryResponse(),
+        setFilters: () => actions.loadQueryResponse(),
         removeFilter: () => actions.loadQueryResponse(),
-        selectTable: () => actions.loadQueryResponse(),
+        selectTable: ({ table }) => table && actions.loadQueryResponse(),
         setSort: () => actions.loadQueryResponse(),
         setLimit: () => actions.loadQueryResponse(),
         refreshQuery: () => actions.loadQueryResponse(),
-        loadDatabaseSuccess: ({ database }) => {
-            if (database?.tables && Object.keys(database.tables).length > 0) {
-                const firstTable = Object.values(database.tables)[0]
-                actions.selectTable(firstTable.name)
-            }
-        },
     })),
     afterMount(({ actions }) => {
         actions.loadDatabase()
@@ -188,5 +289,173 @@ export const biLogic = kea([
 ])
 
 export function columnKey(column: BIQueryColumn): string {
-    return `${column.table}.${column.field}`
+    return `${column.table}.${column.field}.${column.aggregation || 'raw'}`
+}
+
+export function columnAlias(column: BIQueryColumn): string {
+    return column.aggregation ? `${column.aggregation}_${column.field}` : column.field
+}
+
+function columnExpression(column: BIQueryColumn, field: DatabaseSchemaField): string {
+    if (column.aggregation === 'count') {
+        return 'count()'
+    }
+    if (column.aggregation) {
+        return `${column.aggregation}(${field.hogql_value})`
+    }
+    return field.hogql_value
+}
+
+function columnsEqual(a: BIQueryColumn | null | undefined, b: BIQueryColumn | null | undefined): boolean {
+    if (!a && !b) {
+        return true
+    }
+    if (!a || !b) {
+        return false
+    }
+    return columnKey(a) === columnKey(b)
+}
+
+function columnsListsEqual(a: BIQueryColumn[], b: BIQueryColumn[]): boolean {
+    if (a.length !== b.length) {
+        return false
+    }
+    return a.every((item, index) => columnsEqual(item, b[index]))
+}
+
+function filtersEqual(a: BIQueryFilter[], b: BIQueryFilter[]): boolean {
+    if (a.length !== b.length) {
+        return false
+    }
+    return a.every(
+        (filter, index) => columnsEqual(filter.column, b[index].column) && filter.expression === b[index].expression
+    )
+}
+
+function uniqueColumns(columns: BIQueryColumn[]): BIQueryColumn[] {
+    const seen = new Set<string>()
+    return columns.filter((column) => {
+        const key = columnKey(column)
+        if (seen.has(key)) {
+            return false
+        }
+        seen.add(key)
+        return true
+    })
+}
+
+function buildBiSearchParams(values: any): Record<string, any> {
+    const params: Record<string, any> = {}
+    if (values.selectedTable) {
+        params.table = values.selectedTable
+    }
+    const serializedColumns = serializeColumns(values.selectedColumns)
+    if (serializedColumns) {
+        params.columns = serializedColumns
+    }
+    const serializedFilters = serializeFilters(values.filters)
+    if (serializedFilters) {
+        params.filters = serializedFilters
+    }
+    if (values.sort) {
+        params.sort = serializeSort(values.sort)
+    }
+    if (values.limit && values.limit !== 50) {
+        params.limit = values.limit
+    }
+    if (values.searchTerm) {
+        params.q = values.searchTerm
+    }
+    return params
+}
+
+function serializeColumns(columns: BIQueryColumn[]): string | undefined {
+    if (!columns.length) {
+        return undefined
+    }
+    return columns.map((column) => `${column.aggregation || 'raw'}:${column.field}`).join(',')
+}
+
+function serializeFilters(filters: BIQueryFilter[]): string | undefined {
+    if (!filters.length) {
+        return undefined
+    }
+    return JSON.stringify(
+        filters.map(({ column, expression }) => ({
+            field: column.field,
+            aggregation: column.aggregation,
+            expression,
+        }))
+    )
+}
+
+function serializeSort(sort: BIQueryColumn): string {
+    return `${sort.aggregation || 'raw'}:${sort.field}`
+}
+
+function parseColumnsParam(param: any, table: string | null): BIQueryColumn[] {
+    if (!table || !param) {
+        return []
+    }
+    return String(param)
+        .split(',')
+        .filter(Boolean)
+        .map((item) => {
+            const [maybeAggregation, field] = item.split(':')
+            if (!field) {
+                return { table, field: maybeAggregation }
+            }
+
+            const aggregation = maybeAggregation === 'raw' ? undefined : maybeAggregation
+            if (aggregation && !['count', 'min', 'max', 'sum'].includes(aggregation)) {
+                return null
+            }
+
+            return { table, field, aggregation: aggregation as BIAggregation | undefined }
+        })
+        .filter(Boolean) as BIQueryColumn[]
+}
+
+function parseFiltersParam(param: any, table: string | null): BIQueryFilter[] {
+    if (!table || !param || typeof param !== 'string') {
+        return []
+    }
+    try {
+        const parsed = JSON.parse(param)
+        if (!Array.isArray(parsed)) {
+            return []
+        }
+        return parsed
+            .map((item) => {
+                if (typeof item?.field !== 'string' || typeof item?.expression !== 'string') {
+                    return null
+                }
+                const aggregation =
+                    typeof item.aggregation === 'string' && ['count', 'min', 'max', 'sum'].includes(item.aggregation)
+                        ? (item.aggregation as BIAggregation)
+                        : undefined
+                return {
+                    column: { table, field: item.field, aggregation },
+                    expression: item.expression,
+                }
+            })
+            .filter(Boolean) as BIQueryFilter[]
+    } catch {
+        return []
+    }
+}
+
+function parseSortParam(param: any, table: string | null): BIQueryColumn | null {
+    if (!table || !param) {
+        return null
+    }
+    const [maybeAggregation, field] = String(param).split(':')
+    if (!field) {
+        return { table, field: maybeAggregation }
+    }
+    const aggregation = maybeAggregation === 'raw' ? undefined : maybeAggregation
+    if (aggregation && !['count', 'min', 'max', 'sum'].includes(aggregation)) {
+        return null
+    }
+    return { table, field, aggregation: aggregation as BIAggregation | undefined }
 }

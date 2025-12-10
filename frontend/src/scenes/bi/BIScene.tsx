@@ -1,21 +1,23 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconFilter, IconPlay, IconPlus, IconStack } from '@posthog/icons'
+import { IconArrowLeft, IconFilter, IconPlay, IconPlus, IconStack } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonTable, LemonTag, Popover } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
 
+import { DatabaseSchemaField } from '~/queries/schema/schema-general'
+
 import { SceneExport } from '../sceneTypes'
 import { Scene } from '../sceneTypes'
-import { BIQueryColumn, BIQueryFilter, biLogic, columnKey } from './biLogic'
+import { BIAggregation, BIQueryColumn, BIQueryFilter, biLogic, columnAlias, columnKey } from './biLogic'
 
 const COLORS = ['#5375ff', '#ff7a9e', '#2bc4ff', '#f6a700', '#7a49ff']
 
 export function formatFilter(filter: BIQueryFilter): JSX.Element {
     return (
         <LemonTag type="primary" key={columnKey(filter.column)}>
-            {columnKey(filter.column)} {filter.expression}
+            {columnAlias(filter.column)} {filter.expression}
         </LemonTag>
     )
 }
@@ -53,6 +55,7 @@ export const scene: SceneExport = {
 export function BIScene(): JSX.Element {
     const {
         filteredTables,
+        filteredFields,
         selectedTableObject,
         selectedFields,
         queryResponse,
@@ -63,6 +66,7 @@ export function BIScene(): JSX.Element {
     } = useValues(biLogic)
     const {
         addColumn,
+        addAggregation,
         selectTable,
         removeColumn,
         addFilter,
@@ -71,6 +75,7 @@ export function BIScene(): JSX.Element {
         setLimit,
         setSort,
         refreshQuery,
+        resetSelection,
     } = useActions(biLogic)
 
     const rows = useMemo(() => {
@@ -82,7 +87,7 @@ export function BIScene(): JSX.Element {
         return queryResponse.results.map((row: any[]) => {
             const asObject: Record<string, any> = {}
             row.forEach((value, index) => {
-                const name = headers?.[index]?.name || selectedFields[index]?.column.field || `col_${index}`
+                const name = headers?.[index]?.name || selectedFields[index]?.alias || `col_${index}`
                 asObject[name] = value
             })
             return asObject
@@ -113,46 +118,58 @@ export function BIScene(): JSX.Element {
     return (
         <div className="flex flex-col gap-4 h-full">
             <div className="flex gap-4 h-full min-h-0">
-                <LemonCard className="flex-1 max-w-80 h-full min-h-0">
+                <LemonCard className="flex-1 max-w-80 h-full min-h-0" hoverEffect={false}>
                     <div className="flex items-center gap-2">
+                        {selectedTableObject && (
+                            <LemonButton type="tertiary" icon={<IconArrowLeft />} onClick={() => resetSelection()} />
+                        )}
                         <LemonInput
                             type="search"
-                            placeholder="Search tables or fields"
+                            placeholder={selectedTableObject ? 'Search columns' : 'Search tables'}
                             onChange={(value) => setSearchTerm(value)}
                             value={searchTerm}
                             fullWidth
                         />
                     </div>
-                    <div className="mt-2 space-y-1 overflow-y-auto" style={{ maxHeight: 'calc(100% - 60px)' }}>
-                        {filteredTables.map((table) => (
-                            <div key={table.name}>
-                                <div className="flex items-center justify-between gap-2">
-                                    <LemonButton
-                                        icon={<IconStack />}
-                                        fullWidth
-                                        status={selectedTableObject?.name === table.name ? 'primary' : 'default'}
-                                        onClick={() => selectTable(table.name)}
-                                    >
-                                        {table.name}
-                                    </LemonButton>
-                                </div>
-                                {selectedTableObject?.name === table.name && (
-                                    <div className="mt-1 grid grid-cols-2 gap-1">
-                                        {Object.values(table.fields).map((field) => (
+                    <div className="mt-2 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(100% - 60px)' }}>
+                        {selectedTableObject ? (
+                            <>
+                                <div className="font-semibold px-1">{selectedTableObject.name}</div>
+                                {filteredFields.length > 0 ? (
+                                    <div className="grid grid-cols-2 gap-1">
+                                        {filteredFields.map((field) => (
                                             <LemonButton
                                                 key={field.name}
                                                 size="small"
                                                 fullWidth
-                                                onClick={() => addColumn({ table: table.name, field: field.name })}
+                                                onClick={() =>
+                                                    addColumn({ table: selectedTableObject.name, field: field.name })
+                                                }
                                                 icon={<IconPlus />}
                                             >
                                                 {field.name}
                                             </LemonButton>
                                         ))}
                                     </div>
+                                ) : (
+                                    <div className="text-muted">No columns match your search.</div>
                                 )}
-                            </div>
-                        ))}
+                            </>
+                        ) : filteredTables.length > 0 ? (
+                            filteredTables.map((table) => (
+                                <LemonButton
+                                    key={table.name}
+                                    icon={<IconStack />}
+                                    fullWidth
+                                    status={selectedTableObject?.name === table.name ? 'primary' : 'default'}
+                                    onClick={() => selectTable(table.name)}
+                                >
+                                    {table.name}
+                                </LemonButton>
+                            ))
+                        ) : (
+                            <div className="text-muted">No tables match your search.</div>
+                        )}
                     </div>
                 </LemonCard>
 
@@ -194,14 +211,14 @@ export function BIScene(): JSX.Element {
                     </div>
 
                     {queryString && (
-                        <LemonCard>
+                        <LemonCard hoverEffect={false}>
                             <div className="text-muted">Generated HogQL</div>
                             <pre className="overflow-x-auto whitespace-pre-wrap text-xs">{queryString}</pre>
                         </LemonCard>
                     )}
 
                     {numericColumns.length > 0 && (
-                        <LemonCard>
+                        <LemonCard hoverEffect={false}>
                             <div className="flex items-center gap-4">
                                 <MiniPie values={chartValues} />
                                 <div className="space-y-1">
@@ -215,7 +232,7 @@ export function BIScene(): JSX.Element {
                         </LemonCard>
                     )}
 
-                    <LemonCard className="flex-1 min-h-0">
+                    <LemonCard className="flex-1 min-h-0" hoverEffect={false}>
                         {selectedFields.length === 0 ? (
                             <div className="text-muted">Select columns from the left to build your table.</div>
                         ) : (
@@ -223,18 +240,21 @@ export function BIScene(): JSX.Element {
                                 <LemonTable
                                     dataSource={rows}
                                     loading={!queryResponse && selectedFields.length > 0}
-                                    columns={selectedFields.map(({ column }) => ({
+                                    columns={selectedFields.map(({ column, field, alias }) => ({
                                         title: (
                                             <ColumnHeader
                                                 column={column}
+                                                alias={alias}
+                                                field={field}
                                                 onRemove={() => removeColumn(column)}
                                                 onAddFilter={(expression) =>
                                                     addFilter({ column, expression: expression || '= ""' })
                                                 }
                                                 onSort={() => setSort(column)}
+                                                onAddAggregation={(aggregation) => addAggregation(column, aggregation)}
                                             />
                                         ),
-                                        dataIndex: column.field,
+                                        dataIndex: alias,
                                         key: columnKey(column),
                                         render: function RenderCell(value) {
                                             if (typeof value === 'number') {
@@ -254,22 +274,28 @@ export function BIScene(): JSX.Element {
 }
 
 function ColumnHeader({
-    column,
+    field,
+    alias,
     onRemove,
     onAddFilter,
     onSort,
+    onAddAggregation,
 }: {
     column: BIQueryColumn
+    field?: DatabaseSchemaField
+    alias: string
     onRemove: () => void
     onAddFilter: (expression?: string) => void
     onSort: () => void
+    onAddAggregation: (aggregation: BIAggregation) => void
 }): JSX.Element {
     const [draft, setDraft] = useState('')
     const [optionsOpen, setOptionsOpen] = useState(false)
+    const isNumeric = isNumericField(field)
 
     return (
         <div className="flex items-center gap-1">
-            <span className="font-semibold">{column.field}</span>
+            <span className="font-semibold">{alias}</span>
             <Popover
                 visible={optionsOpen}
                 onVisibilityChange={setOptionsOpen}
@@ -297,6 +323,31 @@ function ColumnHeader({
                         <LemonButton
                             type="secondary"
                             onClick={() => {
+                                onAddAggregation('count')
+                                setOptionsOpen(false)
+                            }}
+                        >
+                            Count
+                        </LemonButton>
+                        {isNumeric && (
+                            <div className="grid grid-cols-3 gap-1">
+                                {(['min', 'max', 'sum'] as BIAggregation[]).map((aggregation) => (
+                                    <LemonButton
+                                        key={aggregation}
+                                        type="secondary"
+                                        onClick={() => {
+                                            onAddAggregation(aggregation)
+                                            setOptionsOpen(false)
+                                        }}
+                                    >
+                                        {aggregation.toUpperCase()}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        )}
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
                                 onSort()
                                 setOptionsOpen(false)
                             }}
@@ -315,8 +366,22 @@ function ColumnHeader({
                     </div>
                 }
             >
-                <LemonButton size="small" type="secondary" icon={<IconFilter />} aria-label="Column options" />
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconFilter />}
+                    aria-label="Column options"
+                    onClick={() => setOptionsOpen((open) => !open)}
+                />
             </Popover>
         </div>
     )
+}
+
+function isNumericField(field?: DatabaseSchemaField): boolean {
+    if (!field?.type || typeof field.type !== 'string') {
+        return false
+    }
+    const type = field.type.toLowerCase()
+    return type.includes('int') || type.includes('float') || type.includes('decimal') || type.includes('double')
 }
