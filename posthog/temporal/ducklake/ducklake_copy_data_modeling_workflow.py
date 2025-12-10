@@ -469,15 +469,19 @@ def _configure_s3_secrets(conn: duckdb.DuckDBPyConnection) -> None:
     # Destination bucket secret
     config = get_config()
     dest_bucket = f"s3://{config['DUCKLAKE_BUCKET']}/"
+    dest_region = config.get("DUCKLAKE_BUCKET_REGION", "us-east-1")
     if settings.USE_LOCAL_SETUP:
-        # Local dev: same MinIO creds, scoped to destination bucket
+        # Local dev: DuckLake bucket credentials, scoped to destination bucket
+        dest_access_key = config.get("DUCKLAKE_S3_ACCESS_KEY", "")
+        dest_secret_key = config.get("DUCKLAKE_S3_SECRET_KEY", "")
+
         dest_parts = ["TYPE S3"]
-        if access_key:
-            dest_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
-        if secret_key:
-            dest_parts.append(f"SECRET '{ducklake_escape(secret_key)}'")
-        if region:
-            dest_parts.append(f"REGION '{ducklake_escape(region)}'")
+        if dest_access_key:
+            dest_parts.append(f"KEY_ID '{ducklake_escape(dest_access_key)}'")
+        if dest_secret_key:
+            dest_parts.append(f"SECRET '{ducklake_escape(dest_secret_key)}'")
+        if dest_region:
+            dest_parts.append(f"REGION '{ducklake_escape(dest_region)}'")
         if normalized_endpoint:
             dest_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
         dest_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
@@ -490,7 +494,7 @@ def _configure_s3_secrets(conn: duckdb.DuckDBPyConnection) -> None:
             CREATE OR REPLACE SECRET ducklake_dest (
                 TYPE S3,
                 PROVIDER CREDENTIAL_CHAIN,
-                REGION '{ducklake_escape(region)}',
+                REGION '{ducklake_escape(dest_region)}',
                 SCOPE '{ducklake_escape(dest_bucket)}'
             )
         """)
