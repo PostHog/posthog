@@ -74,16 +74,10 @@
     &.LemonCheckbox:not(.LemonCheckbox--disabled):hover,
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active {
         label {
-            --box-color: var(--color-accent-hover);
-
             .LemonCheckbox__box {
                 border-color: var(--box-color);
             }
         }
-    }
-
-    &.LemonCheckbox:not(.LemonCheckbox--disabled):active label {
-        --box-color: var(--color-accent-hover);
     }
 
     &.LemonCheckbox--checked {
