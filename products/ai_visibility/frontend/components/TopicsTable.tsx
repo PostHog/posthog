@@ -4,9 +4,42 @@ import { useState } from 'react'
 import { IconCheck, IconChevronRight, IconInfo, IconX } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { Topic } from '../types'
+import { Prompt, Topic } from '../types'
 import { CategoryTag } from './CategoryTag'
 import { VisibilityBar } from './VisibilityBar'
+
+function PromptResponseExpander({ prompt }: { prompt: Prompt }): JSX.Element | null {
+    const [isExpanded, setIsExpanded] = useState(false)
+
+    if (!prompt.response) {
+        return null
+    }
+
+    return (
+        <div className="ml-6 mt-2">
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setIsExpanded(!isExpanded)
+                }}
+                className={clsx(
+                    'flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors',
+                    isExpanded ? 'bg-bg-300 text-default' : 'text-muted hover:text-default hover:bg-bg-300'
+                )}
+            >
+                <IconChevronRight className={clsx('w-3 h-3 transition-transform', isExpanded && 'rotate-90')} />
+                <span>{isExpanded ? 'Hide' : 'View'} response</span>
+            </button>
+            {isExpanded && (
+                <div className="mt-2 ml-1 p-3 bg-bg-300 rounded-lg border border-border">
+                    <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Response</p>
+                    <p className="text-sm text-default whitespace-pre-wrap leading-relaxed">{prompt.response}</p>
+                </div>
+            )}
+        </div>
+    )
+}
 
 export function TopicsTable({ topics }: { topics: Topic[] }): JSX.Element {
     const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set())
@@ -96,45 +129,45 @@ export function TopicsTable({ topics }: { topics: Topic[] }): JSX.Element {
                                     <td colSpan={5} className="bg-bg-300 p-4">
                                         <div className="space-y-2">
                                             {topic.prompts.map((prompt) => (
-                                                <div
-                                                    key={prompt.id}
-                                                    className="flex items-center justify-between p-2 bg-bg-light rounded"
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        {prompt.you_mentioned ? (
-                                                            <IconCheck className="w-4 h-4 text-success" />
-                                                        ) : (
-                                                            <IconX className="w-4 h-4 text-muted" />
-                                                        )}
-                                                        <span className="text-sm">{prompt.text}</span>
+                                                <div key={prompt.id} className="p-2 bg-bg-light rounded">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-2">
+                                                            {prompt.you_mentioned ? (
+                                                                <IconCheck className="w-4 h-4 text-success" />
+                                                            ) : (
+                                                                <IconX className="w-4 h-4 text-muted" />
+                                                            )}
+                                                            <span className="text-sm">{prompt.text}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <CategoryTag category={prompt.category} />
+                                                            {(prompt.competitors?.length
+                                                                ? prompt.competitors
+                                                                : prompt.competitors_mentioned.map((name) => ({
+                                                                      name,
+                                                                      logo_url: undefined,
+                                                                  }))
+                                                            ).map((comp) => (
+                                                                <LemonTag key={comp.name} type="muted" size="small">
+                                                                    <span className="flex items-center gap-1">
+                                                                        {comp.logo_url ? (
+                                                                            <img
+                                                                                src={comp.logo_url}
+                                                                                alt={comp.name}
+                                                                                className="w-4 h-4 rounded-full"
+                                                                            />
+                                                                        ) : (
+                                                                            <span className="w-4 h-4 rounded-full bg-border flex items-center justify-center text-[10px]">
+                                                                                {comp.name.charAt(0)}
+                                                                            </span>
+                                                                        )}
+                                                                        <span>{comp.name}</span>
+                                                                    </span>
+                                                                </LemonTag>
+                                                            ))}
+                                                        </div>
                                                     </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <CategoryTag category={prompt.category} />
-                                                        {(prompt.competitors?.length
-                                                            ? prompt.competitors
-                                                            : prompt.competitors_mentioned.map((name) => ({
-                                                                  name,
-                                                                  logo_url: undefined,
-                                                              }))
-                                                        ).map((comp) => (
-                                                            <LemonTag key={comp.name} type="muted" size="small">
-                                                                <span className="flex items-center gap-1">
-                                                                    {comp.logo_url ? (
-                                                                        <img
-                                                                            src={comp.logo_url}
-                                                                            alt={comp.name}
-                                                                            className="w-4 h-4 rounded-full"
-                                                                        />
-                                                                    ) : (
-                                                                        <span className="w-4 h-4 rounded-full bg-border flex items-center justify-center text-[10px]">
-                                                                            {comp.name.charAt(0)}
-                                                                        </span>
-                                                                    )}
-                                                                    <span>{comp.name}</span>
-                                                                </span>
-                                                            </LemonTag>
-                                                        ))}
-                                                    </div>
+                                                    <PromptResponseExpander prompt={prompt} />
                                                 </div>
                                             ))}
                                         </div>

@@ -10,6 +10,11 @@ export interface Competitor {
     logo_url?: string | null
 }
 
+export interface Citation {
+    url: string
+    title?: string | null
+}
+
 export interface Prompt {
     id: string
     text: string
@@ -26,6 +31,8 @@ export interface Prompt {
     competitors?: Competitor[]
     competitors_mentioned: string[]
     last_checked: string
+    response?: string // The full LLM response to the prompt
+    citations?: Citation[] // URLs referenced in the response
 }
 
 export interface MentionRateDataPoint {
