@@ -37,6 +37,8 @@ function saveRecentGoal(goal: string): void {
 export interface TourStep {
     id: string
     selector: string
+    /** Short title for the step (2-5 words) */
+    title?: string
     content: JSONContent | null
     /** Local-only: reference to DOM element, not persisted */
     element?: HTMLElement
@@ -59,11 +61,16 @@ function tourToForm(tour: ProductTour): TourForm {
     return {
         id: tour.id,
         name: tour.name,
-        steps: (tour.content?.steps ?? []).map((step) => ({
-            id: uuid(),
-            selector: step.selector,
-            content: step.content,
-        })),
+        steps: (tour.content?.steps ?? []).map((step) => {
+            // Extract title from TipTap heading for quick display
+            const title = step.content?.content?.[0]?.content?.[0]?.text as string | undefined
+            return {
+                id: uuid(),
+                selector: step.selector,
+                title,
+                content: step.content,
+            }
+        }),
     }
 }
 
@@ -82,6 +89,7 @@ export const productToursLogic = kea<productToursLogicType>([
         editStep: (index: number) => ({ index }),
         selectElement: (element: HTMLElement) => ({ element }),
         confirmStep: (content: JSONContent | null, selector?: string) => ({ content, selector }),
+        updateStepContent: (content: JSONContent | null) => ({ content }),
         cancelStep: true,
         selectTour: (id: string | null) => ({ id }),
         newTour: true,
@@ -400,6 +408,22 @@ export const productToursLogic = kea<productToursLogicType>([
                 actions.inspectForElementWithIndex(steps.length)
             }
         },
+        // Update step content without closing the editor (auto-save on keystroke)
+        updateStepContent: ({ content }) => {
+            if (values.tourForm && values.inspectingElement !== null) {
+                const steps = [...(values.tourForm.steps || [])]
+                const index = values.inspectingElement
+                if (index < steps.length) {
+                    steps[index] = {
+                        ...steps[index],
+                        content,
+                        // Extract title from TipTap content for quick display
+                        title: content?.content?.[0]?.content?.[0]?.text ?? undefined,
+                    }
+                    actions.setTourFormValue('steps', steps)
+                }
+            }
+        },
         // Quick add step during selection mode - doesn't show editor
         quickAddStep: ({ element }) => {
             const actionStep = elementToActionStep(element, values.dataAttributes)
@@ -555,8 +579,11 @@ export const productToursLogic = kea<productToursLogicType>([
             const currentSteps = [...(values.tourForm?.steps ?? [])]
             generatedSteps.forEach((aiStep: { selector: string; content: JSONContent }, i: number) => {
                 if (i < currentSteps.length) {
+                    // Extract title from TipTap heading for quick display
+                    const title = aiStep.content?.content?.[0]?.content?.[0]?.text as string | undefined
                     currentSteps[i] = {
                         ...currentSteps[i],
+                        title,
                         content: aiStep.content,
                     }
                 }

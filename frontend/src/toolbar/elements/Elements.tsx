@@ -43,6 +43,7 @@ export function Elements(): JSX.Element {
         inspectingElement,
         isSelectingElements,
     } = useValues(productToursLogic)
+    const { editStep } = useActions(productToursLogic)
 
     const shiftPressed = useShiftKeyPressed(refreshClickmap)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
@@ -78,7 +79,7 @@ export function Elements(): JSX.Element {
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
                 {/* Product tours: show highlights with step numbers for all selected steps */}
                 {tourForm?.steps?.map(
-                    (step: { id: string; selector: string; element?: HTMLElement }, index: number) => {
+                    (step: { id: string; selector: string; element?: HTMLElement; title?: string }, index: number) => {
                         const element = step.element || (step.selector ? document.querySelector(step.selector) : null)
                         if (!element) {
                             return null
@@ -97,7 +98,14 @@ export function Elements(): JSX.Element {
                         const isActive = inspectingElement === index
 
                         return (
-                            <ElementHighlight key={step.id} rect={rect} isSelected={isActive} stepNumber={index + 1} />
+                            <ElementHighlight
+                                key={step.id}
+                                rect={rect}
+                                isSelected={isActive}
+                                stepNumber={index + 1}
+                                onClick={() => editStep(index)}
+                                stepTitle={step.title}
+                            />
                         )
                     }
                 )}

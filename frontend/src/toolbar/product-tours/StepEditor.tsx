@@ -2,16 +2,26 @@ import { JSONContent } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import { IconChevronRight, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconMagicWand, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ElementRect } from '~/toolbar/types'
 import { elementToActionStep } from '~/toolbar/utils'
 
 import { ToolbarEditor, ToolbarRichTextEditor } from './ToolbarRichTextEditor'
 import { productToursLogic } from './productToursLogic'
+
+/** Fun PostHog AI generating messages */
+const AI_MESSAGES = [
+    'PostHog AI is thinking...',
+    'Crafting the perfect tour...',
+    'Analyzing your elements...',
+    'Writing helpful content...',
+    'Almost there...',
+]
 
 const DEFAULT_STEP_CONTENT: JSONContent = {
     type: 'doc',
@@ -95,16 +105,30 @@ function calculatePosition(
 }
 
 export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
-    const { editingStep, selectedElement, dataAttributes, inspectingElement } = useValues(productToursLogic)
-    const { confirmStep, cancelStep, removeStep } = useActions(productToursLogic)
+    const { editingStep, selectedElement, dataAttributes, inspectingElement, aiGenerating, stepCount } =
+        useValues(productToursLogic)
+    const { confirmStep, cancelStep, removeStep, generateWithAI, updateStepContent } = useActions(productToursLogic)
     const [richEditor, setRichEditor] = useState<ToolbarEditor | null>(null)
     const editorRef = useRef<HTMLDivElement>(null)
     const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
     const [selector, setSelector] = useState('')
     const [showAdvanced, setShowAdvanced] = useState(false)
+    const [aiMessage, setAiMessage] = useState(AI_MESSAGES[0])
 
     const editorWidth = 320
     const padding = 16
+
+    // Cycle through AI messages while generating
+    useEffect(() => {
+        if (aiGenerating) {
+            let index = 0
+            const interval = setInterval(() => {
+                index = (index + 1) % AI_MESSAGES.length
+                setAiMessage(AI_MESSAGES[index])
+            }, 2500)
+            return () => clearInterval(interval)
+        }
+    }, [aiGenerating])
 
     // Initialize selector from editingStep or derive from selectedElement
     useEffect(() => {
@@ -144,7 +168,9 @@ export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
         ...(position ?? { left: 0, top: 0 }),
     }
 
-    const actionLabel = editingStep ? `Editing Step ${inspectingElement! + 1}` : 'Adding new step'
+    const stepTitle =
+        editingStep?.title || editingStep?.content?.content?.[0]?.content?.[0]?.text || `Step ${inspectingElement! + 1}`
+    const actionLabel = editingStep ? `Editing: ${stepTitle}` : 'Adding new step'
 
     return (
         <div
@@ -172,6 +198,12 @@ export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
                 <ToolbarRichTextEditor
                     initialContent={editingStep?.content ?? DEFAULT_STEP_CONTENT}
                     onCreate={setRichEditor}
+                    onUpdate={() => {
+                        // Auto-save content on every keystroke
+                        if (richEditor && editingStep) {
+                            updateStepContent(richEditor.isEmpty() ? null : richEditor.getJSON())
+                        }
+                    }}
                     minRows={3}
                 />
 
@@ -201,10 +233,26 @@ export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
                     )}
                 </div>
 
-                <div className="flex items-center justify-between">
-                    <div className="flex gap-2 pt-1">
-                        <LemonButton type="secondary" size="small" onClick={() => cancelStep()}>
-                            Cancel
+                {/* AI Generating status */}
+                {aiGenerating && (
+                    <div className="flex items-center gap-2 py-2 px-3 bg-primary-highlight rounded-md text-sm">
+                        <Spinner className="w-4 h-4" />
+                        <span className="text-primary font-medium">{aiMessage}</span>
+                    </div>
+                )}
+
+                <div className="flex items-center justify-between pt-1">
+                    <div className="flex gap-2">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconMagicWand />}
+                            onClick={generateWithAI}
+                            disabledReason={
+                                aiGenerating ? 'Generating...' : stepCount === 0 ? 'Add steps first' : undefined
+                            }
+                        >
+                            Generate
                         </LemonButton>
                         <LemonButton type="primary" size="small" onClick={() => confirmStep(getContent(), selector)}>
                             Done
@@ -212,7 +260,7 @@ export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
                     </div>
                     <LemonButton
                         icon={<IconTrash />}
-                        type="secondary"
+                        type="tertiary"
                         status="danger"
                         size="small"
                         onClick={() => {
