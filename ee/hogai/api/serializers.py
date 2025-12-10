@@ -21,6 +21,7 @@ _conversation_fields = ["id", "status", "title", "user", "created_at", "updated_
 CONVERSATION_TYPE_MAP: dict[Conversation.Type, tuple[type[AssistantGraph], type[AssistantMaxGraphState]]] = {
     Conversation.Type.ASSISTANT: (AssistantGraph, AssistantState),
     Conversation.Type.TOOL_CALL: (AssistantGraph, AssistantState),
+    Conversation.Type.SLACK: (AssistantGraph, AssistantState),
 }
 
 

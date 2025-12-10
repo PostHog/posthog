@@ -1,15 +1,25 @@
+import { useActions } from 'kea'
+
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 
 import { HealthCheck, HealthCheckStatus } from '../healthCheckTypes'
+import { webAnalyticsHealthLogic } from '../webAnalyticsHealthLogic'
 
 interface HealthCheckItemProps {
     check: HealthCheck
 }
 
 export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
+    const { trackActionClicked } = useActions(webAnalyticsHealthLogic)
+
+    const handleActionClick = (): void => {
+        trackActionClicked(check.id, check.category, check.status, check.urgent ?? false)
+        check.action?.onClick?.()
+    }
+
     return (
         <div className="flex items-start gap-3 p-3 rounded border border-primary/10 bg-surface-primary">
             <StatusIcon status={check.status} urgent={check.urgent} />
@@ -33,11 +43,11 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
             {check.action && (
                 <div className="flex-shrink-0">
                     {check.action.to ? (
-                        <LemonButton type="secondary" size="small" to={check.action.to}>
+                        <LemonButton type="secondary" size="small" to={check.action.to} onClick={handleActionClick}>
                             {check.action.label}
                         </LemonButton>
                     ) : check.action.onClick ? (
-                        <LemonButton type="secondary" size="small" onClick={check.action.onClick}>
+                        <LemonButton type="secondary" size="small" onClick={handleActionClick}>
                             {check.action.label}
                         </LemonButton>
                     ) : null}
