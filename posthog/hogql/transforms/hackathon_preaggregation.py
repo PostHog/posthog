@@ -409,7 +409,7 @@ def _build_insert_select_query(node: ast.SelectQuery, context: HogQLContext) -> 
     )
 
     # Core columns (executor will prepend team_id, job_id)
-    select_columns = [time_window_start, breakdown_value, uniq_exact_state]
+    select_columns: list[ast.Expr] = [time_window_start, breakdown_value, uniq_exact_state]
 
     # 2. Build WHERE clause - keep event filter, remove timestamp filters
     where_exprs = _flatten_and(node.where)
@@ -490,7 +490,7 @@ class Transformer(CloningVisitor):
 
         # Check if this query matches the pattern
         if not _is_daily_unique_persons_pageviews_query(transformed_node, self.context):
-            return transformed_node
+            return node
 
         # Extract date range
         where_exprs = _flatten_and(transformed_node.where)
@@ -498,7 +498,7 @@ class Transformer(CloningVisitor):
 
         if not timestamp_range:
             # Shouldn't happen if pattern detection worked, but defensive
-            return transformed_node
+            return node
 
         start_dt, end_dt = timestamp_range
 
@@ -506,7 +506,9 @@ class Transformer(CloningVisitor):
         query_to_insert = _build_insert_select_query(transformed_node, self.context)
 
         # Run the preaggregation job orchestration
-        team = self.context.team_id if self.context.team is None else self.context.team
+        team = self.context.team
+        if not team:
+            return node
         result = _run_daily_unique_persons_pageviews(team, query_to_insert, start_dt, end_dt)
 
         if not result.ready:
@@ -522,7 +524,9 @@ class Transformer(CloningVisitor):
 
             if _is_uniq_exact_persons_call(expr):
                 # uniqExact(person_id) -> uniqExactMerge(uniq_exact_state)
-                transformed_expr = ast.Call(name="uniqExactMerge", args=[ast.Field(chain=["uniq_exact_state"])])
+                transformed_expr: ast.Expr = ast.Call(
+                    name="uniqExactMerge", args=[ast.Field(chain=["uniq_exact_state"])]
+                )
             elif _is_to_start_of_day_timestamp(expr, self.context):
                 # toStartOfDay(timestamp) -> time_window_start
                 transformed_expr = ast.Field(chain=["time_window_start"])
@@ -569,7 +573,7 @@ class Transformer(CloningVisitor):
         # GROUP BY time_window_start + breakdown_value array indices
         # First GROUP BY: toStartOfDay(timestamp) -> time_window_start
         # Additional GROUP BY expressions: map to breakdown_value.1, breakdown_value.2, etc.
-        group_by = [ast.Field(chain=["time_window_start"])]
+        group_by: list[ast.Expr] = [ast.Field(chain=["time_window_start"])]
 
         # Map additional GROUP BY expressions to breakdown_value array indices (1-indexed)
         breakdown_mappings = []  # List of (original_expr, alias, index)
@@ -585,7 +589,7 @@ class Transformer(CloningVisitor):
 
                 # If there was an alias, preserve it
                 if original_alias:
-                    breakdown_field = ast.Alias(alias=original_alias, expr=breakdown_ref)
+                    breakdown_field: ast.Expr = ast.Alias(alias=original_alias, expr=breakdown_ref)
                 else:
                     breakdown_field = breakdown_ref
 
