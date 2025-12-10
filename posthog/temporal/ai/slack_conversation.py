@@ -1,3 +1,4 @@
+import re
 import json
 import random
 import asyncio
@@ -123,7 +124,8 @@ class SlackConversationRunnerWorkflowInputs:
     initial_message_ts: str
     user_message_ts: str | None
     messages: list[dict[str, Any]]
-    conversation_id: str
+    slack_thread_key: str
+    conversation_id: str | None = None  # Provided if continuing an existing conversation
 
 
 @workflow.defn(name="slack-conversation-processing")
@@ -210,22 +212,31 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         text = msg.get("text", "")
         message_texts.append(f"{username}: {text}")
 
-    combined_message = "\n".join(message_texts)
+    combined_message = "\n\n".join(message_texts)
     human_message = HumanMessage(content=combined_message)
 
-    # Create a new conversation for this Slack thread with the pre-generated ID
-    # Use aget_or_create in case the activity retries
-    conversation, _ = await Conversation.objects.aget_or_create(
-        id=inputs.conversation_id,
-        defaults={"team": team, "user": user, "type": "slack"},
-    )
+    # Get or create conversation for this Slack thread, keyed by slack_thread_key
+    if inputs.conversation_id:
+        # Continuing an existing conversation
+        conversation, created = await Conversation.objects.aget_or_create(
+            id=inputs.conversation_id,
+            defaults={"team": team, "user": user, "type": "slack", "slack_thread_key": inputs.slack_thread_key},
+        )
+    else:
+        # New conversation - use slack_thread_key as the unique identifier
+        conversation, created = await Conversation.objects.aget_or_create(
+            team=team,
+            slack_thread_key=inputs.slack_thread_key,
+            defaults={"user": user, "type": "slack"},
+        )
+    is_new_conversation = created
 
     assistant = ChatAgentRunner(
         team,
         conversation,
         new_message=human_message,
         user=user,
-        is_new_conversation=True,
+        is_new_conversation=is_new_conversation,
     )
 
     # Build conversation URL for the "View in PostHog" button
@@ -287,6 +298,9 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         await _remove_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hourglass_flowing_sand")
         await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "white_check_mark")
 
+    # Build conversation URL for the "View in PostHog" button
+    conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={conversation.id}"
+
     # Post the final response as a new message, then delete the initial "working on it" message
     # (new messages trigger notifications, updates don't)
     # We post first so that if posting fails, the user still sees the "working on it" message
@@ -316,10 +330,24 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     await _delete_slack_message(integration, inputs.channel, inputs.initial_message_ts)
 
 
+def _absolutize_markdown_links(text: str) -> str:
+    """Prepend SITE_URL to absolute-path Markdown links (e.g. [text](/path) -> [text](https://example.com/path))."""
+    from django.conf import settings
+
+    def replace_link(match: re.Match) -> str:
+        link_text = match.group(1)
+        path = match.group(2)
+        return f"[{link_text}]({settings.SITE_URL}{path})"
+
+    # Match [text](/path) where path starts with / but not // (which would be protocol-relative)
+    return re.sub(r"\[([^\]]+)\]\((/(?!/)[^)]*)\)", replace_link, text)
+
+
 def _build_slack_message_blocks(text: str, conversation_url: str | None = None) -> list[dict]:
     """Build Slack message blocks from text."""
     blocks: list[dict] = []
 
+    text = _absolutize_markdown_links(text)
     mrkdwn_text = mrkdown_converter.convert(text)
     paragraphs = mrkdwn_text.split("\n\n")
     for para in paragraphs:
