@@ -33,6 +33,7 @@ class ProductTourSerializer(serializers.ModelSerializer):
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     feature_flag_key = serializers.SerializerMethodField()
+    targeting_flag_filters = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductTour
@@ -42,6 +43,7 @@ class ProductTourSerializer(serializers.ModelSerializer):
             "description",
             "internal_targeting_flag",
             "feature_flag_key",
+            "targeting_flag_filters",
             "content",
             "start_date",
             "end_date",
@@ -57,12 +59,41 @@ class ProductTourSerializer(serializers.ModelSerializer):
             return tour.internal_targeting_flag.key
         return None
 
+    def get_targeting_flag_filters(self, tour: ProductTour) -> dict | None:
+        """Return the targeting flag filters, excluding the base exclusion properties."""
+        if not tour.internal_targeting_flag:
+            return None
+
+        filters = tour.internal_targeting_flag.filters
+        if not filters or "groups" not in filters:
+            return None
+
+        # Filter out the base exclusion properties to return only user-defined targeting
+        tour_key = str(tour.id)
+        base_property_keys = {
+            f"$product_tour_completed/{tour_key}",
+            f"$product_tour_dismissed/{tour_key}",
+        }
+
+        cleaned_groups = []
+        for group in filters.get("groups", []):
+            properties = group.get("properties", [])
+            user_properties = [p for p in properties if p.get("key") not in base_property_keys]
+            if user_properties:
+                cleaned_groups.append({**group, "properties": user_properties})
+
+        if not cleaned_groups:
+            return None
+
+        return {"groups": cleaned_groups}
+
 
 class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
     """Serializer for creating and updating ProductTour."""
 
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
 
     class Meta:
         model = ProductTour
@@ -71,6 +102,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "name",
             "description",
             "internal_targeting_flag",
+            "targeting_flag_filters",
             "content",
             "start_date",
             "end_date",
@@ -105,8 +137,25 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        # Extract targeting_flag_filters before parent update
+        # Use sentinel to distinguish "not provided" from "explicitly null"
+        _NOT_PROVIDED = object()
+        targeting_flag_filters = validated_data.pop("targeting_flag_filters", _NOT_PROVIDED)
+
+        # Update internal targeting flag if start_date or end_date changed
+        start_date_changed = "start_date" in validated_data and validated_data["start_date"] != instance.start_date
+        end_date_changed = "end_date" in validated_data and validated_data["end_date"] != instance.end_date
+        archived_changed = "archived" in validated_data and validated_data["archived"] != instance.archived
+
         instance = super().update(instance, validated_data)
-        self._update_internal_targeting_flag_state(instance)
+
+        if start_date_changed or end_date_changed or archived_changed:
+            self._update_internal_targeting_flag_state(instance)
+
+        # Update targeting flag filters if explicitly provided (including null to reset)
+        if targeting_flag_filters is not _NOT_PROVIDED:
+            self._update_targeting_flag_filters(instance, targeting_flag_filters)
+
         return instance
 
     def _create_internal_targeting_flag(self, instance: ProductTour) -> None:
@@ -168,6 +217,73 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         if flag.active != should_be_active:
             flag.active = should_be_active
             flag.save(update_fields=["active"])
+
+    def _update_targeting_flag_filters(self, instance: ProductTour, new_filters: dict | None) -> None:
+        """Update the internal targeting flag's filters with additional user targeting conditions.
+
+        If new_filters is None, resets to base filters only (no additional user targeting).
+        """
+        flag = instance.internal_targeting_flag
+        if not flag:
+            return
+
+        # Get base exclusion properties for users who completed/dismissed the tour
+        tour_key = str(instance.id)
+        base_properties = [
+            {
+                "key": f"$product_tour_completed/{tour_key}",
+                "type": "person",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+            },
+            {
+                "key": f"$product_tour_dismissed/{tour_key}",
+                "type": "person",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+            },
+        ]
+
+        # If new_filters is None, reset to base filters only
+        if new_filters is None:
+            flag.filters = {
+                "groups": [
+                    {
+                        "variant": "",
+                        "rollout_percentage": 100,
+                        "properties": base_properties,
+                    }
+                ]
+            }
+            flag.save(update_fields=["filters"])
+            return
+
+        # Merge new filters with base properties
+        new_groups = new_filters.get("groups", [])
+        merged_groups = []
+
+        for group in new_groups:
+            existing_properties = group.get("properties", [])
+            # Add base properties to each group
+            merged_group = {
+                **group,
+                "properties": base_properties + existing_properties,
+            }
+            merged_groups.append(merged_group)
+
+        # If no groups provided, use a default group with just the base properties
+        if not merged_groups:
+            merged_groups = [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": base_properties,
+                }
+            ]
+
+        # Update the flag's filters
+        flag.filters = {"groups": merged_groups}
+        flag.save(update_fields=["filters"])
 
 
 class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
