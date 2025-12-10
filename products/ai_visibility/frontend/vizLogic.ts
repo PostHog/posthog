@@ -1,6 +1,8 @@
 import { afterMount, kea, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import type { vizLogicType } from './vizLogicType'
+
 export interface VizLogicProps {
     domain: string
 }
@@ -10,7 +12,7 @@ interface TriggerResponse {
     status: string
 }
 
-export const vizLogic = kea([
+export const vizLogic = kea<vizLogicType>([
     path(['products', 'ai_visibility', 'frontend', 'vizLogic']),
     props({} as VizLogicProps),
 

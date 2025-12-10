@@ -34,6 +34,12 @@ class AiVisibilityRun(models.Model):
         null=True,
         help_text="Timestamp when the run completed or failed",
     )
+    s3_path = models.CharField(
+        max_length=512,
+        blank=True,
+        null=True,
+        help_text="S3 path where the results are stored",
+    )
 
     class Meta:
         db_table = "posthog_ai_visibility_run"
@@ -50,11 +56,15 @@ class AiVisibilityRun(models.Model):
         """Get the most recent run for a domain."""
         return cls.objects.filter(domain=domain).first()
 
-    def mark_ready(self):
+    def mark_ready(self, s3_path: str | None = None):
         """Mark the run as ready (completed successfully)."""
         self.status = self.Status.READY
         self.completed_at = timezone.now()
-        self.save(update_fields=["status", "completed_at"])
+        update_fields = ["status", "completed_at"]
+        if s3_path:
+            self.s3_path = s3_path
+            update_fields.append("s3_path")
+        self.save(update_fields=update_fields)
 
     def mark_failed(self, error: str):
         """Mark the run as failed with an error message."""

@@ -5,6 +5,13 @@ class AIVisibilityTriggerSerializer(serializers.Serializer):
     domain = serializers.CharField(max_length=512)
 
 
-class AIVisibilityTriggerResponseSerializer(serializers.Serializer):
+class AIVisibilityStartedResponseSerializer(serializers.Serializer):
     workflow_id = serializers.CharField()
     status = serializers.CharField()
+
+
+class AIVisibilityResultResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    run_id = serializers.UUIDField()
+    domain = serializers.CharField()
+    results = serializers.DictField()

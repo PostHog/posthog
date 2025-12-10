@@ -1,8 +1,15 @@
+import json
 import asyncio
 from dataclasses import dataclass
 
+from django.conf import settings
+
 import structlog
 from temporalio import activity
+
+from posthog.storage import object_storage
+
+from products.ai_visibility.backend.models import AiVisibilityRun
 
 logger = structlog.get_logger(__name__)
 
@@ -36,6 +43,12 @@ class CombineInput:
     info: dict
     topics: list[str]
     ai_calls: list[dict]
+
+
+@dataclass
+class SaveResultsInput:
+    run_id: str
+    combined: dict
 
 
 @activity.defn(name="extractInfoFromURL")
@@ -77,3 +90,19 @@ async def combine_calls(payload: CombineInput) -> dict:
         "topics": payload.topics,
         "ai_calls": payload.ai_calls,
     }
+
+
+@activity.defn(name="saveResults")
+async def save_results(payload: SaveResultsInput) -> str:
+    await asyncio.sleep(0)
+    logger.info("ai_visibility.save_results", run_id=payload.run_id)
+
+    s3_key = f"{settings.OBJECT_STORAGE_AI_VISIBILITY_FOLDER}/{payload.run_id}.json"
+    content = json.dumps(payload.combined)
+    object_storage.write(s3_key, content)
+
+    run = await asyncio.to_thread(AiVisibilityRun.objects.get, id=payload.run_id)
+    await asyncio.to_thread(run.mark_ready, s3_key)
+
+    logger.info("ai_visibility.save_results.complete", run_id=payload.run_id, s3_path=s3_key)
+    return s3_key

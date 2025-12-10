@@ -14,18 +14,21 @@ from .activities import (
     CombineInput,
     ExtractInfoInput,
     PromptsInput,
+    SaveResultsInput,
     TopicsInput,
     combine_calls,
     extract_info_from_url,
     generate_prompts,
     get_topics,
     make_ai_calls,
+    save_results,
 )
 
 
 @dataclass
 class AIVisibilityWorkflowInput:
     domain: str
+    run_id: str
     team_id: Optional[int] = None
     user_id: Optional[int] = None
 
@@ -34,6 +37,7 @@ class AIVisibilityWorkflowInput:
 class AIVisibilityWorkflowResult:
     domain: str
     combined: dict
+    s3_path: str
 
 
 @temporalio.workflow.defn(name="ai-visibility")
@@ -43,6 +47,7 @@ class AIVisibilityWorkflow(PostHogWorkflow):
         loaded = json.loads(inputs[0])
         return AIVisibilityWorkflowInput(
             domain=loaded["domain"],
+            run_id=loaded["run_id"],
             team_id=loaded.get("team_id"),
             user_id=loaded.get("user_id"),
         )
@@ -84,4 +89,11 @@ class AIVisibilityWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        return AIVisibilityWorkflowResult(domain=input.domain, combined=combined)
+        s3_path = await workflow.execute_activity(
+            save_results,
+            SaveResultsInput(run_id=input.run_id, combined=combined),
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        return AIVisibilityWorkflowResult(domain=input.domain, combined=combined, s3_path=s3_path)
