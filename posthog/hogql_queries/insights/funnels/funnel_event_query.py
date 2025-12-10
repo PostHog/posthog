@@ -400,7 +400,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         ):
             return [prop_basic, ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"]))]
         else:
-            raise ValidationError(f"Unknown breakdown attribution type ${breakdownAttributionType}")
+            raise ValidationError(f"Unknown breakdown attribution type {breakdownAttributionType}")
 
     def _get_extra_fields(
         self, source_kind: SourceTableKind, node: Optional[DataWarehouseNode] = None
