@@ -4,8 +4,11 @@ from typing import Optional
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.transforms.preaggregation_executor import QueryInfo, execute_preaggregation_jobs
+from posthog.hogql.transforms.preaggregation_executor import (
+    PreaggregationResult,
+    QueryInfo,
+    execute_preaggregation_jobs,
+)
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.preaggregation.sql import SHARDED_PREAGGREGATION_RESULTS_TABLE
@@ -297,12 +300,109 @@ def _is_daily_unique_persons_pageviews_query(node: ast.SelectQuery, context: Hog
     return True
 
 
+def _build_insert_select_query(node: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
+    """
+    Build an INSERT SELECT query from the matched query pattern.
+
+    Transforms:
+        SELECT uniqExact(person_id) FROM events
+        WHERE event='$pageview' AND timestamp >= '...'
+        GROUP BY toStartOfDay(timestamp), properties.$browser
+
+    Into:
+        SELECT
+            team_id,
+            {job_id} AS job_id,  -- placeholder, filled by executor
+            toStartOfDay(timestamp) AS time_window_start,
+            [toString(properties.$browser), ...] AS breakdown_value,
+            uniqExactState(person_id) AS uniq_exact_state
+        FROM events
+        WHERE event='$pageview'
+        GROUP BY time_window_start, breakdown_value
+
+    The timestamp filters are removed since they'll be added per-day by the executor.
+    Column order matches the preaggregation_results table schema.
+    """
+    # 1. Build SELECT columns for the core transformation.
+    #    The executor will prepend team_id and job_id when building the final INSERT.
+    #    Output order: (time_window_start, breakdown_value, uniq_exact_state)
+
+    # toStartOfDay(timestamp) AS time_window_start
+    time_window_start = ast.Alias(
+        alias="time_window_start",
+        expr=ast.Call(name="toStartOfDay", args=[ast.Field(chain=["timestamp"])]),
+    )
+
+    # Build breakdown_value array from additional GROUP BY expressions
+    breakdown_exprs: list[ast.Expr] = []
+    if node.group_by and len(node.group_by) > 1:
+        for group_expr in node.group_by[1:]:
+            # Unwrap alias to get the actual expression
+            expr = _unwrap_alias(group_expr)
+            # Wrap in toString() to ensure string type for the array
+            breakdown_exprs.append(ast.Call(name="toString", args=[expr]))
+
+    # Create the breakdown_value column (array of breakdown dimensions)
+    breakdown_value = ast.Alias(
+        alias="breakdown_value",
+        expr=ast.Array(exprs=breakdown_exprs) if breakdown_exprs else ast.Array(exprs=[]),
+    )
+
+    # uniqExactState(person_id) AS uniq_exact_state
+    uniq_exact_state = ast.Alias(
+        alias="uniq_exact_state",
+        expr=ast.Call(name="uniqExactState", args=[ast.Field(chain=["person_id"])]),
+    )
+
+    # Core columns (executor will prepend team_id, job_id)
+    select_columns = [time_window_start, breakdown_value, uniq_exact_state]
+
+    # 2. Build WHERE clause - keep event filter, remove timestamp filters
+    where_exprs = _flatten_and(node.where)
+    non_timestamp_filters = []
+    for expr in where_exprs:
+        # Skip timestamp-related filters
+        if isinstance(expr, ast.CompareOperation):
+            if _is_timestamp_or_start_of_day_timestamp(expr.left, context):
+                continue
+            if _is_timestamp_or_start_of_day_timestamp(expr.right, context):
+                continue
+        elif isinstance(expr, ast.Call) and expr.name in ["greaterOrEquals", "greater", "less", "lessOrEquals"]:
+            if len(expr.args) == 2:
+                if _is_timestamp_or_start_of_day_timestamp(expr.args[0], context):
+                    continue
+                if _is_timestamp_or_start_of_day_timestamp(expr.args[1], context):
+                    continue
+        non_timestamp_filters.append(expr)
+
+    # Rebuild WHERE clause
+    if len(non_timestamp_filters) == 0:
+        where_clause = None
+    elif len(non_timestamp_filters) == 1:
+        where_clause = non_timestamp_filters[0]
+    else:
+        where_clause = ast.And(exprs=non_timestamp_filters)
+
+    # 3. Build GROUP BY - time_window_start + breakdown_value (if present)
+    group_by_columns: list[ast.Expr] = [ast.Field(chain=["time_window_start"])]
+    if breakdown_exprs:
+        group_by_columns.append(ast.Field(chain=["breakdown_value"]))
+
+    # 4. Construct the final SELECT query
+    return ast.SelectQuery(
+        select=select_columns,
+        select_from=node.select_from,  # Keep the original FROM (events table)
+        where=where_clause,
+        group_by=group_by_columns,
+    )
+
+
 def _run_daily_unique_persons_pageviews(
     team: Team,
-    query: ast.SelectQuery,
+    query_to_insert: ast.SelectQuery,
     start: datetime,
     end: datetime,
-) -> dict:
+) -> PreaggregationResult:
     """
     Orchestrate preaggregation jobs for daily unique persons pageviews.
 
@@ -311,14 +411,7 @@ def _run_daily_unique_persons_pageviews(
     2. Calls the executor to find/create preaggregation jobs
     3. Returns the result with job IDs for the combiner query
     """
-
-    # Create the select without time range filters, and map to columns in the preaggregation_results table
-    # TODO don't hard code this
-    insert_select = parse_select(
-        "select uniqExactState(person_id) as uniq_exact_state, toStartOfDay() as time_window_start FROM events WHERE event='$pageview' group by time_window_start"
-    )
-
-    query_info = QueryInfo(query=insert_select, timezone=team.timezone)
+    query_info = QueryInfo(query=query_to_insert, timezone=team.timezone)
 
     result = execute_preaggregation_jobs(
         team=team,
@@ -327,15 +420,7 @@ def _run_daily_unique_persons_pageviews(
         end=end,
     )
 
-    # return combiner_select
-    _combiner_select = parse_select(
-        "select uniqExactMerge(uniq_exact_state) from preaggregation_results where job_id in {job_ids}",
-        placeholders={"job_id": ast.Constant(value=result.job_ids)},
-    )
-
-    # TODO return combiner_select
-
-    return {}
+    return result
 
 
 class Transformer(CloningVisitor):
@@ -363,10 +448,14 @@ class Transformer(CloningVisitor):
 
         start_dt, end_dt = timestamp_range
 
-        # For MVP, we stub out the job orchestration
-        result = _run_daily_unique_persons_pageviews(start_dt, end_dt)
+        # Build the INSERT SELECT query from the matched query
+        query_to_insert = _build_insert_select_query(transformed_node, self.context)
 
-        if not result["ready"]:
+        # Run the preaggregation job orchestration
+        team = self.context.team_id if self.context.team is None else self.context.team
+        result = _run_daily_unique_persons_pageviews(team, query_to_insert, start_dt, end_dt)
+
+        if not result.ready:
             # Preaggregation not ready, fall back to original query
             return transformed_node
 
