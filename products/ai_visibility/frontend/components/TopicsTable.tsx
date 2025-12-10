@@ -1,11 +1,55 @@
 import clsx from 'clsx'
 import { useState } from 'react'
 
-import { IconChevronRight, IconInfo } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronRight, IconDownload, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Topic } from '../types'
 import { VisibilityBar } from './VisibilityBar'
+
+function exportTopicsToCsv(topics: Topic[], brandName: string): void {
+    const headers = [
+        'Topic',
+        'Prompt',
+        'You Mentioned',
+        'Competitors Mentioned',
+        'Visibility %',
+        'Relevancy %',
+        'Avg Rank',
+        'Citations',
+    ]
+    const rows: (string | number)[][] = []
+
+    for (const topic of topics) {
+        for (const prompt of topic.prompts) {
+            rows.push([
+                topic.name,
+                prompt.text,
+                prompt.you_mentioned ? 'Yes' : 'No',
+                prompt.competitors_mentioned.join('; '),
+                topic.visibility,
+                topic.relevancy,
+                topic.avgRank > 0 ? topic.avgRank.toFixed(1) : '',
+                topic.citations,
+            ])
+        }
+    }
+
+    const escapeCsv = (cell: string | number): string => {
+        const str = String(cell)
+        return str.includes(',') || str.includes('"') || str.includes('\n') ? `"${str.replace(/"/g, '""')}"` : str
+    }
+
+    const csvContent = [headers, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${brandName.toLowerCase()}-ai-visibility-prompts.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+}
 
 export function TopicsTable({
     topics,
@@ -30,22 +74,46 @@ export function TopicsTable({
 
     return (
         <div className="border rounded-lg bg-bg-light">
-            <div className="p-4 border-b">
+            <div className="p-4 border-b flex items-center justify-between">
                 <h3 className="text-sm font-semibold flex items-center gap-1">
                     Topics
                     <Tooltip title="All topics where your brand or competitors are mentioned. Expand a row to see the individual prompts and which brands were mentioned in each.">
                         <IconInfo className="w-4 h-4 text-muted" />
                     </Tooltip>
                 </h3>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    icon={<IconDownload />}
+                    onClick={() => exportTopicsToCsv(topics, brandName)}
+                >
+                    Export CSV
+                </LemonButton>
             </div>
             <table className="w-full">
                 <thead>
                     <tr className="border-b text-left text-xs text-muted uppercase">
                         <th className="p-3">Topic</th>
-                        <th className="p-3 text-right">Visibility</th>
-                        <th className="p-3 text-right">Relevancy</th>
-                        <th className="p-3 text-right">Avg rank</th>
-                        <th className="p-3 text-right">Citations</th>
+                        <th className="p-3 text-right">
+                            <Tooltip title="% of prompts in this topic where your brand was mentioned">
+                                <span className="cursor-help border-b border-dashed border-current">Visibility</span>
+                            </Tooltip>
+                        </th>
+                        <th className="p-3 text-right">
+                            <Tooltip title="% of prompts where AI recommended any brand — higher means the topic is more competitive">
+                                <span className="cursor-help border-b border-dashed border-current">Relevancy</span>
+                            </Tooltip>
+                        </th>
+                        <th className="p-3 text-right">
+                            <Tooltip title="Your position among competitors based on mention frequency. #1 = most mentioned">
+                                <span className="cursor-help border-b border-dashed border-current">Avg rank</span>
+                            </Tooltip>
+                        </th>
+                        <th className="p-3 text-right">
+                            <Tooltip title="Times AI cited sources when mentioning your brand">
+                                <span className="cursor-help border-b border-dashed border-current">Citations</span>
+                            </Tooltip>
+                        </th>
                     </tr>
                 </thead>
                 <tbody>
