@@ -1,3 +1,5 @@
+from typing import Any
+
 import structlog
 import posthoganalytics
 from celery import shared_task
@@ -13,6 +15,15 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 logger = structlog.get_logger(__name__)
 
 POSTHOG_TEAM_ID = 2
+
+
+# Mostly here to help with mocks for testing
+def capture_event(event_name, *, distinct_id: str, properties: dict[str, Any]) -> None:
+    posthoganalytics.capture(
+        event_name,
+        distinct_id=distinct_id,
+        properties=properties,
+    )
 
 
 # Note: If the task fails and is retried, events may be sent multiple times. This is handled by Customer.io when consuming the events.
@@ -52,7 +63,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
 
     enrolled_persons = response.results
     for _id, email, distinct_id in enrolled_persons:
-        posthoganalytics.capture(
+        capture_event(
             "user moved feature preview stage",
             distinct_id=distinct_id,
             properties={
