@@ -17,10 +17,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
-from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
-    DataImportsDuckLakeCopyInputs,
-    DuckLakeCopyDataImportsWorkflow,
-)
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from posthog.temporal.data_imports.sources import SourceRegistry
@@ -44,6 +40,10 @@ from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
+)
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
+    DataImportsDuckLakeCopyInputs,
+    DuckLakeCopyDataImportsWorkflow,
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
