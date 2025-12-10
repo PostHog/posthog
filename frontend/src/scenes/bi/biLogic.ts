@@ -6,6 +6,7 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
@@ -55,8 +56,15 @@ export const biLogic = kea<biLogicType>([
         values: [
             databaseTableListLogic,
             ['dataWarehouseTables', 'posthogTables', 'systemTables', 'database', 'databaseLoading'],
+            externalDataSourcesLogic,
+            ['dataWarehouseSources'],
         ],
-        actions: [databaseTableListLogic, ['loadDatabase', 'loadDatabaseSuccess']],
+        actions: [
+            databaseTableListLogic,
+            ['loadDatabase', 'loadDatabaseSuccess'],
+            externalDataSourcesLogic,
+            ['loadSources', 'loadSourcesSuccess'],
+        ],
     }),
     actions({
         selectTable: (table: string | null) => ({ table }),
@@ -423,9 +431,12 @@ export const biLogic = kea<biLogicType>([
                 actions.loadQueryResponse()
             }
         },
+        loadSourcesSuccess: () => {
+            actions.loadDatabase()
+        },
     })),
     afterMount(({ actions }) => {
-        actions.loadDatabase()
+        actions.loadSources()
     }),
 ])
 

@@ -8,7 +8,21 @@ if (registerables) {
     // required for storybook to work, not found in esbuild
     RawChart.register(...registerables)
 }
-RawChart.register(CrosshairPlugin)
+
+// Crosshair plugin can throw during cleanup if the chart never initialized its crosshair state
+// (e.g. unsupported x-axis types). Guard its teardown to avoid runtime errors during destroy.
+const SafeCrosshairPlugin: typeof CrosshairPlugin = {
+    ...CrosshairPlugin,
+    afterDestroy: (chart, args, options) => {
+        if (!('crosshair' in chart) || !chart.crosshair) {
+            return
+        }
+
+        CrosshairPlugin.afterDestroy?.(chart as any, args, options)
+    },
+}
+
+RawChart.register(SafeCrosshairPlugin)
 RawChart.defaults.animation['duration'] = 0
 
 // Create positioner to put tooltip at cursor position
