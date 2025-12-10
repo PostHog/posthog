@@ -789,6 +789,11 @@ export class KafkaConsumer {
                         // First of all clear ourselves from the queue
                         const index = this.backgroundTask.findIndex((t) => t.promise === backgroundTask)
 
+                        // CRITICAL: If task not found, this indicates some bigger problem
+                        if (index < 0) {
+                            captureException(new Error('Background task not found in array during cleanup'))
+                        }
+
                         // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
                         // Important: capture the promises BEFORE removing the task, as the array changes after splice
                         if (index >= 0) {
