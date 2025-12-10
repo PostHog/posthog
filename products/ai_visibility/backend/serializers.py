@@ -8,6 +8,7 @@ class AIVisibilityTriggerSerializer(serializers.Serializer):
 class AIVisibilityStartedResponseSerializer(serializers.Serializer):
     workflow_id = serializers.CharField()
     status = serializers.CharField()
+    created_at = serializers.DateTimeField()
 
 
 class AIVisibilityResultResponseSerializer(serializers.Serializer):

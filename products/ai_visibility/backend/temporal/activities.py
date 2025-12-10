@@ -8,7 +8,7 @@ from django.utils import timezone
 
 import structlog
 from openai import OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conlist
 from temporalio import activity
 
 from posthog.storage import object_storage
@@ -19,6 +19,14 @@ logger = structlog.get_logger(__name__)
 
 # Lazily instantiate a single client per process
 _client: OpenAI | None = None
+
+# Shared prompt suffixes to keep probes and generation in sync
+SUFFIXES = ["alternatives", "competitors", "best", "pricing", "reviews"]
+# Limit concurrent probes to avoid flooding the LLM/API
+_PROBE_CONCURRENCY = 10
+# LLM call protection
+_LLM_TIMEOUT_SECONDS = 20
+_LLM_MAX_RETRIES = 3
 
 
 def get_client() -> OpenAI:
@@ -51,9 +59,14 @@ class ProbeResult(BaseModel):
     suffix: str
     topic: str
     mentions_target: bool
-    competitors: list[str]
+    competitors: conlist(str, min_length=0, max_length=5) = Field(
+        default_factory=list,
+        description="Only list competitors when clearly confident; otherwise return empty list",
+    )
     confidence: float
-    reasoning: str
+    reasoning: str = Field(
+        ..., max_length=280, description="One-sentence evidence for mention/no-mention; keep concise and grounded"
+    )
 
 
 class PlatformResult(BaseModel):
@@ -70,6 +83,7 @@ class PromptResult(BaseModel):
     platforms: dict[str, PlatformResult]
     competitors_mentioned: list[str]
     last_checked: str
+    reasoning: str
 
 
 class ShareOfVoice(BaseModel):
@@ -123,6 +137,12 @@ class SaveResultsInput:
     combined: dict
 
 
+@dataclass
+class MarkFailedInput:
+    run_id: str
+    error_message: str
+
+
 def _compute_share_of_voice(probes: list[ProbeResult], target: str) -> ShareOfVoice:
     if not probes:
         return ShareOfVoice(you=0.0, competitors={})
@@ -163,7 +183,17 @@ async def _call_structured_llm(prompt: str, schema_model: type[BaseModel]) -> di
         # output_parsed is already the Pydantic model instance
         return parsed.model_dump()
 
-    return await asyncio.to_thread(_call_sync)
+    last_error: Exception | None = None
+    for attempt in range(1, _LLM_MAX_RETRIES + 1):
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(_call_sync), timeout=_LLM_TIMEOUT_SECONDS)
+        except (TimeoutError, Exception) as exc:  # noqa: BLE001
+            last_error = exc
+            if attempt == _LLM_MAX_RETRIES:
+                break
+            # brief backoff; avoid tight loops on transient failures
+            await asyncio.sleep(0.5 * attempt)
+    raise last_error  # type: ignore[misc]
 
 
 @activity.defn(name="extractInfoFromURL")
@@ -197,12 +227,11 @@ async def get_topics(payload: TopicsInput) -> list[str]:
 @activity.defn(name="generatePrompts")
 async def generate_prompts(payload: PromptsInput) -> list[dict]:
     info = BusinessInfo.model_validate(payload.info)
-    suffixes = ["alternatives", "competitors", "best", "pricing", "reviews"]
     prompt = (
         "Generate search-style prompts to probe AI assistants about a target business and its space. "
         "For each suffix, craft one prompt using the business name, category, and topics. "
-        "Prompts should be concise and natural.\n\n"
-        f"Business: {info.name}\nCategory: {info.category}\nTopics: {payload.topics}\nSuffixes: {suffixes}"
+        "Prompts must be 8-12 words (never more than 15), concise, natural, and non-overlapping.\n\n"
+        f"Business: {info.name}\nCategory: {info.category}\nTopics: {payload.topics}\nSuffixes: {SUFFIXES}"
     )
     logger.info("ai_visibility.generate_prompts.start", domain=payload.domain)
     data = await _call_structured_llm(prompt, PromptsOutput)
@@ -215,7 +244,9 @@ async def _probe_suffix(domain: str, info: BusinessInfo, topic: str, suffix: str
     prompt = (
         "You are evaluating how well a business appears in AI responses.\n"
         "Given a topic and suffix, determine if the target business is prominently mentioned, and list competitors.\n"
-        "Return mentions_target=true if the business is a clear top result.\n\n"
+        "Return mentions_target=true if the business is a clear top result.\n"
+        "Only list competitors you are clearly confident about; otherwise return an empty list.\n"
+        "Provide one-sentence reasoning grounded in the deciding signals.\n\n"
         f"Business: {info.name}\nCategory: {info.category}\nTopic: {topic}\nSuffix: {suffix}"
     )
     data = await _call_structured_llm(prompt, ProbeResult)
@@ -226,10 +257,16 @@ async def _probe_suffix(domain: str, info: BusinessInfo, topic: str, suffix: str
 async def make_ai_calls(payload: AICallsInput) -> list[dict]:
     info = BusinessInfo.model_validate(payload.info)
     tasks: list[asyncio.Task] = []
+    semaphore = asyncio.Semaphore(_PROBE_CONCURRENCY)
+
+    async def run_probe(topic: str, suffix: str) -> dict:
+        async with semaphore:
+            return await _probe_suffix(payload.domain, info, topic, suffix)
+
     logger.info("ai_visibility.make_ai_calls.start", domain=payload.domain, topics=len(payload.topics))
     for topic in payload.topics:
-        for suffix in ["alternatives", "competitors", "best", "pricing", "reviews"]:
-            tasks.append(asyncio.create_task(_probe_suffix(payload.domain, info, topic, suffix)))
+        for suffix in SUFFIXES:
+            tasks.append(asyncio.create_task(run_probe(topic, suffix)))
 
     results: list[dict] = []
     for coro in asyncio.as_completed(tasks):
@@ -251,20 +288,21 @@ async def combine_calls(payload: CombineInput) -> dict:
 
     # Build prompt-like objects from probes: one per (topic, suffix)
     prompt_items: list[PromptResult] = []
-    for idx, probe in enumerate(probes, start=1):
+    for probe in probes:
         # Heuristic prompt text and category
         category = "commercial" if probe.suffix in {"alternatives", "competitors", "best"} else "informational"
         text = f"{probe.topic} {probe.suffix}".strip()
         platforms = _build_openai_platforms(probe.mentions_target, base_position=max(1, int(5 - probe.confidence * 4)))
         prompt_items.append(
             PromptResult(
-                id=f"{payload.domain}-{idx}",
+                id=f"{payload.domain}:{probe.topic}:{probe.suffix}",
                 text=text,
                 category=category,
                 you_mentioned=probe.mentions_target,
                 platforms=platforms,
                 competitors_mentioned=probe.competitors,
                 last_checked=timezone.now().isoformat(),
+                reasoning=probe.reasoning,
             )
         )
 
@@ -295,3 +333,14 @@ async def save_results(payload: SaveResultsInput) -> str:
 
     logger.info("ai_visibility.save_results.complete", run_id=payload.run_id, s3_path=s3_key)
     return s3_key
+
+
+@activity.defn(name="markRunFailed")
+async def mark_run_failed(payload: MarkFailedInput) -> None:
+    await asyncio.sleep(0)
+    logger.info("ai_visibility.mark_run_failed", run_id=payload.run_id, error=payload.error_message)
+
+    run = await asyncio.to_thread(AiVisibilityRun.objects.get, id=payload.run_id)
+    await asyncio.to_thread(run.mark_failed, payload.error_message)
+
+    logger.info("ai_visibility.mark_run_failed.complete", run_id=payload.run_id)

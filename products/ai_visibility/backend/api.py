@@ -84,11 +84,12 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
                     {
                         "workflow_id": existing_run.workflow_id,
                         "status": "running",
+                        "created_at": existing_run.created_at,
                     }
                 )
                 return Response(serializer.data, status=status.HTTP_200_OK)
 
-        # No existing run, create a new one
+        # No existing run (or only failed runs), create a new one
         run = AiVisibilityRun.objects.create(
             domain=domain,
             workflow_id="",
@@ -107,5 +108,7 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
             run_id=str(run.id),
         )
 
-        serializer = AIVisibilityStartedResponseSerializer({"workflow_id": workflow_id, "status": "started"})
+        serializer = AIVisibilityStartedResponseSerializer(
+            {"workflow_id": workflow_id, "status": "started", "created_at": run.created_at}
+        )
         return Response(serializer.data, status=status.HTTP_201_CREATED)

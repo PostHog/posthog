@@ -23,6 +23,7 @@ export type DashboardTab = 'overview' | 'prompts' | 'competitors'
 interface StartedResponse {
     workflow_id: string
     status: 'started' | 'running'
+    created_at: string
 }
 
 interface ReadyResponse {
@@ -128,6 +129,15 @@ export const vizLogic = kea<vizLogicType>([
         isPolling: [
             (s) => [s.triggerResult],
             (triggerResult): boolean => triggerResult?.status === 'started' || triggerResult?.status === 'running',
+        ],
+        createdAt: [
+            (s) => [s.triggerResult],
+            (triggerResult): string | null => {
+                if (triggerResult?.status === 'started' || triggerResult?.status === 'running') {
+                    return triggerResult.created_at
+                }
+                return null
+            },
         ],
         isReady: [(s) => [s.triggerResult], (triggerResult): boolean => triggerResult?.status === 'ready'],
         results: [
