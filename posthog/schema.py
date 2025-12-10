@@ -16041,8 +16041,6 @@ class HogQLAutocomplete(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    connectionId: str | None = Field(default=None, description="Optional connection identifier")
-    db: str | None = Field(default=None, description="Optional database target")
     endPosition: int = Field(..., description="End position of the editor word")
     filters: HogQLFilters | None = Field(default=None, description="Table to validate the expression against")
     globals: dict[str, Any] | None = Field(default=None, description="Global values in scope")

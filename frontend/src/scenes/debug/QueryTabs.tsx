@@ -10,7 +10,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { Query } from '~/queries/Query/Query'
 import { Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema/schema-general'
-import { isDataTableNode, isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
+import { isDataTableNode, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
 
 import { QueryLogTable } from './QueryLogTable'
 
@@ -55,9 +55,7 @@ export function QueryTabs<Q extends Node>({
     const explainTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === './explain')?.t ?? 0
     const totalTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === '.')?.t ?? 0
     const hogQLTime = totalTime - explainTime - clickHouseTime
-    const connectionId = isHogQLQuery(query) && query.connectionId ? query.connectionId : 'clickhouse'
     const sqlQuery = response?.postgres ?? response?.clickhouse
-    const sqlLabel = connectionId === 'postgres' ? 'Postgres' : 'ClickHouse'
     const tabs: LemonTabsProps<string>['tabs'] = query
         ? [
               response?.error && {

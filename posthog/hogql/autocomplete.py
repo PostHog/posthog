@@ -35,6 +35,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
+from posthog.hogql.helpers import uses_postgres_dialect
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.resolver import resolve_types, resolve_types_from_table
 from posthog.hogql.resolver_utils import extract_select_queries
@@ -396,6 +397,9 @@ def get_hogql_autocomplete(
         database = Database.create_for(team=team, timings=timings)
 
     context = HogQLContext(team_id=team.pk, team=team, database=database, timings=timings)
+    query_language = query.language
+    if query_language == HogLanguage.HOG_QL and uses_postgres_dialect(query.query):
+        query_language = HogLanguage.HOG_QL_POSTGRES
     if query.sourceQuery:
         if query.sourceQuery.kind == "HogQLQuery" and (
             query.sourceQuery.query is None or query.sourceQuery.query == ""
@@ -420,37 +424,37 @@ def get_hogql_autocomplete(
             query_end = query.endPosition + length_to_add
             select_ast: Optional[ast.AST] = None
 
-            if query.language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_POSTGRES):
+            if query_language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_POSTGRES):
                 with timings.measure("parse_select"):
                     select_ast = parse_select(query_to_try, timings=timings)
                     root_node: ast.AST = select_ast
-            elif query.language == HogLanguage.HOG_QL_EXPR:
+            elif query_language == HogLanguage.HOG_QL_EXPR:
                 with timings.measure("parse_expr"):
                     root_node = parse_expr(query_to_try, timings=timings)
                     select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
                     select_ast.select = [root_node]
-            elif query.language == HogLanguage.HOG_TEMPLATE:
+            elif query_language == HogLanguage.HOG_TEMPLATE:
                 with timings.measure("parse_template"):
                     root_node = parse_string_template(query_to_try, timings=timings)
-            elif query.language == HogLanguage.LIQUID:
+            elif query_language == HogLanguage.LIQUID:
                 with timings.measure("parse_liquid"):
                     # Liquid templates are handled similarly to Hog templates for autocomplete
                     # We treat them as string templates but with Liquid syntax
                     root_node = parse_string_template(query_to_try, timings=timings)
-            elif query.language == HogLanguage.HOG:
+            elif query_language == HogLanguage.HOG:
                 with timings.measure("parse_program"):
                     root_node = parse_program(query_to_try, timings=timings)
-            elif query.language == HogLanguage.HOG_JSON:
+            elif query_language == HogLanguage.HOG_JSON:
                 query_to_try, query_start, query_end = extract_json_row(query_to_try, query_start, query_end)
                 if query_to_try == "":
                     break
                 root_node = parse_string_template(query_to_try, timings=timings)
             else:
-                raise ValueError(f"Unsupported autocomplete language: {query.language}")
+                raise ValueError(f"Unsupported autocomplete language: {query_language}")
 
             with timings.measure("find_node"):
                 # to account for the magic F' symbol we append to change antlr's mode
-                extra = 2 if query.language == HogLanguage.HOG_TEMPLATE else 0
+                extra = 2 if query_language == HogLanguage.HOG_TEMPLATE else 0
                 find_node = GetNodeAtPositionTraverser(root_node, query_start + extra, query_end + extra)
             node = find_node.node
             parent_node = find_node.parent_node
@@ -478,7 +482,7 @@ def get_hogql_autocomplete(
                         if loop_globals != query.globals:
                             break
 
-            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE, HogLanguage.LIQUID):
+            if query_language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE, HogLanguage.LIQUID):
                 # For Hog and Liquid, first add all local variables in scope
                 hog_vars = gather_hog_variables_in_scope(root_node, node)
                 extend_responses(
@@ -487,7 +491,7 @@ def get_hogql_autocomplete(
                     kind=AutocompleteCompletionItemKind.VARIABLE,
                 )
 
-                if query.language != HogLanguage.LIQUID:
+                if query_language != HogLanguage.LIQUID:
                     extend_responses(
                         ALL_HOG_FUNCTIONS,
                         response.suggestions,

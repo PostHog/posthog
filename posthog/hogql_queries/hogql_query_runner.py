@@ -20,6 +20,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.helpers import uses_postgres_dialect
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -90,7 +91,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return self.to_query()
 
     def _calculate(self) -> HogQLQueryResponse:
-        if getattr(self.query, "connectionId", None) == "postgres":
+        if isinstance(self.query, HogQLQuery) and uses_postgres_dialect(self.query.query):
             return self._calculate_postgres()
 
         query = self.to_query()
@@ -151,7 +152,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         executor._process_variables()
         executor._process_placeholders()
         executor._apply_limit()
-        executor._generate_hogql()
+        executor._generate_hogql(dialect="postgres")
 
         postgres_context = dataclasses.replace(
             executor.context,
@@ -164,6 +165,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         )
 
         metadata = None
+        postgres_sql = ""
         try:
             with executor.timings.measure("prepare_and_print_ast"):
                 postgres_sql, prepared_ast = prepare_and_print_ast(
@@ -185,6 +187,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if executor.error is None:
             with executor.timings.measure("postgres_execute"):
                 with connection.cursor() as cursor:
+                    print(postgres_sql)  # noqa: T201
                     cursor.execute(postgres_sql)
                     columns = [col[0] for col in cursor.description] if cursor.description else []
                     results = cursor.fetchall()
@@ -198,7 +201,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                     filters=self.query.filters,
                     variables=self.query.variables,
                     globals=self.query.values,
-                    connectionId="postgres",
                 ),
                 self.team,
                 executor.select_query,

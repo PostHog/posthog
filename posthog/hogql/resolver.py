@@ -221,7 +221,8 @@ class Resolver(CloningVisitor):
             elif isinstance(new_expr.type, ast.CallType):
                 from posthog.hogql.printer import print_prepared_ast
 
-                alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
+                dialect: HogQLDialect = "postgres" if self.dialect == "postgres" else "hogql"
+                alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect=dialect))
             else:
                 alias = None
 

@@ -1,8 +1,6 @@
 import { BindLogic, useValues } from 'kea'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Modifiers } from 'scenes/debug/Modifiers'
 
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
@@ -31,29 +29,10 @@ export function HogQLDebug({ query, setQuery, queryKey, modifiers }: HogQLDebugP
     }
     const { dataLoading, response: _response } = useValues(dataNodeLogic(dataNodeLogicProps))
     const response = _response as HogQLQueryResponse | null
-    const connectionId = query.connectionId ?? 'clickhouse'
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <div className="deprecated-space-y-2">
-                <div className="flex items-center gap-2">
-                    <LemonLabel className="mb-0">Database</LemonLabel>
-                    <LemonSelect
-                        size="small"
-                        options={[
-                            { value: 'clickhouse', label: 'ClickHouse' },
-                            { value: 'postgres', label: 'Postgres' },
-                        ]}
-                        value={connectionId}
-                        onChange={(value) =>
-                            value &&
-                            setQuery({
-                                ...query,
-                                connectionId: value,
-                            })
-                        }
-                    />
-                </div>
                 <HogQLQueryEditor query={query} setQuery={setQuery} />
                 <Modifiers setQuery={setQuery} query={query} response={response} />
                 <LemonDivider className="my-4" />

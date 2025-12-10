@@ -10,6 +10,7 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.helpers import uses_postgres_dialect
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -48,20 +49,24 @@ def get_hogql_metadata(
             debug=query.debug or False,
             globals=query.globals,
         )
-        if query.language == HogLanguage.HOG:
+        query_language = query.language
+        if query_language == HogLanguage.HOG_QL and uses_postgres_dialect(query.query):
+            query_language = HogLanguage.HOG_QL_POSTGRES
+
+        if query_language == HogLanguage.HOG:
             program = parse_program(query.query)
             create_bytecode(program, supported_functions={"fetch", "postHogCapture"}, args=[], context=context)
-        elif query.language == HogLanguage.HOG_TEMPLATE:
+        elif query_language == HogLanguage.HOG_TEMPLATE:
             string = parse_string_template(query.query)
             create_bytecode(string, supported_functions={"fetch", "postHogCapture"}, args=[], context=context)
-        elif query.language == HogLanguage.HOG_QL_EXPR:
+        elif query_language == HogLanguage.HOG_QL_EXPR:
             node = parse_expr(query.query)
             if query.sourceQuery is not None:
                 source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
                 process_expr_on_table(node, context=context, source_query=source_query)
             else:
                 process_expr_on_table(node, context=context)
-        elif query.language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_POSTGRES):
+        elif query_language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_POSTGRES):
             if not hogql_ast:
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)
@@ -75,7 +80,7 @@ def get_hogql_metadata(
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
 
-            if query.language == HogLanguage.HOG_QL:
+            if query_language == HogLanguage.HOG_QL:
                 if not clickhouse_sql or not clickhouse_prepared_ast:
                     clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
                         clone_expr(hogql_ast),
@@ -91,14 +96,14 @@ def get_hogql_metadata(
                     response.isUsingIndices = QueryIndexUsage.UNDECISIVE
                 else:
                     response.isUsingIndices = execute_explain_get_index_use(clickhouse_sql, context)
-            else:
+            else:  # postgres
                 prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
                     dialect="postgres",
                 )
         else:
-            raise ValueError(f"Unsupported language: {query.language}")
+            raise ValueError(f"Unsupported language: {query_language}")
         response.warnings = context.warnings
         response.notices = context.notices
         response.errors = context.errors

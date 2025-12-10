@@ -14,6 +14,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
+from posthog.hogql.query import HogQLQueryExecutor, parse_and_print_hogql_postgres_query
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
@@ -204,3 +206,28 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result_false = runner_false.calculate()
         self.assertEqual(result_false.results[0][0], 1)
+
+    def test_postgres_query_printing_uses_postgres_dialect(self):
+        query_text = "select custom_pg_function(event) from events"
+
+        executor = HogQLQueryExecutor(query=query_text, team=self.team)
+        executor._parse_query()
+        executor._process_variables()
+        executor._process_placeholders()
+        executor._apply_limit()
+
+        with self.assertRaises(QueryError):
+            executor._generate_hogql()
+
+        executor_postgres = HogQLQueryExecutor(query=query_text, team=self.team)
+        executor_postgres._parse_query()
+        executor_postgres._process_variables()
+        executor_postgres._process_placeholders()
+        executor_postgres._apply_limit()
+        executor_postgres._generate_hogql(dialect="postgres")
+
+        self.assertIn("custom_pg_function", executor_postgres.hogql)
+        self.assertEqual(executor_postgres.hogql_context.errors, [])
+
+        printed = parse_and_print_hogql_postgres_query(query_text, self.team)
+        self.assertIn("custom_pg_function(event)", printed)

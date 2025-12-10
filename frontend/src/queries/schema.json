@@ -15843,14 +15843,6 @@
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
-                "connectionId": {
-                    "description": "Optional connection identifier",
-                    "type": "string"
-                },
-                "db": {
-                    "description": "Optional database target",
-                    "type": "string"
-                },
                 "endPosition": {
                     "$ref": "#/definitions/integer",
                     "description": "End position of the editor word"
