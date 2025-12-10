@@ -21,14 +21,11 @@ export type DomainDefinition = {
     label: string
     value: AvailableDomain
     soon?: boolean
-    paid?: boolean
 }
 
 export const AVAILABLE_DOMAINS: DomainDefinition[] = [
     { label: 'phog.gg', value: 'phog.gg' },
-    { label: 'postho.gg', value: 'postho.gg', soon: true },
-    { label: 'hog.gg', value: 'hog.gg', soon: true },
-    { label: 'Custom (BYOD)', value: 'custom', soon: true, paid: true },
+    { label: 'Custom (BYOD)', value: 'custom', soon: true },
 ]
 
 export const DEFAULT_SHORT_LINK_DOMAIN = 'phog.gg'

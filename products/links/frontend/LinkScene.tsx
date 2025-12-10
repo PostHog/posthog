@@ -41,32 +41,17 @@ const SOON_TAG = (
     </LemonTag>
 )
 
-const PAID_TAG = (
-    <LemonTag type="success" size="small" className="ml-2">
-        PAID
-    </LemonTag>
-)
-
-const DomainLabelWithTag = ({
-    domain,
-    soon,
-    paid,
-}: {
-    domain: string
-    soon?: boolean
-    paid?: boolean
-}): JSX.Element => {
+const DomainLabelWithTag = ({ domain, soon }: { domain: string; soon?: boolean }): JSX.Element => {
     return (
         <div>
             <span>{domain}</span>
             {soon && SOON_TAG}
-            {paid && PAID_TAG}
         </div>
     )
 }
 
 const DOMAIN_OPTIONS: LemonSelectOptions<AvailableDomain> = AVAILABLE_DOMAINS.map((domain) => ({
-    label: <DomainLabelWithTag domain={domain.label} soon={domain.soon} paid={domain.paid} />,
+    label: <DomainLabelWithTag domain={domain.label} soon={domain.soon} />,
     value: domain.value,
     disabledReason: domain.soon ? 'Coming soon...' : undefined,
 }))
