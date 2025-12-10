@@ -97,7 +97,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
                 {conversation.slack_thread_key && (
                     <LemonTag>
                         <Link
-                            to={getSlackThreadUrl(conversation.slack_thread_key)}
+                            to={getSlackThreadUrl(conversation.slack_thread_key, conversation.slack_workspace_domain)}
                             target="_blank"
                             className="flex items-center gap-1"
                             onClick={(e) => e.stopPropagation()}

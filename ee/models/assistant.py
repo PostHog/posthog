@@ -58,6 +58,12 @@ class Conversation(UUIDTModel):
         blank=True,
         help_text="Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'",
     )
+    slack_workspace_domain = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)",
+    )
 
 
 class ConversationCheckpoint(UUIDTModel):
