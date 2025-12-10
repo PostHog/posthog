@@ -725,10 +725,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setIsLoading(true)
 
             try {
-                const schemas = await api.externalDataSources.database_schema(
-                    values.selectedConnector.name,
-                    values.source.payload ?? {}
-                )
+                const schemas = await api.externalDataSources.database_schema(values.selectedConnector.name, {
+                    ...values.source.payload,
+                    is_direct_query: values.source.is_direct_query,
+                })
 
                 let showToast = false
 
@@ -772,6 +772,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 sync_type: null,
                                 incremental_field: null,
                                 incremental_field_type: null,
+                                // Include schema metadata for direct query sources
+                                primary_key: schema.primary_key,
+                                foreign_keys: schema.foreign_keys,
+                                columns: schema.columns,
                             })),
                         },
                     })

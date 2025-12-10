@@ -64,7 +64,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
-    def get_schemas(self, config: ConfigType, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: ConfigType, team_id: int, with_counts: bool = False, with_keys: bool = False
+    ) -> list[SourceSchema]:
         raise NotImplementedError()
 
     @property

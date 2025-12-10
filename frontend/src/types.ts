@@ -4990,6 +4990,18 @@ export interface IncrementalField {
     field_type: IncrementalFieldType // the actual database field type
 }
 
+export interface ForeignKeyInfo {
+    column: string
+    target_table: string
+    target_column: string
+}
+
+export interface ColumnInfo {
+    name: string
+    data_type: string
+    is_nullable?: boolean
+}
+
 export interface ExternalDataSourceSyncSchema {
     table: string
     rows?: number | null
@@ -5001,6 +5013,10 @@ export interface ExternalDataSourceSyncSchema {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
+    // Schema metadata for direct query sources
+    primary_key?: string[] | null
+    foreign_keys?: ForeignKeyInfo[] | null
+    columns?: ColumnInfo[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {

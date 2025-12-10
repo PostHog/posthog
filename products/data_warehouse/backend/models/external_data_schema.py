@@ -185,6 +185,37 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         return None
 
+    @property
+    def schema_metadata(self) -> dict[str, Any] | None:
+        """Returns schema metadata including primary_key, foreign_keys, and columns for direct query sources."""
+        if self.sync_type_config:
+            return self.sync_type_config.get("schema_metadata", None)
+        return None
+
+    @property
+    def primary_key(self) -> list[str] | None:
+        """Returns the primary key columns for this schema."""
+        metadata = self.schema_metadata
+        if metadata:
+            return metadata.get("primary_key", None)
+        return None
+
+    @property
+    def foreign_keys(self) -> list[dict[str, str]] | None:
+        """Returns the foreign key relationships for this schema."""
+        metadata = self.schema_metadata
+        if metadata:
+            return metadata.get("foreign_keys", None)
+        return None
+
+    @property
+    def columns(self) -> list[dict[str, str]] | None:
+        """Returns the column metadata for this schema."""
+        metadata = self.schema_metadata
+        if metadata:
+            return metadata.get("columns", None)
+        return None
+
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],

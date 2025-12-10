@@ -464,6 +464,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": "Incremental schemas given do not have an incremental field type set"},
                 )
 
+            # Build sync_type_config
+            sync_type_config: dict = {}
+            if requires_incremental_fields:
+                sync_type_config["incremental_field"] = incremental_field
+                sync_type_config["incremental_field_type"] = incremental_field_type
+
+            # Store schema metadata for direct query sources
+            if is_direct_query:
+                schema_metadata = {}
+                if schema.get("primary_key"):
+                    schema_metadata["primary_key"] = schema.get("primary_key")
+                if schema.get("foreign_keys"):
+                    schema_metadata["foreign_keys"] = schema.get("foreign_keys")
+                if schema.get("columns"):
+                    schema_metadata["columns"] = schema.get("columns")
+                if schema_metadata:
+                    sync_type_config["schema_metadata"] = schema_metadata
+
             schema_model = ExternalDataSchema.objects.create(
                 name=schema.get("name"),
                 team=self.team,
@@ -471,14 +489,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 should_sync=should_sync,
                 sync_type=sync_type,
                 sync_time_of_day=sync_time_of_day,
-                sync_type_config=(
-                    {
-                        "incremental_field": incremental_field,
-                        "incremental_field_type": incremental_field_type,
-                    }
-                    if requires_incremental_fields
-                    else {}
-                ),
+                sync_type_config=sync_type_config,
             )
 
             if should_sync:
@@ -585,6 +596,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
         source_type = request.data.get("source_type", None)
+        is_direct_query = request.data.get("is_direct_query", False)
 
         if source_type is None:
             return Response(
@@ -610,7 +622,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            schemas = source.get_schemas(source_config, self.team_id, True)
+            # Fetch PK/FK data for direct query sources
+            schemas = source.get_schemas(source_config, self.team_id, with_counts=True, with_keys=is_direct_query)
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
@@ -630,6 +643,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 else None,
                 "sync_type": None,
                 "rows": schema.row_count,
+                # Include schema metadata for direct query sources
+                "primary_key": schema.primary_key,
+                "foreign_keys": schema.foreign_keys,
+                "columns": schema.columns,
             }
             for schema in schemas
         ]
