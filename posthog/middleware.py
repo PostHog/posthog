@@ -923,7 +923,7 @@ def login_as_user_read_only(request: HttpRequest, user_id: str) -> HttpResponse:
 
     if error_message:
         messages.error(request, error_message)
-        return redirect(f"/admin/posthog/user/{user_id}/change/")
+        return redirect(f"/admin/posthog/user/{target_user.pk}/change/")
 
     login_as(target_user, request)
 
