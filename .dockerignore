@@ -71,6 +71,3 @@ rust/target
 !docker-compose.base.yml
 !docker-compose.dev.yml
 !docker
-!.git/config
-!.git/HEAD
-!.git/refs

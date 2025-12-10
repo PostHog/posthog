@@ -36,9 +36,6 @@ COPY common/esbuilder/ common/esbuilder/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
-COPY .git/config .git/config
-COPY .git/HEAD .git/HEAD
-COPY .git/refs/heads .git/refs/heads
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && pnpm --version && \
     CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
@@ -57,6 +54,8 @@ FROM node:22.17.1-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
+ARG COMMIT_HASH
+
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
@@ -70,7 +69,9 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
             export POSTHOG_CLI_ENV_ID=2 && \
             posthog-cli --no-fail sourcemap process \
                 --directory /code/frontend/dist \
-                --public-path-prefix /static; \
+                --public-path-prefix /static \
+                --project posthog \
+                --version "${COMMIT_HASH:-unknown}"; \
         fi \
     ) || true && \
     touch /tmp/.sourcemaps-processed
