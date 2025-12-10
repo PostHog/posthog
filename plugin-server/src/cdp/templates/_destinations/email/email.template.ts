@@ -27,7 +27,7 @@ export const template: HogFunctionTemplate = {
             required: true,
             default: {
                 to: {
-                    email: '{{ person.properties.email }}',
+                    email: '',
                     name: '',
                 },
                 from: {
