@@ -202,7 +202,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Action',
         iconType: 'action',
     },
-    Viz: { name: 'Viz', allowUnauthenticated: true, layout: 'plain' },
+    Viz: { name: 'AI visibility', allowUnauthenticated: true, layout: 'plain' },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
