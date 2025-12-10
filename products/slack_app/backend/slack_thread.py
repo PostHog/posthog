@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
+from slack_sdk import WebClient
 
 from posthog.models.integration import Integration, SlackIntegration
 
@@ -40,7 +41,7 @@ class SlackThreadHandler:
     def __init__(self, context: SlackThreadContext):
         self.context = context
         self._integration: Integration | None = None
-        self._client = None
+        self._client: WebClient | None = None
         self._bot_user_id: str | None = None
 
     def _get_integration(self) -> Integration:

@@ -50,7 +50,7 @@ def _get_stage_from_status(status: str) -> str:
     """Map task run status to human-readable stage."""
     from products.tasks.backend.models import TaskRun
 
-    status_map = {
+    status_map: dict[str, str] = {
         TaskRun.Status.NOT_STARTED: "In progress...",
         TaskRun.Status.QUEUED: "In progress...",
         TaskRun.Status.IN_PROGRESS: "In progress...",
