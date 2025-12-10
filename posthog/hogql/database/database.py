@@ -46,6 +46,7 @@ from posthog.hogql.database.models import (
     FunctionCallTable,
     IntegerDatabaseField,
     LazyJoin,
+    LazyJoinToAdd,
     SavedQuery,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -976,6 +977,7 @@ class Database(BaseModel):
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
                     .select_related("credential", "external_data_source")
+                    .prefetch_related("externaldataschema_set")
                 )
 
             view_names = views.resolve_all_table_names()
@@ -987,6 +989,8 @@ class Database(BaseModel):
 
                 with timings.measure(f"table_{table.name}"):
                     s3_table = table.hogql_definition(modifiers)
+
+                    _add_foreign_key_lazy_joins(s3_table, table)
 
                     # If the warehouse table has no _properties_ field, then set it as a virtual table
                     if s3_table.fields.get("properties") is None:
@@ -1470,6 +1474,78 @@ def _constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> 
 
 
 HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
+
+
+def _foreign_key_join_function(
+    from_field: list[str | int], to_field: list[str | int]
+) -> Callable[[LazyJoinToAdd, HogQLContext, ast.SelectQuery], ast.JoinExpr]:
+    def _join_function(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery):
+        if not join_to_add.fields_accessed:
+            raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
+
+        left = ast.Field(chain=[join_to_add.from_table, *from_field])
+        right = ast.Field(chain=[join_to_add.to_table, *to_field])
+
+        return ast.JoinExpr(
+            table=ast.SelectQuery(
+                select=[
+                    ast.Alias(alias=alias, expr=ast.Field(chain=chain))
+                    for alias, chain in join_to_add.fields_accessed.items()
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[join_to_add.to_table])),
+            ),
+            join_type="LEFT JOIN",
+            alias=join_to_add.to_table,
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=left,
+                    right=right,
+                ),
+                constraint_type="ON",
+            ),
+        )
+
+    return _join_function
+
+
+def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehouseTable) -> None:
+    schemas_attr = getattr(warehouse_table, "externaldataschema_set", None)
+
+    if hasattr(schemas_attr, "all"):
+        schemas = list(schemas_attr.all())
+    else:
+        schemas = list(schemas_attr or [])
+    schema_with_foreign_keys = next((schema for schema in schemas if getattr(schema, "foreign_keys", None)), None)
+
+    if not schema_with_foreign_keys or not schema_with_foreign_keys.foreign_keys:
+        return
+
+    for foreign_key in schema_with_foreign_keys.foreign_keys:
+        column = foreign_key.get("column")
+        target_table = foreign_key.get("target_table")
+        target_column = foreign_key.get("target_column")
+
+        if not column or not target_table or not target_column:
+            continue
+
+        from_field = get_join_field_chain(column)
+        to_field = get_join_field_chain(target_column)
+
+        if from_field is None or to_field is None:
+            continue
+
+        field_name = column[:-3] if column.endswith("_id") and len(column) > 3 else column
+
+        if hogql_table.fields.get(field_name):
+            continue
+
+        hogql_table.fields[field_name] = LazyJoin(
+            from_field=from_field,
+            to_field=to_field,
+            join_table=target_table,
+            join_function=_foreign_key_join_function(from_field, to_field),
+        )
 
 
 def serialize_fields(

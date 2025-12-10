@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -18,16 +19,18 @@ from posthog.schema import (
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, _add_foreign_key_lazy_joins
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
     FieldTraverser,
+    IntegerDatabaseField,
     LazyJoin,
     LazyTable,
     StringDatabaseField,
     Table,
 )
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -225,6 +228,50 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field is not None
         assert field.name == "id-hype"
         assert field.hogql_value == "`id-hype`"
+
+    @parameterized.expand(
+        [
+            "prefetched_schema_list",
+            "related_manager",
+        ]
+    )
+    def test_foreign_key_lazy_joins_added_from_schema_metadata(self, schema_source_type: str):
+        hogql_table = HogQLDataWarehouseTable(
+            name="posthog_dashboarditem",
+            url="s3://placeholder",
+            format="CSV",
+            access_key=None,
+            access_secret=None,
+            fields={"dashboard_id": IntegerDatabaseField(name="dashboard_id")},
+            structure="`dashboard_id` String",
+            table_id="test",
+        )
+
+        schema_entries = [
+            SimpleNamespace(
+                foreign_keys=[
+                    {
+                        "column": "dashboard_id",
+                        "target_table": "posthog_dashboard",
+                        "target_column": "id",
+                    }
+                ]
+            )
+        ]
+
+        if schema_source_type == "related_manager":
+            warehouse_table = SimpleNamespace(externaldataschema_set=SimpleNamespace(all=lambda: schema_entries))
+        else:
+            warehouse_table = SimpleNamespace(externaldataschema_set=schema_entries)
+
+        _add_foreign_key_lazy_joins(hogql_table, warehouse_table)
+
+        dashboard_join = hogql_table.fields.get("dashboard")
+
+        assert isinstance(dashboard_join, LazyJoin)
+        assert dashboard_join.join_table == "posthog_dashboard"
+        assert dashboard_join.from_field == ["dashboard_id"]
+        assert dashboard_join.to_field == ["id"]
 
     def test_serialize_database_warehouse_table_source(self):
         source = ExternalDataSource.objects.create(
