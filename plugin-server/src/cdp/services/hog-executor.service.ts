@@ -685,6 +685,8 @@ export class HogExecutorService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 
                 return result
+            } else {
+                result.error = new Error(message)
             }
         }
 

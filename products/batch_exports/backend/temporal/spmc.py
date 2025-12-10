@@ -16,6 +16,7 @@ from posthog.schema import EventPropertyFilter, HogQLPropertyFilter, HogQLQueryM
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -658,7 +659,7 @@ class Producer:
         destination_default_fields: list[BatchExportField] | None = None,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
-        filters: list[dict[str, str | list[str]]] | None = None,
+        filters: list[dict[str, str | list[str] | None]] | None = None,
         order_columns: collections.abc.Iterable[str] | None = ("_inserted_at", "event"),
         **parameters,
     ) -> asyncio.Task:
@@ -960,8 +961,21 @@ class UpdatePropertiesToPersonProperties(TraversingVisitor):
             node.chain = ["events", "poe", "properties", *node.chain[1:]]
 
 
+class InvalidFilterError(Exception):
+    """Error raised when an invalid filter is used."""
+
+    def __init__(self, error: ExposedHogQLError | InternalHogQLError):
+        if isinstance(error, ExposedHogQLError):
+            msg = f"One or more provided filters are invalid: {error}"
+        else:
+            # TODO: Figure out if we can include some debug information from internal
+            # errors too
+            msg = "One or more provided filters are invalid"
+        super().__init__(msg)
+
+
 def compose_filters_clause(
-    filters: list[dict[str, str | list[str]]],
+    filters: list[dict[str, str | list[str] | None]],
     team_id: int,
     values: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, str]]:
@@ -983,9 +997,9 @@ def compose_filters_clause(
     context = HogQLContext(
         team=team,
         team_id=team.id,
-        enable_select_queries=True,
+        enable_select_queries=False,
         limit_top_select=False,
-        within_non_hogql_query=True,
+        within_non_hogql_query=False,
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
@@ -1012,7 +1026,11 @@ def compose_filters_clause(
                 exprs.append(expr)
 
             case "hogql":
-                exprs.append(property_to_expr(HogQLPropertyFilter(**filter), team=team))
+                try:
+                    exprs.append(property_to_expr(HogQLPropertyFilter(**filter), team=team))
+                except (ExposedHogQLError, InternalHogQLError) as e:
+                    raise InvalidFilterError(e) from e
+
             case s:
                 raise TypeError(f"Unknown filter type: '{s}'")
 
@@ -1033,12 +1051,15 @@ def compose_filters_clause(
         and_expr, context=context, dialect="clickhouse", stack=[prepared_select_query]
     )
 
-    printed = print_prepared_ast(
-        prepared_and_expr,  # type: ignore
-        context=context,
-        dialect="clickhouse",
-        stack=[prepared_select_query],
-    )
+    try:
+        printed = print_prepared_ast(
+            prepared_and_expr,  # type: ignore
+            context=context,
+            dialect="clickhouse",
+            stack=[prepared_select_query],
+        )
+    except (ExposedHogQLError, InternalHogQLError) as e:
+        raise InvalidFilterError(e) from e
 
     return printed, context.values
 

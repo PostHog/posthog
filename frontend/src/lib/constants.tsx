@@ -318,7 +318,8 @@ export const FEATURE_FLAGS = {
     SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate=true
     SWITCH_SUBSCRIPTION_PLAN: 'switch-subscription-plan', // owner: @a-lider #team-platform-features
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
-    TASKS: 'tasks', // owner: #team-llm-analytics
+    TASKS: 'tasks', // owner: #team-array
+    PHAI_TASKS: 'phai-tasks', // owner: #team-array
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     USE_TEMPORAL_SUBSCRIPTIONS: 'use-temporal-subscriptions', // owner: @aspicer #team-analytics-platform
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
@@ -337,6 +338,8 @@ export const FEATURE_FLAGS = {
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
+    LIVE_EVENTS_ACTIVE_RECORDINGS: 'live-events-active-recordings', // owner: @pauldambra #team-replay
+    PRODUCT_TOURS: 'product-tours-2025', // owner: @pauldambra #team-replay
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

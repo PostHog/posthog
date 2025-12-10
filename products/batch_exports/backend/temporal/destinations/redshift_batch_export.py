@@ -121,8 +121,14 @@ NON_RETRYABLE_ERROR_TYPES = (
 class StringLimitExceededError(Exception):
     """Error raised when exceeding Redshift VARCHAR limit."""
 
-    def __init__(self, column: str, table: str, schema: str):
-        msg = f"Column '{column}' in '{schema}.{table}' exceeds Redshift's 'VARCHAR' limit and cannot be exported"
+    def __init__(self, column: str | None, table: str, schema: str):
+        if column:
+            msg = f"Column '{column}' "
+        else:
+            msg = f"A column "
+
+        msg += f"in '{schema}.{table}' exceeds Redshift's string limit and cannot be exported"
+
         if column in {"properties", "set", "set_once", "person_properties"}:
             msg += ". Consider switching this column to 'SUPER' type which can support longer documents compared to 'VARCHAR'"
         super().__init__(msg)
@@ -230,7 +236,6 @@ class RedshiftClient(PostgreSQLClient):
         merge_key: Fields,
         update_key: Fields,
         final_table_fields: Fields,
-        update_when_matched: Fields = (),
         stage_fields_cast_to_super: collections.abc.Container[str] | None = None,
         remove_duplicates: bool = True,
     ) -> None:
@@ -349,6 +354,7 @@ class RedshiftClient(PostgreSQLClient):
                         schema=schema,
                         stage_table=stage_table_name,
                         query="DELETE",
+                        full_query=delete_query,
                     )
                     self.external_logger.error(  # noqa: TRY400
                         "A non-retryable 'UndefinedFunction' error happened when attempting to"
@@ -363,7 +369,21 @@ class RedshiftClient(PostgreSQLClient):
                     )
                     raise
 
-                await cursor.execute(merge_query)
+                try:
+                    await cursor.execute(merge_query)
+                except psycopg.errors.InternalError_ as e:
+                    self.logger.exception(
+                        "Query failed",
+                        table=final_table_name,
+                        schema=schema,
+                        stage_table=stage_table_name,
+                        query="MERGE",
+                        full_query=merge_query,
+                    )
+                    if "String value exceeds the max size of 65535" in str(e):
+                        raise StringLimitExceededError(column=None, schema=schema, table=final_table_name) from e
+                    else:
+                        raise
 
     async def acopy_from_s3_bucket(
         self,

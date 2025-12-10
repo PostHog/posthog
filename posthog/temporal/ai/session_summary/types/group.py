@@ -33,11 +33,12 @@ class SessionGroupSummaryInputs:
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class SessionGroupSummarySingleSessionOutput:
-    """Output after generating a single session summary to pass through to the next group summary activity"""
+class SessionBatchFetchOutput:
+    """Result of fetching session batch data, tracking both successful and expected skips."""
 
-    session_summary_str: str
-    redis_input_key: str
+    fetched_session_ids: list[str]
+    # Sessions skipped due to known unsummarizable conditions (too short, no events after filtering)
+    expected_skip_session_ids: list[str]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

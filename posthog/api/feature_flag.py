@@ -373,12 +373,19 @@ class FeatureFlagSerializer(
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    CREATION_CONTEXT_CHOICES = (
+        "feature_flags",
+        "experiments",
+        "surveys",
+        "early_access_features",
+        "web_experiments",
+        "product_tours",
+    )
     creation_context = serializers.ChoiceField(
         choices=CREATION_CONTEXT_CHOICES,
         write_only=True,
         required=False,
-        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
+        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _should_create_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=True)
