@@ -16,6 +16,7 @@ import {
     LemonTag,
     LemonTextArea,
     Link,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -59,7 +60,15 @@ const DOMAIN_OPTIONS: LemonSelectOptions<AvailableDomain> = AVAILABLE_DOMAINS.ma
 }))
 
 export function LinkScene({ id }: LinkLogicProps): JSX.Element {
-    const { link, linkLoading, isLinkSubmitting, isEditingLink, linkMissing } = useValues(linkLogic)
+    const {
+        link,
+        linkLoading,
+        isLinkSubmitting,
+        isEditingLink,
+        linkMissing,
+        shortCodeAvailabilityLoading,
+        shortCodeAvailabilityError,
+    } = useValues(linkLogic)
     const { submitLinkRequest, loadLink, editLink, deleteLink } = useActions(linkLogic)
 
     const linkId = link?.id && link?.id !== 'new' ? link.id : null
@@ -199,23 +208,35 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                             <div className="flex flex-col">
                                 <LemonLabel>Short Link</LemonLabel>
                                 {displayForm ? (
-                                    <div className="flex gap-1 items-center">
-                                        <LemonField name="short_link_domain">
-                                            <LemonSelect<AvailableDomain>
-                                                options={DOMAIN_OPTIONS}
-                                                className="text-muted"
-                                            />
-                                        </LemonField>
-                                        <span className="text-muted">/</span>
-                                        <LemonField name="short_code" className="w-full">
-                                            <LemonInput
-                                                fullWidth
-                                                placeholder="short"
-                                                className="flex-1"
-                                                autoWidth={false}
-                                            />
-                                        </LemonField>
-                                    </div>
+                                    <>
+                                        <div className="flex gap-1 items-start">
+                                            <LemonField name="short_link_domain">
+                                                <LemonSelect<AvailableDomain>
+                                                    options={DOMAIN_OPTIONS}
+                                                    className="text-muted"
+                                                />
+                                            </LemonField>
+                                            <span className="text-muted">/</span>
+                                            <LemonField name="short_code" className="w-full">
+                                                <LemonInput
+                                                    fullWidth
+                                                    placeholder="short"
+                                                    className="flex-1"
+                                                    autoWidth={false}
+                                                    suffix={
+                                                        shortCodeAvailabilityLoading ? (
+                                                            <Spinner className="text-muted" />
+                                                        ) : undefined
+                                                    }
+                                                />
+                                            </LemonField>
+                                        </div>
+                                        {shortCodeAvailabilityError && (
+                                            <div className="mt-2">
+                                                <LemonField.Error error={shortCodeAvailabilityError} />
+                                            </div>
+                                        )}
+                                    </>
                                 ) : (
                                     <Link to={fullLink} target="_blank">
                                         {fullLink}

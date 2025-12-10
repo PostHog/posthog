@@ -81,6 +81,13 @@ export const linkLogic = kea<linkLogicType>([
                 return result
             },
         },
+        shortCodeAvailability: {
+            checkShortCodeAvailability: async ({ shortCode, domain }, breakpoint) => {
+                await breakpoint(300)
+                const response = await api.links.checkAvailability(shortCode, domain)
+                return response
+            },
+        },
     })),
     forms(({ actions, props }) => ({
         link: {
@@ -101,6 +108,22 @@ export const linkLogic = kea<linkLogicType>([
     reducers({
         linkMissing: [false, { setLinkMissing: () => true }],
         isEditingLink: [false, { editLink: (_, { editing }) => editing }],
+        originalLink: [
+            null as LinkType | null,
+            {
+                loadLinkSuccess: (_, { link }) => link,
+                saveLinkSuccess: (_, { link }) => link,
+            },
+        ],
+        shortCodeAvailabilityError: [
+            null as string | null,
+            {
+                checkShortCodeAvailabilitySuccess: (_, { shortCodeAvailability }) =>
+                    shortCodeAvailability.available ? null : 'This short code is already taken',
+                checkShortCodeAvailabilityFailure: () => null,
+                resetLink: () => null,
+            },
+        ],
     }),
     selectors({
         mode: [(_, p) => [p.id], (id): 'view' | 'edit' => (id === 'new' ? 'edit' : 'view')],
@@ -125,7 +148,7 @@ export const linkLogic = kea<linkLogicType>([
             (id): ProjectTreeRef => ({ type: 'link', ref: id === 'new' ? null : String(id) }),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         saveLinkSuccess: ({ link }) => {
             lemonToast.success('Link saved')
             actions.loadLinks()
@@ -142,6 +165,33 @@ export const linkLogic = kea<linkLogicType>([
             } catch (e) {
                 lemonToast.error(`Error deleting Link: ${e}`)
             }
+        },
+        setLinkValue: async ({ name, value }) => {
+            // name comes in as an array of field names
+            const fieldName = Array.isArray(name) ? name[0] : name
+
+            if (fieldName !== 'short_code' && fieldName !== 'short_link_domain') {
+                return
+            }
+
+            const currentShortCode = fieldName === 'short_code' ? value : values.link.short_code
+            const currentDomain = fieldName === 'short_link_domain' ? value : values.link.short_link_domain
+
+            if (!currentShortCode || !currentDomain) {
+                return
+            }
+
+            // Skip check if we're editing and the values match the originally loaded link
+            if (props.id !== 'new' && values.originalLink) {
+                if (
+                    values.originalLink.short_code === currentShortCode &&
+                    values.originalLink.short_link_domain === currentDomain
+                ) {
+                    return
+                }
+            }
+
+            actions.checkShortCodeAvailability({ shortCode: currentShortCode, domain: currentDomain })
         },
     })),
     urlToAction(({ actions, props }) => ({

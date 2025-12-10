@@ -3095,6 +3095,13 @@ const api = {
         async delete(id: LinkType['id']): Promise<void> {
             await new ApiRequest().link(id).delete()
         },
+        async checkAvailability(short_code: string, short_link_domain: string): Promise<{ available: boolean }> {
+            return await new ApiRequest()
+                .links()
+                .withAction('check-availability')
+                .withQueryString({ short_code, short_link_domain })
+                .get()
+        },
     },
 
     annotations: {
