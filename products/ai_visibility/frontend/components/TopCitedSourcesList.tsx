@@ -15,7 +15,11 @@ export function TopCitedSourcesList({ sources }: { sources: TopCitedSource[] }):
                 {sources.slice(0, 6).map((source) => (
                     <div key={source.domain} className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <div className="w-5 h-5 rounded bg-border flex items-center justify-center text-xs">🌐</div>
+                            <img
+                                src={`https://www.google.com/s2/favicons?domain=${source.domain}&sz=32`}
+                                alt=""
+                                className="w-5 h-5 rounded"
+                            />
                             <span className="text-sm">{source.domain}</span>
                         </div>
                         <span className="text-sm">

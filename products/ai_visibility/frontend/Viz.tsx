@@ -37,6 +37,7 @@ function OverviewTab({ brand }: { brand: string }): JSX.Element {
                 <RankingCard rank={brandRanking} brandName={brandDisplayName} topCompetitors={rankingCompetitors} />
                 <CompetitorMentionsBar
                     brandName={brandDisplayName}
+                    brandDomain={brand}
                     visibilityScore={visibilityScore}
                     competitors={topCompetitors}
                     onViewAll={() => setActiveTab('competitors')}

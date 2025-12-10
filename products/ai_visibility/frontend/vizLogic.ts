@@ -379,12 +379,31 @@ export const vizLogic = kea<vizLogicType>([
             },
         ],
 
+        // Build name → domain map from competitor objects in prompts
+        competitorDomains: [
+            (s) => [s.prompts],
+            (prompts: Prompt[]): Record<string, string> => {
+                const domains: Record<string, string> = {}
+                for (const p of prompts) {
+                    for (const comp of p.competitors ?? []) {
+                        if (comp.name && comp.domain) {
+                            domains[comp.name] = comp.domain
+                        }
+                    }
+                }
+                return domains
+            },
+        ],
+
         // Top competitors sorted by visibility
         topCompetitors: [
-            (s) => [s.competitorVisibility],
-            (visibility: Record<string, number>): { name: string; visibility: number }[] => {
+            (s) => [s.competitorVisibility, s.competitorDomains],
+            (
+                visibility: Record<string, number>,
+                domains: Record<string, string>
+            ): { name: string; visibility: number; domain?: string }[] => {
                 return Object.entries(visibility)
-                    .map(([name, vis]) => ({ name, visibility: vis }))
+                    .map(([name, vis]) => ({ name, visibility: vis, domain: domains[name] }))
                     .sort((a, b) => b.visibility - a.visibility)
                     .slice(0, 10)
             },
