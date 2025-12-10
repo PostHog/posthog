@@ -3,16 +3,14 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
-import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { productTourLogic } from './productTourLogic'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
@@ -77,14 +75,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                         <p className="text-secondary text-sm mb-4">
                             Tour steps and appearance can only be edited in the toolbar.
                         </p>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={`${urls.toolbarLaunch()}?__posthog_product_tour=${id}`}
-                            targetBlank
-                        >
-                            Edit in toolbar
-                        </LemonButton>
+                        <EditInToolbarButton tourId={id} />
                     </div>
 
                     <LemonDivider />

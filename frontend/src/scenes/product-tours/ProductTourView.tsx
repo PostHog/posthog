@@ -11,7 +11,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { urls } from 'scenes/urls'
 
 import {
     ScenePanel,
@@ -34,6 +33,7 @@ import {
     StepOrderValue,
 } from '~/types'
 
+import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
 import { productTourLogic } from './productTourLogic'
 import { getProductTourStatus, isProductTourRunning, productToursLogic } from './productToursLogic'
@@ -108,14 +108,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 isLoading={productTourLoading}
                 actions={
                     <>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={`${urls.toolbarLaunch()}?__posthog_product_tour=${id}`}
-                            targetBlank
-                        >
-                            Edit in toolbar
-                        </LemonButton>
+                        <EditInToolbarButton tourId={id} />
                         <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
                             Edit
                         </LemonButton>
