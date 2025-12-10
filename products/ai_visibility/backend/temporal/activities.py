@@ -48,10 +48,33 @@ class ProbeResult(BaseModel):
     reasoning: str
 
 
-class CombinedOutput(BaseModel):
-    business: BusinessInfo
-    topics: list[str]
-    probes: list[ProbeResult]
+class PlatformResult(BaseModel):
+    mentioned: bool
+    position: int | None = None
+    cited: bool | None = None
+
+
+class PromptResult(BaseModel):
+    id: str
+    text: str
+    category: str
+    you_mentioned: bool
+    platforms: dict[str, PlatformResult]
+    competitors_mentioned: list[str]
+    last_checked: str
+
+
+class ShareOfVoice(BaseModel):
+    you: float
+    competitors: dict[str, float]
+
+
+class DashboardData(BaseModel):
+    visibility_score: int
+    score_change: int
+    score_change_period: str
+    share_of_voice: ShareOfVoice
+    prompts: list[PromptResult]
 
 
 @dataclass
@@ -86,6 +109,30 @@ class CombineInput:
     info: dict
     topics: list[str]
     ai_calls: list[dict]
+
+
+def _compute_share_of_voice(probes: list[ProbeResult], target: str) -> ShareOfVoice:
+    if not probes:
+        return ShareOfVoice(you=0.0, competitors={})
+
+    you_hits = sum(1 for p in probes if p.mentions_target)
+    total = len(probes)
+    you_ratio = you_hits / total if total else 0.0
+
+    comp_counts: dict[str, int] = {}
+    for p in probes:
+        for comp in p.competitors:
+            comp_counts[comp] = comp_counts.get(comp, 0) + 1
+
+    comp_sum = sum(comp_counts.values()) or 1
+    competitors = {k: v / comp_sum for k, v in comp_counts.items()}
+    return ShareOfVoice(you=you_ratio, competitors=competitors)
+
+
+def _build_openai_platforms(mentioned: bool, base_position: int) -> dict[str, PlatformResult]:
+    if not mentioned:
+        return {"openai": PlatformResult(mentioned=False)}
+    return {"openai": PlatformResult(mentioned=True, position=max(1, base_position), cited=True)}
 
 
 async def _call_structured_llm(prompt: str, schema_model: type[BaseModel]) -> dict[str, Any]:
@@ -166,11 +213,10 @@ async def _probe_suffix(domain: str, info: BusinessInfo, topic: str, suffix: str
 @activity.defn(name="makeAICalls")
 async def make_ai_calls(payload: AICallsInput) -> list[dict]:
     info = BusinessInfo.model_validate(payload.info)
-    suffixes = ["alternatives", "competitors", "best", "pricing", "reviews"]
     tasks: list[asyncio.Task] = []
     logger.info("ai_visibility.make_ai_calls.start", domain=payload.domain, topics=len(payload.topics))
     for topic in payload.topics:
-        for suffix in suffixes:
+        for suffix in ["alternatives", "competitors", "best", "pricing", "reviews"]:
             tasks.append(asyncio.create_task(_probe_suffix(payload.domain, info, topic, suffix)))
 
     results: list[dict] = []
@@ -188,6 +234,40 @@ async def make_ai_calls(payload: AICallsInput) -> list[dict]:
 async def combine_calls(payload: CombineInput) -> dict:
     info = BusinessInfo.model_validate(payload.info)
     probes = [ProbeResult.model_validate(p) for p in payload.ai_calls]
-    combined = CombinedOutput(business=info, topics=payload.topics, probes=probes)
-    logger.info("ai_visibility.combine_calls.done", domain=payload.domain, probes=len(probes))
-    return combined.model_dump()
+
+    share = _compute_share_of_voice(probes, target=info.name)
+
+    # Build prompt-like objects from probes: one per (topic, suffix)
+    prompt_items: list[PromptResult] = []
+    for idx, probe in enumerate(probes, start=1):
+        # Heuristic prompt text and category
+        category = "commercial" if probe.suffix in {"alternatives", "competitors", "best"} else "informational"
+        text = f"{probe.topic} {probe.suffix}".strip()
+        platforms = _build_openai_platforms(probe.mentions_target, base_position=max(1, int(5 - probe.confidence * 4)))
+        prompt_items.append(
+            PromptResult(
+                id=f"{payload.domain}-{idx}",
+                text=text,
+                category=category,
+                you_mentioned=probe.mentions_target,
+                platforms=platforms,
+                competitors_mentioned=probe.competitors,
+                last_checked=activity.info().start_time.isoformat(),
+            )
+        )
+
+    visibility_score = int(min(100, max(0, share.you * 100)))
+    score_change = 0
+
+    dashboard = DashboardData(
+        visibility_score=visibility_score,
+        score_change=score_change,
+        score_change_period="week",
+        share_of_voice=share,
+        prompts=prompt_items,
+    )
+
+    logger.info(
+        "ai_visibility.combine_calls.done", domain=payload.domain, probes=len(probes), visibility_score=visibility_score
+    )
+    return dashboard.model_dump()
