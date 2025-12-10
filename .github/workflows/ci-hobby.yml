@@ -56,10 +56,31 @@ jobs:
                   python-version: '3.8'
             - name: Get python deps
               run: pip install python-digitalocean==1.17.0 requests==2.28.1
+            - name: Check for preview mode
+              id: check-preview
+              run: |
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                    LABELS=$(gh pr view ${{ github.event.pull_request.number }} --json labels -q '.labels[].name' 2>/dev/null || echo "")
+                    if echo "$LABELS" | grep -q "hobby-preview"; then
+                      echo "PREVIEW_MODE=true" >> $GITHUB_ENV
+                      echo "preview=true" >> $GITHUB_OUTPUT
+                      echo "🔄 Preview mode enabled - will reuse droplet if exists"
+                    else
+                      echo "PREVIEW_MODE=false" >> $GITHUB_ENV
+                      echo "preview=false" >> $GITHUB_OUTPUT
+                      echo "🧪 Smoke test mode - ephemeral droplet"
+                    fi
+                  else
+                    echo "PREVIEW_MODE=false" >> $GITHUB_ENV
+                    echo "preview=false" >> $GITHUB_OUTPUT
+                  fi
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             - name: Setup DO Hobby Instance
               run: python3 bin/hobby-ci.py create "$GITHUB_HEAD_REF" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}"
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
             - name: Run smoke tests on DO
               id: test
               timeout-minutes: 30
@@ -88,11 +109,11 @@ jobs:
                       /tmp/droplet_info.txt
                       /tmp/docker-compose-logs.txt
                   if-no-files-found: warn
-            # - name: Post-cleanup step
-            #   if: always()
-            #   run: python3 bin/hobby-ci.py destroy
-            #   env:
-            #       DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+            - name: Post-cleanup step
+              if: always() && env.PREVIEW_MODE == 'false'
+              run: python3 bin/hobby-ci.py destroy
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
             - name: Check test result
               if: always()
               run: |

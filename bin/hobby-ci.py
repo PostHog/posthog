@@ -271,6 +271,101 @@ ssh_authorized_keys:
             print(f"Could not fetch droplet info: {e}")
             return None
 
+    def run_ssh_command(self, command, timeout=60):
+        """Execute a command on the droplet via SSH"""
+        if not self.droplet or not self.ssh_private_key:
+            raise ValueError("Droplet or SSH key not configured")
+
+        import io
+
+        import paramiko
+
+        try:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            # Load private key from string
+            key = paramiko.RSAKey.from_private_key(io.StringIO(self.ssh_private_key))
+
+            # Connect to droplet
+            client.connect(hostname=self.droplet.ip_address, username="root", pkey=key, timeout=timeout)
+
+            # Execute command
+            stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
+            exit_status = stdout.channel.recv_exit_status()
+
+            stdout_text = stdout.read().decode("utf-8")
+            stderr_text = stderr.read().decode("utf-8")
+
+            client.close()
+
+            return {"exit_code": exit_status, "stdout": stdout_text, "stderr": stderr_text}
+        except Exception as e:
+            return {"exit_code": -1, "stdout": "", "stderr": f"SSH command failed: {str(e)}"}
+
+    @staticmethod
+    def find_existing_droplet_for_pr(token, pr_number):
+        """Find an existing droplet for a PR by tag"""
+        if not pr_number or pr_number == "unknown":
+            return None
+
+        try:
+            manager = digitalocean.Manager(token=token)
+            tag_name = f"pr:{pr_number}"
+
+            # Get all droplets with this tag
+            tagged_droplets = manager.get_all_droplets(tag_name=tag_name)
+
+            if tagged_droplets:
+                # Return the first one (should only be one per PR)
+                return tagged_droplets[0]
+            return None
+        except Exception as e:
+            print(f"Error finding existing droplet: {e}")
+            return None
+
+    def update_existing_deployment(self, new_sha):
+        """Update an existing droplet deployment with new code"""
+        if not self.droplet:
+            raise ValueError("No droplet configured")
+
+        print(f"🔄 Updating existing deployment to SHA: {new_sha}")
+
+        # Update .env file with new image tag
+        update_env_cmd = f"""
+cd /root && \
+sed -i 's/^POSTHOG_APP_TAG=.*/POSTHOG_APP_TAG={new_sha}/' .env && \
+grep POSTHOG_APP_TAG .env
+"""
+        result = self.run_ssh_command(update_env_cmd, timeout=30)
+        if result["exit_code"] != 0:
+            raise RuntimeError(f"Failed to update .env: {result['stderr']}")
+        print(f"✅ Updated POSTHOG_APP_TAG to {new_sha}")
+
+        # Pull new images
+        print("🐋 Pulling new Docker images...")
+        pull_cmd = "cd /root && docker-compose pull"
+        result = self.run_ssh_command(pull_cmd, timeout=600)
+        if result["exit_code"] != 0:
+            raise RuntimeError(f"Failed to pull images: {result['stderr']}")
+        print("✅ Images pulled successfully")
+
+        # Restart services with new images
+        print("🔄 Restarting services...")
+        restart_cmd = "cd /root && docker-compose up -d"
+        result = self.run_ssh_command(restart_cmd, timeout=300)
+        if result["exit_code"] != 0:
+            raise RuntimeError(f"Failed to restart services: {result['stderr']}")
+        print("✅ Services restarted")
+
+        # Wait a moment for services to stabilize
+        print("⏳ Waiting for services to stabilize...")
+        wait_cmd = "sleep 10"
+        self.run_ssh_command(wait_cmd, timeout=15)
+
+        print(f"✅ Deployment updated successfully")
+        return True
+
     def get_droplet_kernel_logs(self):
         """Attempt to get kernel logs from droplet via API"""
         if not self.droplet or not self.token:
@@ -720,21 +815,79 @@ def main():
         run_id = sys.argv[3]
         sha = sys.argv[4]
         pr_number = sys.argv[5]
-        name = f"do-ci-hobby-{run_id}"
-        print(f"Creating droplet on Digitalocean for testing Hobby Deployment", flush=True)
-        print(f"  Branch: {branch}", flush=True)
-        print(f"  SHA: {sha[:7]}", flush=True)
-        print(f"  PR: #{pr_number if pr_number != 'unknown' else 'N/A'}", flush=True)
-        print(f"  Droplet name: {name}", flush=True)
-        ht = HobbyTester(
-            branch=branch,
-            name=name,
-            sha=sha,
-            pr_number=pr_number,
-        )
-        ht.ensure_droplet(ssh_enabled=True)
-        print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):", flush=True)
-        print(f"https://{ht.hostname}", flush=True)
+
+        # Check if preview mode is enabled
+        preview_mode = os.environ.get("PREVIEW_MODE", "false").lower() == "true"
+
+        if preview_mode and pr_number != "unknown":
+            # Preview mode: try to reuse existing droplet
+            print(f"🔄 Preview mode enabled - checking for existing droplet for PR #{pr_number}", flush=True)
+            token = os.environ.get("DIGITALOCEAN_TOKEN")
+            existing_droplet = HobbyTester.find_existing_droplet_for_pr(token, pr_number)
+
+            if existing_droplet:
+                print(f"✅ Found existing droplet: {existing_droplet.name} (ID: {existing_droplet.id})", flush=True)
+                print(f"  IP: {existing_droplet.ip_address}", flush=True)
+                print(f"  Updating to SHA: {sha[:7]}", flush=True)
+
+                # Create HobbyTester instance with existing droplet
+                ht = HobbyTester(
+                    branch=branch,
+                    name=existing_droplet.name,
+                    sha=sha,
+                    pr_number=pr_number,
+                    droplet_id=existing_droplet.id,
+                )
+                ht.droplet = existing_droplet
+
+                # Update deployment
+                ht.update_existing_deployment(sha)
+
+                # Export droplet info for subsequent steps
+                ht.export_droplet()
+
+                print(f"✅ Preview deployment updated successfully", flush=True)
+                print(f"🌐 URL: https://{ht.hostname}", flush=True)
+            else:
+                print(f"ℹ️  No existing droplet found - creating new one", flush=True)
+                # Use stable PR-based name for preview deployments
+                name = f"do-ci-hobby-pr-{pr_number}"
+                print(f"Creating preview droplet for PR #{pr_number}", flush=True)
+                print(f"  Branch: {branch}", flush=True)
+                print(f"  SHA: {sha[:7]}", flush=True)
+                print(f"  Droplet name: {name}", flush=True)
+                ht = HobbyTester(
+                    branch=branch,
+                    name=name,
+                    sha=sha,
+                    pr_number=pr_number,
+                )
+                ht.ensure_droplet(ssh_enabled=True)
+                print(
+                    "Preview instance has started. You will be able to access it here after PostHog boots (~15 minutes):",
+                    flush=True,
+                )
+                print(f"🌐 URL: https://{ht.hostname}", flush=True)
+        else:
+            # Smoke test mode: always create new ephemeral droplet
+            name = f"do-ci-hobby-{run_id}"
+            print(f"🧪 Smoke test mode - creating ephemeral droplet", flush=True)
+            print(f"  Branch: {branch}", flush=True)
+            print(f"  SHA: {sha[:7]}", flush=True)
+            print(f"  PR: #{pr_number if pr_number != 'unknown' else 'N/A'}", flush=True)
+            print(f"  Droplet name: {name}", flush=True)
+            ht = HobbyTester(
+                branch=branch,
+                name=name,
+                sha=sha,
+                pr_number=pr_number,
+            )
+            ht.ensure_droplet(ssh_enabled=True)
+            print(
+                "Instance has started. You will be able to access it here after PostHog boots (~15 minutes):",
+                flush=True,
+            )
+            print(f"https://{ht.hostname}", flush=True)
 
     if command == "destroy":
         print("Destroying droplet on Digitalocean for testing Hobby Deployment")
