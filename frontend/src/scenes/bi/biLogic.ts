@@ -711,24 +711,32 @@ function resolveFieldAndExpression(
         const candidateField = currentTable?.fields?.[part]
 
         if (candidateField) {
-            field = candidateField
-            expression = expression ? `${expression}.${candidateField.hogql_value}` : candidateField.hogql_value
+            const { field: resolvedField, table: resolvedTable } = resolveFieldReference(
+                candidateField,
+                currentTable,
+                database
+            )
+
+            field = resolvedField
+            expression = expression ? `${expression}.${resolvedField.hogql_value}` : resolvedField.hogql_value
+
+            if (index < parts.length - 1) {
+                const targetTable = resolvedField.table ? getTableFromDatabase(database, resolvedField.table) : null
+
+                if (targetTable) {
+                    currentTable = targetTable
+                } else if (resolvedTable && resolvedTable !== currentTable) {
+                    currentTable = resolvedTable
+                }
+            }
         } else if (field && isJsonField(field)) {
             expression = expression ? `${expression}.${part}` : part
         } else {
             return null
         }
 
-        if (index < parts.length - 1) {
-            if (candidateField?.table) {
-                currentTable = getTableFromDatabase(database, candidateField.table)
-
-                if (!currentTable) {
-                    return null
-                }
-            } else if (!(field && isJsonField(field))) {
-                return null
-            }
+        if (index < parts.length - 1 && !(field && isJsonField(field)) && !currentTable) {
+            return null
         }
     }
 

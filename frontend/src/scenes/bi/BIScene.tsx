@@ -97,10 +97,28 @@ function FieldTree({
     const [jsonPathDraft, setJsonPathDraft] = useState('')
     const jsonTextAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
+    const focusJsonTextArea = (): void => {
+        requestAnimationFrame(() => {
+            const textArea = jsonTextAreaRef.current
+            if (textArea) {
+                const length = textArea.value.length
+                textArea.focus()
+                textArea.setSelectionRange(length, length)
+                textArea.scrollTop = textArea.scrollHeight
+            }
+        })
+    }
+
     const closeJsonPopover = (): void => {
         setOpenJsonPopover(null)
         setJsonPathDraft('')
     }
+
+    useEffect(() => {
+        if (openJsonPopover) {
+            focusJsonTextArea()
+        }
+    }, [openJsonPopover])
 
     return (
         <div className="flex flex-col">
@@ -130,14 +148,7 @@ function FieldTree({
                                         setOpenJsonPopover(visible ? node.path : null)
                                         setJsonPathDraft(visible ? node.path : '')
                                         if (visible) {
-                                            requestAnimationFrame(() => {
-                                                const textArea = jsonTextAreaRef.current
-                                                if (textArea) {
-                                                    const length = textArea.value.length
-                                                    textArea.focus()
-                                                    textArea.setSelectionRange(length, length)
-                                                }
-                                            })
+                                            focusJsonTextArea()
                                         }
                                     }}
                                     onClickOutside={closeJsonPopover}
@@ -150,6 +161,7 @@ function FieldTree({
                                                 value={jsonPathDraft}
                                                 minRows={1}
                                                 onChange={(value) => setJsonPathDraft((value || '').trim())}
+                                                onFocus={focusJsonTextArea}
                                                 autoFocus
                                             />
                                             <LemonButton
