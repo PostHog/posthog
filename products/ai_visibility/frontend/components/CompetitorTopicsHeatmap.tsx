@@ -10,12 +10,14 @@ export function CompetitorTopicsHeatmap({
     topics,
     competitors,
     brandName,
+    brandDomain,
     visibilityScore,
 }: {
     matrix: MatrixCell[]
     topics: Topic[]
-    competitors: { name: string; visibility: number; logo_url: string }[]
+    competitors: { name: string; visibility: number; domain?: string }[]
     brandName: string
+    brandDomain: string
     visibilityScore: number
 }): JSX.Element {
     const [showRank, setShowRank] = useState(false)
@@ -40,14 +42,7 @@ export function CompetitorTopicsHeatmap({
         return 'bg-[#f1f5f9] text-gray-500'
     }
 
-    const allCompetitors = [
-        {
-            name: brandName,
-            visibility: visibilityScore,
-            logo_url: `https://www.google.com/s2/favicons?domain=${brandName}&sz=128`,
-        },
-        ...competitors,
-    ]
+    const allCompetitors = [{ name: brandName, visibility: visibilityScore, domain: brandDomain }, ...competitors]
 
     return (
         <div className="border rounded-lg bg-bg-light overflow-hidden">
@@ -68,16 +63,23 @@ export function CompetitorTopicsHeatmap({
                     <thead>
                         <tr className="border-b">
                             <th className="p-3 text-left font-medium">Topic</th>
-                            {allCompetitors.map((comp) => (
-                                <th key={comp.name} className="p-3 text-center font-medium min-w-[80px]">
-                                    <div className="flex flex-col items-center gap-1">
-                                        <div className="w-6 h-6 rounded-full bg-border flex items-center justify-center text-xs">
-                                            <img src={comp.logo_url} alt="" className="w-5 h-5 rounded" />
+                            {allCompetitors.map((comp) => {
+                                const faviconDomain = comp.domain || comp.name
+                                return (
+                                    <th key={comp.name} className="p-3 text-center font-medium min-w-[80px]">
+                                        <div className="flex flex-col items-center gap-1">
+                                            <div className="w-6 h-6 rounded-full bg-border flex items-center justify-center text-xs">
+                                                <img
+                                                    src={`https://www.google.com/s2/favicons?domain=${faviconDomain}&sz=32`}
+                                                    alt=""
+                                                    className="w-5 h-5 rounded"
+                                                />
+                                            </div>
+                                            <span className="text-xs truncate max-w-[70px]">{comp.name}</span>
                                         </div>
-                                        <span className="text-xs truncate max-w-[70px]">{comp.name}</span>
-                                    </div>
-                                </th>
-                            ))}
+                                    </th>
+                                )
+                            })}
                         </tr>
                     </thead>
                     <tbody>

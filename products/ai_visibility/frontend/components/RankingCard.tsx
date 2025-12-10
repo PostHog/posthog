@@ -5,7 +5,7 @@ export function RankingCard({
 }: {
     rank: number
     brandName: string
-    topCompetitors: { name: string; visibility: number; logo_url: string }[]
+    topCompetitors: { name: string; visibility: number; domain?: string }[]
 }): JSX.Element {
     return (
         <div className="relative overflow-hidden rounded-lg bg-gradient-to-r from-[#1d4ed8] to-[#7c3aed] p-6 text-white">
@@ -22,24 +22,31 @@ export function RankingCard({
                         <span>Brand</span>
                         <span>% of AI responses that mention the brand</span>
                     </div>
-                    {topCompetitors.slice(0, 3).map((comp, i) => (
-                        <div key={comp.name} className="flex items-center justify-between py-2">
-                            <div className="flex items-center gap-2">
-                                <span className="text-lg">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</span>
-                                <img src={comp.logo_url} alt="" className="w-5 h-5 rounded" />
-                                <span className={comp.name === brandName ? 'font-bold' : ''}>{comp.name}</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <div className="w-48 h-2 bg-white/20 rounded-full overflow-hidden">
-                                    <div
-                                        className="h-full bg-white/80 rounded-full"
-                                        style={{ width: `${comp.visibility}%` }}
+                    {topCompetitors.slice(0, 3).map((comp, i) => {
+                        const faviconDomain = comp.domain || comp.name
+                        return (
+                            <div key={comp.name} className="flex items-center justify-between py-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-lg">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</span>
+                                    <img
+                                        src={`https://www.google.com/s2/favicons?domain=${faviconDomain}&sz=32`}
+                                        alt=""
+                                        className="w-5 h-5 rounded"
                                     />
+                                    <span className={comp.name === brandName ? 'font-bold' : ''}>{comp.name}</span>
                                 </div>
-                                <span className="w-12 text-right">{comp.visibility.toFixed(1)}%</span>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-48 h-2 bg-white/20 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-white/80 rounded-full"
+                                            style={{ width: `${comp.visibility}%` }}
+                                        />
+                                    </div>
+                                    <span className="w-12 text-right">{comp.visibility.toFixed(1)}%</span>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        )
+                    })}
                 </div>
             </div>
         </div>

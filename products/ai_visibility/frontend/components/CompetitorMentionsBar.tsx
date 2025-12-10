@@ -2,26 +2,21 @@ import clsx from 'clsx'
 
 export function CompetitorMentionsBar({
     brandName,
+    brandDomain,
     visibilityScore,
     competitors,
     onViewAll,
 }: {
     brandName: string
+    brandDomain: string
     visibilityScore: number
-    competitors: { name: string; visibility: number; logo_url?: string }[]
+    competitors: { name: string; visibility: number; domain?: string }[]
     onViewAll?: () => void
 }): JSX.Element {
     // Build full sorted list to get accurate rankings
-    const brandLogoUrl = `https://www.google.com/s2/favicons?domain=${brandName}&sz=128`
     const fullList = [
-        { name: brandName, visibility: visibilityScore, isOurBrand: true, logo_url: brandLogoUrl },
-        ...competitors.map((c) => ({
-            ...c,
-            isOurBrand: false,
-            logo_url:
-                c.logo_url ||
-                `https://www.google.com/s2/favicons?domain=${c.name.toLowerCase().replace(/\s+/g, '')}.com&sz=128`,
-        })),
+        { name: brandName, domain: brandDomain, visibility: visibilityScore, isOurBrand: true },
+        ...competitors.map((c) => ({ ...c, isOurBrand: false })),
     ].sort((a, b) => b.visibility - a.visibility)
 
     // Add rank to each entry
@@ -45,36 +40,46 @@ export function CompetitorMentionsBar({
                 )}
             </div>
             <div className="space-y-3">
-                {displayList.map((brand) => (
-                    <div key={brand.name} className="flex items-center gap-3">
-                        <span
-                            className={clsx(
-                                'w-6 text-sm text-muted text-right',
-                                brand.isOurBrand && 'text-[#f97316] font-semibold'
-                            )}
-                        >
-                            {brand.rank}
-                        </span>
-                        <img src={brand.logo_url} alt="" className="w-5 h-5 rounded" />
-                        <span className={clsx('w-24 text-sm truncate', brand.isOurBrand && 'font-semibold')}>
-                            {brand.name}
-                        </span>
-                        <div className="flex-1 h-4 bg-border rounded overflow-hidden">
-                            <div
-                                className={clsx('h-full rounded', brand.isOurBrand ? 'bg-[#f97316]' : 'bg-gray-400')}
-                                style={{ width: `${(brand.visibility / maxVisibility) * 100}%` }}
-                            />
+                {displayList.map((brand) => {
+                    const faviconDomain = brand.domain || brand.name
+                    return (
+                        <div key={brand.name} className="flex items-center gap-3">
+                            <span
+                                className={clsx(
+                                    'w-6 text-sm text-muted text-right',
+                                    brand.isOurBrand && 'text-[#f97316] font-semibold'
+                                )}
+                            >
+                                {brand.rank}
+                            </span>
+                            <div className={clsx('w-32 flex items-center gap-2', brand.isOurBrand && 'font-semibold')}>
+                                <img
+                                    src={`https://www.google.com/s2/favicons?domain=${faviconDomain}&sz=32`}
+                                    alt=""
+                                    className="w-4 h-4 rounded"
+                                />
+                                <span className="text-sm truncate">{brand.name}</span>
+                            </div>
+                            <div className="flex-1 h-4 bg-border rounded overflow-hidden">
+                                <div
+                                    className={clsx(
+                                        'h-full rounded',
+                                        brand.isOurBrand ? 'bg-[#f97316]' : 'bg-gray-400'
+                                    )}
+                                    style={{ width: `${(brand.visibility / maxVisibility) * 100}%` }}
+                                />
+                            </div>
+                            <span
+                                className={clsx(
+                                    'w-10 text-sm text-right',
+                                    brand.isOurBrand ? 'text-[#f97316] font-semibold' : ''
+                                )}
+                            >
+                                {brand.visibility}%
+                            </span>
                         </div>
-                        <span
-                            className={clsx(
-                                'w-10 text-sm text-right',
-                                brand.isOurBrand ? 'text-[#f97316] font-semibold' : ''
-                            )}
-                        >
-                            {brand.visibility}%
-                        </span>
-                    </div>
-                ))}
+                    )
+                })}
             </div>
         </div>
     )

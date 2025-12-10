@@ -10,6 +10,7 @@ import {
     PlatformMention,
     Prompt,
     ShareOfVoice,
+    SourceDetails,
     TopCitedSource,
     Topic,
     TopicLead,
@@ -20,7 +21,7 @@ export interface VizLogicProps {
     brand: string
 }
 
-export type DashboardTab = 'overview' | 'prompts' | 'competitors'
+export type DashboardTab = 'overview' | 'prompts' | 'competitors' | 'sources'
 
 export type ProgressStep =
     | 'starting'
@@ -424,49 +425,49 @@ export const vizLogic = kea<vizLogicType>([
         // Competitor visibility percentages across all prompts
         competitorVisibility: [
             (s) => [s.prompts],
-            (prompts: Prompt[]): Record<string, { count: number; logo_url: string }> => {
-                const compData = new Map<string, { count: number; logo_url: string }>()
+            (prompts: Prompt[]): Record<string, number> => {
+                const compMentions = new Map<string, number>()
+                const total = prompts.length
 
                 for (const p of prompts) {
-                    // Track mentions from competitors_mentioned
-                    for (const compName of p.competitors_mentioned) {
-                        const existing = compData.get(compName) || { count: 0, logo_url: '' }
-                        existing.count++
-                        compData.set(compName, existing)
-                    }
-                    // Extract logo URLs from full competitor objects
-                    for (const comp of p.competitors || []) {
-                        const existing = compData.get(comp.name)
-                        if (existing && comp.logo_url && !existing.logo_url) {
-                            existing.logo_url = comp.logo_url
-                        }
+                    for (const comp of p.competitors_mentioned) {
+                        compMentions.set(comp, (compMentions.get(comp) || 0) + 1)
                     }
                 }
 
-                const result: Record<string, { count: number; logo_url: string }> = {}
-                for (const [name, data] of compData) {
-                    result[name] = data
+                const result: Record<string, number> = {}
+                for (const [name, count] of compMentions) {
+                    result[name] = Math.round((count / total) * 100)
                 }
                 return result
             },
         ],
 
+        // Build name → domain map from competitor objects in prompts
+        competitorDomains: [
+            (s) => [s.prompts],
+            (prompts: Prompt[]): Record<string, string> => {
+                const domains: Record<string, string> = {}
+                for (const p of prompts) {
+                    for (const comp of p.competitors ?? []) {
+                        if (comp.name && comp.domain) {
+                            domains[comp.name] = comp.domain
+                        }
+                    }
+                }
+                return domains
+            },
+        ],
+
         // Top competitors sorted by visibility
         topCompetitors: [
-            (s) => [s.competitorVisibility, s.prompts],
+            (s) => [s.competitorVisibility, s.competitorDomains],
             (
-                compData: Record<string, { count: number; logo_url: string }>,
-                prompts: Prompt[]
-            ): { name: string; visibility: number; logo_url: string }[] => {
-                const total = prompts.length
-                return Object.entries(compData)
-                    .map(([name, data]) => ({
-                        name,
-                        visibility: Math.round((data.count / total) * 100),
-                        logo_url:
-                            data.logo_url ||
-                            `https://www.google.com/s2/favicons?domain=${name.toLowerCase().replace(/\s+/g, '')}.com&sz=128`,
-                    }))
+                visibility: Record<string, number>,
+                domains: Record<string, string>
+            ): { name: string; visibility: number; domain?: string }[] => {
+                return Object.entries(visibility)
+                    .map(([name, vis]) => ({ name, visibility: vis, domain: domains[name] }))
                     .sort((a, b) => b.visibility - a.visibility)
                     .slice(0, 10)
             },
@@ -675,6 +676,48 @@ export const vizLogic = kea<vizLogicType>([
                     .slice(0, 6)
             },
         ],
+
+        // Detailed source data for Sources tab
+        sourceDetails: [
+            (s) => [s.prompts],
+            (prompts: Prompt[]): SourceDetails[] => {
+                // Build domain stats from competitors in prompts
+                const domainStats = new Map<string, { topics: Set<string>; responses: number; brandMentions: number }>()
+
+                for (const p of prompts) {
+                    // Get all domains mentioned in this prompt's competitors
+                    const domains = new Set<string>()
+                    for (const comp of p.competitors ?? []) {
+                        if (comp.domain) {
+                            domains.add(comp.domain)
+                        }
+                    }
+
+                    // Update stats for each domain
+                    for (const domain of domains) {
+                        if (!domainStats.has(domain)) {
+                            domainStats.set(domain, { topics: new Set(), responses: 0, brandMentions: 0 })
+                        }
+                        const stats = domainStats.get(domain)!
+                        stats.topics.add(p.topic)
+                        stats.responses++
+                        if (p.you_mentioned) {
+                            stats.brandMentions++
+                        }
+                    }
+                }
+
+                return [...domainStats.entries()]
+                    .map(([domain, stats]) => ({
+                        domain,
+                        pages: stats.topics.size,
+                        responses: stats.responses,
+                        brandMentionRate:
+                            stats.responses > 0 ? Math.round((stats.brandMentions / stats.responses) * 100) : 0,
+                    }))
+                    .sort((a, b) => b.responses - a.responses)
+            },
+        ],
     }),
 
     listeners(({ actions, values, cache }) => ({
@@ -720,7 +763,7 @@ export const vizLogic = kea<vizLogicType>([
     urlToAction(({ actions, values }) => ({
         '/viz/:brand': () => {
             const hash = router.values.location.hash.replace('#', '')
-            const tab = ['prompts', 'competitors'].includes(hash) ? (hash as DashboardTab) : 'overview'
+            const tab = ['prompts', 'competitors', 'sources'].includes(hash) ? (hash as DashboardTab) : 'overview'
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }
@@ -731,7 +774,7 @@ export const vizLogic = kea<vizLogicType>([
         actions.loadTriggerResult()
         // Sync tab from URL hash on mount
         const hash = window.location.hash.replace('#', '')
-        const tab = ['prompts', 'competitors'].includes(hash) ? (hash as DashboardTab) : 'overview'
+        const tab = ['prompts', 'competitors', 'sources'].includes(hash) ? (hash as DashboardTab) : 'overview'
         if (tab !== 'overview') {
             actions.setActiveTab(tab)
         }

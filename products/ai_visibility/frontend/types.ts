@@ -84,3 +84,10 @@ export interface TopCitedSource {
     domain: string
     responseCount: number
 }
+
+export interface SourceDetails {
+    domain: string
+    pages: number
+    responses: number
+    brandMentionRate: number
+}
