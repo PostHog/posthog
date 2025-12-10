@@ -1199,13 +1199,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         // Force rrweb to rebuild/repaint now that the document is ready
                         // This ensures stylesheets are processed as inline <style> tags
                         // instead of external <link> tags which fail due to CSP
-                        if (replayer.replayer && values.currentTimestamp !== undefined) {
+                        if (replayer && values.currentTimestamp !== undefined && values.sessionPlayerData.start) {
                             const currentTime = values.currentTimestamp - values.sessionPlayerData.start.valueOf()
                             // Trigger a micro-seek to force rrweb to rebuild with the ready document
-                            replayer.replayer.pause(currentTime)
+                            replayer.pause(currentTime)
                             setTimeout(() => {
-                                if (replayer.replayer) {
-                                    replayer.replayer.pause(currentTime)
+                                if (replayer) {
+                                    replayer.pause(currentTime)
                                 }
                             }, 0)
                         }
