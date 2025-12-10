@@ -97,6 +97,11 @@ function FieldTree({
     const [jsonPathDraft, setJsonPathDraft] = useState('')
     const jsonTextAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
+    const closeJsonPopover = (): void => {
+        setOpenJsonPopover(null)
+        setJsonPathDraft('')
+    }
+
     return (
         <div className="flex flex-col">
             {nodes.map((node) => {
@@ -135,6 +140,7 @@ function FieldTree({
                                             })
                                         }
                                     }}
+                                    onClickOutside={closeJsonPopover}
                                     overlay={
                                         <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
                                             <div className="text-muted">Add column or nested field</div>
