@@ -92,7 +92,14 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         if not data.get("export_format"):
             raise ValidationError("Must provide export format")
 
-        if not data.get("dashboard") and not data.get("insight") and not data.get("export_context"):
+        export_context = data.get("export_context", {})
+        has_query = export_context and export_context.get("query") is not None
+        has_path = export_context and export_context.get("path") is not None
+        has_source = export_context and export_context.get("source") is not None
+        has_session_recording_id = export_context and export_context.get("session_recording_id") is not None
+        has_export_context = has_query or has_path or has_source or has_session_recording_id
+
+        if not data.get("dashboard") and not data.get("insight") and not has_export_context:
             raise ValidationError("Either dashboard, insight or export_context is required for an export.")
 
         if data.get("dashboard") and data["dashboard"].team.id != self.context["team_id"]:
@@ -100,6 +107,13 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         if data.get("insight") and data["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
+
+        # Query-only exports: validate that query is a dict structure
+        # Team ownership is validated via data["team_id"] below and enforced during query execution
+        if has_query:
+            query = export_context.get("query")
+            if not isinstance(query, dict):
+                raise ValidationError({"export_context": ["Query must be a valid dictionary."]})
 
         # NEW: Check full video export limit for team (only MP4 exports with "video" mode)
         export_format = data.get("export_format")

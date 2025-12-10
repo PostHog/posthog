@@ -277,6 +277,10 @@ def slack_event(request: HttpRequest) -> HttpResponse:
 
         if event.get("type") == "app_mention":
             handle_app_mention(event, slack_team_id)
+        elif event.get("type") == "link_shared":
+            from products.slack_app.backend.link_unfurl import handle_link_shared
+
+            handle_link_shared(event, slack_team_id)
 
         # Return 202 Accepted for event callbacks - processing continues asynchronously
         return HttpResponse(status=202)

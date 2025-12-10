@@ -697,13 +697,66 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
 
-        add_og_tags = resource.insight or resource.dashboard
+        add_og_tags = (
+            resource.insight
+            or resource.dashboard
+            or (
+                isinstance(resource, ExportedAsset) and resource.export_context and resource.export_context.get("query")
+            )
+        )
         asset_description = ""
 
         # Check both query params (legacy) and settings for configuration options
         state = getattr(resource, "settings", {}) or {}
 
-        if resource.insight and not resource.insight.deleted:
+        if (
+            isinstance(resource, ExportedAsset)
+            and resource.export_context
+            and resource.export_context.get("query") is not None
+        ):
+            # Handle query-only export (no saved insight)
+            query = resource.export_context.get("query")
+            name = resource.export_context.get("name", "Export")
+            description = resource.export_context.get("description", "")
+            asset_title = name
+            asset_description = description
+
+            # Construct minimal insight data for frontend
+            from posthog.schema_migrations.upgrade import upgrade
+
+            now_str = now().isoformat()
+            insight_data = {
+                "id": 0,  # Placeholder ID for unsaved insights
+                "short_id": "new",  # Use "new" as short_id for unsaved insights (frontend convention)
+                "name": name,
+                "derived_name": name,
+                "description": description,
+                "query": upgrade(query),
+                "filters": {},
+                "saved": False,
+                "favorited": False,
+                "tags": [],
+                "created_at": now_str,
+                "updated_at": now_str,
+                "last_refresh": None,
+                "refreshing": False,
+                "result": None,
+                "deleted": False,
+                "is_sample": False,
+                "order": None,
+                "dashboards": [],
+                "dashboard_tiles": [],
+                "created_by": None,
+                "last_modified_at": now_str,
+                "last_modified_by": None,
+                "last_viewed_at": None,
+                "timezone": None,
+            }
+            exported_data.update({"insight": insight_data})
+            exported_data.update({"themes": get_themes_for_team(resource.team)})
+            # For query-only exports, hide the header and just show the visualization
+            exported_data.update({"noHeader": True})
+        elif resource.insight and not resource.insight.deleted:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
             context["dashboard"] = resource.dashboard
             asset_title = resource.insight.name or resource.insight.derived_name

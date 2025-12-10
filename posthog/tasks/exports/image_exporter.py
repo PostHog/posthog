@@ -136,6 +136,13 @@ def _export_to_png(
             url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
+        elif exported_asset.export_context and exported_asset.export_context.get("query") is not None:
+            # Handle query-only export (no saved insight)
+            show_legend = exported_asset.export_context.get("show_legend", False)
+            legend_param = "&legend=true" if show_legend else ""
+            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}")
+            wait_for_css_selector = ".ExportedInsight"
+            screenshot_width = 800
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
@@ -176,7 +183,7 @@ def _export_to_png(
             )
         else:
             raise Exception(
-                f"Export is missing required dashboard, insight ID, or session_recording_id in export_context"
+                f"Export is missing required dashboard, insight ID, query in export_context, or session_recording_id in export_context"
             )
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
@@ -421,6 +428,26 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                         cache_key = _extract_cache_key(result)
                         if cache_key:
                             insight_cache_keys[insight.id] = cache_key
+            elif exported_asset.export_context and exported_asset.export_context.get("query") is not None:
+                # Handle query-only export (no saved insight)
+                logger.info(
+                    "export_image.calculate_query",
+                    asset_id=exported_asset.id,
+                )
+                query = exported_asset.export_context.get("query")
+                dashboard_filters_json = exported_asset.export_context.get("dashboard_filters")
+                variables_override_json = exported_asset.export_context.get("variables_override")
+
+                process_query_dict(
+                    exported_asset.team,
+                    query,
+                    dashboard_filters_json=dashboard_filters_json,
+                    variables_override_json=variables_override_json,
+                    limit_context=LimitContext.QUERY_ASYNC,
+                    execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                    insight_id=None,
+                    dashboard_id=None,
+                )
 
             if exported_asset.export_format == "image/png":
                 with EXPORT_TIMER.labels(type="image").time():
