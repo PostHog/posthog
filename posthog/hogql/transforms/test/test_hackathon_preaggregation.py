@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -196,6 +197,11 @@ class TestPatternDetection(BaseTest):
 class TestQueryPatternDetection(BaseTest):
     """Tests for the main query pattern detection function."""
 
+    def _parse_select(self, query: str) -> ast.SelectQuery:
+        node = parse_select(query)
+        assert isinstance(node, ast.SelectQuery)
+        return node
+
     def test_basic_matching_query(self):
         query = """
             SELECT uniqExact(person_id)
@@ -205,7 +211,7 @@ class TestQueryPatternDetection(BaseTest):
               AND timestamp < '2024-02-01'
             GROUP BY toStartOfDay(timestamp)
         """
-        node = parse_select(query)
+        node = self._parse_select(query)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         assert _is_daily_unique_persons_pageviews_query(node, context)
 
@@ -218,7 +224,7 @@ class TestQueryPatternDetection(BaseTest):
               AND timestamp < '2024-02-01'
             GROUP BY toStartOfDay(timestamp)
         """
-        node = parse_select(query)
+        node = self._parse_select(query)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         assert _is_daily_unique_persons_pageviews_query(node, context)
 
@@ -231,7 +237,7 @@ class TestQueryPatternDetection(BaseTest):
               AND timestamp < '2024-02-01'
             GROUP BY toStartOfDay(timestamp) AS day
         """
-        node = parse_select(query)
+        node = self._parse_select(query)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         assert _is_daily_unique_persons_pageviews_query(node, context)
 
@@ -244,7 +250,7 @@ class TestQueryPatternDetection(BaseTest):
               AND toStartOfDay(timestamp) > '2025-01-01'
             GROUP BY toStartOfDay(timestamp)
         """
-        node = parse_select(query)
+        node = self._parse_select(query)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         assert _is_daily_unique_persons_pageviews_query(node, context)
 
@@ -257,7 +263,7 @@ class TestQueryPatternDetection(BaseTest):
               AND timestamp >= '2024-01-01'
             GROUP BY toStartOfDay(timestamp)
         """
-        node = parse_select(query)
+        node = self._parse_select(query)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         # Should match and infer end date
         assert _is_daily_unique_persons_pageviews_query(node, context)
@@ -272,7 +278,7 @@ class TestQueryPatternDetection(BaseTest):
               AND timestamp < '2024-02-01'
             GROUP BY toStartOfDay(timestamp), properties.$browser
         """
-        node = parse_select(query)
+        node = self._parse_select(query)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         assert _is_daily_unique_persons_pageviews_query(node, context)
 
@@ -286,7 +292,7 @@ class TestQueryPatternDetection(BaseTest):
               AND timestamp < '2024-02-01'
             GROUP BY toStartOfDay(timestamp), properties.$browser, properties.$os
         """
-        node = parse_select(query)
+        node = self._parse_select(query)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         assert _is_daily_unique_persons_pageviews_query(node, context)
 
@@ -339,7 +345,7 @@ class TestQueryPatternDetection(BaseTest):
         ]
     )
     def test_non_matching_queries(self, name, query):
-        node = parse_select(query)
+        node = self._parse_select(query)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         assert not _is_daily_unique_persons_pageviews_query(node, context), f"Query should not match: {name}"
 
@@ -349,6 +355,7 @@ class TestQueryTransformation(BaseTest, QueryMatchingTest):
 
     def _parse_and_transform(self, query: str) -> str:
         node = parse_select(query)
+        assert isinstance(node, ast.SelectQuery)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         transformer = Transformer(context)
         transformed = transformer.visit(node)
@@ -356,6 +363,7 @@ class TestQueryTransformation(BaseTest, QueryMatchingTest):
 
     def _normalize(self, query: str) -> str:
         node = parse_select(query)
+        assert isinstance(node, ast.SelectQuery)
         return str(node)
 
     def test_basic_transformation(self):
