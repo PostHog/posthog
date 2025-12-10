@@ -4,15 +4,19 @@ export const manifest: ProductManifest = {
     name: 'AI Visibility',
     scenes: {
         Viz: {
-            name: 'Viz',
-            import: () => import('./frontend/Viz'),
+            name: 'AI visibility',
+            import: () => import('./frontend/VizScene'),
             allowUnauthenticated: true,
             layout: 'plain',
         },
     },
     routes: {
-        '/viz/:domain': ['Viz', 'viz'],
+        '/viz/:brand': ['Viz', 'viz'],
     },
-    redirects: {},
-    urls: {},
+    redirects: {
+        '/viz': '/viz/posthog',
+    },
+    urls: {
+        viz: (brand: string): string => `/viz/${brand}`,
+    },
 }
