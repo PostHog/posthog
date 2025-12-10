@@ -61,9 +61,11 @@ class BaseAssistantNode(BaseAgentExecutable[StateType, PartialStateType]):
         return (*self._node_path, NodePath(name=self.node_name))
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
+        # TODO this is for the hackathon, don't commit to prod, we need this check
         conversation = await self._aget_conversation(conversation_id)
         if not conversation:
-            raise ValueError(f"Conversation {conversation_id} not found")
+            return False
+            # raise ValueError(f"Conversation {conversation_id} not found")
         return conversation.status == Conversation.Status.CANCELING
 
 

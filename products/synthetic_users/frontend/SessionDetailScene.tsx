@@ -5,6 +5,7 @@ import { IconChevronLeft, IconPlay, IconRefresh, IconRewind } from '@posthog/ico
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { MarkdownMessage } from 'scenes/max/MarkdownMessage'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -230,7 +231,9 @@ function SessionDetailScene(): JSX.Element {
                 {session.experience_writeup && (
                     <div>
                         <label className="text-xs text-muted uppercase tracking-wide">Experience Writeup</label>
-                        <div className="mt-1 bg-surface-primary border rounded p-3">{session.experience_writeup}</div>
+                        <div className="mt-1 bg-surface-primary border rounded p-3">
+                            <MarkdownMessage id="experience-writeup" content={session.experience_writeup} />
+                        </div>
                     </div>
                 )}
 

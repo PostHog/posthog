@@ -107,9 +107,12 @@ async def process_synthetic_user_activity(inputs: SyntheticUserWorkflowInputs) -
         trace_id=inputs.research_session_id,
     )
 
-    async for chunk in assistant.astream():
-        if isinstance(chunk, AssistantMessage) and chunk.id and chunk.meta and chunk.meta.thinking:
-            for thinking in chunk.meta.thinking:
+    async for _, message in assistant.astream():
+        if isinstance(message, AssistantMessage) and message.id and message.meta and message.meta.thinking:
+            for thinking in message.meta.thinking:
                 if thinking["type"] == "thinking" and thinking.get("thinking"):
                     session.thought_action_log.append(thinking["thinking"])
                     await session.asave(update_fields=["thought_action_log"])
+
+    session.status = Session.Status.COMPLETED
+    await session.asave(update_fields=["status"])

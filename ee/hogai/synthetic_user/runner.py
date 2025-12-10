@@ -20,9 +20,7 @@ if TYPE_CHECKING:
     from ee.hogai.utils.types.composed import MaxNodeName
 
 
-STREAMING_NODES: set["MaxNodeName"] = {
-    AssistantNodeName.ROOT,
-}
+STREAMING_NODES: set["MaxNodeName"] = set()
 
 
 VERBOSE_NODES: set["MaxNodeName"] = {

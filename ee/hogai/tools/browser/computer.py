@@ -154,7 +154,7 @@ class ComputerToolHandler:
 
     async def _press_key(self, session: HyperbrowserSession, tool_input: dict[str, Any]) -> dict[str, Any]:
         """Press the specified key or key combination."""
-        key = tool_input.get("key")
+        key = tool_input.get("text")
         if not key:
             raise MaxToolRetryableError("Key is required for key action")
 

@@ -379,28 +379,18 @@ Generate a unique persona that fits this audience and would provide useful testi
         round.status = Round.Status.RUNNING
         round.save(update_fields=["status"])
 
-        round.sessions.update(status=Session.Status.NAVIGATING)
-
-        async def start_sessions():
-            client = await async_connect()
-            for session in round.sessions.all():
-                inputs = SyntheticUserWorkflowInputs(
-                    team_id=self.team.id,
-                    user_id=self.request.user.id,
-                    session_id=session.id,
-                    target_url=session.round.study.target_url,
-                    research_session_id=session.id,
-                )
-                await client.start_workflow(
-                    SyntheticUserWorkflow.run,
-                    inputs,
-                    id=f"synthetic-user-session-{session.id}",
-                    task_queue=settings.MAX_AI_TASK_QUEUE,
-                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        async def start_sessions_async():
+            try:
+                sessions = await round.sessions.all()
+                await self._start_sessions(sessions)
+            except Exception as e:
+                logger.exception("Error starting synthetic user session", error=e)
+                return Response(
+                    {"error": f"Failed to start synthetic user session: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
-        async_to_sync(start_sessions)()
+        async_to_sync(start_sessions_async)()
 
         return Response(
             {"round": serialize_round(round, include_sessions=True)},
@@ -443,9 +433,41 @@ Generate a unique persona that fits this audience and would provide useful testi
         session.status = Session.Status.NAVIGATING
         session.save(update_fields=["status"])
 
-        # TODO: Kick off actual navigation task (Celery job, etc.)
+        async def start_sessions_async():
+            try:
+                await self._start_sessions([session])
+            except Exception as e:
+                logger.exception("Error starting synthetic user session", error=e)
+                return Response(
+                    {"error": f"Failed to start synthetic user session: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        async_to_sync(start_sessions_async)()
 
         return Response(
             {"session": serialize_session(session)},
             status=status.HTTP_200_OK,
         )
+
+    async def _start_sessions(self, sessions: list[Session]) -> None:
+        client = await async_connect()
+        for session in sessions:
+            study = await Study.objects.aget(id=session.round.study_id, team=self.team)
+            inputs = SyntheticUserWorkflowInputs(
+                team_id=self.team.id,
+                user_id=self.request.user.id,
+                session_id=session.id,
+                target_url=study.target_url,
+                research_session_id=session.id,
+            )
+            await client.start_workflow(
+                SyntheticUserWorkflow.run,
+                inputs,
+                id=f"synthetic-user-session-{session.id}",
+                task_queue=settings.MAX_AI_TASK_QUEUE,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+            session.status = Session.Status.NAVIGATING
+            await session.asave(update_fields=["status"])
