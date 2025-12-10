@@ -4,9 +4,16 @@ export interface PlatformMention {
     cited?: boolean | null
 }
 
+export interface Competitor {
+    name: string
+    domain?: string | null
+    logo_url?: string | null
+}
+
 export interface Prompt {
     id: string
     text: string
+    topic: string // The category/topic this prompt belongs to (e.g., "Self-hosted Analytics")
     category: 'commercial' | 'informational' | 'navigational'
     you_mentioned: boolean
     platforms: {
@@ -16,6 +23,7 @@ export interface Prompt {
         gemini?: PlatformMention
         claude?: PlatformMention
     }
+    competitors?: Competitor[]
     competitors_mentioned: string[]
     last_checked: string
 }

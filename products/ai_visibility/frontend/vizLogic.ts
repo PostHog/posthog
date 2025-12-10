@@ -233,28 +233,14 @@ export const vizLogic = kea<vizLogicType>([
             },
         ],
 
-        // Extract topic from prompt text (first 2-3 words before suffix like "alternatives", "best", etc.)
+        // Group prompts by their topic field
         topics: [
             (s) => [s.prompts],
             (prompts: Prompt[]): Topic[] => {
-                const suffixes = ['alternatives', 'competitors', 'best', 'pricing', 'reviews']
                 const topicMap = new Map<string, Prompt[]>()
 
                 for (const prompt of prompts) {
-                    // Extract topic by removing common suffixes
-                    let topic = prompt.text
-                    for (const suffix of suffixes) {
-                        if (topic.toLowerCase().endsWith(suffix)) {
-                            topic = topic.slice(0, -suffix.length).trim()
-                            break
-                        }
-                    }
-                    // Capitalize first letter of each word
-                    topic = topic
-                        .split(' ')
-                        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-                        .join(' ')
-
+                    const topic = prompt.topic || 'General'
                     const existing = topicMap.get(topic) || []
                     existing.push(prompt)
                     topicMap.set(topic, existing)
@@ -262,6 +248,19 @@ export const vizLogic = kea<vizLogicType>([
 
                 const topicsArray: Topic[] = []
                 for (const [name, topicPrompts] of topicMap) {
+                    const competitorDetails = new Map<string, { icon?: string }>()
+                    for (const p of topicPrompts) {
+                        const comps = p.competitors && p.competitors.length > 0 ? p.competitors : []
+                        for (const comp of comps) {
+                            const icon =
+                                comp.logo_url || (comp.domain ? `https://logo.clearbit.com/${comp.domain}` : undefined)
+                            const existing = competitorDetails.get(comp.name)
+                            if (!existing || (icon && !existing.icon)) {
+                                competitorDetails.set(comp.name, { icon })
+                            }
+                        }
+                    }
+
                     const mentioned = topicPrompts.filter((p) => p.you_mentioned).length
                     const visibility = topicPrompts.length > 0 ? (mentioned / topicPrompts.length) * 100 : 0
 
@@ -292,7 +291,10 @@ export const vizLogic = kea<vizLogicType>([
                     const topCompetitors = [...compCounts.entries()]
                         .sort((a, b) => b[1] - a[1])
                         .slice(0, 4)
-                        .map(([compName]) => ({ name: compName }))
+                        .map(([compName]) => ({
+                            name: compName,
+                            icon: competitorDetails.get(compName)?.icon,
+                        }))
 
                     // Relevancy is based on how many prompts mention any competitor (topic is active in market)
                     const relevancy =

@@ -64,7 +64,7 @@ class AIVisibilityWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-            topics: list[str] = await workflow.execute_activity(
+            topics: list[dict] = await workflow.execute_activity(
                 get_topics,
                 TopicsInput(domain=input.domain, info=info),
                 start_to_close_timeout=timedelta(seconds=30),

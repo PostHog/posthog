@@ -258,8 +258,16 @@ function TopicsTable({ topics }: { topics: Topic[] }): JSX.Element {
                                         <div className="flex items-center gap-2">
                                             {topic.topCompetitors.slice(0, 4).map((c) => (
                                                 <Tooltip key={c.name} title={c.name}>
-                                                    <div className="w-5 h-5 rounded-full bg-border flex items-center justify-center text-[10px]">
-                                                        {c.name.charAt(0)}
+                                                    <div className="w-5 h-5 rounded-full bg-border overflow-hidden flex items-center justify-center text-[10px]">
+                                                        {c.icon ? (
+                                                            <img
+                                                                src={c.icon}
+                                                                alt={c.name}
+                                                                className="w-full h-full object-contain"
+                                                            />
+                                                        ) : (
+                                                            c.name.charAt(0)
+                                                        )}
                                                     </div>
                                                 </Tooltip>
                                             ))}
@@ -292,9 +300,27 @@ function TopicsTable({ topics }: { topics: Topic[] }): JSX.Element {
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                         <CategoryTag category={prompt.category} />
-                                                        {prompt.competitors_mentioned.slice(0, 2).map((c) => (
-                                                            <LemonTag key={c} type="muted" size="small">
-                                                                {c}
+                                                        {(prompt.competitors?.length
+                                                            ? prompt.competitors.slice(0, 2)
+                                                            : prompt.competitors_mentioned
+                                                                  .slice(0, 2)
+                                                                  .map((name) => ({ name, logo_url: undefined }))
+                                                        ).map((comp) => (
+                                                            <LemonTag key={comp.name} type="muted" size="small">
+                                                                <span className="flex items-center gap-1">
+                                                                    {comp.logo_url ? (
+                                                                        <img
+                                                                            src={comp.logo_url}
+                                                                            alt={comp.name}
+                                                                            className="w-4 h-4 rounded-full"
+                                                                        />
+                                                                    ) : (
+                                                                        <span className="w-4 h-4 rounded-full bg-border flex items-center justify-center text-[10px]">
+                                                                            {comp.name.charAt(0)}
+                                                                        </span>
+                                                                    )}
+                                                                    <span>{comp.name}</span>
+                                                                </span>
                                                             </LemonTag>
                                                         ))}
                                                     </div>
@@ -568,14 +594,17 @@ function CompetitorsTab({ brand }: { brand: string }): JSX.Element {
 
 function DashboardView({ brand }: { brand: string }): JSX.Element {
     const logic = vizLogic({ brand })
-    const { brandDisplayName, activeTab } = useValues(logic)
+    const { activeTab } = useValues(logic)
     const { setActiveTab } = useActions(logic)
 
     return (
         <div className="p-6 space-y-6 max-w-7xl mx-auto">
             <div>
-                <h1 className="text-2xl font-bold mb-1">AI visibility for {brandDisplayName}</h1>
-                <p className="text-muted">Track how AI assistants mention your brand across prompts</p>
+                <h1 className="text-4xl font-bold mb-1 flex items-center gap-2">
+                    <img src={`https://www.google.com/s2/favicons?domain=${brand}&sz=128`} alt="" className="w-6 h-6" />
+                    {brand}
+                </h1>
+                <p className="text-muted text-lg">Track how AI assistants mention your brand across prompts</p>
             </div>
 
             <LemonTabs
