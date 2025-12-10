@@ -274,7 +274,8 @@ export const FEATURE_FLAGS = {
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-posthog-ai
-    MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-posthog-ai
+    MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-signals
+    MAX_SESSION_SUMMARIZATION_BUTTON: 'max-session-summarization-button', // owner: #team-signals
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
     PRODUCT_ANALYTICS_DASHBOARD_TILE_OVERRIDES: 'dashboard-tile-overrides', // owner: @gesh #team-product-analytics
@@ -317,7 +318,8 @@ export const FEATURE_FLAGS = {
     SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate=true
     SWITCH_SUBSCRIPTION_PLAN: 'switch-subscription-plan', // owner: @a-lider #team-platform-features
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
-    TASKS: 'tasks', // owner: #team-llm-analytics
+    TASKS: 'tasks', // owner: #team-array
+    PHAI_TASKS: 'phai-tasks', // owner: #team-array
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     USE_TEMPORAL_SUBSCRIPTIONS: 'use-temporal-subscriptions', // owner: @aspicer #team-analytics-platform
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
@@ -337,6 +339,7 @@ export const FEATURE_FLAGS = {
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
     LIVE_EVENTS_ACTIVE_RECORDINGS: 'live-events-active-recordings', // owner: @pauldambra #team-replay
+    PRODUCT_TOURS: 'product-tours-2025', // owner: @pauldambra #team-replay
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

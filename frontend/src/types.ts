@@ -280,6 +280,7 @@ export enum AccessControlResourceType {
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
+    ProductTour = 'product_tour',
     Experiment = 'experiment',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
@@ -3234,8 +3235,8 @@ export type SurveyRawResults = SurveyResponseRow[]
 // Product Tours
 export interface ProductTourStep {
     selector: string
-    title: string
-    description: string
+    /** Rich text content in tiptap JSONContent format */
+    content: Record<string, any> | null
     position?: 'top' | 'bottom' | 'left' | 'right'
 }
 
@@ -3245,6 +3246,7 @@ export interface ProductTourContent {
     conditions?: {
         url?: string
         urlMatchType?: 'exact' | 'contains' | 'regex'
+        selector?: string
     }
 }
 
@@ -3254,7 +3256,9 @@ export interface ProductTour {
     description: string
     internal_targeting_flag: FeatureFlagBasicType | null
     feature_flag_key: string | null
+    targeting_flag_filters: FeatureFlagFilters | null
     content: ProductTourContent
+    auto_launch: boolean
     start_date: string | null
     end_date: string | null
     created_at: string

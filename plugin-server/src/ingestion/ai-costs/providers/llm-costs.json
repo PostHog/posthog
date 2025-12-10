@@ -1011,8 +1011,9 @@
         "model": "deepseek/deepseek-chat-v3-0324",
         "cost": {
             "default": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 7e-7
+                "prompt_token": 2e-7,
+                "completion_token": 8.8e-7,
+                "cache_read_token": 1.06e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 2.7e-7,
@@ -1048,6 +1049,10 @@
                 "prompt_token": 0.00000125,
                 "completion_token": 0.00000125
             },
+            "mara": {
+                "prompt_token": 3.9e-7,
+                "completion_token": 0.0000012
+            },
             "nebius-fast": {
                 "prompt_token": 7.5e-7,
                 "completion_token": 0.00000225
@@ -1069,10 +1074,6 @@
                 "prompt_token": 0.000003,
                 "completion_token": 0.0000045
             },
-            "sambanova-standard": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 7e-7
-            },
             "siliconflow-fp8": {
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.000001
@@ -1091,8 +1092,8 @@
         "model": "deepseek/deepseek-chat-v3.1",
         "cost": {
             "default": {
-                "prompt_token": 2e-7,
-                "completion_token": 8e-7
+                "prompt_token": 1.5e-7,
+                "completion_token": 7.5e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 3e-7,
@@ -1130,6 +1131,10 @@
             "sambanova-fp8": {
                 "prompt_token": 6.5e-7,
                 "completion_token": 0.0000015
+            },
+            "sambanova-high-throughput": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 7.5e-7
             },
             "siliconflow-fp8": {
                 "prompt_token": 2.7e-7,
@@ -1429,8 +1434,8 @@
                 "completion_token": 4e-7
             },
             "novita-fp8": {
-                "prompt_token": 2.8e-7,
-                "completion_token": 4.2e-7
+                "prompt_token": 2.69e-7,
+                "completion_token": 4e-7
             },
             "siliconflow-fp8": {
                 "prompt_token": 2.7e-7,
@@ -1484,6 +1489,10 @@
                 "prompt_token": 2.8e-7,
                 "completion_token": 4.2e-7,
                 "cache_read_token": 2.8e-8
+            },
+            "parasail-fp8": {
+                "prompt_token": 2.8e-7,
+                "completion_token": 4e-7
             }
         }
     },
@@ -1959,12 +1968,12 @@
         "model": "google/gemma-3-27b-it",
         "cost": {
             "default": {
-                "prompt_token": 3e-8,
-                "completion_token": 1.1e-7
+                "prompt_token": 4e-8,
+                "completion_token": 1.5e-7
             },
             "chutes-bf16": {
-                "prompt_token": 3e-8,
-                "completion_token": 1.1e-7
+                "prompt_token": 4e-8,
+                "completion_token": 1.5e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 9e-8,
@@ -2001,10 +2010,6 @@
                 "completion_token": 0
             },
             "google-ai-studio": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "modelrun": {
                 "prompt_token": 0,
                 "completion_token": 0
             },
@@ -2580,7 +2585,7 @@
                 "completion_token": 3.2e-7
             },
             "parasail-int8": {
-                "prompt_token": 1.5e-7,
+                "prompt_token": 2.2e-7,
                 "completion_token": 5e-7
             },
             "sambanova-bf16": {
@@ -2626,8 +2631,8 @@
         "model": "meta-llama/llama-4-maverick",
         "cost": {
             "default": {
-                "prompt_token": 1.36e-7,
-                "completion_token": 6.8e-7,
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7,
                 "image": 0.0006684
             },
             "deepinfra-base": {
@@ -2648,13 +2653,13 @@
                 "completion_token": 6e-7
             },
             "novita-fp8": {
-                "prompt_token": 1.36e-7,
-                "completion_token": 6.8e-7,
+                "prompt_token": 1.6e-7,
+                "completion_token": 7.2e-7,
                 "image": 0.0006684
             },
             "parasail-fp8": {
                 "prompt_token": 3.5e-7,
-                "completion_token": 8.5e-7,
+                "completion_token": 0.000001,
                 "image": 0.00070182
             },
             "sambanova": {
@@ -2921,8 +2926,9 @@
         "model": "minimax/minimax-m2",
         "cost": {
             "default": {
-                "prompt_token": 2.55e-7,
-                "completion_token": 0.00000102
+                "prompt_token": 2.54e-7,
+                "completion_token": 0.00000102,
+                "cache_read_token": 1.27e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 2.8e-7,
@@ -2933,9 +2939,9 @@
                 "completion_token": 0.00000102
             },
             "deepinfra-fp8": {
-                "prompt_token": 2.55e-7,
+                "prompt_token": 2.54e-7,
                 "completion_token": 0.00000102,
-                "cache_read_token": 1.275e-7
+                "cache_read_token": 1.27e-7
             },
             "fireworks": {
                 "prompt_token": 3e-7,
@@ -2971,6 +2977,19 @@
             "mistral": {
                 "prompt_token": 3e-7,
                 "completion_token": 9e-7
+            }
+        }
+    },
+    {
+        "model": "mistralai/devstral-2512:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "mistral": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
@@ -3722,6 +3741,19 @@
             "nextbit-int4": {
                 "prompt_token": 0.000001,
                 "completion_token": 0.00000175
+            }
+        }
+    },
+    {
+        "model": "nex-agi/deepseek-v3.1-nex-n1:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "siliconflow-fp8": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
@@ -4628,6 +4660,10 @@
                 "completion_token": 6e-7,
                 "cache_read_token": 7.5e-8
             },
+            "mara": {
+                "prompt_token": 1e-7,
+                "completion_token": 6e-7
+            },
             "ncompass": {
                 "prompt_token": 5e-8,
                 "completion_token": 2.8e-7
@@ -4642,7 +4678,7 @@
             },
             "parasail-fp4": {
                 "prompt_token": 1.2e-7,
-                "completion_token": 5e-7
+                "completion_token": 7.5e-7
             },
             "phala": {
                 "prompt_token": 1e-7,
@@ -4988,12 +5024,12 @@
         "model": "opengvlab/internvl3-78b",
         "cost": {
             "default": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 6e-7
+                "prompt_token": 1e-7,
+                "completion_token": 3.9e-7
             },
             "chutes-bf16": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 6e-7
+                "prompt_token": 1e-7,
+                "completion_token": 3.9e-7
             }
         }
     },
@@ -5765,10 +5801,6 @@
                 "prompt_token": 4.5000000000000003e-7,
                 "completion_token": 0.0000018000000000000001
             },
-            "gmicloud-fp8": {
-                "prompt_token": 2.9e-7,
-                "completion_token": 0.0000012
-            },
             "google-vertex": {
                 "prompt_token": 0.000001,
                 "completion_token": 0.000004
@@ -5782,8 +5814,8 @@
                 "completion_token": 0.0000018
             },
             "novita-fp8": {
-                "prompt_token": 2.9e-7,
-                "completion_token": 0.0000012
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000013
             },
             "siliconflow-fp8": {
                 "prompt_token": 2.5e-7,
@@ -6809,7 +6841,7 @@
                 "cache_read_token": 8.8e-8
             },
             "parasail-fp8": {
-                "prompt_token": 4e-7,
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.0000021
             },
             "siliconflow-fp8": {
@@ -6853,6 +6885,14 @@
                 "prompt_token": 3e-7,
                 "completion_token": 9e-7,
                 "cache_read_token": 5e-8
+            },
+            "deepinfra-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 9e-7
+            },
+            "parasail-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 9e-7
             },
             "z-ai-fp8": {
                 "prompt_token": 3e-7,

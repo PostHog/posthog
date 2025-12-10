@@ -44,9 +44,19 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
     requiredScopes: z.string().optional(),
 })
 
+export const CyclotronInputMappingSchema = z.object({
+    name: z.string(),
+    disabled: z.boolean().optional(),
+    inputs_schema: z.array(CyclotronJobInputSchemaTypeSchema).optional(),
+    inputs: z.record(CyclotronInputSchema).optional().nullable(),
+    filters: z.any().optional().nullable(),
+})
+
 export type CyclotronJobInputSchemaType = z.infer<typeof CyclotronJobInputSchemaTypeSchema>
 
 export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
+
+export type CyclotronInputMappingType = z.infer<typeof CyclotronInputMappingSchema>
 
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     type: z.literal('fetch'),

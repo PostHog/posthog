@@ -9,6 +9,7 @@ exports[`IngestionConsumer error handling should handle explicitly non retriable
       "dlq-step": "unknown",
       "dlq-timestamp": "2025-01-01T00:00:00.000Z",
       "event": "$pageview",
+      "now": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
       "uuid": "<REPLACED-UUID-0>",
     },
@@ -32,6 +33,7 @@ exports[`IngestionConsumer general overflow force overflow should force events w
     "headers": {
       "distinct_id": "team1-user",
       "event": "$pageview",
+      "now": "2025-01-01T00:00:00.000Z",
       "redirect-step": "applyForceOverflowRestrictionsStep",
       "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
@@ -57,6 +59,7 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
     "headers": {
       "distinct_id": "user1",
       "event": "$pageview",
+      "now": "2025-01-01T00:00:00.000Z",
       "redirect-step": "applyForceOverflowRestrictionsStep",
       "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
@@ -77,6 +80,7 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
     "headers": {
       "distinct_id": "user2",
       "event": "$pageview",
+      "now": "2025-01-01T00:00:00.000Z",
       "redirect-step": "applyForceOverflowRestrictionsStep",
       "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "<REPLACED-UUID-1>",
@@ -102,6 +106,7 @@ exports[`IngestionConsumer general overflow should emit to overflow if token and
     "headers": {
       "distinct_id": "overflow-distinct-id",
       "event": "$pageview",
+      "now": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
       "uuid": "<REPLACED-UUID-0>",
     },
@@ -128,6 +133,7 @@ exports[`IngestionConsumer general should not blend person properties from 2 dif
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "<REPLACED-COOKIELESS-ID-3>",
       "elements_chain": "",
@@ -155,6 +161,7 @@ exports[`IngestionConsumer general should not blend person properties from 2 dif
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "<REPLACED-COOKIELESS-ID-3>",
       "elements_chain": "",
@@ -208,6 +215,7 @@ exports[`IngestionConsumer general should process a cookieless event 1`] = `
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "<REPLACED-COOKIELESS-ID-2>",
       "elements_chain": "",
@@ -261,6 +269,7 @@ exports[`IngestionConsumer general should process a standard event 1`] = `
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -302,6 +311,7 @@ exports[`IngestionConsumer typical event processing $identify event 1`] = `
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -355,6 +365,7 @@ exports[`IngestionConsumer typical event processing ai event 1`] = `
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -411,6 +422,7 @@ exports[`IngestionConsumer typical event processing event with common distinct_i
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "distinct_id",
       "elements_chain": "",
@@ -492,6 +504,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
     "key": "<REPLACED-UUID-2>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -514,6 +527,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
     "key": "<REPLACED-UUID-3>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -536,6 +550,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -558,6 +573,7 @@ exports[`IngestionConsumer typical event processing forced person upgrade 1`] = 
     "key": "<REPLACED-UUID-4>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -624,6 +640,7 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
     "key": "<REPLACED-UUID-2>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -646,6 +663,7 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
     "key": "<REPLACED-UUID-3>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -668,6 +686,7 @@ exports[`IngestionConsumer typical event processing groups 1`] = `
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -721,6 +740,7 @@ exports[`IngestionConsumer typical event processing malformed event 1`] = `
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -760,6 +780,7 @@ exports[`IngestionConsumer typical event processing malformed person information
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "distinct-id-1",
       "elements_chain": "",
@@ -813,6 +834,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "anonymous-id-1",
       "elements_chain": "",
@@ -847,6 +869,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
     "key": "<REPLACED-UUID-2>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "identified-id-1",
       "elements_chain": "",
@@ -869,6 +892,7 @@ exports[`IngestionConsumer typical event processing multiple events 1`] = `
     "key": "<REPLACED-UUID-4>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "identified-id-1",
       "elements_chain": "",
@@ -950,6 +974,7 @@ exports[`IngestionConsumer typical event processing normal event 1`] = `
     "key": "<REPLACED-UUID-1>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -989,6 +1014,7 @@ exports[`IngestionConsumer typical event processing person processing off 1`] = 
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "user-1",
       "elements_chain": "",
@@ -1016,6 +1042,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
     "key": "<REPLACED-UUID-0>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "<REPLACED-UUID-1>",
       "elements_chain": "",
@@ -1062,6 +1089,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
     "key": "<REPLACED-UUID-4>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "<REPLACED-UUID-5>",
       "elements_chain": "",
@@ -1084,6 +1112,7 @@ exports[`IngestionConsumer typical event processing person property merging via 
     "key": "<REPLACED-UUID-6>",
     "topic": "clickhouse_events_json_test",
     "value": {
+      "captured_at": "2025-01-01 00:00:00.000",
       "created_at": "2025-01-01 00:00:00.000",
       "distinct_id": "<REPLACED-UUID-5>",
       "elements_chain": "",

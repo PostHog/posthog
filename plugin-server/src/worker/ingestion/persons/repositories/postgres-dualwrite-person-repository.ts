@@ -212,6 +212,43 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         return primaryOut
     }
 
+    async updatePersonsBatch(
+        personUpdates: PersonUpdate[]
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>> {
+        let primaryOut!: Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>
+        await this.coordinator.run('updatePersonsBatch', async () => {
+            // Run on primary first
+            const p = await this.primaryRepo.updatePersonsBatch(personUpdates.map((u) => ({ ...u })))
+            primaryOut = p
+
+            // Run on secondary with the same updates
+            const s = await this.secondaryRepo.updatePersonsBatch(personUpdates.map((u) => ({ ...u })))
+
+            // Compare results if enabled
+            if (this.comparisonEnabled) {
+                let hasMismatch = false
+                for (const [uuid, pResult] of p.entries()) {
+                    const sResult = s.get(uuid)
+                    if (!sResult) {
+                        hasMismatch = true
+                        continue
+                    }
+                    if (pResult.success !== sResult.success || pResult.version !== sResult.version) {
+                        hasMismatch = true
+                    }
+                }
+                dualWriteComparisonCounter.inc({
+                    operation: 'updatePersonsBatch',
+                    comparison_type: 'batch_comparison',
+                    result: hasMismatch ? 'mismatch' : 'match',
+                })
+            }
+
+            return true
+        })
+        return primaryOut
+    }
+
     async deletePerson(person: InternalPerson): Promise<TopicMessage[]> {
         let messages!: TopicMessage[]
         await this.coordinator.run('deletePerson', async (lTx, rTx) => {
