@@ -2,10 +2,8 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
-import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -20,16 +18,22 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProgressStatus } from '~/types'
+import { ProductTour, ProgressStatus } from '~/types'
 
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
-import { productTourLogic } from './productTourLogic'
+import { ProductTourStats, productTourLogic } from './productTourLogic'
 import { getProductTourStatus, isProductTourRunning } from './productToursLogic'
 import { productToursLogic } from './productToursLogic'
 
+const UrlMatchTypeLabels: Record<string, string> = {
+    contains: 'contains',
+    exact: 'exactly matches',
+    regex: 'matches regex',
+}
+
 export function ProductTourView({ id }: { id: string }): JSX.Element {
     const { productTour, productTourLoading, tourStats, tourStatsLoading } = useValues(productTourLogic({ id }))
-    const { updateProductTour, launchProductTour, stopProductTour, resumeProductTour } = useActions(
+    const { editingProductTour, launchProductTour, stopProductTour, resumeProductTour } = useActions(
         productTourLogic({ id })
     )
     const { deleteProductTour } = useActions(productToursLogic)
@@ -86,10 +90,6 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 name={productTour.name}
                 description={productTour.description}
                 resourceType={{ type: 'product_tour' }}
-                saveOnBlur
-                onNameChange={(name) => updateProductTour(id, { name })}
-                onDescriptionChange={(description) => updateProductTour(id, { description })}
-                renameDebounceMs={0}
                 isLoading={productTourLoading}
                 actions={
                     <>
@@ -100,6 +100,9 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                             targetBlank
                         >
                             Edit in toolbar
+                        </LemonButton>
+                        <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
+                            Edit
                         </LemonButton>
                         {status === ProgressStatus.Draft && (
                             <LemonButton
@@ -207,13 +210,10 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                                 <ProductTourStatsSummary stats={tourStats} loading={tourStatsLoading} />
                                 <LemonDivider />
                                 <StepsFunnel stats={tourStats} tour={productTour} loading={tourStatsLoading} />
+                                <LemonDivider />
+                                <TargetingSummary tour={productTour} />
                             </div>
                         ),
-                    },
-                    {
-                        key: 'targeting',
-                        label: 'Targeting',
-                        content: <TargetingSettings id={id} />,
                     },
                 ]}
             />
@@ -226,8 +226,8 @@ function StepsFunnel({
     tour,
     loading,
 }: {
-    stats: { stepStats: Array<{ stepOrder: number; shown: number; completed: number }> } | null
-    tour: { content?: { steps?: Array<{ selector: string }> } }
+    stats: ProductTourStats | null
+    tour: ProductTour
     loading: boolean
 }): JSX.Element {
     if (loading) {
@@ -274,86 +274,45 @@ function StepsFunnel({
     )
 }
 
-function TargetingSettings({ id }: { id: string }): JSX.Element {
-    const { productTour } = useValues(productTourLogic({ id }))
-    const { updateProductTour } = useActions(productTourLogic({ id }))
-
-    const conditions = productTour?.content?.conditions || {}
+function TargetingSummary({ tour }: { tour: ProductTour }): JSX.Element {
+    const conditions = tour.content?.conditions || {}
+    const hasUrl = conditions.url
+    const hasTargetingFilters =
+        tour.targeting_flag_filters &&
+        tour.targeting_flag_filters.groups &&
+        tour.targeting_flag_filters.groups.length > 0
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h3 className="font-semibold mb-2">URL targeting</h3>
-                <p className="text-secondary text-sm mb-4">Only show this tour on pages matching this URL pattern.</p>
-                <div className="flex gap-2">
-                    <LemonSelect
-                        value={conditions.urlMatchType || 'contains'}
-                        onChange={(value) => {
-                            updateProductTour(id, {
-                                content: {
-                                    ...productTour?.content,
-                                    conditions: {
-                                        ...conditions,
-                                        urlMatchType: value,
-                                    },
-                                },
-                            })
-                        }}
-                        options={[
-                            { label: 'Contains', value: 'contains' },
-                            { label: 'Exact match', value: 'exact' },
-                            { label: 'Regex', value: 'regex' },
-                        ]}
-                    />
-                    <LemonInput
-                        className="flex-1"
-                        value={conditions.url || ''}
-                        onChange={(value) => {
-                            updateProductTour(id, {
-                                content: {
-                                    ...productTour?.content,
-                                    conditions: {
-                                        ...conditions,
-                                        url: value,
-                                    },
-                                },
-                            })
-                        }}
-                        placeholder="e.g., /dashboard or https://example.com/app"
-                    />
-                </div>
-            </div>
-
-            <LemonDivider />
-
-            <div>
-                <h3 className="font-semibold mb-2">Feature flag</h3>
-                <p className="text-secondary text-sm mb-4">
-                    This tour uses an internal feature flag for targeting. The flag is automatically created and
-                    managed.
-                </p>
-                {productTour?.internal_targeting_flag ? (
+        <div>
+            <h3 className="font-semibold mb-4">Display conditions</h3>
+            <div className="space-y-3">
+                {hasUrl && (
                     <div className="flex items-center gap-2">
-                        <LemonTag>{productTour.feature_flag_key}</LemonTag>
-                        <span className="text-secondary text-sm">
-                            Users who have completed or dismissed this tour are automatically excluded.
+                        <span className="text-secondary">
+                            URL {UrlMatchTypeLabels[conditions.urlMatchType || 'contains']}:
+                        </span>
+                        <LemonTag>{conditions.url}</LemonTag>
+                    </div>
+                )}
+                {hasTargetingFilters && (
+                    <div className="flex items-center gap-2">
+                        <span className="text-secondary">Person properties:</span>
+                        <span className="text-sm">
+                            {tour.targeting_flag_filters!.groups!.length} condition group(s)
                         </span>
                     </div>
-                ) : (
-                    <span className="text-secondary text-sm">No feature flag configured.</span>
                 )}
-            </div>
-
-            <LemonDivider />
-
-            <div>
-                <h3 className="font-semibold mb-2">Authorized domains</h3>
-                <p className="text-secondary text-sm mb-4">The toolbar can only be launched on authorized domains.</p>
-                <AuthorizedUrlList
-                    type={AuthorizedUrlListType.TOOLBAR_URLS}
-                    addText="Add authorized URL"
-                    showLaunch={false}
-                />
+                {tour.internal_targeting_flag && (
+                    <div className="flex items-center gap-2">
+                        <span className="text-secondary">Feature flag:</span>
+                        <LemonTag>{tour.feature_flag_key}</LemonTag>
+                    </div>
+                )}
+                {!hasUrl && !hasTargetingFilters && !tour.internal_targeting_flag && (
+                    <span className="text-secondary text-sm">
+                        No targeting conditions configured. Tour will display to all users.
+                    </span>
+                )}
             </div>
         </div>
     )

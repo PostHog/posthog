@@ -1,5 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -9,7 +11,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { hogql } from '~/queries/utils'
-import { Breadcrumb, ProductTour } from '~/types'
+import { Breadcrumb, FeatureFlagFilters, ProductTour, ProductTourContent } from '~/types'
 
 import type { productTourLogicType } from './productTourLogicType'
 import { productToursLogic } from './productToursLogic'
@@ -29,6 +31,20 @@ export interface ProductTourStats {
     }>
 }
 
+export interface ProductTourForm {
+    name: string
+    description: string
+    content: ProductTourContent
+    targeting_flag_filters: FeatureFlagFilters | null
+}
+
+const NEW_PRODUCT_TOUR: ProductTourForm = {
+    name: '',
+    description: '',
+    content: { steps: [] },
+    targeting_flag_filters: null,
+}
+
 export const productTourLogic = kea<productTourLogicType>([
     path(['scenes', 'product-tours', 'productTourLogic']),
     props({} as ProductTourLogicProps),
@@ -37,7 +53,9 @@ export const productTourLogic = kea<productTourLogicType>([
         actions: [productToursLogic, ['loadProductTours']],
     })),
     actions({
-        updateProductTour: (id: string, payload: Partial<ProductTour>) => ({ id, payload }),
+        editingProductTour: (editing: boolean) => ({ editing }),
+        setProductTourValue: (key: keyof ProductTourForm, value: any) => ({ key, value }),
+        setFlagPropertyErrors: (errors: any) => ({ errors }),
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
@@ -50,11 +68,6 @@ export const productTourLogic = kea<productTourLogicType>([
                     return null
                 }
                 return await api.productTours.get(props.id)
-            },
-            updateProductTour: async ({ id, payload }: { id: string; payload: Partial<ProductTour> }) => {
-                const response = await api.productTours.update(id, payload)
-                lemonToast.success('Product tour updated')
-                return response
             },
         },
         tourStats: {
@@ -141,6 +154,30 @@ export const productTourLogic = kea<productTourLogicType>([
             },
         },
     })),
+    forms(({ actions, props }) => ({
+        productTourForm: {
+            defaults: NEW_PRODUCT_TOUR as ProductTourForm,
+            errors: ({ name }: ProductTourForm) => ({
+                name: !name ? 'Name is required' : undefined,
+            }),
+            submit: async (formValues: ProductTourForm) => {
+                const payload = {
+                    name: formValues.name,
+                    description: formValues.description,
+                    content: formValues.content,
+                    targeting_flag_filters: formValues.targeting_flag_filters,
+                }
+
+                if (props.id && props.id !== 'new') {
+                    await api.productTours.update(props.id, payload)
+                    lemonToast.success('Product tour updated')
+                    actions.editingProductTour(false)
+                    actions.loadProductTour()
+                    actions.loadProductTours()
+                }
+            },
+        },
+    })),
     reducers({
         productTourMissing: [
             false,
@@ -149,34 +186,72 @@ export const productTourLogic = kea<productTourLogicType>([
                 loadProductTourFailure: () => true,
             },
         ],
+        isEditingProductTour: [
+            false,
+            {
+                editingProductTour: (_, { editing }) => editing,
+            },
+        ],
+        flagPropertyErrors: [
+            null as any,
+            {
+                setFlagPropertyErrors: (_, { errors }) => errors,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
-        updateProductTourSuccess: () => {
-            actions.loadProductTours()
-        },
         launchProductTour: async () => {
             if (values.productTour) {
-                actions.updateProductTour(values.productTour.id, {
+                await api.productTours.update(values.productTour.id, {
                     start_date: new Date().toISOString(),
                 })
+                lemonToast.success('Product tour launched')
+                actions.loadProductTour()
+                actions.loadProductTours()
             }
         },
         stopProductTour: async () => {
             if (values.productTour) {
-                actions.updateProductTour(values.productTour.id, {
+                await api.productTours.update(values.productTour.id, {
                     end_date: new Date().toISOString(),
                 })
+                lemonToast.success('Product tour stopped')
+                actions.loadProductTour()
+                actions.loadProductTours()
             }
         },
         resumeProductTour: async () => {
             if (values.productTour) {
-                actions.updateProductTour(values.productTour.id, {
+                await api.productTours.update(values.productTour.id, {
                     end_date: null,
+                })
+                lemonToast.success('Product tour resumed')
+                actions.loadProductTour()
+                actions.loadProductTours()
+            }
+        },
+        loadProductTourSuccess: ({ productTour }) => {
+            actions.loadTourStats()
+            // Populate form with loaded data
+            if (productTour) {
+                actions.setProductTourFormValues({
+                    name: productTour.name,
+                    description: productTour.description,
+                    content: productTour.content,
+                    targeting_flag_filters: productTour.targeting_flag_filters,
                 })
             }
         },
-        loadProductTourSuccess: () => {
-            actions.loadTourStats()
+        editingProductTour: ({ editing }) => {
+            if (editing && values.productTour) {
+                // Reset form to current tour values when entering edit mode
+                actions.setProductTourFormValues({
+                    name: values.productTour.name,
+                    description: values.productTour.description,
+                    content: values.productTour.content,
+                    targeting_flag_filters: values.productTour.targeting_flag_filters,
+                })
+            }
         },
     })),
     selectors({
@@ -213,7 +288,39 @@ export const productTourLogic = kea<productTourLogicType>([
                 return Math.round((tourStats.dismissed / tourStats.shown) * 100)
             },
         ],
+        targetingFlagFilters: [
+            (s) => [s.productTourForm],
+            (productTourForm: ProductTourForm): FeatureFlagFilters | undefined => {
+                if (productTourForm.targeting_flag_filters) {
+                    return {
+                        ...productTourForm.targeting_flag_filters,
+                        groups: productTourForm.targeting_flag_filters.groups,
+                        multivariate: null,
+                        payloads: {},
+                    }
+                }
+                return undefined
+            },
+        ],
     }),
+    urlToAction(({ actions, props }) => ({
+        [urls.productTour(props.id)]: (_, searchParams) => {
+            if (searchParams.edit) {
+                actions.editingProductTour(true)
+            }
+        },
+    })),
+    actionToUrl(() => ({
+        editingProductTour: ({ editing }) => {
+            const searchParams = router.values.searchParams
+            if (editing) {
+                searchParams['edit'] = true
+            } else {
+                delete searchParams['edit']
+            }
+            return [router.values.location.pathname, searchParams, router.values.hashParams]
+        },
+    })),
     afterMount(({ actions, props }) => {
         if (props.id !== 'new') {
             actions.loadProductTour()

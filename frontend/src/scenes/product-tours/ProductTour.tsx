@@ -1,9 +1,11 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { ProductTourEdit } from './ProductTourEdit'
 import { ProductTourView } from './ProductTourView'
 import { ProductTourLogicProps, productTourLogic } from './productTourLogic'
 
@@ -14,7 +16,14 @@ export const scene: SceneExport<ProductTourLogicProps> = {
 }
 
 export function ProductTourComponent({ id }: ProductTourLogicProps): JSX.Element {
-    const { productTourMissing } = useValues(productTourLogic({ id }))
+    const { productTourMissing, isEditingProductTour } = useValues(productTourLogic({ id }))
+    const { editingProductTour } = useActions(productTourLogic({ id }))
+
+    useEffect(() => {
+        return () => {
+            editingProductTour(false)
+        }
+    }, [editingProductTour])
 
     if (productTourMissing) {
         return <NotFound object="product tour" />
@@ -26,7 +35,7 @@ export function ProductTourComponent({ id }: ProductTourLogicProps): JSX.Element
                 <LemonSkeleton />
             ) : (
                 <BindLogic logic={productTourLogic} props={{ id }}>
-                    <ProductTourView id={id} />
+                    {isEditingProductTour ? <ProductTourEdit id={id} /> : <ProductTourView id={id} />}
                 </BindLogic>
             )}
         </div>
