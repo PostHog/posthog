@@ -150,6 +150,7 @@ async def execute_batch_export_using_internal_stage(
                 initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
                 maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
                 maximum_attempts=maximum_attempts,
+                non_retryable_error_types=["InvalidFilterError"],
             ),
         )
 
