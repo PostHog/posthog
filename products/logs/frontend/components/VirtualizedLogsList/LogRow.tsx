@@ -142,6 +142,9 @@ export function LogRow({
 
     const startScrolling = useCallback(
         (direction: 'left' | 'right'): void => {
+            if (scrollIntervalRef.current !== null) {
+                return // Already scrolling
+            }
             scrollMessage(direction) // Immediate first scroll
             scrollIntervalRef.current = window.setInterval(() => {
                 scrollMessage(direction)
