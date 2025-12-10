@@ -195,7 +195,7 @@ export const sdksLogic = kea<sdksLogicType>([
                         ORDER BY latest_timestamp DESC
                         LIMIT 7`
 
-                    const res = await api.queryHogQL(query, {
+                    const res = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                         queryParams: {
                             values: {
                                 protocol: window.location.protocol,

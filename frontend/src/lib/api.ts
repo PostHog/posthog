@@ -4563,7 +4563,7 @@ const api = {
         })
     },
 
-    async queryHogQL<T = any[]>(
+    async SHAMEFULLY_UNTAGGED_queryHogQL<T = any[]>(
         query: HogQLQueryString,
         queryOptions?: {
             requestOptions?: ApiMethodOptions
@@ -4573,6 +4573,21 @@ const api = {
             variablesOverride?: Record<string, HogQLVariable> | null
             queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
         }
+    ): Promise<HogQLQueryResponse<T>> {
+        return this.queryHogQL(query, queryOptions, '')
+    },
+
+    async queryHogQL<T = any[]>(
+        query: HogQLQueryString,
+        queryOptions?: {
+            requestOptions?: ApiMethodOptions
+            clientQueryId?: string
+            refresh?: RefreshType
+            filtersOverride?: DashboardFilter | null
+            variablesOverride?: Record<string, HogQLVariable> | null
+            queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
+        },
+        tags: {}
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
             ...queryOptions?.queryParams,

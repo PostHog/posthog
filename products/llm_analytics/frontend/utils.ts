@@ -842,7 +842,7 @@ export async function queryEvaluationRuns(params: {
         LIMIT 100
     `
 
-    const response = await api.queryHogQL(query, {
+    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
         ...(forceRefresh && { refresh: 'force_blocking' }),
     })
 
