@@ -1,3 +1,5 @@
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
+
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
@@ -141,13 +143,37 @@ export function SessionRecordingsPlaylist({
                             />
                         }
                         filterActions={
-                            notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
-                                <RecordingsUniversalFiltersEmbedButton
-                                    filters={filters}
-                                    setFilters={setFilters}
-                                    totalFiltersCount={totalFiltersCount}
-                                    currentSessionRecordingId={activeSessionRecordingId}
-                                />
+                            notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? (
+                                <LemonButton
+                                    size="small"
+                                    onClick={() => {
+                                        window.open('http://localhost:8001/pmf-game?completed=session-replay', '_blank')
+                                    }}
+                                    className="pmf-game-button"
+                                >
+                                    Complete Quest
+                                </LemonButton>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <LemonButton
+                                        size="small"
+                                        onClick={() => {
+                                            window.open(
+                                                'http://localhost:8001/pmf-game?completed=session-replay',
+                                                '_blank'
+                                            )
+                                        }}
+                                        className="pmf-game-button"
+                                    >
+                                        Complete Quest
+                                    </LemonButton>
+                                    <RecordingsUniversalFiltersEmbedButton
+                                        filters={filters}
+                                        setFilters={setFilters}
+                                        totalFiltersCount={totalFiltersCount}
+                                        currentSessionRecordingId={activeSessionRecordingId}
+                                    />
+                                </div>
                             )
                         }
                         loading={sessionRecordingsResponseLoading}

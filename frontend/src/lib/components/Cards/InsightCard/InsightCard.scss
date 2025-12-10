@@ -166,7 +166,7 @@
 }
 
 .pmf-game-button {
-    --lemon-button-color: white;
+    --lemon-button-color: white !important;
 
     clip-path: polygon(
         0 6px,
@@ -190,7 +190,11 @@
         3px calc(100% - 6px),
         0 calc(100% - 6px)
     );
-    background: rgb(239 68 68);
+    background: rgb(239 68 68) !important;
+
+    .LemonButton__chrome {
+        color: white !important;
+    }
 
     &.LemonButton--tertiary:not([aria-disabled='true']):hover,
     &.LemonButton--tertiary[data-focused='true']:not([aria-disabled='true']):focus-visible {

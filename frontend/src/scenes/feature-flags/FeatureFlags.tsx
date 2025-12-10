@@ -477,7 +477,7 @@ export function OverViewTab({
             />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
-            <div>
+            <div className="flex items-center justify-between">
                 <span className="text-secondary">
                     {featureFlagsLoading ? (
                         <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
@@ -487,6 +487,17 @@ export function OverViewTab({
                         }`
                     ) : null}
                 </span>
+                {count >= 1 && (
+                    <LemonButton
+                        size="small"
+                        onClick={() => {
+                            window.open('http://localhost:8001/pmf-game?completed=feature-flags', '_blank')
+                        }}
+                        className="pmf-game-button"
+                    >
+                        Complete Quest
+                    </LemonButton>
+                )}
             </div>
 
             <LemonTable

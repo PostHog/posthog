@@ -1,7 +1,11 @@
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
+
 import { BindLogic, useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+
+// For pmf-game-button styles
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -129,34 +133,65 @@ export function IssuesList(): JSX.Element {
 
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-            <div>
-                <SceneStickyBar showBorderBottom={false}>
-                    <ListOptions />
-                    {orderBy === 'revenue' && (
-                        <LemonBanner
-                            type="warning"
-                            action={{
-                                children: 'Send feedback',
-                                onClick: () =>
-                                    openSupportForm({
-                                        kind: 'feedback',
-                                        target_area: 'error_tracking',
-                                        severity_level: 'medium',
-                                        isEmailFormOpen: true,
-                                    }),
-                                id: 'revenue-analytics-feedback-button',
-                            }}
-                        >
-                            Revenue sorting requires setting up{' '}
-                            <Link to="https://posthog.com/docs/revenue-analytics">Revenue analytics</Link>. It does not
-                            yet work well for customers with a large number of persons or groups. We're keen to hear
-                            feedback or any issues you have using it while we work to improve the performance
-                        </LemonBanner>
-                    )}
-                </SceneStickyBar>
-                <Query query={query} context={context} />
-            </div>
+            <IssuesListContent orderBy={orderBy} query={query} context={context} openSupportForm={openSupportForm} />
         </BindLogic>
+    )
+}
+
+function IssuesListContent({
+    orderBy,
+    query,
+    context,
+    openSupportForm,
+}: {
+    orderBy: string
+    query: unknown
+    context: QueryContext
+    openSupportForm: (options: unknown) => void
+}): JSX.Element {
+    const { results } = useValues(issuesDataNodeLogic)
+
+    return (
+        <div>
+            <SceneStickyBar showBorderBottom={false}>
+                <ListOptions />
+                {orderBy === 'revenue' && (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Send feedback',
+                            onClick: () =>
+                                openSupportForm({
+                                    kind: 'feedback',
+                                    target_area: 'error_tracking',
+                                    severity_level: 'medium',
+                                    isEmailFormOpen: true,
+                                }),
+                            id: 'revenue-analytics-feedback-button',
+                        }}
+                    >
+                        Revenue sorting requires setting up{' '}
+                        <Link to="https://posthog.com/docs/revenue-analytics">Revenue analytics</Link>. It does not yet
+                        work well for customers with a large number of persons or groups. We're keen to hear feedback or
+                        any issues you have using it while we work to improve the performance
+                    </LemonBanner>
+                )}
+            </SceneStickyBar>
+            {results.length >= 1 && (
+                <div className="mb-2">
+                    <LemonButton
+                        size="small"
+                        onClick={() => {
+                            window.open('http://localhost:8001/pmf-game?completed=error-tracking', '_blank')
+                        }}
+                        className="pmf-game-button"
+                    >
+                        Complete Quest
+                    </LemonButton>
+                </div>
+            )}
+            <Query query={query} context={context} />
+        </div>
     )
 }
 
