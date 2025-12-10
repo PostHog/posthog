@@ -1,7 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconArrowLeft, IconFilter, IconPlay, IconPlus, IconStack } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconBinary,
+    IconBrackets,
+    IconCalculator,
+    IconCalendar,
+    IconFilter,
+    IconLetter,
+    IconList,
+    IconPlay,
+    IconQuestion,
+    IconStack,
+} from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonTable, LemonTag, Popover, Spinner } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
@@ -146,7 +158,7 @@ export function BIScene(): JSX.Element {
                                                 onClick={() =>
                                                     addColumn({ table: selectedTableObject.name, field: field.name })
                                                 }
-                                                icon={<IconPlus />}
+                                                icon={fieldTypeIcon(field)}
                                             >
                                                 {field.name}
                                             </LemonButton>
@@ -390,4 +402,34 @@ function isNumericField(field?: DatabaseSchemaField): boolean {
     }
     const type = field.type.toLowerCase()
     return type.includes('int') || type.includes('float') || type.includes('decimal') || type.includes('double')
+}
+
+function fieldTypeIcon(field?: DatabaseSchemaField): JSX.Element {
+    if (!field?.type || typeof field.type !== 'string') {
+        return <IconQuestion />
+    }
+
+    const type = field.type.toLowerCase()
+
+    if (isNumericField(field) || type.includes('decimal') || type.includes('number')) {
+        return <IconCalculator />
+    }
+
+    if (type.includes('date') || type.includes('time')) {
+        return <IconCalendar />
+    }
+
+    if (type.includes('bool')) {
+        return <IconBinary />
+    }
+
+    if (type.includes('array')) {
+        return <IconList />
+    }
+
+    if (type.includes('json') || type.includes('map') || type.includes('struct')) {
+        return <IconBrackets />
+    }
+
+    return <IconLetter />
 }
