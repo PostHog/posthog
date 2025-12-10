@@ -11,7 +11,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.preaggregation.sql import WRITABLE_PREAGGREGATION_RESULTS_TABLE
+from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.models.preaggregation_job import PreaggregationJob
 from posthog.models.team import Team
 
@@ -237,7 +237,7 @@ def build_preaggregation_insert_sql(
         dialect="clickhouse",
     )
 
-    sql = f"""INSERT INTO {WRITABLE_PREAGGREGATION_RESULTS_TABLE()} (
+    sql = f"""INSERT INTO {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()} (
     team_id,
     time_window_start,
     breakdown_value,

@@ -4,10 +4,7 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.preaggregation.sql import (
-    DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE,
-    WRITABLE_PREAGGREGATION_RESULTS_TABLE,
-)
+from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 
 
 class TestPreaggregationModel(ClickhouseTestMixin, BaseTest):
@@ -18,7 +15,7 @@ class TestPreaggregationModel(ClickhouseTestMixin, BaseTest):
 
         sync_execute(
             f"""
-            INSERT INTO {WRITABLE_PREAGGREGATION_RESULTS_TABLE()} (
+            INSERT INTO {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()} (
                 team_id,
                 job_id,
                 time_window_start,
