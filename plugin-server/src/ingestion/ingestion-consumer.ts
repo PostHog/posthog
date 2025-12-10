@@ -36,6 +36,7 @@ import {
     createApplyForceOverflowRestrictionsStep,
     createApplyPersonProcessingRestrictionsStep,
     createDropExceptionEventsStep,
+    createFilterIpPropertiesStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
     createResolveTeamStep,
@@ -296,6 +297,7 @@ export class IngestionConsumer {
                                         )
                                     )
                                     .pipe(createValidateEventUuidStep())
+                                    .pipe(createFilterIpPropertiesStep())
                             )
                             // We want to call cookieless with the whole batch at once.
                             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
