@@ -395,30 +395,48 @@ export const vizLogic = kea<vizLogicType>([
                     const mentioned = topicPrompts.filter((p) => p.you_mentioned).length
                     const visibility = topicPrompts.length > 0 ? (mentioned / topicPrompts.length) * 100 : 0
 
-                    // Calculate average rank across all platforms where mentioned
-                    let totalRank = 0
-                    let rankCount = 0
-                    let citationCount = 0
-                    for (const p of topicPrompts) {
-                        for (const plat of Object.values(p.platforms) as (PlatformMention | undefined)[]) {
-                            if (plat?.mentioned && plat.position) {
-                                totalRank += plat.position
-                                rankCount++
-                            }
-                            if (plat?.cited) {
-                                citationCount++
-                            }
-                        }
-                    }
-                    const avgRank = rankCount > 0 ? totalRank / rankCount : 0
-
-                    // Collect all competitors and count occurrences
+                    // Collect competitor mention counts for ranking
                     const compCounts = new Map<string, number>()
                     for (const p of topicPrompts) {
                         for (const comp of p.competitors_mentioned) {
                             compCounts.set(comp, (compCounts.get(comp) || 0) + 1)
                         }
                     }
+
+                    // Calculate average rank: where does brand rank among competitors in this topic?
+                    // Rank based on mention frequency - more mentions = better rank
+                    let avgRank = 0
+                    let citationCount = 0
+                    if (mentioned > 0) {
+                        // Sort all brands (including us) by mention count
+                        const allBrands = [
+                            { name: '_brand_', count: mentioned },
+                            ...[...compCounts.entries()].map(([name, count]) => ({ name, count })),
+                        ].sort((a, b) => b.count - a.count)
+
+                        // Find our rank (1-indexed, handle ties)
+                        let rank = 1
+                        for (let i = 0; i < allBrands.length; i++) {
+                            if (allBrands[i].name === '_brand_') {
+                                avgRank = rank
+                                break
+                            }
+                            // Only increment rank if next brand has fewer mentions (handle ties)
+                            if (i < allBrands.length - 1 && allBrands[i].count > allBrands[i + 1].count) {
+                                rank = i + 2
+                            }
+                        }
+                    }
+
+                    // Count citations from platforms
+                    for (const p of topicPrompts) {
+                        for (const plat of Object.values(p.platforms) as (PlatformMention | undefined)[]) {
+                            if (plat?.cited) {
+                                citationCount++
+                            }
+                        }
+                    }
+
                     const topCompetitors = [...compCounts.entries()]
                         .sort((a, b) => b[1] - a[1])
                         .slice(0, 4)
@@ -427,13 +445,12 @@ export const vizLogic = kea<vizLogicType>([
                             icon: competitorDetails.get(compName)?.icon,
                         }))
 
-                    // Relevancy is based on how many prompts mention any competitor (topic is active in market)
-                    const relevancy =
-                        topicPrompts.length > 0
-                            ? (topicPrompts.filter((p) => p.competitors_mentioned.length > 0).length /
-                                  topicPrompts.length) *
-                              100
-                            : 0
+                    // Relevancy: % of prompts where any brand (you or competitors) is mentioned
+                    // Shows how "active" or competitive the topic is
+                    const promptsWithMentions = topicPrompts.filter(
+                        (p) => p.you_mentioned || p.competitors_mentioned.length > 0
+                    ).length
+                    const relevancy = topicPrompts.length > 0 ? (promptsWithMentions / topicPrompts.length) * 100 : 0
 
                     topicsArray.push({
                         name,

@@ -1,5 +1,4 @@
 import json
-import random
 import asyncio
 from dataclasses import dataclass
 from typing import Any
@@ -261,9 +260,10 @@ async def get_topics(payload: TopicsInput) -> list[dict]:
     return categories
 
 
-async def _generate_prompts_for_category(
-    info: BusinessInfo, category: dict | str, prompts_per_category: int
-) -> list[dict]:
+_MAX_PROMPTS_PER_CATEGORY = 15
+
+
+async def _generate_prompts_for_category(info: BusinessInfo, category: dict | str) -> list[dict]:
     """Generate prompts for a single category."""
     cat_name = category["name"] if isinstance(category, dict) else category
     cat_desc = category.get("description", "") if isinstance(category, dict) else ""
@@ -283,7 +283,7 @@ async def _generate_prompts_for_category(
         f"Business context: {info.name} - {info.summary}\n\n"
         f"Category: {cat_name}"
         + (f" - {cat_desc}" if cat_desc else "")
-        + f"\n\nGenerate exactly {prompts_per_category} diverse prompts for this category. Keep prompts 6-15 words, natural, non-overlapping."
+        + "\n\nGenerate diverse prompts for this category. Keep prompts 6-15 words, natural, non-overlapping."
     )
     data = await _call_structured_llm(prompt, PromptsOutput, temperature=0.8)
     prompts = data.get("prompts", [])
@@ -293,7 +293,8 @@ async def _generate_prompts_for_category(
         text = p.get("prompt") if isinstance(p, dict) else getattr(p, "prompt", None)
         if text:
             result.append({"category": cat_name, "prompt": text})
-    return result
+    # Hard cap the results
+    return result[:_MAX_PROMPTS_PER_CATEGORY]
 
 
 @activity.defn(name="generatePrompts")
@@ -301,12 +302,11 @@ async def generate_prompts(payload: PromptsInput) -> list[dict]:
     info = BusinessInfo.model_validate(payload.info)
     categories = payload.topics  # List of dicts with name/description
 
-    prompts_per_category = random.choice([3, 5, 7, 9])
     semaphore = asyncio.Semaphore(_PROMPT_GEN_CONCURRENCY)
 
     async def run_category(category: dict | str) -> list[dict]:
         async with semaphore:
-            return await _generate_prompts_for_category(info, category, prompts_per_category)
+            return await _generate_prompts_for_category(info, category)
 
     logger.info("ai_visibility.generate_prompts.start", domain=payload.domain, categories=len(categories))
 

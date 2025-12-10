@@ -56,7 +56,7 @@ function OverviewTab({ brand }: { brand: string }): JSX.Element {
 // Prompts tab content
 function PromptsTab({ brand }: { brand: string }): JSX.Element {
     const logic = vizLogic({ brand })
-    const { topics, mentionStats } = useValues(logic)
+    const { topics, mentionStats, brandDisplayName } = useValues(logic)
 
     return (
         <div className="space-y-4">
@@ -77,7 +77,7 @@ function PromptsTab({ brand }: { brand: string }): JSX.Element {
                     <p className="text-xs text-muted">Responses from running prompts on LLMs</p>
                 </div>
             </div>
-            <TopicsTable topics={topics} />
+            <TopicsTable topics={topics} brandName={brandDisplayName} brandDomain={brand} />
         </div>
     )
 }

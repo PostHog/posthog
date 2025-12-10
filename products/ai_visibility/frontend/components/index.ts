@@ -1,4 +1,3 @@
-export { CategoryTag } from './CategoryTag'
 export { ComparisonCard } from './ComparisonCard'
 export { CompetitorMentionsBar } from './CompetitorMentionsBar'
 export { CompetitorTopicsHeatmap } from './CompetitorTopicsHeatmap'
