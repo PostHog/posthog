@@ -354,9 +354,9 @@ class Transformer(CloningVisitor):
         else:
             select = [transformed_select_expr]
 
-        # FROM daily_unique_persons_pageviews
+        # FROM preaggregation_results (HogQL name, maps to sharded_preaggregation_results in ClickHouse)
         select_from = ast.JoinExpr(
-            table=ast.Field(chain=[SHARDED_PREAGGREGATION_RESULTS_TABLE()]),
+            table=ast.Field(chain=["preaggregation_results"]),
             alias=transformed_node.select_from.alias if transformed_node.select_from else None,
             constraint=None,
             next_join=None,

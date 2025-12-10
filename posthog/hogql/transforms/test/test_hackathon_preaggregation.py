@@ -1,11 +1,15 @@
 from datetime import datetime
+from uuid import uuid4
 
-from posthog.test.base import BaseTest, QueryMatchingTest
+from posthog.test.base import BaseTest, QueryMatchingTest, _create_event
 
 from parameterized import parameterized
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.hackathon_preaggregation import (
     PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME,
     Transformer,
@@ -18,6 +22,9 @@ from posthog.hogql.transforms.hackathon_preaggregation import (
     _is_to_start_of_day_timestamp,
     _is_uniq_exact_persons_call,
 )
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.preaggregation.sql import SHARDED_PREAGGREGATION_RESULTS_TABLE
 
 
 class TestPatternDetection(BaseTest):
@@ -561,3 +568,72 @@ class TestQueryTransformation(BaseTest, QueryMatchingTest):
         assert "AS os" in transformed or "os" in transformed
 
         self.assertQueryMatchesSnapshot(transformed)
+
+
+class TestPreaggregationResultsEquivalence(BaseTest):
+    """Integration tests to verify preaggregated results match raw query results."""
+
+    def test_results_equivalent_with_and_without_preaggregation(self):
+        """
+        Verify that querying with usePreaggregatedIntermediateResults=True
+        produces the same results as querying with it set to False.
+        """
+
+        # Create test events
+        person_ids = [uuid4() for _ in range(5)]
+        for i, person_id in enumerate(person_ids):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_{i}",
+                timestamp=datetime(2024, 1, 15, 10, 0, 0),
+                person_id=person_id,
+            )
+
+        # Insert corresponding preaggregated data
+        # The preaggregation stores uniqExactState(person_id) as an aggregate state
+        sync_execute(
+            f"""
+            INSERT INTO {SHARDED_PREAGGREGATION_RESULTS_TABLE()}
+            (team_id, job_id, time_window_start, breakdown_value, uniq_exact_state)
+            SELECT
+                %(team_id)s,
+                %(job_id)s,
+                toDateTime('2024-01-15 00:00:00'),
+                [],
+                uniqExactState(person_id)
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND event = '$pageview'
+              AND timestamp >= '2024-01-15'
+              AND timestamp < '2024-01-16'
+            """,
+            {"team_id": self.team.pk, "job_id": uuid4()},
+        )
+
+        query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+
+        # Query without preaggregation
+        result_without = execute_hogql_query(
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(usePreaggregatedIntermediateResults=False)
+        )
+
+        # Query with preaggregation
+        result_with = execute_hogql_query(
+            query=query,
+            team=self.team,
+            modifiers=HogQLQueryModifiers(usePreaggregatedIntermediateResults=True),
+        )
+
+        assert result_without.results == result_with.results, (
+            f"Results mismatch!\n"
+            f"Without preaggregation: {result_without.results}\n"
+            f"With preaggregation: {result_with.results}"
+        )
