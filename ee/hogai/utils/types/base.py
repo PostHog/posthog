@@ -525,6 +525,7 @@ class AssistantGraphName(StrEnum):
     INSIGHTS = "insights_graph"
     TAXONOMY = "taxonomy_graph"
     DEEP_RESEARCH = "deep_research_graph"
+    SYNTHETIC_USER = "synthetic_user_graph"
 
 
 class AssistantMode(StrEnum):

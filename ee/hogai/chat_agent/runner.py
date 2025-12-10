@@ -1,21 +1,17 @@
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import structlog
-from posthoganalytics import capture_exception
 
-from posthog.schema import AgentMode, AssistantMessage, ContextMessage, HumanMessage, MaxBillingContext
+from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.chat_agent.taxonomy.types import TaxonomyNodeName
-from ee.hogai.context.prompts import BROWSER_SESSION_CLOSED_PROMPT
 from ee.hogai.core.runner import BaseAgentRunner
-from ee.hogai.tools.browser import BrowserSessionManager
 from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
 from ee.models import Conversation
 
@@ -76,7 +72,7 @@ class ChatAgentRunner(BaseAgentRunner):
     ):
         super().__init__(
             team,
-            conversation,
+            conversation=conversation,
             new_message=new_message,
             user=user,
             graph_class=AssistantGraph,
@@ -158,44 +154,3 @@ class ChatAgentRunner(BaseAgentRunner):
                 "$session_id": self._session_id,
             },
         )
-
-    @asynccontextmanager
-    async def _lock_conversation(self):
-        """
-        Override to add browser session cleanup when the conversation turn ends.
-        This ensures the browser session is closed even if the generator is stopped early.
-        """
-        try:
-            self._conversation.status = Conversation.Status.IN_PROGRESS
-            await self._conversation.asave(update_fields=["status"])
-            yield
-        finally:
-            # Clean up browser session before releasing the conversation lock
-            await self._cleanup_browser_session()
-            self._conversation.status = Conversation.Status.IDLE
-            await self._conversation.asave(update_fields=["status", "updated_at"])
-
-    async def _cleanup_browser_session(self) -> None:
-        """
-        Close any active browser session for this conversation and add a context message
-        to inform the agent that the session was closed.
-        """
-        conversation_id = str(self._conversation.id)
-        # Check if there's an active browser session for this conversation
-        if conversation_id not in BrowserSessionManager._sessions:
-            return
-
-        try:
-            # Close the browser session
-            await BrowserSessionManager.close(conversation_id)
-            # Add a system message to the state to inform the agent
-            # This will be visible in the next turn
-            config = self._get_config()
-            await self._graph.aupdate_state(
-                config,
-                PartialAssistantState(
-                    messages=[ContextMessage(content=BROWSER_SESSION_CLOSED_PROMPT, id=str(uuid4()))],
-                ),
-            )
-        except Exception as e:
-            capture_exception(e)

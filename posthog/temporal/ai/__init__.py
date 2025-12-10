@@ -15,6 +15,7 @@ from posthog.temporal.ai.session_summary.activities.video_validation import (
     validate_llm_single_session_summary_with_videos_activity,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.ai.synthetic_research import SyntheticUserWorkflow, process_synthetic_user_activity
 
 from .llm_traces_summaries.summarize_traces import (
     SummarizeLLMTracesInputs,
@@ -49,6 +50,7 @@ WORKFLOWS = [
     SummarizeSessionGroupWorkflow,
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,
+    SyntheticUserWorkflow,
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
 ]
@@ -67,6 +69,7 @@ ACTIVITIES = [
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
     process_conversation_activity,
     process_chat_agent_activity,
+    process_synthetic_user_activity,
     process_research_agent_activity,
     validate_llm_single_session_summary_with_videos_activity,
     summarize_llm_traces_activity,

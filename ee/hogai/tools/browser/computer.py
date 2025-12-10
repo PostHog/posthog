@@ -29,8 +29,8 @@ class ComputerToolHandler:
     returns results that can be sent back to Claude.
     """
 
-    def __init__(self, conversation_id: str):
-        self._conversation_id = conversation_id
+    def __init__(self, thread_id: str):
+        self._thread_id = thread_id
 
     async def execute(self, tool_input: dict[str, Any]) -> dict[str, Any]:
         """
@@ -46,7 +46,7 @@ class ComputerToolHandler:
         if not action:
             raise MaxToolRetryableError("No action specified in computer tool call")
 
-        session = await BrowserSessionManager.get_current_session(self._conversation_id)
+        session = await BrowserSessionManager.get_current_session(self._thread_id)
 
         try:
             if action == "screenshot":

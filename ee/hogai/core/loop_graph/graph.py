@@ -51,4 +51,4 @@ class AgentLoopGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
         return self
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
-        return self.add_agent_node().add_agent_tools_node().compile(checkpointer=checkpointer)
+        return self.add_agent_node(is_start_node=True).add_agent_tools_node().compile(checkpointer=checkpointer)

@@ -21,6 +21,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantUpdateEvent,
+    ContextMessage,
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
@@ -35,8 +36,10 @@ from posthog.ph_client import get_client
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
+from ee.hogai.context.prompts import BROWSER_SESSION_CLOSED_PROMPT
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
+from ee.hogai.tools.browser import BrowserSessionManager
 from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_PROVIDER_ERROR_COUNTER, GenerationCanceled
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 from ee.hogai.utils.helpers import extract_stream_update, find_last_message_of_type
@@ -47,6 +50,7 @@ from ee.hogai.utils.types.base import (
     AssistantResultUnion,
     AssistantStreamedMessageUnion,
     LangGraphUpdateEvent,
+    PartialAssistantState,
 )
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState
 from ee.models import Conversation
@@ -85,7 +89,8 @@ class BaseAgentRunner(ABC):
     _state_type: type[AssistantMaxGraphState]
     _partial_state_type: type[AssistantMaxPartialGraphState]
     _contextual_tools: dict[str, Any]
-    _conversation: Conversation
+    _conversation: Optional[Conversation]
+    _thread_id: Optional[str]
     _session_id: Optional[str]
     _latest_message: Optional[HumanMessage | AssistantToolCallMessage]
     _state: Optional[AssistantMaxGraphState]
@@ -100,8 +105,8 @@ class BaseAgentRunner(ABC):
     def __init__(
         self,
         team: Team,
-        conversation: Conversation,
         *,
+        conversation: Optional[Conversation] = None,
         new_message: Optional[HumanMessage] = None,
         user: User,
         graph_class: type[BaseAssistantGraph],
@@ -117,6 +122,7 @@ class BaseAgentRunner(ABC):
         callback_handler: Optional[BaseCallbackHandler] = None,
         use_checkpointer: bool = True,
         stream_processor: AssistantStreamProcessorProtocol,
+        use_callback_handler: bool = True,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -133,6 +139,16 @@ class BaseAgentRunner(ABC):
         graph = graph_class(team, user).compile_full_graph(checkpointer=None if self._use_checkpointer else False)
         self._graph = graph
 
+        self._trace_id = trace_id
+        self._thread_id = self._conversation.id if self._conversation else self._session_id
+        self._parent_span_id = parent_span_id
+        self._billing_context = billing_context
+        self._initial_state = initial_state
+        # Initialize the stream processor with node configuration
+        self._stream_processor = stream_processor
+
+        if not use_callback_handler:
+            return
         self._callback_handlers = []
         if callback_handler:
             self._callback_handlers.append(callback_handler)
@@ -140,13 +156,16 @@ class BaseAgentRunner(ABC):
 
             def init_handler(client: posthoganalytics.Client):
                 callback_properties = {
-                    "conversation_id": str(self._conversation.id),
-                    "$ai_session_id": str(self._conversation.id),
+                    "conversation_id": self._thread_id,
+                    "$ai_session_id": self._thread_id,
                     "is_first_conversation": is_new_conversation,
                     "$session_id": self._session_id,
                     "is_subagent": not self._use_checkpointer,
                     "$groups": event_usage.groups(team=team),
                 }
+                if self._conversation:
+                    callback_properties["conversation_id"] = str(self._conversation.id)
+                    callback_properties["$ai_session_id"] = str(self._conversation.id)
                 # Use SubagentCallbackHandler when parent_span_id is provided to nest all events under the parent
                 if parent_span_id:
                     return SubagentCallbackHandler(
@@ -174,13 +193,6 @@ class BaseAgentRunner(ABC):
                 # If we're in EU, add the US client as well, so we can see US and EU traces
                 if region == "EU":
                     self._callback_handlers.append(init_handler(get_client("US")))
-
-        self._trace_id = trace_id
-        self._parent_span_id = parent_span_id
-        self._billing_context = billing_context
-        self._initial_state = initial_state
-        # Initialize the stream processor with node configuration
-        self._stream_processor = stream_processor
 
     @abstractmethod
     def get_initial_state(self) -> AssistantMaxGraphState:
@@ -228,7 +240,7 @@ class BaseAgentRunner(ABC):
         )
         async with self._lock_conversation():
             # Assign the conversation id to the client.
-            if not stream_only_assistant_messages and self._is_new_conversation:
+            if not stream_only_assistant_messages and self._is_new_conversation and self._conversation:
                 yield AssistantEventType.CONVERSATION, self._conversation
 
             if stream_first_message and self._latest_message:
@@ -334,7 +346,7 @@ class BaseAgentRunner(ABC):
             "recursion_limit": 48,
             "callbacks": self._callback_handlers,
             "configurable": {
-                "thread_id": self._conversation.id,
+                "thread_id": self._thread_id,
                 "trace_id": self._trace_id,
                 "session_id": self._session_id,
                 "distinct_id": self._user.distinct_id if self._user else None,
@@ -411,21 +423,6 @@ class BaseAgentRunner(ABC):
 
         return None
 
-    def _build_root_config_for_persistence(self) -> RunnableConfig:
-        """
-        Return a RunnableConfig that forces checkpoint writes onto the root conversation namespace.
-        Streaming messages may originate from nested subgraphs. By pinning the `checkpoint_ns`
-        to root, we ensure the partial update lands on the root graph so that persisted chunks are
-        discoverable when the conversation state is rehydrated later.
-        """
-        return {
-            "configurable": {
-                "thread_id": self._conversation.id,
-                # Force root graph to avoid subgraph namespaces when persisting mid-stream
-                "checkpoint_ns": "",
-            }
-        }
-
     async def _report_conversation_state(
         self,
         event_name: str,
@@ -444,7 +441,7 @@ class BaseAgentRunner(ABC):
         # Subagents (use_checkpointer=False) share the conversation with the parent agent.
         # They should not update the conversation status to avoid race conditions and
         # thread executor issues when multiple activities run in parallel.
-        if not self._use_checkpointer:
+        if not self._use_checkpointer or not self._conversation:
             yield
             return
 
@@ -453,6 +450,8 @@ class BaseAgentRunner(ABC):
             await self._conversation.asave(update_fields=["status"])
             yield
         finally:
+            # Clean up browser session before releasing the conversation lock
+            await self._cleanup_browser_session()
             self._conversation.status = Conversation.Status.IDLE
             await self._conversation.asave(update_fields=["status", "updated_at"])
 
@@ -463,7 +462,7 @@ class BaseAgentRunner(ABC):
             properties={
                 "$session_id": self._session_id,
                 "$ai_trace_id": self._trace_id,
-                "thread_id": self._conversation.id,
+                "thread_id": self._conversation.id if self._conversation else self._session_id,
                 "tag": "max_ai",
                 "$groups": event_usage.groups(team=self._team),
             },
@@ -506,3 +505,27 @@ class BaseAgentRunner(ABC):
             tool_call_id=create_form_tool_call.id,
             ui_payload={"create_form": {"answers": answers}},
         )
+
+    async def _cleanup_browser_session(self) -> None:
+        """
+        Close any active browser session for this conversation and add a context message
+        to inform the agent that the session was closed.
+        """
+        # Check if there's an active browser session for this conversation
+        if self._thread_id not in BrowserSessionManager._sessions:
+            return
+
+        try:
+            # Close the browser session
+            await BrowserSessionManager.close(self._thread_id)
+            # Add a system message to the state to inform the agent
+            # This will be visible in the next turn
+            config = self._get_config()
+            await self._graph.aupdate_state(
+                config,
+                PartialAssistantState(
+                    messages=[ContextMessage(content=BROWSER_SESSION_CLOSED_PROMPT, id=str(uuid4()))],
+                ),
+            )
+        except Exception as e:
+            posthoganalytics.capture_exception(e)

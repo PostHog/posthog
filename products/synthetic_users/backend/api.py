@@ -4,15 +4,19 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from posthoganalytics.ai.openai import OpenAI
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.temporal.ai.synthetic_research import SyntheticUserWorkflow, SyntheticUserWorkflowInputs
+from posthog.temporal.common.client import async_connect
 
 from .models import Round, Session, Study
 
@@ -375,9 +379,27 @@ Generate a unique persona that fits this audience and would provide useful testi
         round.status = Round.Status.RUNNING
         round.save(update_fields=["status"])
 
-        # TODO: Kick off actual navigation tasks (Celery jobs, etc.)
-        # For now, just update session statuses to navigating
         round.sessions.update(status=Session.Status.NAVIGATING)
+
+        async def start_sessions():
+            client = await async_connect()
+            for session in round.sessions.all():
+                inputs = SyntheticUserWorkflowInputs(
+                    team_id=self.team.id,
+                    user_id=self.request.user.id,
+                    session_id=session.id,
+                    research_session_id=session.id,
+                )
+                await client.start_workflow(
+                    SyntheticUserWorkflow.run,
+                    inputs,
+                    id=f"synthetic-user-session-{session.id}",
+                    task_queue=settings.MAX_AI_TASK_QUEUE,
+                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                )
+
+        async_to_sync(start_sessions)()
 
         return Response(
             {"round": serialize_round(round, include_sessions=True)},

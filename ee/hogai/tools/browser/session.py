@@ -170,19 +170,19 @@ class BrowserSessionManager:
     SCREEN_HEIGHT = 768
 
     @classmethod
-    def _get_lock(cls, conversation_id: str) -> asyncio.Lock:
+    def _get_lock(cls, thread_id: str) -> asyncio.Lock:
         """Get or create a lock for a conversation to prevent race conditions."""
-        if conversation_id not in cls._locks:
-            cls._locks[conversation_id] = asyncio.Lock()
-        return cls._locks[conversation_id]
+        if thread_id not in cls._locks:
+            cls._locks[thread_id] = asyncio.Lock()
+        return cls._locks[thread_id]
 
     @classmethod
-    async def get_or_create(cls, conversation_id: str) -> HyperbrowserSession:
+    async def get_or_create(cls, thread_id: str) -> HyperbrowserSession:
         """
         Get an existing browser session or create a new one.
 
         Args:
-            conversation_id: Unique identifier for the conversation
+            thread_id: Unique identifier for the conversation
 
         Returns:
             HyperbrowserSession instance for this conversation
@@ -195,8 +195,8 @@ class BrowserSessionManager:
                 "Browser automation is not available: HYPERBROWSER_API_KEY environment variable is not configured."
             )
 
-        async with cls._get_lock(conversation_id):
-            if conversation_id not in cls._sessions:
+        async with cls._get_lock(thread_id):
+            if thread_id not in cls._sessions:
                 try:
                     from hyperbrowser import AsyncHyperbrowser
 
@@ -213,11 +213,11 @@ class BrowserSessionManager:
                     )
 
                     wrapped_session = HyperbrowserSession(session, client)
-                    cls._sessions[conversation_id] = wrapped_session
+                    cls._sessions[thread_id] = wrapped_session
 
                     logger.info(
                         "hyperbrowser_session_created",
-                        conversation_id=conversation_id,
+                        thread_id=thread_id,
                         session_id=session.id,
                         live_url=session.live_url,
                         ws_endpoint=session.ws_endpoint,
@@ -230,21 +230,21 @@ class BrowserSessionManager:
                 except Exception as e:
                     logger.exception(
                         "hyperbrowser_session_creation_failed",
-                        conversation_id=conversation_id,
+                        thread_id=thread_id,
                         error=str(e),
                     )
                     raise MaxToolFatalError(f"Failed to start browser session: {e}") from e
 
-            return cls._sessions[conversation_id]
+            return cls._sessions[thread_id]
 
     @classmethod
-    async def get_current_session(cls, conversation_id: str) -> HyperbrowserSession:
+    async def get_current_session(cls, thread_id: str) -> HyperbrowserSession:
         """
         Get the current session from the browser session manager.
         Unlike get_or_create, this requires a session to already exist.
 
         Args:
-            conversation_id: Unique identifier for the conversation
+            thread_id: Unique identifier for the conversation
 
         Returns:
             Current HyperbrowserSession object
@@ -254,43 +254,43 @@ class BrowserSessionManager:
         """
         from ee.hogai.tool_errors import MaxToolRetryableError
 
-        if conversation_id not in cls._sessions:
+        if thread_id not in cls._sessions:
             raise MaxToolRetryableError(
                 "No browser session is active. Use the browser_navigate tool first to open a webpage."
             )
-        return cls._sessions[conversation_id]
+        return cls._sessions[thread_id]
 
     @classmethod
-    async def close(cls, conversation_id: str) -> None:
+    async def close(cls, thread_id: str) -> None:
         """
         Close and clean up a browser session.
 
         Args:
-            conversation_id: Unique identifier for the conversation
+            thread_id: Unique identifier for the conversation
         """
-        async with cls._get_lock(conversation_id):
-            if conversation_id in cls._sessions:
+        async with cls._get_lock(thread_id):
+            if thread_id in cls._sessions:
                 try:
-                    await cls._sessions[conversation_id].close()
+                    await cls._sessions[thread_id].close()
                 except Exception as e:
                     logger.warning(
                         "hyperbrowser_session_close_failed",
-                        conversation_id=conversation_id,
+                        thread_id=thread_id,
                         error=str(e),
                     )
                 finally:
-                    del cls._sessions[conversation_id]
+                    del cls._sessions[thread_id]
 
             # Clean up the lock if no longer needed
-            if conversation_id in cls._locks:
-                del cls._locks[conversation_id]
+            if thread_id in cls._locks:
+                del cls._locks[thread_id]
 
     @classmethod
     async def close_all(cls) -> None:
         """Close all active browser sessions. Useful for cleanup during shutdown."""
-        conversation_ids = list(cls._sessions.keys())
-        for conversation_id in conversation_ids:
-            await cls.close(conversation_id)
+        thread_ids = list(cls._sessions.keys())
+        for thread_id in thread_ids:
+            await cls.close(thread_id)
 
     @classmethod
     def get_active_session_count(cls) -> int:

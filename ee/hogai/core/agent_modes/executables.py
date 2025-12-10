@@ -475,8 +475,8 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         self, tool_call: AssistantToolCall, config: RunnableConfig
     ) -> PartialAssistantState:
         """Execute the native Anthropic computer tool using ComputerToolHandler."""
-        conversation_id = self._get_thread_id(config)
-        if not conversation_id:
+        thread_id = self._get_thread_id(config)
+        if not thread_id:
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
@@ -487,7 +487,7 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                 ],
             )
 
-        handler = ComputerToolHandler(str(conversation_id))
+        handler = ComputerToolHandler(str(thread_id))
 
         try:
             result = await handler.execute(tool_call.args)
