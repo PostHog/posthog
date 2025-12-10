@@ -20,8 +20,18 @@
             if (window.confirm("Revoke all sessions? This will log out the user from all devices."))
                 document.getElementById("revoke_sessions").submit();
         });
+
+        document.getElementById("loginas-readonly-link")?.addEventListener("click", (event) => {
+            event.preventDefault();
+            document.getElementById("loginas-readonly-form").submit();
+        });
     });
   </script>
+{% endblock %}
+
+{% block object-tools-items %}
+    {{ block.super }}
+    <li><a id="loginas-readonly-link" href="#">Log in as user (read-only)</a></li>
 {% endblock %}
 
 {% block content %}
@@ -35,5 +45,9 @@
     <form method="POST" id="revoke_sessions">
         {% csrf_token %}
         <input type="hidden" name="revoke_sessions" value="1" />
+    </form>
+
+    <form method="POST" id="loginas-readonly-form" action="{% url 'loginas-user-login-read-only' object_id %}" style="display: none">
+        {% csrf_token %}
     </form>
 {% endblock %}

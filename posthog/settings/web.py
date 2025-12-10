@@ -113,6 +113,7 @@ MIDDLEWARE = [
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
+    "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
