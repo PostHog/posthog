@@ -1,5 +1,8 @@
+import tempfile
+
 from django.contrib import admin, messages
 from django.core.cache import cache
+from django.core.files.uploadedfile import UploadedFile
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect
 from django.template.loader import render_to_string
@@ -51,6 +54,8 @@ class TeamAdmin(admin.ModelAdmin):
         "updated_at",
         "internal_properties",
         "remote_config_cache_actions",
+        "export_individual_replay",
+        "import_individual_replay",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -147,6 +152,16 @@ class TeamAdmin(admin.ModelAdmin):
                 ],
             },
         ),
+        (
+            "Session replay actions",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "export_individual_replay",
+                    "import_individual_replay",
+                ],
+            },
+        ),
     ]
 
     def organization_link(self, team: Team):
@@ -192,6 +207,17 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
+    @admin.display(description="Import individual session replay data")
+    def import_individual_replay(self, team: Team):
+        if not team.pk:
+            return "-"
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/import_individual_replay.html",
+                {"team": team},
+            )
+        )
+
     @admin.display(description="Remote config cache actions")
     def remote_config_cache_actions(self, team: Team):
         if not team.pk:
@@ -226,6 +252,11 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/export-replay/",
                 self.admin_site.admin_view(self.export_replay_view),
                 name="posthog_team_export_replay",
+            ),
+            path(
+                "<path:object_id>/import-replay/",
+                self.admin_site.admin_view(self.import_replay_view),
+                name="posthog_team_import_replay",
             ),
         ]
         return custom_urls + urls
@@ -283,4 +314,57 @@ class TeamAdmin(admin.ModelAdmin):
         cache.delete(cache_key)
 
         self.message_user(request, f"Cache deleted for team '{team.name}' (token: {team.api_token})")
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    def import_replay_view(self, request, object_id):
+        from posthog.tasks.replay_import import process_replay_import
+
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        team = Team.objects.get(pk=object_id)
+        reason = request.POST.get("reason", "").strip()
+        import_file: UploadedFile | None = request.FILES.get("import_file")
+
+        if not import_file:
+            messages.error(request, "Import file is required")
+            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+        if not reason:
+            messages.error(request, "Reason is required")
+            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+        if not import_file.name or not import_file.name.endswith(".zip"):
+            messages.error(request, "Import file must be a .zip file")
+            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+        logger.info(
+            "import_replay_triggered",
+            team_id=team.id,
+            file_name=import_file.name,
+            file_size=import_file.size,
+            reason=reason,
+            triggered_by=request.user.email,
+        )
+
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
+                for chunk in import_file.chunks():
+                    tmp_file.write(chunk)
+                tmp_file_path = tmp_file.name
+
+            process_replay_import(team_id=team.id, zip_file_path=tmp_file_path, triggered_by=request.user.email)
+
+            messages.success(
+                request,
+                f"Import completed for team '{team.name}' by {request.user.email}.",
+            )
+        except Exception as e:
+            logger.exception(
+                "import_replay_failed",
+                team_id=team.id,
+                error=str(e),
+            )
+            messages.error(request, f"Import failed: {e}")
+
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
