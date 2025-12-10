@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-firebase-push',
     name: 'Firebase Push Notification',
     description: 'Send push notifications to mobile devices via Firebase Cloud Messaging (FCM)',
-    icon_url: '/static/hedgehog/builder-hog-01.png',
+    icon_url: '/static/services/firebase.png',
     category: ['Communication'],
     code_language: 'hog',
     code: `
