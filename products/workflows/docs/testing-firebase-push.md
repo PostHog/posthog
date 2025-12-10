@@ -246,6 +246,27 @@ MyFirebaseMsgService  D  Message Notification Body: If you see this, FCM is work
 
 To see an actual notification popup, **background the app** (press Home) before sending the push.
 
+## Triggering Test Events
+
+Use the capture endpoint on port 8010 (not 8000):
+
+```bash
+curl -X POST http://localhost:8010/e/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "api_key": "<your-project-api-key>",
+    "event": "test_push",
+    "distinct_id": "test-user-123",
+    "properties": {}
+  }'
+```
+
+To find your project API key:
+
+```bash
+flox activate -- python manage.py shell -c "from posthog.models import Team; print(Team.objects.first().api_token)"
+```
+
 ## Troubleshooting
 
 | Error | Cause | Fix |
@@ -256,6 +277,10 @@ To see an actual notification popup, **background the app** (press Home) before 
 | No notification banner | App is in foreground | Background the app before sending push |
 | No notification | App force-closed or no permissions | Check app has notification permissions, is in foreground/background |
 | UNREGISTERED | Token no longer valid | App was uninstalled or token rotated - get new token |
+| "Can't use cohorts in real-time filters" | Filter checkbox uses cohorts | Uncheck "Filter out internal and test users" when saving destination |
+| Firebase logo not showing | Static file not copied | Run `cp frontend/public/services/firebase.png staticfiles/services/firebase.png` |
+| FCM returns error | FCM token has line breaks | Ensure token is pasted as single line with no whitespace/newlines |
+| 403 CSRF error on /capture/ | Wrong endpoint | Use `http://localhost:8010/e/` not `http://localhost:8000/capture/` |
 
 ## Running Unit Tests
 
