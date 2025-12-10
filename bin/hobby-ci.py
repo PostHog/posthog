@@ -285,8 +285,11 @@ ssh_authorized_keys:
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-            # Load private key from string
-            key = paramiko.RSAKey.from_private_key(io.StringIO(self.ssh_private_key))
+            # Load private key from string (try Ed25519 first, then RSA)
+            try:
+                key = paramiko.Ed25519Key.from_private_key(io.StringIO(self.ssh_private_key))
+            except paramiko.SSHException:
+                key = paramiko.RSAKey.from_private_key(io.StringIO(self.ssh_private_key))
 
             # Connect to droplet
             client.connect(hostname=self.droplet.ip_address, username="root", pkey=key, timeout=timeout)
