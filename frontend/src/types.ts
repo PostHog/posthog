@@ -280,6 +280,7 @@ export enum AccessControlResourceType {
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
+    ProductTour = 'product_tour',
     Experiment = 'experiment',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
@@ -3254,6 +3255,7 @@ export interface ProductTour {
     description: string
     internal_targeting_flag: FeatureFlagBasicType | null
     feature_flag_key: string | null
+    targeting_flag_filters: FeatureFlagFilters | null
     content: ProductTourContent
     start_date: string | null
     end_date: string | null
