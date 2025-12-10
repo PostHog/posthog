@@ -14,7 +14,7 @@ from django.db.models import Prefetch, Q, QuerySet, deletion
 import requests
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, inline_serializer
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
@@ -1153,6 +1153,28 @@ class ActivityQuerySerializer(serializers.Serializer):
     page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")
 
 
+class EvaluationReasonSerializer(serializers.Serializer):
+    reason = serializers.CharField(help_text="The reason for the evaluation result")
+    condition_index = serializers.IntegerField(
+        allow_null=True, help_text="The index of the condition that matched, if applicable"
+    )
+
+
+class FlagEvaluationResultSerializer(serializers.Serializer):
+    value = serializers.JSONField(help_text="The evaluated value of the feature flag (boolean or variant key string)")
+    evaluation = EvaluationReasonSerializer()
+
+
+class EvaluationReasonsResponseSerializer(serializers.Serializer):
+    """Response serializer for evaluation_reasons endpoint - a dict of flag keys to evaluation results."""
+
+    def to_representation(self, instance):
+        return instance
+
+    def to_internal_value(self, data):
+        return data
+
+
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     evaluation_tags = serializers.SerializerMethodField()
@@ -1186,16 +1208,18 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             return []
 
 
-class EvaluationReasonSerializer(serializers.Serializer):
-    reason = serializers.CharField(help_text="The reason for the evaluation result")
-    condition_index = serializers.IntegerField(
-        allow_null=True, help_text="The index of the condition that matched, if applicable"
+class MyFlagsResponseSerializer(serializers.Serializer):
+    feature_flag = MinimalFeatureFlagSerializer()
+    value = serializers.JSONField()
+
+
+class LocalEvaluationResponseSerializer(serializers.Serializer):
+    flags = serializers.ListSerializer(child=MinimalFeatureFlagSerializer())
+    group_type_mapping = serializers.DictField(child=serializers.CharField())
+    cohorts = serializers.DictField(
+        child=serializers.JSONField(),
+        help_text="Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).",
     )
-
-
-class FlagEvaluationResultSerializer(serializers.Serializer):
-    value = serializers.JSONField(help_text="The evaluated value of the feature flag (boolean or variant key string)")
-    evaluation = EvaluationReasonSerializer()
 
 
 def _proxy_to_flags_service(
@@ -1689,16 +1713,7 @@ class FeatureFlagViewSet(
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,
         responses={
-            200: OpenApiResponse(
-                response=inline_serializer(
-                    name="MyFlagsResponse",
-                    fields={
-                        "feature_flag": MinimalFeatureFlagSerializer(),
-                        "value": serializers.JSONField(),
-                    },
-                    many=True,
-                ),
-            ),
+            200: OpenApiResponse(response=MyFlagsResponseSerializer(many=True)),
         },
     )
     @action(methods=["GET"], detail=False)
@@ -1713,10 +1728,7 @@ class FeatureFlagViewSet(
         if not feature_flags:
             return Response([])
 
-        try:
-            groups = json.loads(request.GET.get("groups", "{}"))
-        except (json.JSONDecodeError, ValueError):
-            raise exceptions.ValidationError("Invalid JSON in groups parameter")
+        groups = request.validated_query_data.get("groups", {})
 
         distinct_id = request.user.distinct_id
         if not distinct_id:
@@ -1807,19 +1819,7 @@ class FeatureFlagViewSet(
     @validated_request(
         query_serializer=LocalEvaluationQuerySerializer,
         responses={
-            200: OpenApiResponse(
-                response=inline_serializer(
-                    name="LocalEvaluationResponse",
-                    fields={
-                        "flags": serializers.ListSerializer(child=MinimalFeatureFlagSerializer()),
-                        "group_type_mapping": serializers.DictField(child=serializers.CharField()),
-                        "cohorts": serializers.DictField(
-                            child=serializers.JSONField(),
-                            help_text="Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).",
-                        ),
-                    },
-                )
-            ),
+            200: OpenApiResponse(response=LocalEvaluationResponseSerializer()),
             402: OpenApiResponse(response=serializers.DictField()),
             500: OpenApiResponse(response=serializers.DictField()),
         },
@@ -1969,15 +1969,10 @@ class FeatureFlagViewSet(
                         )
                         continue
 
-    @extend_schema(
-        parameters=[EvaluationReasonsQuerySerializer],
+    @validated_request(
+        query_serializer=EvaluationReasonsQuerySerializer,
         responses={
-            200: OpenApiResponse(
-                response=serializers.DictField(
-                    child=FlagEvaluationResultSerializer(),
-                    help_text="Dictionary mapping feature flag keys to their evaluation results",
-                )
-            ),
+            200: OpenApiResponse(response=EvaluationReasonsResponseSerializer()),
         },
         examples=[
             OpenApiExample(
@@ -2010,19 +2005,10 @@ class FeatureFlagViewSet(
             )
         ],
     )
-    @validated_request(
-        query_serializer=EvaluationReasonsQuerySerializer,
-    )
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
-        distinct_id = request.query_params.get("distinct_id", None)
-        try:
-            groups = json.loads(request.query_params.get("groups", "{}"))
-        except (json.JSONDecodeError, ValueError):
-            raise exceptions.ValidationError("Invalid JSON in groups parameter")
-
-        if not distinct_id:
-            raise exceptions.ValidationError(detail="distinct_id is required")
+        distinct_id = request.validated_query_data["distinct_id"]
+        groups = request.validated_query_data.get("groups", {})
 
         result = _evaluate_flags_with_fallback(
             team=self.team,
@@ -2125,8 +2111,8 @@ class FeatureFlagViewSet(
     )
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        limit = request.validated_query_data["limit"]
+        page = request.validated_query_data["page"]
 
         activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page)
 
@@ -2194,8 +2180,8 @@ class FeatureFlagViewSet(
     )
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        limit = request.validated_query_data["limit"]
+        page = request.validated_query_data["page"]
 
         item_id = kwargs["pk"]
         if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():
