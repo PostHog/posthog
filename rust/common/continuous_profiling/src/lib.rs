@@ -85,11 +85,9 @@ fn install_panic_safe_hook() {
             let thread = std::thread::current();
             let thread_name = thread.name().unwrap_or("<unnamed>");
 
-            // Check if this is a pyroscope-related thread by name or if it's
-            // an unnamed thread (pyroscope doesn't name its threads)
-            let is_pyroscope_thread = thread_name.contains("pyroscope")
-                || thread_name.contains("Pyroscope")
-                || thread_name == "<unnamed>";
+            // Check if this is a pyroscope-related thread by name
+            let is_pyroscope_thread =
+                thread_name.contains("pyroscope") || thread_name.contains("Pyroscope");
 
             if is_pyroscope_thread {
                 // Log the panic but don't abort - let the thread die gracefully
