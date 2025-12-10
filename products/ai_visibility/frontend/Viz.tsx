@@ -14,7 +14,7 @@ import {
     TopTopicsList,
     TopicsTable,
 } from './components'
-import { DashboardTab, vizLogic } from './vizLogic'
+import { DashboardTab, PROGRESS_STEPS, vizLogic } from './vizLogic'
 
 export interface VizProps {
     brand: string
@@ -151,21 +151,23 @@ function DashboardView({ brand, lastUpdated }: { brand: string; lastUpdated: str
 
 export function Viz({ brand }: VizProps): JSX.Element {
     const logic = vizLogic({ brand: brand || 'posthog' })
-    const { isReady, isPolling, triggerResultLoading, lastError, results, workflowId, brandDisplayName } =
-        useValues(logic)
+    const {
+        isReady,
+        isPolling,
+        triggerResultLoading,
+        lastError,
+        results,
+        brandDisplayName,
+        progressStep,
+        progressPercent,
+        progressLabel,
+    } = useValues(logic) as ReturnType<typeof useValues<typeof logic>> & {
+        progressStep: string
+        progressPercent: number
+        progressLabel: string
+    }
     const { loadTriggerResult } = useActions(logic)
-    const [dotCount, setDotCount] = useState(1)
     const [lastUpdated, setLastUpdated] = useState<string | null>(null)
-
-    useEffect(() => {
-        if (!isPolling) {
-            return
-        }
-        const interval = setInterval(() => {
-            setDotCount((prev) => (prev % 3) + 1)
-        }, 500)
-        return () => clearInterval(interval)
-    }, [isPolling])
 
     useEffect(() => {
         if (isReady && results) {
@@ -178,6 +180,8 @@ export function Viz({ brand }: VizProps): JSX.Element {
         return <DashboardView brand={brand} lastUpdated={lastUpdated} />
     }
 
+    const currentStepIndex = PROGRESS_STEPS.findIndex((s) => s.step === progressStep)
+
     return (
         <div className="flex flex-col h-full">
             <div className="flex items-center px-4 py-2 border-b bg-bg-light">
@@ -189,8 +193,7 @@ export function Viz({ brand }: VizProps): JSX.Element {
             <div className="flex-1 overflow-auto">
                 <div className="p-6 max-w-2xl mx-auto space-y-4">
                     <div>
-                        <h1 className="text-2xl font-bold mb-1">AI visibility for {brandDisplayName}</h1>
-                        <p className="text-muted">Track how AI assistants mention your brand across prompts</p>
+                        <h1 className="text-2xl font-bold mb-1">Generating report for {brandDisplayName}...</h1>
                     </div>
 
                     {lastError ? (
@@ -204,16 +207,49 @@ export function Viz({ brand }: VizProps): JSX.Element {
                             </div>
                         </div>
                     ) : triggerResultLoading || isPolling ? (
-                        <div className="rounded border border-border bg-bg-light p-4">
-                            <div className="flex items-center gap-2">
-                                <Spinner />
-                                <span>{isPolling ? `Processing${'.'.repeat(dotCount)}` : 'Starting analysis...'}</span>
-                            </div>
-                            {workflowId && (
-                                <div className="mt-2 text-xs text-muted">
-                                    Workflow ID: <span className="font-mono">{workflowId}</span>
+                        <div className="rounded border border-border bg-bg-light p-4 space-y-4">
+                            {/* Progress bar */}
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <Spinner className="text-sm" />
+                                        <span className="font-medium">{progressLabel}</span>
+                                    </div>
+                                    <span className="text-sm text-muted">{progressPercent}%</span>
                                 </div>
-                            )}
+                                <div className="h-2 bg-border rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-primary transition-all duration-500 ease-out rounded-full"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{ width: `${progressPercent}%` }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Step indicators */}
+                            <div className="space-y-1">
+                                {PROGRESS_STEPS.filter((s) => s.step !== 'complete').map((step, idx) => {
+                                    const isComplete = idx < currentStepIndex
+                                    const isCurrent = idx === currentStepIndex
+                                    return (
+                                        <div
+                                            key={step.step}
+                                            className={`flex items-center gap-2 text-sm ${
+                                                isComplete
+                                                    ? 'text-success'
+                                                    : isCurrent
+                                                      ? 'text-default font-medium'
+                                                      : 'text-muted'
+                                            }`}
+                                        >
+                                            <span className="w-4 text-center">
+                                                {isComplete ? '✓' : isCurrent ? '→' : '○'}
+                                            </span>
+                                            <span>{step.label}</span>
+                                        </div>
+                                    )
+                                })}
+                            </div>
                         </div>
                     ) : null}
                 </div>

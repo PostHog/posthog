@@ -16,7 +16,7 @@ export function RankingCard({
                     <span className="text-lg opacity-80">Most mentioned in your generated prompts</span>
                 </div>
                 <p className="text-sm opacity-80 mb-4">Login to PostHog to customize your prompts</p>
-                <h3 className="text-xl font-semibold mb-3">Congratulations 🎉</h3>
+                <h3 className="text-xl font-semibold mb-3 text-white">Congratulations 🎉</h3>
                 <div className="bg-black/30 rounded-lg p-4">
                     <div className="flex justify-between text-sm mb-2 opacity-80">
                         <span>Brand</span>

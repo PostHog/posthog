@@ -21,10 +21,32 @@ export interface VizLogicProps {
 
 export type DashboardTab = 'overview' | 'prompts' | 'competitors'
 
+export type ProgressStep =
+    | 'starting'
+    | 'extracting_info'
+    | 'generating_topics'
+    | 'generating_prompts'
+    | 'running_ai_calls'
+    | 'combining_results'
+    | 'saving'
+    | 'complete'
+
+export const PROGRESS_STEPS: { step: ProgressStep; label: string; index: number }[] = [
+    { step: 'starting', label: 'Starting', index: 0 },
+    { step: 'extracting_info', label: 'Extracting business info', index: 1 },
+    { step: 'generating_topics', label: 'Generating topics', index: 2 },
+    { step: 'generating_prompts', label: 'Generating prompts', index: 3 },
+    { step: 'running_ai_calls', label: 'Running AI calls', index: 4 },
+    { step: 'combining_results', label: 'Combining results', index: 5 },
+    { step: 'saving', label: 'Saving results', index: 6 },
+    { step: 'complete', label: 'Complete', index: 7 },
+]
+
 interface StartedResponse {
     workflow_id: string
     run_id: string
     status: 'started' | 'running'
+    progress_step: ProgressStep
     created_at: string
 }
 
@@ -37,7 +59,7 @@ interface ReadyResponse {
 
 export type ApiResponse = StartedResponse | ReadyResponse
 
-const POLL_INTERVAL_MS = 5000
+const POLL_INTERVAL_MS = 1000
 
 export const vizLogic = kea<vizLogicType>([
     path(['products', 'ai_visibility', 'frontend', 'vizLogic']),
@@ -174,6 +196,47 @@ export const vizLogic = kea<vizLogicType>([
                     return triggerResult.created_at
                 }
                 return null
+            },
+        ],
+        progressStep: [
+            (s) => [s.triggerResult],
+            (triggerResult: ApiResponse | null): ProgressStep => {
+                if (triggerResult?.status === 'started' || triggerResult?.status === 'running') {
+                    return triggerResult.progress_step
+                }
+                if (triggerResult?.status === 'ready') {
+                    return 'complete'
+                }
+                return 'starting'
+            },
+        ],
+        progressPercent: [
+            (s) => [s.triggerResult],
+            (triggerResult: ApiResponse | null): number => {
+                let step: ProgressStep = 'starting'
+                if (triggerResult?.status === 'started' || triggerResult?.status === 'running') {
+                    step = triggerResult.progress_step
+                } else if (triggerResult?.status === 'ready') {
+                    step = 'complete'
+                }
+                const stepInfo = PROGRESS_STEPS.find((s) => s.step === step)
+                if (!stepInfo) {
+                    return 0
+                }
+                return Math.round((stepInfo.index / (PROGRESS_STEPS.length - 1)) * 100)
+            },
+        ],
+        progressLabel: [
+            (s) => [s.triggerResult],
+            (triggerResult: ApiResponse | null): string => {
+                let step: ProgressStep = 'starting'
+                if (triggerResult?.status === 'started' || triggerResult?.status === 'running') {
+                    step = triggerResult.progress_step
+                } else if (triggerResult?.status === 'ready') {
+                    step = 'complete'
+                }
+                const stepInfo = PROGRESS_STEPS.find((s) => s.step === step)
+                return stepInfo?.label || 'Processing'
             },
         ],
         isReady: [(s) => [s.triggerResult], (triggerResult): boolean => triggerResult?.status === 'ready'],

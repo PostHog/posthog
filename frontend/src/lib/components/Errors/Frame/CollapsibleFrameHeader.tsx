@@ -93,7 +93,7 @@ function NoContextIcon({ lang, raw_id }: { lang: string; raw_id: string }): JSX.
             lang,
             raw_id,
         })
-    }, [])
+    }, [raw_id, lang])
 
     return (
         <Tooltip

@@ -6,6 +6,7 @@ from .activities import (
     make_ai_calls,
     mark_run_failed,
     save_results,
+    update_progress,
 )
 from .workflow import AIVisibilityWorkflow
 
@@ -21,4 +22,5 @@ ACTIVITIES = [
     combine_calls,
     save_results,
     mark_run_failed,
+    update_progress,
 ]

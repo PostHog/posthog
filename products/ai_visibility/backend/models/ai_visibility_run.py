@@ -12,6 +12,16 @@ class AiVisibilityRun(models.Model):
         RUNNING = "running", "Running"
         FAILED = "failed", "Failed"
 
+    class ProgressStep(models.TextChoices):
+        STARTING = "starting", "Starting"
+        EXTRACTING_INFO = "extracting_info", "Extracting business info"
+        GENERATING_TOPICS = "generating_topics", "Generating topics"
+        GENERATING_PROMPTS = "generating_prompts", "Generating prompts"
+        RUNNING_AI_CALLS = "running_ai_calls", "Running AI calls"
+        COMBINING_RESULTS = "combining_results", "Combining results"
+        SAVING = "saving", "Saving results"
+        COMPLETE = "complete", "Complete"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     domain = models.CharField(max_length=255, db_index=True)
     workflow_id = models.CharField(
@@ -22,6 +32,12 @@ class AiVisibilityRun(models.Model):
         max_length=20,
         choices=Status.choices,
         default=Status.RUNNING,
+    )
+    progress_step = models.CharField(
+        max_length=30,
+        choices=ProgressStep.choices,
+        default=ProgressStep.STARTING,
+        help_text="Current step in the workflow for progress tracking",
     )
     error_message = models.TextField(
         blank=True,
@@ -59,8 +75,9 @@ class AiVisibilityRun(models.Model):
     def mark_ready(self, s3_path: str | None = None):
         """Mark the run as ready (completed successfully)."""
         self.status = self.Status.READY
+        self.progress_step = self.ProgressStep.COMPLETE
         self.completed_at = timezone.now()
-        update_fields = ["status", "completed_at"]
+        update_fields = ["status", "progress_step", "completed_at"]
         if s3_path:
             self.s3_path = s3_path
             update_fields.append("s3_path")
@@ -72,3 +89,8 @@ class AiVisibilityRun(models.Model):
         self.error_message = error
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
+
+    def update_progress(self, step: "AiVisibilityRun.ProgressStep"):
+        """Update the progress step."""
+        self.progress_step = step
+        self.save(update_fields=["progress_step"])

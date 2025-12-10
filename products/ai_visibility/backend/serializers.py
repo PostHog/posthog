@@ -11,6 +11,7 @@ class AIVisibilityStartedResponseSerializer(serializers.Serializer):
     workflow_id = serializers.CharField()
     run_id = serializers.UUIDField()
     status = serializers.CharField()
+    progress_step = serializers.CharField()
     created_at = serializers.DateTimeField()
 
 
