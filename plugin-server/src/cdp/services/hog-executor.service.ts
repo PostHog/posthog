@@ -6,6 +6,7 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
+import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -313,6 +314,14 @@ export class HogExecutorService {
             // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
             if (result.finished || result.invocation.queueScheduledAt) {
                 break
+            }
+        }
+
+        if (result.finished) {
+            const capturedAt = invocation.state.globals.event?.captured_at
+            if (capturedAt) {
+                const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
+                destinationE2eLagMsSummary.observe(e2eLagMs)
             }
         }
 
