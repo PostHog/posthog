@@ -134,19 +134,15 @@ export function Tooltip({
         }),
     })
 
-    const child = React.isValidElement(children) ? children : <span>{children}</span>
-
-    const childSupportsRef =
-        typeof child.type === 'string' || (child.type as any)?.$$typeof === Symbol.for('react.forward_ref')
-
-    const childWithRef = childSupportsRef ? child : <span className="Tooltip__ref-wrapper contents">{child}</span>
-    const childrenRef = (childWithRef as any).ref
+    const childrenRef = (children as any).ref
     const triggerRef = useMergeRefs([refs.setReference, childrenRef])
 
+    const child = React.isValidElement(children) ? children : <span>{children}</span>
+
     const clonedChild = React.cloneElement(
-        childWithRef,
+        child,
         getReferenceProps({
-            ...childWithRef.props,
+            ...child.props,
             ref: triggerRef,
             onMouseDown: () => {
                 setIsPressingReference(true)
