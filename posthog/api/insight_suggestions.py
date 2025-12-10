@@ -31,7 +31,7 @@ class InsightSuggestion(BaseModel):
 
 
 def get_insight_suggestions(
-    query: InsightVizNode, team: Team, insight_result: Optional[dict[str, Any]] = None
+    query: InsightVizNode, team: Team, insight_result: Optional[dict[str, Any]] = None, context: Optional[str] = None
 ) -> list[InsightSuggestion]:
     suggestions: list[InsightSuggestion] = []
 
@@ -39,7 +39,7 @@ def get_insight_suggestions(
         suggestions.extend(get_retention_suggestions(query.source, query))
 
     if insight_result:
-        suggestions.extend(get_ai_suggestions(query, team, insight_result))
+        suggestions.extend(get_ai_suggestions(query, team, insight_result, context))
 
     return suggestions
 
@@ -146,8 +146,47 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
     ]
 
 
-def get_ai_suggestions(query: InsightVizNode, team: Team, insight_result: dict[str, Any]) -> list[InsightSuggestion]:
+def get_insight_analysis(query: InsightVizNode, team: Team, insight_result: Optional[dict[str, Any]]) -> str:
+    """Generate an AI analysis of the insight, highlighting main points and actionable items."""
     try:
+        result_summary = json.dumps(insight_result, default=str)[:2000] if insight_result else "No results available"
+
+        prompt = (
+            "You are an expert data analyst using PostHog. "
+            "Analyze the following insight configuration and its results. "
+            "Provide a concise analysis highlighting:\n"
+            "1. Main trends or patterns in the data\n"
+            "2. Actionable insights or recommendations\n"
+            "3. Possible explanations for the observed patterns\n\n"
+            "Keep your response focused and actionable. Avoid generic statements.\n\n"
+            f"Query Configuration: {query.model_dump_json(exclude_none=True)}\n\n"
+            f"Results Summary: {result_summary}"
+        )
+
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful data analyst that provides concise, actionable insights about PostHog analytics data.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+        content, _, _ = hit_openai(messages, f"team/{team.id}/analysis")
+        return content
+
+    except Exception:
+        logger.exception("ai_analysis_failed")
+        return ""
+
+
+def get_ai_suggestions(
+    query: InsightVizNode, team: Team, insight_result: dict[str, Any], context: Optional[str] = None
+) -> list[InsightSuggestion]:
+    try:
+        context_section = ""
+        if context:
+            context_section = f"\n\nPrevious Analysis Context:\n{context}\n\nUse this context to generate more relevant and targeted suggestions.\n"
+
         prompt = (
             "You are an expert data analyst using PostHog. "
             "Given the following analysis configuration and its results, suggest 3 relevant follow-up insights to explore deeper. "
@@ -165,6 +204,7 @@ def get_ai_suggestions(query: InsightVizNode, team: Team, insight_result: dict[s
             "- query_json: A valid PostHog InsightVizNode JSON object that represents the suggested query.\n\n"
             f"Current Query: {query.model_dump_json(exclude_none=True)}\n\n"
             f"Results Summary: {json.dumps(insight_result, default=str)[:2000]}..."
+            f"{context_section}"
         )
 
         messages = [

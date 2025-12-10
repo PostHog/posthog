@@ -15,7 +15,7 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
-import { InsightDiveDeeperSection } from 'scenes/insights/InsightDiveDeeperSection'
+import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -246,7 +246,7 @@ export function InsightVizDisplay({
         return null
     }
 
-    function renderDiveDeeperSection(): JSX.Element | null {
+    function renderAIAnalysisSection(): JSX.Element | null {
         // Only show in view mode
         if (editMode) {
             return null
@@ -262,7 +262,7 @@ export function InsightVizDisplay({
             return null
         }
 
-        return <InsightDiveDeeperSection query={querySource} />
+        return <InsightAIAnalysis query={querySource} />
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
@@ -326,8 +326,8 @@ export function InsightVizDisplay({
                 )}
             </div>
             <ResultCustomizationsModal />
+            {renderAIAnalysisSection()}
             {renderTable()}
-            {renderDiveDeeperSection()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
