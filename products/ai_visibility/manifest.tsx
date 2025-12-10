@@ -4,7 +4,7 @@ export const manifest: ProductManifest = {
     name: 'AI Visibility',
     scenes: {
         Viz: {
-            name: 'AI visibility',
+            name: 'AI Visibility',
             import: () => import('./frontend/VizScene'),
             allowUnauthenticated: true,
             layout: 'plain',
