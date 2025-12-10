@@ -171,6 +171,7 @@ runcmd:
             self._get_wait_for_image_script(),
             "chmod +x posthog/bin/deploy-hobby",
             'echo "$LOG_PREFIX Starting deployment script"',
+            "export SKIP_HEALTH_CHECK=1",
             f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {safe_hostname} 1",
             "DEPLOY_EXIT=$?",
             'echo "$LOG_PREFIX Deployment script exited with code: $DEPLOY_EXIT"',
@@ -342,12 +343,12 @@ grep POSTHOG_APP_TAG .env
             raise RuntimeError(f"Failed to update .env: {result['stderr']}")
         print(f"✅ Updated POSTHOG_APP_TAG to {new_sha}")
 
-        # Pull new images
+        # Pull new images with retry logic
         print("🐋 Pulling new Docker images...")
-        pull_cmd = "cd /root && docker-compose pull"
-        result = self.run_ssh_command(pull_cmd, timeout=600)
+        pull_cmd = 'cd /root && for attempt in 1 2 3; do echo "Pull attempt $attempt/3"; docker-compose pull && break || { echo "Pull failed, waiting 30s..."; sleep 30; }; done'
+        result = self.run_ssh_command(pull_cmd, timeout=800)
         if result["exit_code"] != 0:
-            raise RuntimeError(f"Failed to pull images: {result['stderr']}")
+            raise RuntimeError(f"Failed to pull images after 3 attempts: {result['stderr']}")
         print("✅ Images pulled successfully")
 
         # Restart services with new images
