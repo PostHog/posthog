@@ -356,10 +356,9 @@ async def _probe_prompt(domain: str, info: BusinessInfo, search_prompt: str, cat
     # Ensure prompt and category are set correctly
     data["prompt"] = search_prompt
     data["category"] = category
+    target_domain = domain.lower().strip().strip("/")
     data["competitors"] = [
-        x
-        for x in data["competitors"]
-        if info.name.lower() not in x["name"].lower() and x["name"].lower() not in info.name.lower()
+        x for x in data["competitors"] if x.get("domain", "").lower().strip().strip("/") != target_domain
     ]
     return data
 
