@@ -494,7 +494,7 @@ ON counts.breakdown_value = bounce.breakdown_value
                 select_from=ast.JoinExpr(table=self._frustration_metrics_inner_query()),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
                 order_by=self._frustration_metrics_order_by(),
-                where=parse_expr("or(rage_clicks_count > 0, dead_clicks_count > 0, errors_count > 0) and 1 != 1"),
+                where=parse_expr("or(rage_clicks_count > 0, dead_clicks_count > 0, errors_count > 0)"),
             )
 
         return query
