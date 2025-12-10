@@ -712,10 +712,10 @@ grep POSTHOG_APP_TAG .env
         with open(env_file_name, "a") as env_file:
             env_file.write(f"HOBBY_DROPLET_ID={droplet_id}\n")
             env_file.write(f"HOBBY_DROPLET_IP={ip_address}\n")
-        with open(env_file_name, "a") as env_file:
             env_file.write(f"HOBBY_DNS_RECORD_ID={record_id}\n")
             env_file.write(f"HOBBY_DNS_RECORD_NAME={record_name}\n")
             env_file.write(f"HOBBY_NAME={self.name}\n")
+            env_file.write("HOBBY_DROPLET_NEW=true\n")
 
     def ensure_droplet(self, ssh_enabled=True):
         self.create_droplet(ssh_enabled=ssh_enabled)
@@ -776,6 +776,7 @@ def main():
                         env_file.write(f"HOBBY_DROPLET_ID={existing_droplet.id}\n")
                         env_file.write(f"HOBBY_DROPLET_IP={existing_droplet.ip_address}\n")
                         env_file.write(f"HOBBY_NAME={existing_droplet.name}\n")
+                        env_file.write("HOBBY_DROPLET_NEW=false\n")
 
                 print(f"✅ Preview deployment updated successfully", flush=True)
                 print(f"🌐 URL: https://{ht.hostname}", flush=True)
