@@ -378,34 +378,36 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
 
         # breakdown attribution
-        if breakdownAttributionType == BreakdownAttributionType.STEP:
+        if (
+            breakdownAttributionType == BreakdownAttributionType.STEP
+            and funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+        ):
             select_columns = []
             default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
 
-            # Unordered funnels can have any step be the Nth step
-            if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-                final_select = parse_expr(f"prop_basic as prop")
-            else:
-                # get prop value from each step
-                for index, _ in enumerate(self.context.query.series):
-                    select_columns.append(
-                        parse_expr(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as prop_{index}")
-                    )
+            # get prop value from each step
+            for index, _ in enumerate(self.context.query.series):
+                select_columns.append(
+                    parse_expr(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as prop_{index}")
+                )
 
-                final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
+            final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
 
             return [prop_basic, *select_columns, final_select]
-        elif breakdownAttributionType in [
-            BreakdownAttributionType.FIRST_TOUCH,
-            BreakdownAttributionType.LAST_TOUCH,
-        ]:
+        elif (
+            breakdownAttributionType
+            in [
+                BreakdownAttributionType.FIRST_TOUCH,
+                BreakdownAttributionType.LAST_TOUCH,
+                BreakdownAttributionType.ALL_EVENTS,
+            ]
+            # Unordered funnels can have any step be the Nth step
+            or breakdownAttributionType == BreakdownAttributionType.STEP
+            and funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED
+        ):
             return [prop_basic, ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"]))]
         else:
-            # all_events
-            return [
-                prop_basic,
-                ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
-            ]
+            raise ValidationError(f"Unknown breakdown attribution type ${breakdownAttributionType}")
 
     def _get_extra_fields(
         self, source_kind: SourceTableKind, node: Optional[DataWarehouseNode] = None
