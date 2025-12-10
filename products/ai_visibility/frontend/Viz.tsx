@@ -16,7 +16,11 @@ const Viz: React.FC = () => {
     const logic = useMemo(() => vizLogic({ domain }), [domain])
     useMountedLogic(logic)
     const { loadTriggerResult } = useActions(logic)
-    const { workflowId, triggerResultLoading, lastError, isReady, results, runId } = useValues(logic)
+    const { workflowId, triggerResultLoading, lastError, isReady, results, runId, isPolling, triggerResult } =
+        useValues(logic)
+
+    // Only show loading spinner on initial load, not during polling
+    const isInitialLoading = triggerResultLoading && !triggerResult
 
     return (
         <div className="flex flex-col gap-3 p-4 max-w-2xl mx-auto">
@@ -39,15 +43,18 @@ const Viz: React.FC = () => {
                 </div>
             ) : isReady && results ? (
                 <Results results={results} domain={domain} runId={runId} />
-            ) : (
+            ) : isInitialLoading ? (
                 <div className="rounded border border-border bg-bg-300 p-3">
                     <div className="flex items-center gap-2">
                         <Spinner />
-                        <span>
-                            {triggerResultLoading && !workflowId
-                                ? 'Starting workflow...'
-                                : 'Processing... checking again in 5 seconds'}
-                        </span>
+                        <span>Starting workflow...</span>
+                    </div>
+                </div>
+            ) : isPolling ? (
+                <div className="rounded border border-border bg-bg-300 p-3">
+                    <div className="flex items-center gap-2">
+                        <Spinner />
+                        <span>Processing... checking again in 5 seconds</span>
                     </div>
                     {workflowId && (
                         <div className="mt-2 text-xs text-muted">
@@ -55,7 +62,7 @@ const Viz: React.FC = () => {
                         </div>
                     )}
                 </div>
-            )}
+            ) : null}
         </div>
     )
 }

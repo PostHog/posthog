@@ -1,5 +1,6 @@
 import json
 
+from django.db import models
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 
@@ -47,22 +48,47 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
     def create(self, request, *args, **kwargs):
         domain = request.validated_data["domain"]
 
-        existing_run = AiVisibilityRun.objects.filter(domain=domain, status=AiVisibilityRun.Status.READY).first()
+        # Check for existing run (prefer READY over RUNNING)
+        existing_run = (
+            AiVisibilityRun.objects.filter(
+                domain=domain,
+                status__in=[AiVisibilityRun.Status.READY, AiVisibilityRun.Status.RUNNING],
+            )
+            .order_by(
+                # READY first, then RUNNING
+                models.Case(
+                    models.When(status=AiVisibilityRun.Status.READY, then=0),
+                    models.When(status=AiVisibilityRun.Status.RUNNING, then=1),
+                    default=2,
+                )
+            )
+            .first()
+        )
 
-        if existing_run and existing_run.s3_path:
-            results_json = object_storage.read(existing_run.s3_path)
-            if results_json:
-                results = json.loads(results_json)
-                serializer = AIVisibilityResultResponseSerializer(
+        if existing_run:
+            if existing_run.status == AiVisibilityRun.Status.READY and existing_run.s3_path:
+                results_json = object_storage.read(existing_run.s3_path)
+                if results_json:
+                    results = json.loads(results_json)
+                    serializer = AIVisibilityResultResponseSerializer(
+                        {
+                            "status": "ready",
+                            "run_id": existing_run.id,
+                            "domain": domain,
+                            "results": results,
+                        }
+                    )
+                    return Response(serializer.data, status=status.HTTP_200_OK)
+            elif existing_run.status == AiVisibilityRun.Status.RUNNING:
+                serializer = AIVisibilityStartedResponseSerializer(
                     {
-                        "status": "ready",
-                        "run_id": existing_run.id,
-                        "domain": domain,
-                        "results": results,
+                        "workflow_id": existing_run.workflow_id,
+                        "status": "running",
                     }
                 )
                 return Response(serializer.data, status=status.HTTP_200_OK)
 
+        # No existing run, create a new one
         run = AiVisibilityRun.objects.create(
             domain=domain,
             workflow_id="",

@@ -9,7 +9,7 @@ export interface VizLogicProps {
 
 interface StartedResponse {
     workflow_id: string
-    status: 'started'
+    status: 'started' | 'running'
 }
 
 interface ReadyResponse {
@@ -77,11 +77,15 @@ export const vizLogic = kea<vizLogicType>([
         workflowId: [
             (s) => [s.triggerResult],
             (triggerResult): string | null => {
-                if (triggerResult?.status === 'started') {
+                if (triggerResult?.status === 'started' || triggerResult?.status === 'running') {
                     return triggerResult.workflow_id
                 }
                 return null
             },
+        ],
+        isPolling: [
+            (s) => [s.triggerResult],
+            (triggerResult): boolean => triggerResult?.status === 'started' || triggerResult?.status === 'running',
         ],
         isReady: [(s) => [s.triggerResult], (triggerResult): boolean => triggerResult?.status === 'ready'],
         results: [
@@ -106,7 +110,7 @@ export const vizLogic = kea<vizLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         loadTriggerResultSuccess: ({ triggerResult }) => {
-            if (triggerResult?.status === 'started') {
+            if (triggerResult?.status === 'started' || triggerResult?.status === 'running') {
                 actions.startPolling()
             } else if (triggerResult?.status === 'ready') {
                 actions.stopPolling()
