@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
 
@@ -266,6 +267,107 @@ describe('CdpCyclotronWorker', () => {
 
             const results = await processor['loadHogFunctions']([createExampleInvocation(fn2, globals)])
             expect(results).toEqual([])
+        })
+
+        describe('e2e lag metrics tracking', () => {
+            it('should track e2e lag for segment- invocation', async () => {
+                const capturedAt = new Date(Date.now() - 1000).toISOString()
+                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+
+                const segmentFn = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        template_id: 'segment-actions-mixpanel',
+                    })
+                )
+
+                const segmentInvocation = createExampleInvocation(segmentFn, {
+                    ...globals,
+                    inputs: {
+                        ...globals.inputs,
+                        projectToken: 'test-token',
+                        apiSecret: 'test-secret',
+                        internal_partner_action: 'trackEvent',
+                    },
+                    event: {
+                        ...globals.event,
+                        captured_at: capturedAt,
+                    },
+                })
+
+                await processor.processInvocations([segmentInvocation])
+
+                expect(observeSpy).toHaveBeenCalledTimes(1)
+                const e2eLagMs = observeSpy.mock.calls[0][0]
+                expect(typeof e2eLagMs).toBe('number')
+                expect(e2eLagMs).toBeGreaterThan(0)
+            })
+
+            it('should track e2e lag for plugin- invocation', async () => {
+                const capturedAt = new Date(Date.now() - 1000).toISOString()
+                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+
+                const pluginFn = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        template_id: 'plugin-posthog-intercom-plugin',
+                    })
+                )
+
+                const pluginInvocation = createExampleInvocation(pluginFn, {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        captured_at: capturedAt,
+                    },
+                })
+
+                await processor.processInvocations([pluginInvocation])
+
+                expect(observeSpy).toHaveBeenCalledTimes(1)
+                const e2eLagMs = observeSpy.mock.calls[0][0]
+                expect(typeof e2eLagMs).toBe('number')
+                expect(e2eLagMs).toBeGreaterThan(0)
+            })
+
+            it('should track e2e lag for native-webhook invocation', async () => {
+                const capturedAt = new Date(Date.now() - 1000).toISOString()
+                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+
+                const nativeFn = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        template_id: 'native-webhook',
+                    })
+                )
+
+                const nativeInvocation = createExampleInvocation(nativeFn, {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        captured_at: capturedAt,
+                    },
+                })
+
+                await processor.processInvocations([nativeInvocation])
+
+                expect(observeSpy).toHaveBeenCalledTimes(1)
+                const e2eLagMs = observeSpy.mock.calls[0][0]
+                expect(typeof e2eLagMs).toBe('number')
+                expect(e2eLagMs).toBeGreaterThan(0)
+            })
         })
 
         describe('thread relief', () => {
