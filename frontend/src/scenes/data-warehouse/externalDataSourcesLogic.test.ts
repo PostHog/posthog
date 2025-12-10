@@ -39,6 +39,7 @@ describe('externalDataSourcesLogic', () => {
                     },
                     sync_frequency: '24hour' as DataWarehouseSyncInterval,
                     job_inputs: {},
+                    is_direct_query: false,
                 },
             ],
             next: null,

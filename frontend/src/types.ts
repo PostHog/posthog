@@ -4935,6 +4935,7 @@ export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
     prefix: string
     payload: Record<string, any>
+    is_direct_query?: boolean
 }
 export interface ExternalDataSource {
     id: string
@@ -4949,6 +4950,7 @@ export interface ExternalDataSource {
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
+    is_direct_query: boolean
 }
 
 export interface DataModelingJob {
