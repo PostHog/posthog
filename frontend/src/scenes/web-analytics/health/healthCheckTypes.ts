@@ -9,7 +9,7 @@ export interface HealthCheckAction {
 }
 
 export interface HealthCheck {
-    id: string
+    id: HealthCheckId
     category: HealthCheckCategory
     title: string
     description: string

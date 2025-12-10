@@ -132,7 +132,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         # For listing or single retrieval, conversations must be from the assistant and have a title
         if self.action in ("list", "retrieve"):
             queryset = queryset.filter(
-                title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
+                title__isnull=False,
+                type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT, Conversation.Type.SLACK],
             ).order_by("-updated_at")
         return queryset
 
