@@ -103,7 +103,8 @@ function LogsViewerContent({
 
     const startScrolling = useCallback(
         (direction: 'left' | 'right'): void => {
-            if (scrollIntervalRef.current) {
+        (direction: 'left' | 'right'): void => {
+            if (scrollIntervalRef.current !== null) {
                 return // Already scrolling
             }
             scrollMessage(direction)
