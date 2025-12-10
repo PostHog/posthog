@@ -340,9 +340,14 @@ ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
 # Install Playwright Chromium browser for video export (as root for system deps)
+# Use cache mount for browser binaries to avoid re-downloading on every build
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium && \
+RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
+    PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-cache \
+    /python-runtime/bin/python -m playwright install --with-deps chromium && \
+    mkdir -p /ms-playwright && \
+    cp -r /tmp/playwright-cache/* /ms-playwright/ && \
     chown -R posthog:posthog /ms-playwright
 USER posthog
 
