@@ -1,7 +1,9 @@
-import { IconLogomark, IconMessage, IconRefresh } from '@posthog/icons'
+import { IconLogomark, IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+
+import { FeedbackButton } from './FeedbackButton'
 
 export function TopBar({
     lastUpdated,
@@ -22,9 +24,7 @@ export function TopBar({
             </div>
             <div className="flex items-center gap-3">
                 {formattedDate && <span className="text-muted text-sm">Data last updated on {formattedDate}</span>}
-                <LemonButton size="small" icon={<IconMessage />} type="secondary">
-                    Feedback
-                </LemonButton>
+                <FeedbackButton />
                 <LemonButton
                     size="small"
                     icon={<IconRefresh />}
