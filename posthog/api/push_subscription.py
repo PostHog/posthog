@@ -1,10 +1,19 @@
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+
+import structlog
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import Team
 from posthog.models.push_subscription import PushPlatform, PushSubscription
+from posthog.utils import load_data_from_request
+from posthog.utils_cors import cors_response
+
+logger = structlog.get_logger(__name__)
 
 
 class PushSubscriptionSerializer(serializers.ModelSerializer):
@@ -86,3 +95,75 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         count = PushSubscription.deactivate_token(team_id=self.team_id, token=token)
 
         return Response({"deactivated": count}, status=status.HTTP_200_OK)
+
+
+@csrf_exempt
+def sdk_push_subscription_register(request, api_key: str):
+    """
+    SDK endpoint for registering push notification tokens.
+
+    This endpoint is called by mobile SDKs using the API key for authentication.
+    URL: POST /api/projects/{api_key}/push_subscriptions/register/
+    """
+    if request.method == "OPTIONS":
+        return cors_response(request, JsonResponse({"status": "ok"}))
+
+    if request.method != "POST":
+        return cors_response(request, JsonResponse({"error": "Method not allowed"}, status=405))
+
+    try:
+        team = Team.objects.get(api_token=api_key)
+    except Team.DoesNotExist:
+        return cors_response(request, JsonResponse({"error": "Invalid API key"}, status=401))
+
+    try:
+        data = load_data_from_request(request)
+    except Exception as e:
+        logger.warning("push_subscription_register_parse_error", error=str(e))
+        return cors_response(request, JsonResponse({"error": "Invalid request body"}, status=400))
+
+    distinct_id = data.get("distinct_id")
+    token = data.get("token")
+    platform = data.get("platform")
+
+    if not distinct_id:
+        return cors_response(request, JsonResponse({"error": "distinct_id is required"}, status=400))
+    if not token:
+        return cors_response(request, JsonResponse({"error": "token is required"}, status=400))
+    if not platform:
+        return cors_response(request, JsonResponse({"error": "platform is required"}, status=400))
+
+    try:
+        platform_enum = PushPlatform(platform)
+    except ValueError:
+        return cors_response(
+            request,
+            JsonResponse(
+                {"error": f"Invalid platform. Must be one of: {[p.value for p in PushPlatform]}"},
+                status=400,
+            ),
+        )
+
+    subscription = PushSubscription.upsert_token(
+        team_id=team.id,
+        distinct_id=distinct_id,
+        token=token,
+        platform=platform_enum,
+    )
+
+    logger.info(
+        "push_subscription_registered",
+        team_id=team.id,
+        distinct_id=distinct_id,
+        platform=platform,
+    )
+
+    return cors_response(
+        request,
+        JsonResponse(
+            {
+                "status": "ok",
+                "subscription_id": str(subscription.id),
+            }
+        ),
+    )

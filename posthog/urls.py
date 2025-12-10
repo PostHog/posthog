@@ -20,6 +20,7 @@ from posthog.api import (
     github,
     hog_function_template,
     playwright_setup,
+    push_subscription,
     remote_config,
     report,
     router,
@@ -203,6 +204,11 @@ urlpatterns = [
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
+    # SDK endpoint for push subscription registration (uses api_key for auth)
+    path(
+        "api/projects/<str:api_key>/push_subscriptions/register/",
+        push_subscription.sdk_push_subscription_register,
+    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(
