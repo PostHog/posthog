@@ -145,12 +145,19 @@ function SourcesTab({ brand }: { brand: string }): JSX.Element {
 
 function DashboardView({ brand, lastUpdated }: { brand: string; lastUpdated: string | null }): JSX.Element {
     const logic = vizLogic({ brand })
-    const { activeTab, triggerResultLoading } = useValues(logic)
+    const { activeTab, triggerResultLoading, lastError, isRateLimited } = useValues(logic) as ReturnType<
+        typeof useValues<typeof logic>
+    > & { isRateLimited: boolean }
     const { setActiveTab, forceNewRun } = useActions(logic)
 
     return (
         <div className="flex flex-col h-full">
             <TopBar lastUpdated={lastUpdated} onRefresh={forceNewRun} isRefreshing={triggerResultLoading} />
+            {lastError && isRateLimited && (
+                <div className="bg-warning-highlight border-b border-warning px-4 py-2 text-sm">
+                    <span className="font-medium">Rate limit reached:</span> {lastError}
+                </div>
+            )}
             <div className="flex-1 overflow-auto">
                 <div className="p-6 space-y-6 max-w-7xl mx-auto">
                     <div>
@@ -194,6 +201,7 @@ export function Viz({ brand }: VizProps): JSX.Element {
         triggerResultLoading,
         triggerResult,
         lastError,
+        isRateLimited,
         results,
         brandDisplayName,
         progressStep,
@@ -203,6 +211,7 @@ export function Viz({ brand }: VizProps): JSX.Element {
         progressStep: string
         progressPercent: number
         progressLabel: string
+        isRateLimited: boolean
     }
     const { loadTriggerResult } = useActions(logic)
     const [lastUpdated, setLastUpdated] = useState<string | null>(null)
@@ -250,11 +259,26 @@ export function Viz({ brand }: VizProps): JSX.Element {
                             {lastError ? (
                                 <div className="rounded border border-border bg-bg-light p-4">
                                     <div className="flex flex-col gap-2">
-                                        <span className="text-danger font-semibold">Failed to load results</span>
-                                        <code className="text-xs break-all">{lastError}</code>
-                                        <LemonButton type="primary" onClick={() => loadTriggerResult()}>
-                                            Retry
-                                        </LemonButton>
+                                        {isRateLimited ? (
+                                            <>
+                                                <span className="text-warning font-semibold">Rate limit reached</span>
+                                                <p className="text-sm text-muted">{lastError}</p>
+                                                <p className="text-xs text-muted">
+                                                    Each IP address is limited to 5 new analysis requests per hour to
+                                                    manage server load.
+                                                </p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="text-danger font-semibold">
+                                                    Failed to load results
+                                                </span>
+                                                <code className="text-xs break-all">{lastError}</code>
+                                                <LemonButton type="primary" onClick={() => loadTriggerResult()}>
+                                                    Retry
+                                                </LemonButton>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             ) : triggerResultLoading || isPolling ? (
