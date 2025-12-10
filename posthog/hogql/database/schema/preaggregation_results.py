@@ -8,7 +8,7 @@ from posthog.hogql.database.models import (
     Table,
 )
 
-from posthog.clickhouse.preaggregation.sql import SHARDED_PREAGGREGATION_RESULTS_TABLE
+from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 
 
 class PreaggregationResultsTable(Table):
@@ -27,7 +27,7 @@ class PreaggregationResultsTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return SHARDED_PREAGGREGATION_RESULTS_TABLE()
+        return DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()
 
     def to_printed_hogql(self):
         return "preaggregation_results"

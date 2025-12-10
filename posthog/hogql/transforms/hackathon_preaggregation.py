@@ -11,10 +11,10 @@ from posthog.hogql.transforms.preaggregation_executor import (
 )
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.clickhouse.preaggregation.sql import SHARDED_PREAGGREGATION_RESULTS_TABLE
+from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.models import Team
 
-PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME = SHARDED_PREAGGREGATION_RESULTS_TABLE()
+PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME = DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()
 
 
 def _is_person_id_field(field: ast.Field) -> bool:

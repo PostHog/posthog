@@ -3,7 +3,7 @@
   '''
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
-     FROM sharded_preaggregation_results
+     FROM preaggregation_results
      WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
      GROUP BY time_window_start)
   '''
@@ -12,7 +12,7 @@
   '''
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
-     FROM sharded_preaggregation_results
+     FROM preaggregation_results
      WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
      GROUP BY time_window_start, arrayElement(breakdown_value, 1) AS browser, arrayElement(breakdown_value, 2) AS os)
   '''
@@ -21,7 +21,7 @@
   '''
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
-     FROM sharded_preaggregation_results
+     FROM preaggregation_results
      WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
      GROUP BY time_window_start)
   '''
@@ -30,7 +30,7 @@
   '''
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
-     FROM sharded_preaggregation_results
+     FROM preaggregation_results
      WHERE and(greaterOrEquals(time_window_start, toDate('2024-06-15')), less(time_window_start, toDate('2024-07-20')))
      GROUP BY time_window_start)
   '''
@@ -39,7 +39,7 @@
   '''
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
-     FROM sharded_preaggregation_results
+     FROM preaggregation_results
      WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
      GROUP BY time_window_start, arrayElement(breakdown_value, 1), arrayElement(breakdown_value, 2))
   '''
@@ -50,7 +50,7 @@
     (SELECT sum(unique_persons)
      FROM
        (SELECT uniqExactMerge(uniq_exact_state) AS unique_persons
-        FROM sharded_preaggregation_results
+        FROM preaggregation_results
         WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
         GROUP BY time_window_start))
   '''
@@ -59,7 +59,7 @@
   '''
   sql
     (SELECT uniqExactMerge(uniq_exact_state) AS unique_persons
-     FROM sharded_preaggregation_results
+     FROM preaggregation_results
      WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
      GROUP BY time_window_start)
   '''
@@ -68,7 +68,7 @@
   '''
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
-     FROM sharded_preaggregation_results
+     FROM preaggregation_results
      WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
      GROUP BY time_window_start
      LIMIT 10)
@@ -78,7 +78,7 @@
   '''
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
-     FROM sharded_preaggregation_results
+     FROM preaggregation_results
      WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
      GROUP BY time_window_start
      ORDER BY toStartOfDay(timestamp) DESC)
@@ -88,7 +88,7 @@
   '''
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
-     FROM sharded_preaggregation_results
+     FROM preaggregation_results
      WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
      GROUP BY time_window_start, arrayElement(breakdown_value, 1))
   '''

@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -16,6 +15,8 @@ from posthog.hogql.transforms.preaggregation_executor import (
     find_missing_contiguous_windows,
 )
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.models.preaggregation_job import PreaggregationJob
 
 
@@ -248,13 +249,13 @@ SELECT {self.team.id} AS team_id, 1 AS col1, 2 AS col2, 3 AS col3, accurateCastO
 
 class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
     def _make_preaggregation_query(self) -> ast.SelectQuery:
-        """Create a simple query with 3 columns for testing job orchestration."""
+        """Create a query that produces columns matching the preaggregation table schema."""
         s = parse_select(
             """
             SELECT
                 toStartOfDay(timestamp) as time_window_start,
                 [] as breakdown_value,
-                count() as cnt
+                uniqExactState(person_id) as uniq_exact_state
             FROM events
             WHERE event = '$pageview'
             GROUP BY time_window_start
@@ -264,8 +265,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         return s
 
     def _create_pageview_events(self):
-        """Create pageview events across Jan, Feb, and March 2024."""
-        # Jan events
+        """Create pageview events across Jan 2024."""
         _create_event(
             team=self.team, event="$pageview", distinct_id="user1", timestamp=datetime(2024, 1, 1, 12, tzinfo=UTC)
         )
@@ -275,21 +275,31 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         _create_event(
             team=self.team, event="$pageview", distinct_id="user3", timestamp=datetime(2024, 1, 3, 12, tzinfo=UTC)
         )
-
-        # Feb events
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="user4", timestamp=datetime(2024, 2, 1, 12, tzinfo=UTC)
-        )
-
-        # March events
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="user5", timestamp=datetime(2024, 3, 1, 12, tzinfo=UTC)
-        )
-
         flush_persons_and_events()
 
-    @patch("posthog.hogql.transforms.preaggregation_executor.sync_execute")
-    def test_creates_single_job_for_contiguous_date_range(self, mock_sync_execute):
+    def _query_preaggregation_results(self, job_ids: list) -> list:
+        """Query the preaggregation results table for specific job IDs."""
+        job_id_strs = [str(job_id) for job_id in job_ids]
+        result = sync_execute(
+            f"""
+            SELECT
+                team_id,
+                job_id,
+                time_window_start,
+                breakdown_value,
+                uniqExactMerge(uniq_exact_state) as unique_users
+            FROM {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()}
+            WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
+            GROUP BY team_id, job_id, time_window_start, breakdown_value
+            ORDER BY time_window_start
+            """,
+            {"team_id": self.team.id, "job_ids": job_id_strs},
+        )
+        return result
+
+    def test_creates_single_job_for_contiguous_date_range(self):
+        self._create_pageview_events()
+
         query = self._make_preaggregation_query()
         query_info = QueryInfo(query=query, timezone="UTC")
 
@@ -303,11 +313,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         assert isinstance(result, PreaggregationResult)
         assert result.ready is True
         assert len(result.errors) == 0
-        # Should create 1 job for the contiguous range Jan 1-4
         assert len(result.job_ids) == 1
-
-        # Verify sync_execute was called once for the contiguous range
-        assert mock_sync_execute.call_count == 1
 
         # Verify job exists in PostgreSQL with correct range
         job = PreaggregationJob.objects.get(id=result.job_ids[0])
@@ -315,95 +321,94 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         assert job.time_range_start == datetime(2024, 1, 1, tzinfo=UTC)
         assert job.time_range_end == datetime(2024, 1, 4, tzinfo=UTC)
 
-    @patch("posthog.hogql.transforms.preaggregation_executor.sync_execute")
-    def test_reuses_existing_job(self, mock_sync_execute):
+        # Verify actual data in ClickHouse
+        ch_results = self._query_preaggregation_results(result.job_ids)
+        assert len(ch_results) == 3  # 3 days with events
+        # Each day has 1 unique user
+        assert ch_results[0][4] == 1  # Jan 1: user1
+        assert ch_results[1][4] == 1  # Jan 2: user2
+        assert ch_results[2][4] == 1  # Jan 3: user3
+
+    def test_reuses_existing_job(self):
+        self._create_pageview_events()
+
         query = self._make_preaggregation_query()
         query_info = QueryInfo(query=query, timezone="UTC")
 
-        # First: run for Feb 1 only
-        feb_result = execute_preaggregation_jobs(
+        # First: run for Jan 1-2
+        first_result = execute_preaggregation_jobs(
             team=self.team,
             query_info=query_info,
-            start=datetime(2024, 2, 1, tzinfo=UTC),
-            end=datetime(2024, 2, 2, tzinfo=UTC),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
         )
 
-        assert feb_result.ready is True
-        assert len(feb_result.job_ids) == 1
-        feb_job_id = feb_result.job_ids[0]
+        assert first_result.ready is True
+        assert len(first_result.job_ids) == 1
+        first_job_id = first_result.job_ids[0]
 
-        # Verify Feb job exists in PostgreSQL
-        feb_job = PreaggregationJob.objects.get(id=feb_job_id)
-        assert feb_job.status == PreaggregationJob.Status.READY
-        assert feb_job.time_range_start == datetime(2024, 2, 1, tzinfo=UTC)
+        # Verify data was inserted
+        ch_results_1 = self._query_preaggregation_results([first_job_id])
+        assert len(ch_results_1) == 1  # Jan 1
 
-        # sync_execute called once for Feb
-        assert mock_sync_execute.call_count == 1
-
-        # Second: run again for Feb 1
-        feb_result_2 = execute_preaggregation_jobs(
+        # Second: run again for same range
+        second_result = execute_preaggregation_jobs(
             team=self.team,
             query_info=query_info,
-            start=datetime(2024, 2, 1, tzinfo=UTC),
-            end=datetime(2024, 2, 2, tzinfo=UTC),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
         )
-
-        # Should reuse the existing job, so sync_execute should not be called again
-        assert mock_sync_execute.call_count == 1
 
         # Should reuse the existing job
-        assert feb_result_2.ready is True
-        assert len(feb_result_2.job_ids) == 1
-        assert feb_result_2.job_ids[0] == feb_job_id
+        assert second_result.ready is True
+        assert len(second_result.job_ids) == 1
+        assert second_result.job_ids[0] == first_job_id
 
         # Verify only 1 job exists in PostgreSQL
-        query_hash = feb_job.query_hash
+        job = PreaggregationJob.objects.get(id=first_job_id)
         total_jobs = PreaggregationJob.objects.filter(
             team=self.team,
-            query_hash=query_hash,
+            query_hash=job.query_hash,
             status=PreaggregationJob.Status.READY,
         ).count()
         assert total_jobs == 1
 
-    @patch("posthog.hogql.transforms.preaggregation_executor.sync_execute")
-    def test_creates_two_contiguous_ranges_when_feb_exists(self, mock_sync_execute):
+    def test_creates_two_contiguous_ranges_when_middle_exists(self):
         """Test that contiguous missing ranges are created when some jobs already exist."""
+        self._create_pageview_events()
+
         query = self._make_preaggregation_query()
         query_info = QueryInfo(query=query, timezone="UTC")
 
-        # First: Create Feb job (covers Feb 1 only)
-        feb_result = execute_preaggregation_jobs(
+        # First: Create job for Jan 2 only
+        jan2_result = execute_preaggregation_jobs(
             team=self.team,
             query_info=query_info,
-            start=datetime(2024, 2, 1, tzinfo=UTC),
-            end=datetime(2024, 2, 2, tzinfo=UTC),
+            start=datetime(2024, 1, 2, tzinfo=UTC),
+            end=datetime(2024, 1, 3, tzinfo=UTC),
         )
-        assert feb_result.ready is True
-        assert len(feb_result.job_ids) == 1
-        feb_job_id = feb_result.job_ids[0]
-        assert mock_sync_execute.call_count == 1
+        assert jan2_result.ready is True
+        assert len(jan2_result.job_ids) == 1
+        jan2_job_id = jan2_result.job_ids[0]
 
-        # Second: Run for Jan 31 - Feb 3 (4 days: Jan 31, Feb 1, Feb 2, Feb 3)
-        # Feb 1 is covered, so missing = Jan 31, Feb 2-3
-        # This should create 2 contiguous ranges:
-        # - Jan 31 (single day before Feb 1)
-        # - Feb 2-3 (after Feb 1)
+        # Verify Jan 2 data
+        ch_results_jan2 = self._query_preaggregation_results([jan2_job_id])
+        assert len(ch_results_jan2) == 1
+        assert ch_results_jan2[0][4] == 1  # user2
+
+        # Second: Run for Jan 1-4 (Jan 2 is covered)
+        # Missing: Jan 1, Jan 3 -> 2 contiguous ranges
         result = execute_preaggregation_jobs(
             team=self.team,
             query_info=query_info,
-            start=datetime(2024, 1, 31, tzinfo=UTC),
-            end=datetime(2024, 2, 4, tzinfo=UTC),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 4, tzinfo=UTC),
         )
 
         assert result.ready is True
-        # 3 jobs: existing Feb 1 + 2 new contiguous ranges (Jan 31, Feb 2-4)
+        # 3 jobs: existing Jan 2 + 2 new ranges (Jan 1, Jan 3)
         assert len(result.job_ids) == 3
-
-        # Verify sync_execute was called twice (once for Jan 31, once for Feb 2-4)
-        assert mock_sync_execute.call_count == 1 + 2  # 1 for original Feb, 2 new
-
-        # Verify Feb 1 job was reused
-        assert feb_job_id in result.job_ids
+        assert jan2_job_id in result.job_ids
 
         # Verify jobs in PostgreSQL
         postgres_jobs = list(
@@ -414,12 +419,16 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
             ).order_by("time_range_start")
         )
         assert len(postgres_jobs) == 3
-        # Jan 31
-        assert postgres_jobs[0].time_range_start == datetime(2024, 1, 31, tzinfo=UTC)
-        assert postgres_jobs[0].time_range_end == datetime(2024, 2, 1, tzinfo=UTC)
-        # Feb 1 (original)
-        assert postgres_jobs[1].time_range_start == datetime(2024, 2, 1, tzinfo=UTC)
-        assert postgres_jobs[1].time_range_end == datetime(2024, 2, 2, tzinfo=UTC)
-        # Feb 2-4
-        assert postgres_jobs[2].time_range_start == datetime(2024, 2, 2, tzinfo=UTC)
-        assert postgres_jobs[2].time_range_end == datetime(2024, 2, 4, tzinfo=UTC)
+        assert postgres_jobs[0].time_range_start == datetime(2024, 1, 1, tzinfo=UTC)
+        assert postgres_jobs[0].time_range_end == datetime(2024, 1, 2, tzinfo=UTC)
+        assert postgres_jobs[1].time_range_start == datetime(2024, 1, 2, tzinfo=UTC)
+        assert postgres_jobs[1].time_range_end == datetime(2024, 1, 3, tzinfo=UTC)
+        assert postgres_jobs[2].time_range_start == datetime(2024, 1, 3, tzinfo=UTC)
+        assert postgres_jobs[2].time_range_end == datetime(2024, 1, 4, tzinfo=UTC)
+
+        # Verify all data in ClickHouse
+        ch_results = self._query_preaggregation_results(result.job_ids)
+        assert len(ch_results) == 3  # 3 days total
+        assert ch_results[0][4] == 1  # Jan 1: user1
+        assert ch_results[1][4] == 1  # Jan 2: user2
+        assert ch_results[2][4] == 1  # Jan 3: user3
