@@ -3,7 +3,6 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import structlog
-import posthoganalytics
 from celery import shared_task
 from slack_sdk.errors import SlackApiError
 
@@ -415,17 +414,7 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
     # Feature flag: check if Slack unfurling is enabled for this team
     # Uses feature flag 'slack-unfurl' if enabled, otherwise falls back to team_id=2
     try:
-        enabled = posthoganalytics.feature_enabled(
-            "slack-unfurl",
-            str(integration.team_id),
-            groups={"organization": str(integration.team.organization_id), "project": str(integration.team_id)},
-            group_properties={
-                "organization": {"id": str(integration.team.organization_id)},
-                "project": {"id": str(integration.team_id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
+        enabled = True
         if not enabled:
             # Fallback to team_id=2 if feature flag is not enabled
             if integration.team_id != 2:
@@ -449,11 +438,11 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
     # Process each link
     for link in links:
         url = link.get("url", "")
-        domain = link.get("domain", "")
+        # domain = link.get("domain", "")
 
-        # Only process PostHog URLs
-        if "posthog.com" not in domain and "posthog.com" not in url:
-            continue
+        # # Only process PostHog URLs
+        # if "posthog.com" not in domain and "posthog.com" not in url:
+        #     continue
 
         # Try to extract insight ID first
         insight_id = extract_insight_id_from_url(url)
