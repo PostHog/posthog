@@ -21,6 +21,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { shouldCancelQuery, uuid } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
@@ -224,8 +225,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) &&
                     typeof props.cachedResults === 'object' &&
-                    !('result' in props.cachedResults) &&
-                    !('results' in props.cachedResults)))
+                    (!('result' in props.cachedResults) || props.cachedResults.result == null) &&
+                    (!('results' in props.cachedResults) || props.cachedResults.results == null)))
         ) {
             // For normal loads, use appropriate refresh type
             let refreshType: RefreshType
@@ -296,10 +297,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         refresh !== 'force_blocking' &&
                         queryStatus?.complete !== false
                     ) {
-                        if (
+                        // Check if cached results actually have data (not just null/undefined values)
+                        const hasValidResults =
                             typeof props.cachedResults === 'object' &&
-                            ('result' in props.cachedResults || 'results' in props.cachedResults)
-                        ) {
+                            (('result' in props.cachedResults && props.cachedResults.result != null) ||
+                                ('results' in props.cachedResults && props.cachedResults.results != null))
+                        if (hasValidResults) {
                             return props.cachedResults
                         }
                     }
@@ -311,7 +314,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
 
-                    if (!values.currentTeamId) {
+                    // For image exports, get team ID from app context if not yet loaded
+                    let teamId = values.currentTeamId
+                    if (!teamId && !props.doNotLoad) {
+                        // Try to get team ID from app context for image exports
+                        const appContext = getAppContext()
+                        teamId = appContext?.current_team?.id ?? null
+                    }
+
+                    if (!teamId) {
                         // if shared/exported, the team is not loaded
                         return null
                     }
@@ -334,9 +345,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     try {
                         // For shared contexts, create a minimal team object if needed
+                        // Use team from app context if currentTeam is not available yet
+                        const team = values.currentTeam || (getAppContext()?.current_team as TeamType | undefined)
+                        if (!team) {
+                            throw new Error('Team is required to execute query')
+                        }
                         const response = await getConcurrencyController(
                             query,
-                            values.currentTeam as TeamType,
+                            team,
                             values.featureFlags
                         ).run({
                             debugTag: query.kind,
@@ -1001,12 +1017,28 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     })),
     afterMount(({ actions, props, cache }) => {
         cache.localResults = {}
+        // Check if cached results actually have data (not just null/undefined values)
+        let hasValidCachedResults = false
         if (props.cachedResults) {
+            if (isInsightQueryNode(props.query)) {
+                // For insight queries, check if result or results exist and are not null
+                if (typeof props.cachedResults === 'object') {
+                    hasValidCachedResults =
+                        ('result' in props.cachedResults && props.cachedResults.result != null) ||
+                        ('results' in props.cachedResults && props.cachedResults.results != null)
+                }
+            } else {
+                // For non-insight queries, cached results are valid if they exist
+                hasValidCachedResults = true
+            }
+        }
+
+        if (hasValidCachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount
             // and if we never change the props, the cached results will never be used.
             actions.setResponse(props.cachedResults)
-        } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
+        } else if (props.autoLoad && !props.doNotLoad && Object.keys(props.query || {}).length > 0) {
             // Initial load should use non-force variant
             const refreshType = isInsightQueryNode(props.query) ? 'async' : 'blocking'
             actions.loadData(refreshType)

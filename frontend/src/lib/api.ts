@@ -4795,6 +4795,13 @@ const api = {
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
+        // Add JWT token to Authorization header if available (for exported assets)
+        const exporterContext = getCurrentExporterData()
+        const authHeaders: Record<string, string> = {}
+        if (exporterContext?.shareToken) {
+            authHeaders['Authorization'] = `Bearer ${exporterContext.shareToken}`
+        }
+
         return await handleFetch(url, 'POST', () =>
             fetch(url, {
                 method: 'POST',
@@ -4803,6 +4810,7 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                    ...authHeaders,
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
                 signal: options?.signal,

@@ -12,6 +12,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    ExportedAssetAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -103,7 +104,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
         if isinstance(
             self.request.successful_authenticator,
-            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication | ExportedAssetAuthentication,
         ):
             return [SharingTokenPermission()]
 
@@ -129,8 +130,16 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             authentication_classes.append(SharingPasswordProtectedAuthentication)
             authentication_classes.append(SharingAccessTokenAuthentication)
 
+        # ExportedAssetAuthentication should come before JwtAuthentication
+        # so it can handle EXPORTED_ASSET tokens before JwtAuthentication tries IMPERSONATED_USER
         authentication_classes.extend(
-            [JwtAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
+            [
+                ExportedAssetAuthentication,
+                JwtAuthentication,
+                OAuthAccessTokenAuthentication,
+                PersonalAPIKeyAuthentication,
+                SessionAuthentication,
+            ]
         )
 
         return [auth() for auth in authentication_classes]
@@ -243,6 +252,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     @cached_property
     def team_id(self) -> int:
+        # Check if authenticated via ExportedAsset
+        if isinstance(self.request.successful_authenticator, ExportedAssetAuthentication):
+            # If we have an exported_asset, use its team
+            if self.request.successful_authenticator.exported_asset:
+                return self.request.successful_authenticator.exported_asset.team.id
+            # Otherwise, if we have a user (IMPERSONATED_USER token), use their team
+            if isinstance(self.request.user, User) and self.request.user.team:
+                return self.request.user.team.id
+
         if self._is_project_view:
             team_id = self.project_id  # KLUDGE: This is just for the period of transition to project environments
         elif team_from_token := self._get_team_from_request():
@@ -259,6 +277,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     @cached_property
     def team(self) -> Team:
+        # Check if authenticated via ExportedAsset
+        if isinstance(self.request.successful_authenticator, ExportedAssetAuthentication):
+            # If we have an exported_asset, use its team
+            if self.request.successful_authenticator.exported_asset:
+                return self.request.successful_authenticator.exported_asset.team
+            # Otherwise, if we have a user (IMPERSONATED_USER token), use their team
+            if isinstance(self.request.user, User) and self.request.user.team:
+                return self.request.user.team
+
         if team_from_token := self._get_team_from_request():
             team = team_from_token
         elif self._is_project_view:
@@ -282,6 +309,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     @cached_property
     def project_id(self) -> int:
+        # Check if authenticated via ExportedAsset
+        if isinstance(self.request.successful_authenticator, ExportedAssetAuthentication):
+            # If we have an exported_asset, use its team's project_id
+            if self.request.successful_authenticator.exported_asset:
+                return self.request.successful_authenticator.exported_asset.team.project_id
+            # Otherwise, if we have a user (IMPERSONATED_USER token), use their team's project_id
+            if isinstance(self.request.user, User) and self.request.user.team:
+                return self.request.user.team.project_id
+
         if team_from_token := self._get_team_from_request():
             project_id = team_from_token.project_id
 
