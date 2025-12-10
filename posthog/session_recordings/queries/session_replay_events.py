@@ -186,7 +186,8 @@ class SessionReplayEvents:
         """
         query = """
             SELECT
-                any(distinct_id),
+                session_id,
+                any(distinct_id) as distinct_id,
                 min(min_first_timestamp) as start_time,
                 max(max_last_timestamp) as end_time,
                 dateDiff('SECOND', start_time, end_time) as duration,
@@ -272,25 +273,25 @@ class SessionReplayEvents:
             raise ValueError("Multiple sessions found for session_id: {}".format(session_id))
         replay = replay_response[0]
         return RecordingMetadata(
-            distinct_id=replay[0],
-            start_time=replay[1],
-            end_time=replay[2],
-            duration=replay[3],
-            first_url=replay[4],
-            click_count=replay[5],
-            keypress_count=replay[6],
-            mouse_activity_count=replay[7],
-            active_seconds=replay[8],
-            console_log_count=replay[9],
-            console_warn_count=replay[10],
-            console_error_count=replay[11],
-            snapshot_source=replay[12] or "web",
-            block_first_timestamps=replay[13],
-            block_last_timestamps=replay[14],
-            block_urls=replay[15],
-            retention_period_days=replay[16],
-            expiry_time=replay[17],
-            recording_ttl=replay[18],
+            distinct_id=replay[1],
+            start_time=replay[2],
+            end_time=replay[3],
+            duration=replay[4],
+            first_url=replay[5],
+            click_count=replay[6],
+            keypress_count=replay[7],
+            mouse_activity_count=replay[8],
+            active_seconds=replay[9],
+            console_log_count=replay[10],
+            console_warn_count=replay[11],
+            console_error_count=replay[12],
+            snapshot_source=replay[13] or "web",
+            block_first_timestamps=replay[14],
+            block_last_timestamps=replay[15],
+            block_urls=replay[16],
+            retention_period_days=replay[17],
+            expiry_time=replay[18],
+            recording_ttl=replay[19],
         )
 
     def get_metadata(
