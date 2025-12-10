@@ -127,6 +127,13 @@ function FieldTree({
                 const isExpanded = expandedFields.has(node.path)
                 const isJson = isJsonField(node.field)
 
+                const handleJsonSubmit = (path: string): void => {
+                    const selectedPath = jsonPathDraft.trim() || path
+                    onSelect(selectedPath)
+                    setJsonPathDraft('')
+                    setOpenJsonPopover(null)
+                }
+
                 const handleClick = (): void => {
                     if (isJson) {
                         setOpenJsonPopover(node.path)
@@ -163,15 +170,18 @@ function FieldTree({
                                                 onChange={(value) => setJsonPathDraft((value || '').trim())}
                                                 onFocus={focusJsonTextArea}
                                                 autoFocus
+                                                onKeyDown={(event) => {
+                                                    if (event.key === 'Enter' && !event.shiftKey) {
+                                                        event.preventDefault()
+                                                        handleJsonSubmit(node.path)
+                                                    }
+                                                }}
                                             />
                                             <LemonButton
                                                 type="primary"
                                                 onClick={(event) => {
                                                     event.stopPropagation()
-                                                    const selectedPath = jsonPathDraft.trim() || node.path
-                                                    onSelect(selectedPath)
-                                                    setJsonPathDraft('')
-                                                    setOpenJsonPopover(null)
+                                                    handleJsonSubmit(node.path)
                                                 }}
                                                 fullWidth
                                             >

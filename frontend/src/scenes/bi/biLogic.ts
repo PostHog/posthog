@@ -722,8 +722,31 @@ function resolveFieldAndExpression(
 
             if (index < parts.length - 1) {
                 const targetTable = resolvedField.table ? getTableFromDatabase(database, resolvedField.table) : null
+                const baseTableForChildren = targetTable || resolvedTable || currentTable
 
-                if (targetTable) {
+                if (resolvedField.fields?.length) {
+                    const limitedTableFields = baseTableForChildren
+                        ? {
+                              ...baseTableForChildren,
+                              fields: Object.fromEntries(
+                                  resolvedField.fields.map((name) => {
+                                      const childField = baseTableForChildren.fields?.[name]
+                                      return [
+                                          name,
+                                          childField || {
+                                              name,
+                                              hogql_value: name,
+                                              type: 'string' as DatabaseSerializedFieldType,
+                                              schema_valid: true,
+                                          },
+                                      ]
+                                  })
+                              ),
+                          }
+                        : null
+
+                    currentTable = limitedTableFields || baseTableForChildren
+                } else if (targetTable) {
                     currentTable = targetTable
                 } else if (resolvedTable && resolvedTable !== currentTable) {
                     currentTable = resolvedTable
