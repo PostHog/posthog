@@ -246,19 +246,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             </a>
         )
 
-        if (href && !externalLink && !skipContext) {
-            element = (
-                <ContextMenu key={props.key}>
-                    <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
-                    <ContextMenuContent className="max-w-[300px]">
-                        <ContextMenuGroup>
-                            <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
-                        </ContextMenuGroup>
-                    </ContextMenuContent>
-                </ContextMenu>
-            )
-        }
-
+        // Wrap with tooltip first (before context menu) so trigger props can be applied to the <a> element
         if ((tooltip && to) || tooltipDocLink) {
             element = (
                 <Tooltip
@@ -269,6 +257,19 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 >
                     {element}
                 </Tooltip>
+            )
+        }
+
+        if (href && !externalLink && !skipContext) {
+            element = (
+                <ContextMenu key={props.key}>
+                    <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
+                    <ContextMenuContent className="max-w-[300px]">
+                        <ContextMenuGroup>
+                            <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
+                        </ContextMenuGroup>
+                    </ContextMenuContent>
+                </ContextMenu>
             )
         }
 
