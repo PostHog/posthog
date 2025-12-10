@@ -24,7 +24,7 @@ import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../uti
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { TeamManager } from '../../utils/team-manager'
-import { castTimestampOrNow } from '../../utils/utils'
+import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { GroupStoreForBatch } from './groups/group-store-for-batch.interface'
@@ -202,7 +202,8 @@ export class EventsProcessor {
         preIngestionEvent: PreIngestionEvent,
         person: Person,
         processPerson: boolean,
-        historicalMigration = false
+        historicalMigration = false,
+        capturedAt?: Date
     ): RawKafkaEvent {
         const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
@@ -253,6 +254,9 @@ export class EventsProcessor {
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+            captured_at: capturedAt
+                ? castTimestampToClickhouseFormat(DateTime.fromJSDate(capturedAt), TimestampFormat.ClickHouse)
+                : null,
             person_id: person.uuid,
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),

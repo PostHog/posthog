@@ -885,6 +885,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     project_id: ProjectId
     timestamp: ClickHouseTimestamp
     created_at: ClickHouseTimestamp
+    captured_at?: ClickHouseTimestamp | null
     properties?: string
     elements_chain: string
     person_created_at?: ClickHouseTimestamp
