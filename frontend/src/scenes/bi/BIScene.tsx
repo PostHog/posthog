@@ -7,6 +7,7 @@ import {
     IconBrackets,
     IconCalculator,
     IconCalendar,
+    IconExpand45,
     IconFilter,
     IconLetter,
     IconList,
@@ -17,11 +18,13 @@ import {
 import { LemonButton, LemonCard, LemonInput, LemonTable, LemonTag, Popover, Spinner } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 import { SceneExport } from '../sceneTypes'
 import { Scene } from '../sceneTypes'
+import { urls } from '../urls'
 import {
     BIAggregation,
     BIQueryFilter,
@@ -81,6 +84,7 @@ export function BIScene(): JSX.Element {
         queryResponse,
         filters,
         queryString,
+        _queryString,
         limit,
         searchTerm,
         databaseLoading,
@@ -250,9 +254,18 @@ export function BIScene(): JSX.Element {
                         </div>
                     </div>
 
-                    {queryString && (
+                    {_queryString && (
                         <LemonCard hoverEffect={false}>
-                            <div className="text-muted">Generated HogQL</div>
+                            <div className="flex items-start justify-between gap-2">
+                                <div className="text-muted">Generated HogQL</div>
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    icon={<IconExpand45 />}
+                                    onClick={() => newInternalTab(urls.sqlEditor(_queryString))}
+                                    tooltip="Open in SQL editor"
+                                />
+                            </div>
                             <pre className="overflow-x-auto whitespace-pre-wrap text-xs">{queryString}</pre>
                         </LemonCard>
                     )}
