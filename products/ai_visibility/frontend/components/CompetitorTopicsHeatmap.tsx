@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { MatrixCell, Topic } from '../types'
+import { TopicCompetitorBreakdownModal } from './TopicCompetitorBreakdownModal'
 
 export function CompetitorTopicsHeatmap({
     matrix,
@@ -21,6 +22,21 @@ export function CompetitorTopicsHeatmap({
     visibilityScore: number
 }): JSX.Element {
     const [showRank, setShowRank] = useState(false)
+    const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null)
+    const [selectedCompetitor, setSelectedCompetitor] = useState<string | null>(null)
+
+    const handleCellClick = (topic: Topic, competitorName: string): void => {
+        if (competitorName === brandName) {
+            return
+        }
+        setSelectedTopic(topic)
+        setSelectedCompetitor(competitorName)
+    }
+
+    const handleCloseModal = (): void => {
+        setSelectedTopic(null)
+        setSelectedCompetitor(null)
+    }
 
     const getCell = (topicName: string, competitorName: string): MatrixCell | undefined => {
         return matrix.find((c) => c.topic === topicName && c.competitor === competitorName)
@@ -88,14 +104,19 @@ export function CompetitorTopicsHeatmap({
                                 <td className="p-3 font-medium">{topic.name}</td>
                                 {allCompetitors.map((comp) => {
                                     const cellValue = getCell(topic.name, comp.name)?.visibility ?? 0
+                                    const isClickable = comp.name !== brandName
 
                                     return (
                                         <td key={comp.name} className="p-1">
                                             <div
                                                 className={clsx(
                                                     'p-2 text-center rounded text-xs font-medium',
-                                                    getCellColor(cellValue)
+                                                    getCellColor(cellValue),
+                                                    isClickable && 'cursor-pointer hover:ring-2 hover:ring-primary'
                                                 )}
+                                                onClick={
+                                                    isClickable ? () => handleCellClick(topic, comp.name) : undefined
+                                                }
                                             >
                                                 {showRank
                                                     ? (() => {
@@ -113,6 +134,13 @@ export function CompetitorTopicsHeatmap({
                     </tbody>
                 </table>
             </div>
+            <TopicCompetitorBreakdownModal
+                isOpen={selectedTopic !== null && selectedCompetitor !== null}
+                onClose={handleCloseModal}
+                topic={selectedTopic}
+                competitor={selectedCompetitor}
+                brandName={brandName}
+            />
         </div>
     )
 }
