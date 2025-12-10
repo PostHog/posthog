@@ -164,30 +164,41 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     logger.error('🔴', 'Error checking rate limit for hog function', { err: e })
                 }
 
-                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(
-                    item.teamId,
-                    'cdp_trigger_events'
-                )
+                try {
+                    const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(
+                        item.teamId,
+                        'cdp_trigger_events'
+                    )
 
-                // The legacy addon was not usage based so we skip dropping if they are on it
-                const isTeamOnLegacyAddon = !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
+                    // The legacy addon was not usage based so we skip dropping if they are on it
+                    const isTeamOnLegacyAddon =
+                        !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
 
-                if (isQuotaLimited && !isTeamOnLegacyAddon) {
-                    counterQuotaLimited.labels({ team_id: item.teamId }).inc()
+                    if (isQuotaLimited && !isTeamOnLegacyAddon) {
+                        counterQuotaLimited.labels({ team_id: item.teamId }).inc()
 
-                    // TODO: Once happy - we add the below code to track a quota limited metric and skip the invocation
+                        // TODO: Once happy - we add the below code to track a quota limited metric and skip the invocation
 
-                    // this.hogFunctionMonitoringService.queueAppMetric(
-                    //     {
-                    //         team_id: item.teamId,
-                    //         app_source_id: item.functionId,
-                    //         metric_kind: 'failure',
-                    //         metric_name: 'quota_limited',
-                    //         count: 1,
-                    //     },
-                    //     'hog_function'
-                    // )
-                    // return
+                        // this.hogFunctionMonitoringService.queueAppMetric(
+                        //     {
+                        //         team_id: item.teamId,
+                        //         app_source_id: item.functionId,
+                        //         metric_kind: 'failure',
+                        //         metric_name: 'quota_limited',
+                        //         count: 1,
+                        //     },
+                        //     'hog_function'
+                        // )
+                        // return
+                    }
+                } catch (e) {
+                    captureException(e)
+                    logger.error('🔴', 'Error checking quota limit for hog function', {
+                        err: e,
+                        teamId: item.teamId,
+                        functionId: item.functionId,
+                    })
+                    // Continue processing if quota check fails to avoid blocking all invocations
                 }
 
                 const state = states[item.hogFunction.id].state
