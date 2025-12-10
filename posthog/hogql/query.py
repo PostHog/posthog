@@ -129,19 +129,17 @@ class HogQLQueryExecutor:
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
 
-        # hackathon: entrypoint - daily unique persons pageviews preaggregation
-        # TODO: Add modifier field (e.g., useDailyUniquePersonsPageviewsTransform) for production
-        # For now, always apply the transformation if the query matches the pattern
-        with self.timings.measure("daily_unique_persons_pageviews_transform"):
-            assert self.hogql_context is not None
-            from posthog.hogql.transforms.hackathon_preaggregation import (
-                Transformer as DailyUniquePersonsPageviewsTransformer,
-            )
+        if self.query_modifiers.usePreaggregatedIntermediateResults:
+            with self.timings.measure("daily_unique_persons_pageviews_transform"):
+                assert self.hogql_context is not None
+                from posthog.hogql.transforms.hackathon_preaggregation import (
+                    Transformer as DailyUniquePersonsPageviewsTransformer,
+                )
 
-            transformer = DailyUniquePersonsPageviewsTransformer(self.hogql_context)
-            transformed_node = transformer.visit(self.select_query)
-            if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
-                self.select_query = transformed_node
+                transformer = DailyUniquePersonsPageviewsTransformer(self.hogql_context)
+                transformed_node = transformer.visit(self.select_query)
+                if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
+                    self.select_query = transformed_node
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
     def _generate_hogql(self):
