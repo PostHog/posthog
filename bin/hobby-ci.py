@@ -854,9 +854,6 @@ def main():
                 # Update deployment
                 ht.update_existing_deployment(sha)
 
-                # Export droplet info for subsequent steps
-                ht.export_droplet()
-
                 print(f"✅ Preview deployment updated successfully", flush=True)
                 print(f"🌐 URL: https://{ht.hostname}", flush=True)
             else:
