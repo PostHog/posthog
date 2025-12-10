@@ -1,4 +1,5 @@
 import json
+import random
 import asyncio
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ logger = structlog.get_logger(__name__)
 def handle_app_mention(event: dict, slack_team_id: str) -> None:
     """Handle app_mention events - when the bot is @mentioned."""
     from posthog.temporal.ai.slack_conversation import (
+        THINKING_MESSAGES,
         SlackConversationRunnerWorkflow,
         SlackConversationRunnerWorkflowInputs,
     )
@@ -84,15 +86,16 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
         if user_message_ts:
             slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="hourglass_flowing_sand")
 
+        thinking_message = f"{random.choice(THINKING_MESSAGES)}..."
         # Post initial "working on it" message in the thread with link to conversation
         initial_response = slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="Hey, I'm starting to work on your question...",
+            text=thinking_message,
             blocks=[
                 {
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": "Hey, I'm starting to work on your question..."},
+                    "text": {"type": "mrkdwn", "text": thinking_message},
                 },
                 {
                     "type": "actions",

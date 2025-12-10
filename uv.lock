@@ -3486,6 +3486,15 @@ wheels = [
 ]
 
 [[package]]
+name = "markdown-to-mrkdwn"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/e2/a044ebf4b477782fc308e0f52bd9afc461df97bd89fe7c39b651b07a66de/markdown_to_mrkdwn-0.2.0.tar.gz", hash = "sha256:2476dc8481f70d7e2ad7018afa82db964d2aaebd9870cd15bfa6125a24aee57b", size = 13755, upload-time = "2025-04-19T13:18:45.828Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/00/c9413a9d616cb329900fd52a54e6d3072c89655a3704ee6cf3da2440b0f9/markdown_to_mrkdwn-0.2.0-py3-none-any.whl", hash = "sha256:14116baab3f7219c7c56553e03922e556328a4b8c693ea6c3fbfa5d3ce0912de", size = 12910, upload-time = "2025-04-19T13:18:44.509Z" },
+]
+
+[[package]]
 name = "markupsafe"
 version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4462,6 +4471,7 @@ dependencies = [
     { name = "lxml" },
     { name = "lzstring" },
     { name = "markdown-it-py" },
+    { name = "markdown-to-mrkdwn" },
     { name = "mimesis" },
     { name = "mistralai" },
     { name = "modal" },
@@ -4712,6 +4722,7 @@ requires-dist = [
     { name = "lxml", specifier = "==5.2.1" },
     { name = "lzstring", specifier = "==1.0.4" },
     { name = "markdown-it-py", specifier = "~=3.0.0" },
+    { name = "markdown-to-mrkdwn", specifier = ">=0.2.0" },
     { name = "mimesis", specifier = "==5.2.1" },
     { name = "mistralai", specifier = "==1.6.0" },
     { name = "modal", specifier = ">=1.2.1" },

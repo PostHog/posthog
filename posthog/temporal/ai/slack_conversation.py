@@ -1,9 +1,12 @@
 import json
+import random
+import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -13,6 +16,94 @@ if TYPE_CHECKING:
     from posthog.models.integration import Integration
 
 logger = structlog.get_logger(__name__)
+mrkdown_converter = SlackMarkdownConverter()
+
+THINKING_MESSAGES = [
+    "Booping",
+    "Crunching",
+    "Digging",
+    "Fetching",
+    "Inferring",
+    "Indexing",
+    "Juggling",
+    "Noodling",
+    "Peeking",
+    "Percolating",
+    "Poking",
+    "Pondering",
+    "Scanning",
+    "Scrambling",
+    "Sifting",
+    "Sniffing",
+    "Spelunking",
+    "Tinkering",
+    "Unraveling",
+    "Decoding",
+    "Trekking",
+    "Sorting",
+    "Trimming",
+    "Mulling",
+    "Surfacing",
+    "Rummaging",
+    "Scouting",
+    "Scouring",
+    "Threading",
+    "Hunting",
+    "Swizzling",
+    "Grokking",
+    "Hedging",
+    "Scheming",
+    "Unfurling",
+    "Puzzling",
+    "Dissecting",
+    "Stacking",
+    "Snuffling",
+    "Hashing",
+    "Clustering",
+    "Teasing",
+    "Cranking",
+    "Merging",
+    "Snooping",
+    "Rewiring",
+    "Bundling",
+    "Linking",
+    "Mapping",
+    "Tickling",
+    "Flicking",
+    "Hopping",
+    "Rolling",
+    "Zipping",
+    "Twisting",
+    "Blooming",
+    "Sparking",
+    "Nesting",
+    "Looping",
+    "Wiring",
+    "Snipping",
+    "Zoning",
+    "Tracing",
+    "Warping",
+    "Twinkling",
+    "Flipping",
+    "Priming",
+    "Snagging",
+    "Scuttling",
+    "Framing",
+    "Sharpening",
+    "Flibbertigibbeting",
+    "Kerfuffling",
+    "Dithering",
+    "Discombobulating",
+    "Rambling",
+    "Befuddling",
+    "Waffling",
+    "Muckling",
+    "Hobnobbing",
+    "Galumphing",
+    "Puttering",
+    "Whiffling",
+    "Thinking",
+]
 
 SLACK_CONVERSATION_WORKFLOW_TIMEOUT = 60 * 60  # 60 minutes - coding tasks can take a while
 SLACK_CONVERSATION_ACTIVITY_RETRY_INTERVAL = 1  # 1 second
@@ -137,16 +228,37 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         is_new_conversation=True,
     )
 
+    # Build conversation URL for the "View in PostHog" button
+    conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={inputs.conversation_id}"
+
+    # Start background task to update the "working on it" message with thinking messages
+    async def update_thinking_message():
+        while True:
+            await asyncio.sleep(3)
+            thinking_message = f"{random.choice(THINKING_MESSAGES)}..."
+            await _update_slack_message(
+                integration, inputs.channel, inputs.initial_message_ts, thinking_message, conversation_url
+            )
+
+    thinking_task = asyncio.create_task(update_thinking_message())
+
     # Collect all messages from the stream
     assistant_messages: list[AssistantMessage] = []
     artifact_messages: list[ArtifactMessage] = []
 
-    async for _event_type, message in assistant.astream():
-        if isinstance(message, AssistantMessage):
-            assistant_messages.append(message)
-        elif isinstance(message, ArtifactMessage):
-            artifact_messages.append(message)
-        activity.heartbeat()
+    try:
+        async for _event_type, message in assistant.astream():
+            if isinstance(message, AssistantMessage):
+                assistant_messages.append(message)
+            elif isinstance(message, ArtifactMessage):
+                artifact_messages.append(message)
+            activity.heartbeat()
+    finally:
+        thinking_task.cancel()
+        try:
+            await thinking_task
+        except asyncio.CancelledError:
+            pass
 
     # Get the final response from the last AssistantMessage
     final_response = assistant_messages[-1].content if assistant_messages else None
@@ -169,9 +281,6 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     if final_response and generated_queries:
         queries_section = "\n\nQueries:\n" + "\n".join(f"- <{url}|{title}>" for title, url in generated_queries)
         final_response += queries_section
-
-    # Build conversation URL for the "View in PostHog" button
-    conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={inputs.conversation_id}"
 
     # Replace loading reaction with checkmark on user's message
     if inputs.user_message_ts:
@@ -211,7 +320,8 @@ def _build_slack_message_blocks(text: str, conversation_url: str | None = None) 
     """Build Slack message blocks from text."""
     blocks: list[dict] = []
 
-    paragraphs = text.split("\n\n")
+    mrkdwn_text = mrkdown_converter.convert(text)
+    paragraphs = mrkdwn_text.split("\n\n")
     for para in paragraphs:
         if para.strip():
             blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": para}})
