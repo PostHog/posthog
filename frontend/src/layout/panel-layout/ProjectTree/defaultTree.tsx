@@ -37,6 +37,7 @@ import {
     IconRocket,
     IconSearch,
     IconServer,
+    IconSpotlight,
     IconStickiness,
     IconToggle,
     IconToggleOff,
@@ -117,6 +118,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     survey: {
         icon: <IconMessage />,
+        iconColor: ['var(--color-product-surveys-light)'],
+    },
+    product_tour: {
+        icon: <IconSpotlight />,
         iconColor: ['var(--color-product-surveys-light)'],
     },
     user_interview: {

@@ -17,6 +17,7 @@ import {
     IconPieChart,
     IconQuestion,
     IconSearch,
+    IconSpotlight,
     IconStethoscope,
     IconTestTube,
     IconToggle,
@@ -38,6 +39,10 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
+import { NewTourModal } from '~/toolbar/product-tours/NewTourModal'
+import { ProductToursEditingBar } from '~/toolbar/product-tours/ProductToursEditingBar'
+import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
@@ -279,6 +284,9 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
 
+    const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
+    const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
+
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -293,6 +301,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <WebVitalsToolbarMenu />
     ) : visibleMenu === 'experiments' && showExperiments ? (
         <ExperimentsToolbarMenu />
+    ) : visibleMenu === 'product-tours' && showProductTours ? (
+        <ProductToursToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -338,9 +348,13 @@ export function Toolbar(): JSX.Element | null {
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
+    const { selectedTourId } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
+
+    const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
+    const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
 
     useEffect(() => {
         setElement(ref.current)
@@ -374,6 +388,8 @@ export function Toolbar(): JSX.Element | null {
 
     return (
         <>
+            {selectedTourId !== null && <ProductToursEditingBar />}
+            <NewTourModal />
             <ToolbarInfoMenu />
             <div
                 ref={ref}
@@ -381,7 +397,8 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--with-experiments': showExperiments,
+                    'Toolbar--extra-buttons-1': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 1,
+                    'Toolbar--extra-buttons-2': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 2,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -424,6 +441,11 @@ export function Toolbar(): JSX.Element | null {
                         {showExperiments && (
                             <ToolbarButton menuId="experiments" title="Experiments">
                                 <IconTestTube />
+                            </ToolbarButton>
+                        )}
+                        {showProductTours && (
+                            <ToolbarButton menuId="product-tours" title="Product tours">
+                                <IconSpotlight />
                             </ToolbarButton>
                         )}
                     </>

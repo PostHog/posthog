@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     group2_created_at DateTime64,
     group3_created_at DateTime64,
     group4_created_at DateTime64,
-    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+    historical_migration Bool
     {dynamically_materialized_columns}
     {materialized_columns}
     {extra_fields}
@@ -275,6 +276,7 @@ group2_created_at,
 group3_created_at,
 group4_created_at,
 person_mode,
+historical_migration,
 {dynamically_materialized_columns},
 _timestamp,
 _offset,

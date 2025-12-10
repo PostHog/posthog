@@ -157,6 +157,7 @@ function JsonConfigField(props: {
                                 scrollbar: {
                                     vertical: 'hidden',
                                     verticalScrollbarSize: 0,
+                                    alwaysConsumeMouseWheel: false,
                                 },
                             }}
                             globals={props.templating ? (props.sampleGlobalsWithInputs ?? undefined) : undefined}

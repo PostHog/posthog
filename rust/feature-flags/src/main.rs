@@ -69,6 +69,15 @@ async fn main() {
     let mut config = Config::init_from_env().expect("Invalid configuration:");
     config.validate_and_fix_timeouts();
 
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            tracing::warn!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
+
     // Instantiate tracing outputs following Django's DEBUG-based approach:
     //   - stdout with a level configured by the RUST_LOG envvar
     //   - OpenTelemetry if enabled, for levels INFO and higher

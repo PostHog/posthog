@@ -100,7 +100,7 @@ const LogsListContainer = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { tabId, parsedLogs, logsLoading, totalLogsMatchingFilters, sparklineLoading, hasMoreLogsToLoad, orderBy } =
         useValues(logsLogic)
-    const { runQuery, fetchNextLogsPage, setOrderBy } = useActions(logsLogic)
+    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter } = useActions(logsLogic)
     const useVirtualizedList = !!featureFlags[FEATURE_FLAGS.LOGS_VIRTUALIZED_LIST]
     return useVirtualizedList ? (
         <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px)]">
@@ -114,6 +114,7 @@ const LogsListContainer = (): JSX.Element => {
                 onChangeOrderBy={setOrderBy}
                 onRefresh={runQuery}
                 onLoadMore={fetchNextLogsPage}
+                onAddFilter={addFilter}
             />
         </div>
     ) : (

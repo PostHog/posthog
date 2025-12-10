@@ -141,8 +141,12 @@
         transform: var(--toolbar-translate) scale(1.1);
     }
 
-    &--with-experiments {
+    &--extra-buttons-1 {
         --toolbar-width-expanded: 376px;
+    }
+
+    &--extra-buttons-2 {
+        --toolbar-width-expanded: 418px;
     }
 
     &--minimized {

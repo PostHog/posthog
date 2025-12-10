@@ -1,13 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
-import { IconRefresh } from '@posthog/icons'
+import { IconPauseFilled, IconPlayFilled, IconRefresh, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
@@ -92,7 +93,7 @@ export function LiveEventsTable(): JSX.Element {
                 }}
             />
             <div className="mb-4 flex w-full justify-between items-center">
-                <div className="flex justify-center">
+                <div className="flex gap-2">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
                         <div className="flex justify-center items-center bg-card px-3 py-2 rounded border border-border text-xs font-medium text-muted-foreground gap-x-2.5">
                             <span className="relative flex h-2.5 w-2.5">
@@ -102,6 +103,7 @@ export function LiveEventsTable(): JSX.Element {
                                         stats?.users_on_product != null && 'animate-ping'
                                     )}
                                     // Unfortunately we can't use the `opacity-50` class, because we use Tailwind's
+
                                     // `important: true` and because of that Tailwind's `opacity` completely overrides
                                     // the animation (see https://github.com/tailwindlabs/tailwindcss/issues/9225)
                                     // eslint-disable-next-line react/forbid-dom-props
@@ -114,6 +116,24 @@ export function LiveEventsTable(): JSX.Element {
                             </span>
                         </div>
                     </Tooltip>
+                    <FlaggedFeature flag={FEATURE_FLAGS.LIVE_EVENTS_ACTIVE_RECORDINGS}>
+                        <Tooltip
+                            title={
+                                stats?.active_recordings == null
+                                    ? 'Unable to retrieve active recordings count.'
+                                    : 'Session recordings currently in progress.'
+                            }
+                            placement="right"
+                        >
+                            <div className="flex justify-center items-center bg-surface-primary px-3 py-2 rounded border border-primary text-xs font-medium text-secondary gap-x-2.5">
+                                <IconVideoCamera className="w-4 h-4" />
+                                <span className="text-sm cursor-default">
+                                    Active session recordings:{' '}
+                                    <b>{stats?.active_recordings == null ? '?' : stats.active_recordings}</b>
+                                </span>
+                            </div>
+                        </Tooltip>
+                    </FlaggedFeature>
                 </div>
 
                 <div className="flex gap-2">

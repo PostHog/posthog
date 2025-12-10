@@ -1,4 +1,4 @@
-import { IconPin, IconPinFilled } from '@posthog/icons'
+import { IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
@@ -6,6 +6,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
+import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
 import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -28,9 +29,10 @@ export interface LogColumnConfig {
 
 export const LOG_COLUMNS: LogColumnConfig[] = [
     { key: 'severity', width: 8 },
+    { key: 'expand', width: 24 },
     { key: 'timestamp', label: 'Timestamp', width: 180 },
     { key: 'message', label: 'Message', minWidth: 300, flex: 1 },
-    { key: 'actions', width: 80 },
+    { key: 'actions', width: 70 },
 ]
 
 // Calculate total width of fixed-width columns (excludes flex columns)
@@ -59,26 +61,32 @@ const getCellStyle = (column: LogColumnConfig, flexWidth?: number): React.CSSPro
 
 export interface LogRowProps {
     log: ParsedLogMessage
+    logIndex: number
     isAtCursor: boolean
+    isExpanded: boolean
     pinned: boolean
     showPinnedWithOpacity: boolean
     wrapBody: boolean
     prettifyJson: boolean
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
     onTogglePin: (log: ParsedLogMessage) => void
+    onToggleExpand: () => void
     onSetCursor: () => void
     rowWidth?: number
 }
 
 export function LogRow({
     log,
+    logIndex,
     isAtCursor,
+    isExpanded,
     pinned,
     showPinnedWithOpacity,
     wrapBody,
     prettifyJson,
     tzLabelFormat,
     onTogglePin,
+    onToggleExpand,
     onSetCursor,
     rowWidth,
 }: LogRowProps): JSX.Element {
@@ -99,6 +107,22 @@ export function LogRow({
                     </Tooltip>
                 )
             }
+            case 'expand':
+                return (
+                    <div key={column.key} style={cellStyle} className="flex items-center justify-center">
+                        <LemonButton
+                            size="xsmall"
+                            noPadding
+                            icon={
+                                <IconChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
+                            }
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onToggleExpand()
+                            }}
+                        />
+                    </div>
+                )
             case 'timestamp':
                 return (
                     <div key={column.key} style={cellStyle} className="flex items-center shrink-0">
@@ -113,8 +137,12 @@ export function LogRow({
 
                 if (isPrettyJson) {
                     return (
-                        <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
-                            <pre className={cn('font-mono text-xs m-0', wrapBody ? '' : 'whitespace-nowrap truncate')}>
+                        <div
+                            key={column.key}
+                            style={cellStyle}
+                            className={cn('flex items-start py-1.5', wrapBody ? 'overflow-hidden' : 'overflow-x-auto')}
+                        >
+                            <pre className={cn('font-mono text-xs m-0', !wrapBody && 'whitespace-nowrap')}>
                                 {content}
                             </pre>
                         </div>
@@ -122,9 +150,16 @@ export function LogRow({
                 }
 
                 return (
-                    <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
+                    <div
+                        key={column.key}
+                        style={cellStyle}
+                        className={cn('flex items-start py-1.5', wrapBody ? 'overflow-hidden' : 'overflow-x-auto')}
+                    >
                         <span
-                            className={cn('font-mono text-xs', wrapBody ? 'whitespace-pre-wrap break-all' : 'truncate')}
+                            className={cn(
+                                'font-mono text-xs',
+                                wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap'
+                            )}
                         >
                             {content}
                         </span>
@@ -133,7 +168,11 @@ export function LogRow({
             }
             case 'actions':
                 return (
-                    <div key={column.key} style={cellStyle} className="flex items-center gap-1 justify-end shrink-0">
+                    <div
+                        key={column.key}
+                        style={cellStyle}
+                        className="flex items-center gap-1 justify-end shrink-0 px-1"
+                    >
                         <LemonButton
                             size="xsmall"
                             noPadding
@@ -158,18 +197,19 @@ export function LogRow({
     }
 
     return (
-        <div
-            className={cn(
-                'flex items-center border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
-                isAtCursor && 'bg-primary-highlight',
-                pinned && 'bg-warning-highlight',
-                pinned && showPinnedWithOpacity && 'opacity-50',
-                isNew && 'VirtualizedLogsList__row--new'
-            )}
-            style={rowWidth ? { width: rowWidth } : undefined}
-            onClick={onSetCursor}
-        >
-            {LOG_COLUMNS.map(renderCell)}
+        <div className={cn('border-b border-border', isNew && 'VirtualizedLogsList__row--new')}>
+            <div
+                className={cn(
+                    'flex items-center cursor-pointer hover:bg-fill-highlight-100 group',
+                    isAtCursor && 'bg-primary-highlight',
+                    pinned && 'bg-warning-highlight',
+                    pinned && showPinnedWithOpacity && 'opacity-50'
+                )}
+                onClick={onSetCursor}
+            >
+                {LOG_COLUMNS.map(renderCell)}
+            </div>
+            {isExpanded && <ExpandedLogContent log={log} logIndex={logIndex} />}
         </div>
     )
 }

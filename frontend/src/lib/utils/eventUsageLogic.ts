@@ -657,6 +657,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRevenueAnalyticsMRRBreakdownModalOpened: () => ({}),
         reportRevenueAnalyticsGoalConfigured: () => ({}),
         reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        reportWebAnalyticsHealthStatus: (props: {
+            has_pageviews: boolean
+            has_pageleaves: boolean
+            has_scroll_depth: boolean
+            has_web_vitals: boolean
+            has_authorized_urls: boolean
+            has_reverse_proxy: boolean
+            overall_status: string
+        }) => ({ props }),
+        reportWebAnalyticsHealthTabViewed: (props: {
+            overall_status: string
+            passed_count: number
+            warning_count: number
+            error_count: number
+        }) => ({ props }),
+        reportWebAnalyticsHealthSectionToggled: (props: { category: string; is_expanded: boolean }) => ({ props }),
+        reportWebAnalyticsHealthActionClicked: (props: {
+            check_id: string
+            category: string
+            status: string
+            is_urgent: boolean
+        }) => ({ props }),
+        reportWebAnalyticsHealthRefreshed: (props: { overall_status: string; passed_count: number }) => ({ props }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1629,6 +1652,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('revenue analytics test account filter updated', {
                 filter_test_accounts: filterTestAccounts,
             })
+        },
+        reportWebAnalyticsHealthStatus: ({ props }) => {
+            posthog.capture('web analytics health status', props)
+        },
+        reportWebAnalyticsHealthTabViewed: ({ props }) => {
+            posthog.capture('web analytics health tab viewed', props)
+        },
+        reportWebAnalyticsHealthSectionToggled: ({ props }) => {
+            posthog.capture('web analytics health section toggled', props)
+        },
+        reportWebAnalyticsHealthActionClicked: ({ props }) => {
+            posthog.capture('web analytics health action clicked', props)
+        },
+        reportWebAnalyticsHealthRefreshed: ({ props }) => {
+            posthog.capture('web analytics health refreshed', props)
         },
     })),
 ])
