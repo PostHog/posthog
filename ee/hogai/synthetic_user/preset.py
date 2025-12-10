@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -8,12 +8,9 @@ from products.synthetic_users.backend.models.session import Session
 
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit
+from ee.hogai.tool import MaxTool
 from ee.hogai.tools.browser import COMPUTER_TOOL_DEFINITION, BrowserNavigateTool
 from ee.hogai.tools.todo_write import TodoWriteExample
-
-if TYPE_CHECKING:
-    from ee.hogai.tool import MaxTool
-
 
 POSITIVE_EXAMPLE_SIGNUP_FLOW = """
 User: Go to app.example.com and try to sign up as a new user. Tell me about your experience.
