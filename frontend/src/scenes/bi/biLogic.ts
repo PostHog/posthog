@@ -1,7 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
@@ -23,8 +26,12 @@ export interface BIQueryFilter {
 }
 
 export const biLogic = kea([
+    tabAwareScene(),
     connect({
-        values: [databaseTableListLogic, ['dataWarehouseTables', 'posthogTables', 'systemTables', 'database']],
+        values: [
+            databaseTableListLogic,
+            ['dataWarehouseTables', 'posthogTables', 'systemTables', 'database', 'databaseLoading'],
+        ],
         actions: [databaseTableListLogic, ['loadDatabase', 'loadDatabaseSuccess']],
     }),
     actions({
@@ -61,10 +68,19 @@ export const biLogic = kea([
                 },
                 addAggregation: (state, { column, aggregation }) => {
                     const aggregatedColumn = { ...column, aggregation }
-                    if (state.find((col) => columnsEqual(col, aggregatedColumn))) {
-                        return state
+                    const existingIndex = state.findIndex(
+                        (col) => col.table === column.table && col.field === column.field
+                    )
+                    const withoutField = state.filter(
+                        (col) => !(col.table === column.table && col.field === column.field)
+                    )
+
+                    if (existingIndex !== -1) {
+                        const updated = [...withoutField]
+                        updated.splice(existingIndex, 0, aggregatedColumn)
+                        return updated
                     }
-                    return [...state, aggregatedColumn]
+                    return [...withoutField, aggregatedColumn]
                 },
                 removeColumn: (state, { column }) => state.filter((col) => !columnsEqual(col, column)),
                 selectTable: (state, { table }) => state.filter((col) => col.table === table),
@@ -165,18 +181,37 @@ export const biLogic = kea([
                 }
 
                 const selectParts = selectedFields.map(({ expression, alias }) => `${expression} AS "${alias}"`)
-                const whereParts = filters
-                    .map(({ column, expression }) => {
-                        const field = table.fields[column.field]
-                        return `${field.hogql_value} ${expression}`
-                    })
-                    .filter(Boolean)
+
+                const whereParts: string[] = []
+                const havingParts: string[] = []
+
+                filters.forEach(({ column, expression }) => {
+                    const field = table.fields[column.field]
+                    if (!field) {
+                        return
+                    }
+
+                    const target = columnExpression(column, field)
+                    if (column.aggregation) {
+                        havingParts.push(`${target} ${expression}`)
+                    } else {
+                        whereParts.push(`${target} ${expression}`)
+                    }
+                })
+
+                const groupByColumns = selectedFields
+                    .filter(({ column }) => !column.aggregation)
+                    .map(({ expression }) => expression)
+                const hasAggregations = selectedFields.some(({ column }) => column.aggregation)
 
                 const orderBy = sort ? `\nORDER BY "${columnAlias(sort)}" ASC` : ''
                 const where = whereParts.length > 0 ? `\nWHERE ${whereParts.join(' AND ')}` : ''
+                const groupBy =
+                    hasAggregations && groupByColumns.length > 0 ? `\nGROUP BY ${groupByColumns.join(', ')}` : ''
+                const having = havingParts.length > 0 ? `\nHAVING ${havingParts.join(' AND ')}` : ''
                 const limitSql = limit ? `\nLIMIT ${limit}` : ''
 
-                return `SELECT ${selectParts.join(', ')}\nFROM ${table.name} ${where}${orderBy}${limitSql}`
+                return `SELECT ${selectParts.join(', ')}\nFROM ${table.name} ${where}${groupBy}${having}${orderBy}${limitSql}`
             },
         ],
         _queryString: [
@@ -215,7 +250,7 @@ export const biLogic = kea([
             },
         ],
     })),
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         addColumn: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         addAggregation: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         removeColumn: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
@@ -229,7 +264,7 @@ export const biLogic = kea([
         setColumns: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         setFilters: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
     })),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.bi()]: (_params, searchParams) => {
             const table = typeof searchParams.table === 'string' ? searchParams.table : null
             const limit = Number.isFinite(Number(searchParams.limit)) ? Number(searchParams.limit) : 50
@@ -297,9 +332,6 @@ export function columnAlias(column: BIQueryColumn): string {
 }
 
 function columnExpression(column: BIQueryColumn, field: DatabaseSchemaField): string {
-    if (column.aggregation === 'count') {
-        return 'count()'
-    }
     if (column.aggregation) {
         return `${column.aggregation}(${field.hogql_value})`
     }

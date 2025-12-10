@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconArrowLeft, IconFilter, IconPlay, IconPlus, IconStack } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonInput, LemonTable, LemonTag, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonTable, LemonTag, Popover, Spinner } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
 
@@ -63,6 +63,7 @@ export function BIScene(): JSX.Element {
         queryString,
         limit,
         searchTerm,
+        databaseLoading,
     } = useValues(biLogic)
     const {
         addColumn,
@@ -131,12 +132,12 @@ export function BIScene(): JSX.Element {
                             fullWidth
                         />
                     </div>
-                    <div className="mt-2 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(100% - 60px)' }}>
+                    <div className="mt-2 space-y-1 overflow-y-auto" style={{ maxHeight: 'calc(100% - 60px)' }}>
                         {selectedTableObject ? (
                             <>
                                 <div className="font-semibold px-1">{selectedTableObject.name}</div>
                                 {filteredFields.length > 0 ? (
-                                    <div className="grid grid-cols-2 gap-1">
+                                    <div className="space-y-1">
                                         {filteredFields.map((field) => (
                                             <LemonButton
                                                 key={field.name}
@@ -167,6 +168,11 @@ export function BIScene(): JSX.Element {
                                     {table.name}
                                 </LemonButton>
                             ))
+                        ) : databaseLoading ? (
+                            <div className="flex items-center gap-2 text-muted">
+                                <Spinner />
+                                Loading tables…
+                            </div>
                         ) : (
                             <div className="text-muted">No tables match your search.</div>
                         )}
@@ -234,7 +240,7 @@ export function BIScene(): JSX.Element {
 
                     <LemonCard className="flex-1 min-h-0" hoverEffect={false}>
                         {selectedFields.length === 0 ? (
-                            <div className="text-muted">Select columns from the left to build your table.</div>
+                            <div className="text-muted">Select a table from the left to start the analysis.</div>
                         ) : (
                             <div className="max-h-[60vh] overflow-auto">
                                 <LemonTable
