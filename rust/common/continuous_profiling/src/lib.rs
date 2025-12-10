@@ -103,19 +103,20 @@ impl ContinuousProfilingConfig {
             "Starting continuous profiling"
         );
 
-        let mut builder = PyroscopeAgent::builder(
+        // Convert tags to the format expected by pyroscope: Vec<(&str, &str)>
+        let tags_refs: Vec<(&str, &str)> =
+            tags.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+
+        let agent = PyroscopeAgent::builder(
             &self.pyroscope_server_address,
             &self.pyroscope_application_name,
         )
         .backend(pprof_backend(
             PprofConfig::new().sample_rate(self.pyroscope_sample_rate),
-        ));
-
-        for (key, value) in &tags {
-            builder = builder.tags(vec![(key.as_str(), value.as_str())]);
-        }
-
-        let agent = builder.build().map_err(ContinuousProfilingError::Build)?;
+        ))
+        .tags(tags_refs)
+        .build()
+        .map_err(ContinuousProfilingError::Build)?;
 
         let agent = agent.start().map_err(ContinuousProfilingError::Start)?;
 
