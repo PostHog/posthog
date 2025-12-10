@@ -35,6 +35,11 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha }}
                   timeoutSeconds: 3600
                   intervalSeconds: 30
+            - name: Fail if Docker build failed
+              if: steps.wait-for-image.outputs.conclusion != 'success'
+              run: |
+                  echo "Docker image build failed with conclusion: ${{ steps.wait-for-image.outputs.conclusion }}"
+                  exit 1
 
     changes:
         runs-on: ubuntu-24.04
