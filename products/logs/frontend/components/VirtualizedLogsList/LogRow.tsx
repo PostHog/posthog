@@ -130,7 +130,7 @@ export function LogRow({
             const el = messageScrollRef.current
             if (el) {
                 const scrollAmount = 8
-                const newScrollLeft = direction === 'left' ? el.scrollLeft - scrollAmount : el.scrollLeft + scrollAmount
+                const newScrollLeft = direction === 'left' ? Math.max(0, el.scrollLeft - scrollAmount) : el.scrollLeft + scrollAmount
                 el.scrollLeft = newScrollLeft
                 setMessageScrollLeft(newScrollLeft)
             }
