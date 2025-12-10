@@ -165,8 +165,8 @@ RUN apt-get update && \
     "build-essential" \
     "git" \
     "libpq-dev" \
-    "libxmlsec1" \
-    "libxmlsec1-dev" \
+    "libxmlsec1=1.2.37-2" \
+    "libxmlsec1-dev=1.2.37-2" \
     "libffi-dev" \
     "zlib1g-dev" \
     "pkg-config" \
@@ -243,8 +243,8 @@ RUN apt-get update && \
     "chromium" \
     "chromium-driver" \
     "libpq-dev" \
-    "libxmlsec1" \
-    "libxmlsec1-dev" \
+    "libxmlsec1=1.2.37-2" \
+    "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "gettext-base" \
     "ffmpeg=7:5.1.7-0+deb12u1" \
