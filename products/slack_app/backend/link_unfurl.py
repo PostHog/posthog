@@ -2,6 +2,7 @@ import re
 import json
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
+from datetime import timedelta
 
 import structlog
 import posthoganalytics
@@ -9,13 +10,60 @@ from celery import shared_task
 from slack_sdk.errors import SlackApiError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.user import User
 from posthog.tasks import exporter
 
 logger = structlog.get_logger(__name__)
+
+
+def get_posthog_user_from_slack_user(slack: SlackIntegration, slack_user_id: str, team_id: int) -> Optional[User]:
+    """
+    Get the PostHog user corresponding to a Slack user ID by matching email addresses.
+    Returns None if no matching user is found.
+    """
+    try:
+        # Get Slack user info
+        user_info = slack.client.users_info(user=slack_user_id)
+        profile = user_info.get("user", {}).get("profile", {})
+        email = profile.get("email")
+        
+        if not email:
+            return None
+        
+        # Find PostHog user by email
+        try:
+            user = User.objects.get(email=email)
+            # Verify user has access to this team
+            if user.teams.filter(id=team_id).exists():
+                return user
+            else:
+                return None
+        except User.DoesNotExist:
+            return None
+    except SlackApiError:
+        return None
+    except Exception:
+        return None
+
+
+def create_impersonated_user_token(user: User, asset_id: int, expiry_delta: Optional[timedelta] = None) -> str:
+    """
+    Create a JWT token for impersonating a user (used for Slack exports).
+    Includes the asset ID so we can retrieve the asset from the token.
+    """
+    if not expiry_delta:
+        expiry_delta = timedelta(days=1)  # 1 day expiry for Slack exports
+    
+    return encode_jwt(
+        {"id": user.id, "asset_id": asset_id},
+        expiry_delta=expiry_delta,
+        audience=PosthogJwtAudience.IMPERSONATED_USER,
+    )
 
 
 def extract_insight_id_from_url(url: str) -> Optional[str]:
@@ -124,6 +172,7 @@ def export_and_unfurl_query(
     channel: str,
     source: str,
     message_ts: str,
+    slack_user_id: Optional[str] = None,
     name: Optional[str] = None,
 ) -> None:
     """
@@ -164,7 +213,20 @@ def export_and_unfurl_query(
             )
             return
 
-        image_url = asset.get_public_content_url()
+        # Get PostHog user from Slack user ID and create IMPERSONATED_USER token
+        user = None
+        token = None
+        if slack_user_id:
+            user = get_posthog_user_from_slack_user(slack, slack_user_id, integration.team_id)
+            if user:
+                token = create_impersonated_user_token(user, asset.id)
+
+        # Use IMPERSONATED_USER token if available, otherwise fall back to EXPORTED_ASSET token
+        if token:
+            from posthog.utils import absolute_uri
+            image_url = absolute_uri(f"/exporter/{asset.filename}?token={token}")
+        else:
+            image_url = asset.get_public_content_url()
 
         # Unfurl the link in Slack - use standalone image block for better display
         unfurls = {
@@ -264,6 +326,7 @@ def export_and_unfurl_insight(
     channel: str,
     source: str,
     message_ts: str,
+    slack_user_id: Optional[str] = None,
 ) -> None:
     """
     Export an insight as an image and unfurl it in Slack.
@@ -325,7 +388,20 @@ def export_and_unfurl_insight(
                 )
                 return
 
-            image_url = asset.get_public_content_url()
+            # Get PostHog user from Slack user ID and create IMPERSONATED_USER token
+            user = None
+            token = None
+            if slack_user_id:
+                user = get_posthog_user_from_slack_user(slack, slack_user_id, integration.team_id)
+                if user:
+                    token = create_impersonated_user_token(user, asset.id)
+
+            # Use IMPERSONATED_USER token if available, otherwise fall back to EXPORTED_ASSET token
+            if token:
+                from posthog.utils import absolute_uri
+                image_url = absolute_uri(f"/exporter/{asset.filename}?token={token}")
+            else:
+                image_url = asset.get_public_content_url()
 
             # Unfurl the link in Slack - use standalone image block for better display
             unfurls = {
@@ -435,6 +511,7 @@ def export_and_unfurl_dashboard(
     channel: str,
     source: str,
     message_ts: str,
+    slack_user_id: Optional[str] = None,
 ) -> None:
     """
     Export a dashboard as an image and unfurl it in Slack.
@@ -482,7 +559,20 @@ def export_and_unfurl_dashboard(
                 )
                 return
 
-            image_url = asset.get_public_content_url()
+            # Get PostHog user from Slack user ID and create IMPERSONATED_USER token
+            user = None
+            token = None
+            if slack_user_id:
+                user = get_posthog_user_from_slack_user(slack, slack_user_id, integration.team_id)
+                if user:
+                    token = create_impersonated_user_token(user, asset.id)
+
+            # Use IMPERSONATED_USER token if available, otherwise fall back to EXPORTED_ASSET token
+            if token:
+                from posthog.utils import absolute_uri
+                image_url = absolute_uri(f"/exporter/{asset.filename}?token={token}")
+            else:
+                image_url = asset.get_public_content_url()
 
             # Unfurl the link in Slack - use standalone image block for better display
             unfurls = {
@@ -593,6 +683,7 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
     channel = event.get("channel")
     source = event.get("source", "conversations")
     message_ts = event.get("message_ts")
+    slack_user_id = event.get("user")  # The Slack user who shared the link
 
     if not links or not unfurl_id:
         logger.warning(
@@ -611,37 +702,37 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
 
     # Feature flag: check if Slack unfurling is enabled for this team
     # Uses feature flag 'slack-unfurl' if enabled, otherwise falls back to team_id=2
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            "slack-unfurl",
-            str(integration.team_id),
-            groups={"organization": str(integration.team.organization_id), "project": str(integration.team_id)},
-            group_properties={
-                "organization": {"id": str(integration.team.organization_id)},
-                "project": {"id": str(integration.team_id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        if not enabled:
-            # Fallback to team_id=2 if feature flag is not enabled
-            if integration.team_id != 2:
-                logger.debug(
-                    "slack_unfurl_team_not_allowed",
-                    team_id=integration.team_id,
-                    slack_team_id=slack_team_id,
-                )
-                return
-    except Exception as e:
-        logger.debug("slack_unfurl_feature_flag_check_failed", error=str(e), team_id=integration.team_id)
-        # Fallback to team_id=2 if feature flag check fails
-        if integration.team_id != 2:
-            logger.debug(
-                "slack_unfurl_team_not_allowed",
-                team_id=integration.team_id,
-                slack_team_id=slack_team_id,
-            )
-            return
+    # try:
+    #     enabled = posthoganalytics.feature_enabled(
+    #         "slack-unfurl",
+    #         str(integration.team_id),
+    #         groups={"organization": str(integration.team.organization_id), "project": str(integration.team_id)},
+    #         group_properties={
+    #             "organization": {"id": str(integration.team.organization_id)},
+    #             "project": {"id": str(integration.team_id)},
+    #         },
+    #         only_evaluate_locally=False,
+    #         send_feature_flag_events=False,
+    #     )
+    #     if not enabled:
+    #         # Fallback to team_id=2 if feature flag is not enabled
+    #         if integration.team_id != 2:
+    #             logger.debug(
+    #                 "slack_unfurl_team_not_allowed",
+    #                 team_id=integration.team_id,
+    #                 slack_team_id=slack_team_id,
+    #             )
+    #             return
+    # except Exception as e:
+    #     logger.debug("slack_unfurl_feature_flag_check_failed", error=str(e), team_id=integration.team_id)
+    #     # Fallback to team_id=2 if feature flag check fails
+    #     if integration.team_id != 2:
+    #         logger.debug(
+    #             "slack_unfurl_team_not_allowed",
+    #             team_id=integration.team_id,
+    #             slack_team_id=slack_team_id,
+    #         )
+    #         return
 
     # Process each link
     for link in links:
@@ -649,8 +740,8 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
         domain = link.get("domain", "")
 
         # Only process PostHog URLs
-        if "posthog.com" not in domain and "posthog.com" not in url:
-            continue
+        # if "posthog.com" not in domain and "posthog.com" not in url:
+        #     continue
 
         # Try to extract query from new insight URL first
         query = extract_query_from_new_insight_url(url)
@@ -671,6 +762,7 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
                 channel=channel or "",
                 source=source,
                 message_ts=message_ts or "",
+                slack_user_id=slack_user_id,
             )
             continue
 
@@ -694,6 +786,7 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
                 channel=channel or "",
                 source=source,
                 message_ts=message_ts or "",
+                slack_user_id=slack_user_id,
             )
             continue
 
@@ -717,6 +810,7 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
                 channel=channel or "",
                 source=source,
                 message_ts=message_ts or "",
+                slack_user_id=slack_user_id,
             )
             continue
 
