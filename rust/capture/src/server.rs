@@ -14,7 +14,7 @@ use hyper_util::server::graceful::GracefulShutdown;
 use limiters::redis::ServiceName;
 use tokio::net::TcpListener;
 use tower::Service;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::config::CaptureMode;
 use crate::config::Config;
@@ -32,6 +32,8 @@ use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
 use limiters::token_dropper::TokenDropper;
+
+const METRIC_CONNECTION_ERROR: &str = "capture_server_connection_error";
 
 async fn create_sink(
     config: &Config,
@@ -237,13 +239,22 @@ where
                 let (stream, remote_addr) = match conn {
                     Ok(conn) => conn,
                     Err(e) => {
-                        warn!("failed to accept connection: {}", e);
+                        metrics::counter!(METRIC_CONNECTION_ERROR, "error" => "accept").increment(1);
+                        error!("Server: failed to accept connection: {}", e);
                         continue;
                     }
                 };
 
                 let io = TokioIo::new(stream);
-                let tower_service = make_service.call(remote_addr).await.unwrap();
+                let tower_service = match make_service.call(remote_addr).await {
+                    Ok(service) => service,
+                    Err(e) => {
+                        metrics::counter!(METRIC_CONNECTION_ERROR, "error" => "tower").increment(1);
+                        error!("Server: failed to create tower service for connection: {}", e);
+                        drop(io);
+                        continue;
+                    }
+                };
 
                 let hyper_service = service_fn(move |req: Request<Incoming>| {
                     tower_service.clone().call(req)
@@ -254,7 +265,9 @@ where
 
                 tokio::spawn(async move {
                     if let Err(e) = conn.await {
-                        debug!("connection error: {}", e);
+                        // expected more frequently and could be chatty - debug log lvl for now
+                        metrics::counter!(METRIC_CONNECTION_ERROR, "error" => "handler").increment(1);
+                        debug!("Server: handler connection error: {}", e);
                     }
                 });
             }
