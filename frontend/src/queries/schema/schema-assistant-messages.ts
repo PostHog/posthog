@@ -373,6 +373,7 @@ export type AssistantTool =
     | 'get_task_run_logs'
     | 'list_tasks'
     | 'list_task_runs'
+    | 'list_repositories'
     // Below are modes-only
     | 'execute_sql'
     | 'switch_mode'
