@@ -214,7 +214,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                             key={index}
                             className={`grid grid-cols-24 gap-2 mb-2 p-2 rounded ${
                                 hasVariantError(index)
-                                    ? 'bg-danger-highlight border border-danger'
+                                    ? 'bg-destructive border border-danger'
                                     : 'bg-transparent border border-transparent'
                             }`}
                         >

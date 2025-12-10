@@ -64,7 +64,7 @@ function ExceptionTitlePill({ event }: { event: Record<string, any> }): JSX.Elem
         connector = ':'
     }
     return (
-        <div className="flex flex-row items-center gap-1 justify-between border px-1 truncate ellipsis border-x-danger-dark bg-danger-highlight">
+        <div className="flex flex-row items-center gap-1 justify-between border px-1 truncate ellipsis border-x-danger-dark bg-destructive">
             <span>{errorProps.type}</span>
             <span>{connector}</span>
             <span>{errorProps.value}</span>

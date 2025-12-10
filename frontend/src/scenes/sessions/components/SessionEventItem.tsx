@@ -34,7 +34,7 @@ function ExceptionTitlePill({ event }: { event: RecordingEventType }): JSX.Eleme
     }
 
     return (
-        <div className="flex gap-1 px-2 py-0.5 rounded border border-danger-dark bg-danger-highlight text-xs font-mono truncate max-w-md">
+        <div className="flex gap-1 px-2 py-0.5 rounded border border-danger-dark bg-destructive text-xs font-mono truncate max-w-md">
             {type && <span className="font-semibold">{type}</span>}
             {type && value && <span>:</span>}
             {value && <span className="truncate">{value}</span>}

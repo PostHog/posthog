@@ -324,7 +324,7 @@ function SessionSummaryKeyActions({
                             'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
                             // Avoid adding a border to the last event
                             eventIndex !== events.length - 1 && 'border-b',
-                            (event.abandonment || event.confusion || event.exception) && 'bg-danger-highlight'
+                            (event.abandonment || event.confusion || event.exception) && 'bg-destructive'
                         )}
                         onClick={() => {
                             // Excessive check, required for type safety

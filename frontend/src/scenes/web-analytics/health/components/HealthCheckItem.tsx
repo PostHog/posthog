@@ -73,7 +73,7 @@ function StatusIcon({ status, urgent }: { status: HealthCheckStatus; urgent?: bo
             )
         case 'error':
             return (
-                <div className="w-6 h-6 rounded-full bg-danger-highlight flex items-center justify-center flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-destructive flex items-center justify-center flex-shrink-0">
                     <IconX className="text-danger w-4 h-4" />
                 </div>
             )

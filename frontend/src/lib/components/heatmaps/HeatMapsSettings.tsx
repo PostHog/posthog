@@ -21,7 +21,7 @@ const ScrollDepthJSWarning = (): JSX.Element | null => {
     }
 
     return (
-        <p className="my-2 bg-danger-highlight border border-danger rounded p-2">
+        <p className="my-2 bg-destructive border border-danger rounded p-2">
             {scrollDepthPosthogJsError === 'version' ? (
                 <>This feature requires a newer version of posthog-js</>
             ) : scrollDepthPosthogJsError === 'disabled' ? (

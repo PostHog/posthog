@@ -877,7 +877,7 @@ export function DataTable({
                                     clsx('DataTable__row', {
                                         'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                         'DataTable__row--category_row': !!label,
-                                        'border border-x-danger-dark bg-danger-highlight':
+                                        'border border-x-danger-dark bg-destructive':
                                             sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
                                             result &&
                                             result[0] &&

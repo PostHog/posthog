@@ -154,7 +154,7 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                                 {record.error && (
                                     <div className="mb-4">
                                         <h4 className="text-destructive-foreground">Error</h4>
-                                        <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto">
+                                        <pre className="text-xs bg-destructive p-2 rounded overflow-auto">
                                             {record.error}
                                         </pre>
                                     </div>

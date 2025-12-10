@@ -201,7 +201,7 @@ export function ChartCell({
                         <div
                             className={`px-3 py-1 rounded text-xs whitespace-nowrap ${
                                 validationFailureType === 'error'
-                                    ? 'bg-danger-highlight text-destructive-foreground'
+                                    ? 'bg-destructive text-destructive-foreground'
                                     : 'bg-border-light text-muted-foreground'
                             }`}
                         >

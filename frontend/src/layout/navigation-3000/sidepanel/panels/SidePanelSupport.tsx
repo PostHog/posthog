@@ -52,7 +52,7 @@ const StatusPageAlert = (): JSX.Element | null => {
     const description = useIncidentIo ? incidentIoDescription : statusPage?.status.description || 'Active incident'
 
     const severityClass = status.includes('outage')
-        ? 'bg-danger-highlight border-danger'
+        ? 'bg-destructive border-danger'
         : 'bg-warning-highlight border-warning'
 
     return (

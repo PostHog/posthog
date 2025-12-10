@@ -45,7 +45,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     [BillingPlan.Free]: {
         title: 'Get the whole hog.',
         subtitle: 'Only pay for what you use.',
-        backgroundColor: 'bg-danger-highlight',
+        backgroundColor: 'bg-destructive',
         getDescription: () => (
             <>
                 <p>Add your credit card to remove usage limits and unlock all platform features.</p>

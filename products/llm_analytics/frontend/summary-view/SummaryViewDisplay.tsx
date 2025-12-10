@@ -141,7 +141,7 @@ export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: Summary
             )}
 
             {errorMessage && (
-                <div className="bg-danger-highlight border border-danger rounded p-4">
+                <div className="bg-destructive border border-danger rounded p-4">
                     <div className="font-semibold text-destructive-foreground">Failed to generate summary</div>
                     <div className="text-sm mt-2">{errorMessage}</div>
                     {!dataProcessingAccepted ? (

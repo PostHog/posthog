@@ -656,10 +656,10 @@ describe('VariantsPanel', () => {
             const variantRows = container.querySelectorAll('.grid.grid-cols-24')
 
             // First variant (control) should not have error highlighting
-            expect(variantRows[1]).not.toHaveClass('bg-danger-highlight')
+            expect(variantRows[1]).not.toHaveClass('bg-destructive')
 
             // Second variant (empty key) should have error highlighting
-            expect(variantRows[2]).toHaveClass('bg-danger-highlight')
+            expect(variantRows[2]).toHaveClass('bg-destructive')
             expect(variantRows[2]).toHaveClass('border-danger')
         })
     })
