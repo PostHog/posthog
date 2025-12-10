@@ -82,10 +82,71 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             - name: Setup DO Hobby Instance
-              run: python3 bin/hobby-ci.py create "$GITHUB_HEAD_REF" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}"
+              run: python3 bin/hobby-ci.py create "$GITHUB_HEAD_REF" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}" 2>&1 | tee /tmp/hobby-ci-output.txt
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
+            - name: Delete existing PR comment
+              if: github.event_name == 'pull_request' && env.PREVIEW_MODE == 'true'
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              with:
+                  script: |
+                      const commentMarker = '<!-- hobby-ci-comment -->';
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+
+                      for (const comment of comments) {
+                          if (comment.body.includes(commentMarker)) {
+                              await github.rest.issues.deleteComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  comment_id: comment.id,
+                              });
+                              console.log(`Deleted existing comment ${comment.id}`);
+                          }
+                      }
+            - name: Post PR comment with instance info
+              if: github.event_name == 'pull_request' && env.PREVIEW_MODE == 'true'
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const commentMarker = '<!-- hobby-ci-comment -->';
+
+                      let output = '';
+                      try {
+                          output = fs.readFileSync('/tmp/hobby-ci-output.txt', 'utf8');
+                      } catch (error) {
+                          output = 'Could not read hobby-ci output';
+                      }
+
+                      const dropletInfo = fs.existsSync('/tmp/droplet_info.txt')
+                          ? fs.readFileSync('/tmp/droplet_info.txt', 'utf8')
+                          : '';
+
+                      const commentBody = `${commentMarker}
+                      ## 🦔 Hobby deployment instance
+
+                      ${dropletInfo ? '### Instance details\n```\n' + dropletInfo + '```\n\n' : ''}
+                      ### Deployment output
+                      <details>
+                      <summary>Click to expand</summary>
+
+                      \`\`\`
+                      ${output}
+                      \`\`\`
+                      </details>
+                      `;
+
+                      await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                          body: commentBody,
+                      });
             - name: Run smoke tests on DO
               id: test
               timeout-minutes: 30
