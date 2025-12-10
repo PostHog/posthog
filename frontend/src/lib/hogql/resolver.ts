@@ -168,8 +168,25 @@ class Resolver extends CloningVisitor {
         const selectNodes: ast.Expr[] = []
         for (const expr of node.select || []) {
             const newExpr = this.visit(expr) as ast.Expr
-            // TODO: Handle asterisk expansion
-            selectNodes.push(newExpr)
+
+            // Handle asterisk expansion
+            try {
+                if (newExpr.type && 'table_type' in newExpr.type) {
+                    const asteriskType = newExpr.type as ast.AsteriskType
+                    const chainPrefix = 'chain' in newExpr ? (newExpr as ast.Field).chain.slice(0, -1) : []
+                    const expandedColumns = this.expandAsterisk(asteriskType, chainPrefix)
+
+                    for (const col of expandedColumns) {
+                        const visitedCol = this.visit(col) as ast.Expr
+                        selectNodes.push(visitedCol)
+                    }
+                } else {
+                    selectNodes.push(newExpr)
+                }
+            } catch {
+                // If expansion fails, just add the original node
+                selectNodes.push(newExpr)
+            }
         }
 
         // Collect aliases and column names
@@ -225,6 +242,31 @@ class Resolver extends CloningVisitor {
         }
 
         const scope = this.scopes[this.scopes.length - 1]
+
+        // Handle CTE references
+        if (node.table && 'chain' in node.table) {
+            const field = node.table as ast.Field
+            if (field.chain.length === 1) {
+                const tableName = String(field.chain[0])
+                // Look for CTE in scopes (from innermost to outermost)
+                for (let i = this.scopes.length - 1; i >= 0; i--) {
+                    const cte = this.scopes[i].ctes?.[tableName]
+                    if (cte) {
+                        // Found a CTE - clone and visit it
+                        const clonedNode = cloneExpr(node) as ast.JoinExpr
+                        clonedNode.table = cloneExpr(cte.expr)
+                        if (clonedNode.alias === null || clonedNode.alias === undefined) {
+                            clonedNode.alias = tableName
+                        }
+
+                        this.cteCounter += 1
+                        const result = this.visit(clonedNode)
+                        this.cteCounter -= 1
+                        return result as ast.JoinExpr
+                    }
+                }
+            }
+        }
 
         // Handle table references
         if (node.table && 'chain' in node.table) {
@@ -471,6 +513,54 @@ class Resolver extends CloningVisitor {
     // ====================================
     // Helper Methods
     // ====================================
+
+    /**
+     * Expand an asterisk into individual field references
+     * Based on Python's _asterisk_columns method
+     */
+    private expandAsterisk(asterisk: ast.AsteriskType, chainPrefix: (string | number)[]): ast.Field[] {
+        const tableType = asterisk.table_type
+
+        // Handle SelectQueryType or SelectQueryAliasType
+        if ('columns' in tableType && 'tables' in tableType && 'aliases' in tableType) {
+            const selectType = tableType as ast.SelectQueryType
+            return Object.keys(selectType.columns).map((key) => ({
+                chain: [...chainPrefix, key],
+            }))
+        }
+
+        // Handle SelectQueryAliasType
+        if ('alias' in tableType && 'select_query_type' in tableType) {
+            const aliasType = tableType as ast.SelectQueryAliasType
+            return this.expandAsterisk({ table_type: aliasType.select_query_type } as ast.AsteriskType, chainPrefix)
+        }
+
+        // Handle TableType or TableAliasType
+        if ('table' in tableType || ('alias' in tableType && 'table_type' in tableType)) {
+            let table: DatabaseSchemaTable
+
+            if ('table' in tableType && !('alias' in tableType)) {
+                // TableType
+                table = (tableType as ast.TableType).table
+            } else if ('alias' in tableType && 'table_type' in tableType && !('select_query_type' in tableType)) {
+                // TableAliasType
+                const aliasType = tableType as ast.TableAliasType
+                if ('table' in aliasType.table_type) {
+                    table = (aliasType.table_type as ast.TableType).table
+                } else {
+                    throw new Error("Can't expand asterisk (*) on this table type")
+                }
+            } else {
+                throw new Error("Can't expand asterisk (*) on this table type")
+            }
+
+            return Object.keys(table.fields).map((key) => ({
+                chain: [...chainPrefix, key],
+            }))
+        }
+
+        throw new Error(`Can't expand asterisk (*) on a type`)
+    }
 
     private lookupTableByName(scope: ast.SelectQueryType, node: ast.Field): ast.Type | undefined {
         // If the field has at least 2 parts, the first might be a table

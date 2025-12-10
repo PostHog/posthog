@@ -120,6 +120,15 @@ const mockDatabaseSchema: DatabaseSchemaQueryResponse = {
                     type: 'boolean',
                     schema_valid: true,
                 },
+                pdi: {
+                    name: 'pdi',
+                    hogql_value: 'pdi',
+                    type: 'lazy_table',
+                    schema_valid: true,
+                    fields: ['distinct_id', 'person_id', 'team_id', 'person'],
+                    id: 'pdi',
+                    table: 'person_distinct_ids',
+                },
             },
         },
         person_distinct_ids: {
@@ -320,6 +329,17 @@ describe('HogQL Autocomplete', () => {
             expect(results.suggestions.length).toBeGreaterThan(0)
         })
 
+        it('should autocomplete nested lazy join person.pdi', async () => {
+            const query = 'select person.pdi. from events'
+            // Position 18 is after "person.pdi."
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 7, 18))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            expect(fieldNames.length).toBeGreaterThan(0)
+            expect(fieldNames).toContain('distinct_id')
+            expect(fieldNames).toContain('person_id')
+        })
+
         it('should autocomplete virtual tables (poe)', async () => {
             const query = 'select poe. from events'
             const results = await getHogQLAutocomplete(createSelectRequest(query, 11, 11))
@@ -356,6 +376,53 @@ describe('HogQL Autocomplete', () => {
             expect(fieldNames).toContain('potato')
             expect(fieldNames).not.toContain('event')
             expect(fieldNames).not.toContain('properties')
+        })
+
+        it('should expand SELECT * in subqueries', async () => {
+            // First test a simpler case: SELECT * in a subquery
+            const query = 'select  from (select * from events)'
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 7, 7))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            // Should have fields from events due to * expansion
+            expect(fieldNames).toContain('event')
+            expect(fieldNames).toContain('timestamp')
+            expect(fieldNames).toContain('distinct_id')
+        })
+
+        it('should expand SELECT * in CTEs', async () => {
+            const query = 'with blah as (select * from events) select e from blah'
+            // Position 42-43 is the 'e' in 'select e' (5 chars earlier than the working example due to * vs event)
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 43, 44))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            // Should have fields from events due to * expansion
+            expect(fieldNames).toContain('event')
+            expect(fieldNames).toContain('timestamp')
+            expect(fieldNames).toContain('distinct_id')
+        })
+
+        it('should expand SELECT * with additional columns in CTEs', async () => {
+            // Query: "with table_1 as (select 1 as potato, * from events) select  from table_1"
+            const query = 'with table_1 as (select 1 as potato, * from events) select  from table_1'
+            // Position after "select ": 59 (counting the extra space)
+            const results = await getHogQLAutocomplete(createSelectRequest(query, 59, 59))
+
+            const fieldNames = results.suggestions.map((s) => s.label)
+            // Should have the explicit alias
+            expect(fieldNames).toContain('potato')
+            // Should also have fields from events due to * expansion
+            expect(fieldNames).toContain('event')
+            expect(fieldNames).toContain('timestamp')
+            expect(fieldNames).toContain('distinct_id')
+
+            // Check that fields have proper types (not 'Unknown')
+            const eventField = results.suggestions.find((s) => s.label === 'event')
+            const timestampField = results.suggestions.find((s) => s.label === 'timestamp')
+            expect(eventField?.detail).toBeTruthy()
+            expect(eventField?.detail).not.toBe('Unknown')
+            expect(timestampField?.detail).toBeTruthy()
+            expect(timestampField?.detail).not.toBe('Unknown')
         })
 
         it('should autocomplete constant typed columns from subquery', async () => {

@@ -115,7 +115,10 @@ export default defineConfig(({ mode }) => {
         },
         optimizeDeps: {
             include: ['react', 'react-dom', 'buffer'],
-            exclude: ['snappy-wasm'], // Don't pre-bundle snappy-wasm so WASM file stays with JS
+            exclude: [
+                'snappy-wasm', // Don't pre-bundle snappy-wasm so WASM file stays with JS
+                '@posthog/hogql-parser', // Don't pre-bundle HogQL parser so WASM file stays with JS
+            ],
         },
     }
 })

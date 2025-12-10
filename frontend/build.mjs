@@ -4,7 +4,6 @@ import { fileURLToPath } from 'url'
 
 import {
     buildInParallel,
-    copyHogQLWASMFile,
     copyIndexHtml,
     copyPublicFolder,
     copyRRWebWorkerFiles,
@@ -19,7 +18,6 @@ export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
 copySnappyWASMFile(__dirname)
-copyHogQLWASMFile(__dirname)
 copyRRWebWorkerFiles(__dirname)
 
 writeIndexHtml()

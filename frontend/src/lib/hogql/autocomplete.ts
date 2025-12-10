@@ -110,16 +110,11 @@ export class GetNodeAtPositionTraverser extends TraversingVisitor {
                 if (this.selects.length > 0) {
                     this.nearestSelectQuery = this.selects[this.selects.length - 1]
                 }
-            } else if (
-                parentNode &&
-                ('declarations' in parentNode || parentNode.type === 'Program' || parentNode.type === 'Block')
-            ) {
+            } else if (parentNode && 'declarations' in parentNode) {
                 // For Program and Block nodes, also capture nodes that start after the cursor
                 // This helps with autocomplete at the end of statements like "return "
                 if (
                     (this.node === null ||
-                        this.node.type === 'Program' ||
-                        this.node.type === 'Block' ||
                         ('declarations' in this.node && Array.isArray((this.node as any).declarations))) &&
                     node.start.offset >= this.start
                 ) {
@@ -282,8 +277,9 @@ function getTableFromJoinExpr(
                         }
                         return table
                     }
-                } catch {
-                    // If resolution fails, continue
+                } catch (error) {
+                    // If resolution fails, log and continue
+                    console.warn(`[HogQL Autocomplete] Failed to resolve CTE "${tableName}":`, error)
                 }
             }
         }
@@ -311,8 +307,9 @@ function getTableFromJoinExpr(
                     joinExpr.alias || 'subquery'
                 )
             }
-        } catch {
-            // If resolution fails, continue
+        } catch (error) {
+            // If resolution fails, log and continue
+            console.warn('[HogQL Autocomplete] Failed to resolve subquery:', error)
         }
     }
 
@@ -338,10 +335,15 @@ function createTableFromColumns(selectType: ast.SelectQueryType, tableName: stri
             if ('data_type' in aliasType.type) {
                 const constType = aliasType.type as ast.ConstantType
                 fieldType = constType.data_type
+            } else if ('name' in aliasType.type && 'table_type' in aliasType.type) {
+                // FieldType inside FieldAliasType - resolve from the source table
+                const fieldTypeRef = aliasType.type as ast.FieldType
+                fieldType = resolveFieldTypeFromTable(fieldTypeRef)
             }
-        } else if ('name' in columnType) {
-            // FieldType - this is a reference to another field
-            fieldType = 'unknown'
+        } else if ('name' in columnType && 'table_type' in columnType) {
+            // FieldType - this is a reference to another field, resolve it
+            const fieldTypeRef = columnType as ast.FieldType
+            fieldType = resolveFieldTypeFromTable(fieldTypeRef)
         }
 
         fields[columnName] = {
@@ -357,6 +359,46 @@ function createTableFromColumns(selectType: ast.SelectQueryType, tableName: stri
         id: tableName,
         name: tableName,
         fields,
+    }
+}
+
+/**
+ * Resolve the actual data type from a FieldType by looking up the field in its source table
+ */
+function resolveFieldTypeFromTable(fieldType: ast.FieldType): string {
+    try {
+        const tableType = fieldType.table_type
+        const fieldName = fieldType.name
+
+        // Handle TableType
+        if ('table' in tableType && !('alias' in tableType)) {
+            const table = (tableType as ast.TableType).table
+            const field = table.fields[fieldName]
+            return field?.type || 'unknown'
+        }
+
+        // Handle TableAliasType
+        if ('alias' in tableType && 'table_type' in tableType && !('select_query_type' in tableType)) {
+            const aliasType = tableType as ast.TableAliasType
+            if ('table' in aliasType.table_type) {
+                const table = (aliasType.table_type as ast.TableType).table
+                const field = table.fields[fieldName]
+                return field?.type || 'unknown'
+            }
+        }
+
+        // Handle SelectQueryType
+        if ('columns' in tableType && 'tables' in tableType) {
+            const selectType = tableType as ast.SelectQueryType
+            const columnType = selectType.columns[fieldName]
+            if (columnType && 'data_type' in columnType) {
+                return (columnType as ast.ConstantType).data_type
+            }
+        }
+
+        return 'unknown'
+    } catch {
+        return 'unknown'
     }
 }
 
@@ -595,7 +637,7 @@ export async function getHogQLAutocomplete(query: HogQLAutocomplete): Promise<Ho
     if (query.sourceQuery) {
         try {
             if (query.sourceQuery.kind === 'HogQLQuery') {
-                const queryText = query.sourceQuery.query || 'select 1'
+                const queryText = query.sourceQuery.query || query.query || 'select 1'
                 const result = await parseHogQLSelect(queryText)
                 if (!isParseError(result)) {
                     sourceQuery = result as ast.SelectQuery

@@ -18,6 +18,8 @@ if(EMSCRIPTEN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s ALLOW_MEMORY_GROWTH=1")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap']")
     # Removed -s EXPORT_ES6=1 to generate CommonJS output for Jest compatibility
+    # Use SINGLE_FILE to embed WASM in the JS file for easier distribution
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s SINGLE_FILE=1")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --bind")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexceptions")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s DISABLE_EXCEPTION_CATCHING=0")
@@ -80,8 +82,9 @@ install(TARGETS hogql_parser
 
 # Install WASM output files
 if(EMSCRIPTEN)
+    # With SINGLE_FILE=1, the WASM is embedded in the JS file
+    # Only need to install the JS file
     install(FILES
-        ${CMAKE_CURRENT_BINARY_DIR}/hogql_parser.wasm
         ${CMAKE_CURRENT_BINARY_DIR}/hogql_parser.js
         DESTINATION dist
     )

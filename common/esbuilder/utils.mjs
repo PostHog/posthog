@@ -39,17 +39,6 @@ export function copySnappyWASMFile(absWorkingDir) {
     }
 }
 
-export function copyHogQLWASMFile(absWorkingDir) {
-    try {
-        fse.copyFileSync(
-            path.resolve(absWorkingDir, 'node_modules/@posthog/hogql-parser/dist/hogql_parser.wasm'),
-            path.resolve(absWorkingDir, 'dist/hogql_parser.wasm')
-        )
-    } catch (error) {
-        console.warn('Could not copy snappy wasm file:', error.message)
-    }
-}
-
 export function copyRRWebWorkerFiles(absWorkingDir) {
     try {
         const rrwebSourceDir = path.resolve(absWorkingDir, 'node_modules/@posthog/rrweb/dist')
@@ -218,6 +207,7 @@ export const commonConfig = {
         '.mp3': 'file',
         '.lottie': 'file',
         '.sql': 'text',
+        '.wasm': 'file',
     },
     metafile: true,
 }

@@ -2,12 +2,11 @@
     "name": "@posthog/hogql-parser",
     "version": "0.0.1",
     "description": "WebAssembly HogQL Parser - Parse HogQL queries in JavaScript/TypeScript",
-    "type": "module",
+    "type": "commonjs",
     "main": "dist/hogql_parser.js",
     "types": "dist/index.d.ts",
     "files": [
         "dist/hogql_parser.js",
-        "dist/hogql_parser.wasm",
         "dist/index.d.ts",
         "README.md"
     ],
