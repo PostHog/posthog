@@ -39,6 +39,15 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
                                 kind: NodeKind.EventsNode,
                                 event: '$link_clicked',
                                 name: '$link_clicked',
+                                properties: [
+                                    {
+                                        key: '$link_id',
+                                        value: [id],
+                                        operator: 'exact',
+                                        type: 'event',
+                                    },
+                                ],
+                                math: 'total',
                             },
                         ],
                     })
