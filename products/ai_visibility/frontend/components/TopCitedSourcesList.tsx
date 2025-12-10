@@ -2,12 +2,18 @@ import { Link } from 'lib/lemon-ui/Link'
 
 import { TopCitedSource } from '../types'
 
-export function TopCitedSourcesList({ sources }: { sources: TopCitedSource[] }): JSX.Element {
+export function TopCitedSourcesList({
+    sources,
+    onViewAll,
+}: {
+    sources: TopCitedSource[]
+    onViewAll?: () => void
+}): JSX.Element {
     return (
         <div className="border rounded-lg p-4 bg-bg-light">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold">Top cited sources</h3>
-                <Link to="#" className="text-xs text-primary">
+                <Link className="text-xs text-primary" onClick={onViewAll}>
                     View all
                 </Link>
             </div>
