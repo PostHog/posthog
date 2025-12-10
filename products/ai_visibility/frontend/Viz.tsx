@@ -20,7 +20,6 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 
-import { Results } from './Results'
 import { PlatformMention, Prompt } from './types'
 import { vizLogic } from './vizLogic'
 
@@ -37,7 +36,6 @@ function WorkflowTriggerView({ brand }: { brand: string }): JSX.Element {
         lastError,
         isReady,
         results,
-        runId,
         isPolling,
         triggerResult,
         brandDisplayName,
@@ -66,7 +64,7 @@ function WorkflowTriggerView({ brand }: { brand: string }): JSX.Element {
                     </div>
                 </div>
             ) : isReady && results ? (
-                <Results results={results} domain={brand} runId={runId} />
+                <DashboardView brand={brand} />
             ) : isInitialLoading ? (
                 <div className="rounded border border-border bg-bg-300 p-3">
                     <div className="flex items-center gap-2">

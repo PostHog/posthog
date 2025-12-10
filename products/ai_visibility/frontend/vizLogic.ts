@@ -93,8 +93,12 @@ export const vizLogic = kea<vizLogicType>([
         hasMockData: [(s) => [s.brand], (brand): boolean => brand in MOCK_DATA_BY_BRAND],
 
         data: [
-            (s) => [s.brand],
-            (brand): DashboardData | null => {
+            (s) => [s.brand, s.results],
+            (brand, results): DashboardData | null => {
+                // Prefer real API results over mock data
+                if (results) {
+                    return results as DashboardData
+                }
                 return MOCK_DATA_BY_BRAND[brand] || null
             },
         ],
