@@ -128,6 +128,11 @@ export function formatConversationDate(updatedAt: string | null): string {
     return humanFriendlyDuration(diff, { maxUnits: 1 })
 }
 
+export function getSlackThreadUrl(slackThreadKey: string): string {
+    const [teamId, channel, threadTs] = slackThreadKey.split(':')
+    return `https://app.slack.com/client/${teamId}/${channel}/thread/${channel}-${threadTs}`
+}
+
 /**
  * Checks if a suggestion requires user input.
  * @param suggestion - The suggestion to check.
