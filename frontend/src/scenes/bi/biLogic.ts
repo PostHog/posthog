@@ -9,17 +9,19 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
-import { DatabaseSchemaField, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { DatabaseSchemaField, DatabaseSchemaTable, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { biLogicType } from './biLogicType'
 
 export type BIAggregation = 'count' | 'min' | 'max' | 'sum'
+export type BITimeAggregation = 'hour' | 'day' | 'week' | 'month'
 
 export interface BIQueryColumn {
     table: string
     field: string
     aggregation?: BIAggregation
+    timeInterval?: BITimeAggregation
 }
 
 export interface BIQueryFilter {
@@ -40,11 +42,19 @@ export const biLogic = kea<biLogicType>([
     actions({
         selectTable: (table: string | null) => ({ table }),
         addColumn: (column: BIQueryColumn) => ({ column }),
-        addAggregation: (column: BIQueryColumn, aggregation: BIAggregation) => ({ column, aggregation }),
+        setColumnAggregation: (column: BIQueryColumn, aggregation?: BIAggregation | null) => ({
+            column,
+            aggregation,
+        }),
+        setColumnTimeInterval: (column: BIQueryColumn, timeInterval?: BITimeAggregation | null) => ({
+            column,
+            timeInterval,
+        }),
         setColumns: (columns: BIQueryColumn[]) => ({ columns }),
         removeColumn: (column: BIQueryColumn) => ({ column }),
         addFilter: (filter: BIQueryFilter) => ({ filter }),
         setFilters: (filters: BIQueryFilter[]) => ({ filters }),
+        updateFilter: (index: number, expression: string) => ({ index, expression }),
         removeFilter: (index: number) => ({ index }),
         setSort: (column: BIQueryColumn | null) => ({ column }),
         setLimit: (limit: number) => ({ limit }),
@@ -69,22 +79,14 @@ export const biLogic = kea<biLogicType>([
                     }
                     return [...state, column]
                 },
-                addAggregation: (state, { column, aggregation }) => {
-                    const aggregatedColumn = { ...column, aggregation }
-                    const existingIndex = state.findIndex(
-                        (col) => col.table === column.table && col.field === column.field
-                    )
-                    const withoutField = state.filter(
-                        (col) => !(col.table === column.table && col.field === column.field)
-                    )
-
-                    if (existingIndex !== -1) {
-                        const updated = [...withoutField]
-                        updated.splice(existingIndex, 0, aggregatedColumn)
-                        return updated
-                    }
-                    return [...withoutField, aggregatedColumn]
-                },
+                setColumnAggregation: (state, { column, aggregation }) =>
+                    state.map((col) =>
+                        columnsEqual(col, column) ? { ...col, aggregation: aggregation || undefined } : col
+                    ),
+                setColumnTimeInterval: (state, { column, timeInterval }) =>
+                    state.map((col) =>
+                        columnsEqual(col, column) ? { ...col, timeInterval: timeInterval || undefined } : col
+                    ),
                 removeColumn: (state, { column }) => state.filter((col) => !columnsEqual(col, column)),
                 selectTable: (state, { table }) => state.filter((col) => col.table === table),
                 setColumns: (_, { columns }) => uniqueColumns(columns),
@@ -98,6 +100,8 @@ export const biLogic = kea<biLogicType>([
                     return [...state, filter]
                 },
                 setFilters: (_, { filters }) => filters,
+                updateFilter: (state, { index, expression }) =>
+                    state.map((filter, filterIndex) => (index === filterIndex ? { ...filter, expression } : filter)),
                 removeFilter: (state, { index }) => state.filter((_, filterIndex) => filterIndex !== index),
                 removeColumn: (state, { column }) => state.filter((item) => !columnsEqual(item.column, column)),
                 selectTable: () => [],
@@ -136,8 +140,11 @@ export const biLogic = kea<biLogicType>([
         ],
         selectedFields: [
             (s) => [s.selectedColumns, s.selectedTableObject],
-            (columns, table) =>
-                columns
+            (columns, table) => {
+                if (!table) {
+                    return []
+                }
+                return columns
                     .map((column) => {
                         const field = table?.fields?.[column.field] as DatabaseSchemaField | undefined
                         if (!field) {
@@ -148,7 +155,7 @@ export const biLogic = kea<biLogicType>([
                             column,
                             field,
                             alias: columnAlias(column),
-                            expression: columnExpression(column, field),
+                            expression: columnExpression(column, field, table),
                         }
                     })
                     .filter(Boolean) as {
@@ -156,7 +163,8 @@ export const biLogic = kea<biLogicType>([
                     field: DatabaseSchemaField
                     alias: string
                     expression: string
-                }[],
+                }[]
+            },
         ],
         filteredFields: [
             (s) => [s.selectedTableObject, s.searchTerm],
@@ -190,7 +198,7 @@ export const biLogic = kea<biLogicType>([
                         return
                     }
 
-                    const target = columnExpression(column, field)
+                    const target = columnExpression(column, field, table)
                     if (column.aggregation) {
                         havingParts.push(`${target} ${expression}`)
                     } else {
@@ -214,12 +222,12 @@ export const biLogic = kea<biLogicType>([
             },
         ],
         _queryString: [
-            (s) => [s.queryString],
-            (queryString) => {
+            (s) => [s.queryString, s.selectedTableObject],
+            (queryString, table) => {
                 if (!queryString) {
                     return ''
                 }
-                if (queryString.includes('postgres.') || queryString.includes('posthog_')) {
+                if (table && getTableDialect(table) === 'postgres') {
                     return '--pg\n' + queryString
                 }
                 return queryString
@@ -251,9 +259,21 @@ export const biLogic = kea<biLogicType>([
     })),
     tabAwareActionToUrl(({ values }) => ({
         addColumn: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
-        addAggregation: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        setColumnAggregation: () => [
+            urls.bi(),
+            buildBiSearchParams(values),
+            router.values.hashParams,
+            { replace: true },
+        ],
+        setColumnTimeInterval: () => [
+            urls.bi(),
+            buildBiSearchParams(values),
+            router.values.hashParams,
+            { replace: true },
+        ],
         removeColumn: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         addFilter: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        updateFilter: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         removeFilter: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         selectTable: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         setSort: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
@@ -308,11 +328,13 @@ export const biLogic = kea<biLogicType>([
     })),
     listeners(({ actions }) => ({
         addColumn: () => actions.loadQueryResponse(),
-        addAggregation: () => actions.loadQueryResponse(),
+        setColumnAggregation: () => actions.loadQueryResponse(),
+        setColumnTimeInterval: () => actions.loadQueryResponse(),
         setColumns: () => actions.loadQueryResponse(),
         removeColumn: () => actions.loadQueryResponse(),
         addFilter: () => actions.loadQueryResponse(),
         setFilters: () => actions.loadQueryResponse(),
+        updateFilter: () => actions.loadQueryResponse(),
         removeFilter: () => actions.loadQueryResponse(),
         selectTable: ({ table }) => table && actions.loadQueryResponse(),
         setSort: () => actions.loadQueryResponse(),
@@ -325,18 +347,30 @@ export const biLogic = kea<biLogicType>([
 ])
 
 export function columnKey(column: BIQueryColumn): string {
-    return `${column.table}.${column.field}.${column.aggregation || 'raw'}`
+    return `${column.table}.${column.field}.${column.aggregation || 'raw'}.${column.timeInterval || 'none'}`
 }
 
 export function columnAlias(column: BIQueryColumn): string {
-    return column.aggregation ? `${column.aggregation}_${column.field}` : column.field
+    const parts: string[] = []
+    if (column.aggregation) {
+        parts.push(column.aggregation)
+    }
+    if (column.timeInterval) {
+        parts.push(column.timeInterval)
+    }
+    parts.push(column.field)
+    return parts.join('_')
 }
 
-function columnExpression(column: BIQueryColumn, field: DatabaseSchemaField): string {
+function columnExpression(column: BIQueryColumn, field: DatabaseSchemaField, table: DatabaseSchemaTable): string {
+    const timeExpression = column.timeInterval
+        ? wrapTimeAggregation(field.hogql_value, column.timeInterval, table)
+        : field.hogql_value
+
     if (column.aggregation) {
-        return `${column.aggregation}(${field.hogql_value})`
+        return `${column.aggregation}(${timeExpression})`
     }
-    return field.hogql_value
+    return timeExpression
 }
 
 function columnsEqual(a: BIQueryColumn | null | undefined, b: BIQueryColumn | null | undefined): boolean {
@@ -406,7 +440,9 @@ function serializeColumns(columns: BIQueryColumn[]): string | undefined {
     if (!columns.length) {
         return undefined
     }
-    return columns.map((column) => `${column.aggregation || 'raw'}:${column.field}`).join(',')
+    return columns
+        .map((column) => `${column.aggregation || 'raw'}:${column.timeInterval || 'raw'}:${column.field}`)
+        .join(',')
 }
 
 function serializeFilters(filters: BIQueryFilter[]): string | undefined {
@@ -417,13 +453,14 @@ function serializeFilters(filters: BIQueryFilter[]): string | undefined {
         filters.map(({ column, expression }) => ({
             field: column.field,
             aggregation: column.aggregation,
+            timeInterval: column.timeInterval,
             expression,
         }))
     )
 }
 
 function serializeSort(sort: BIQueryColumn): string {
-    return `${sort.aggregation || 'raw'}:${sort.field}`
+    return `${sort.aggregation || 'raw'}:${sort.timeInterval || 'raw'}:${sort.field}`
 }
 
 function parseColumnsParam(param: any, table: string | null): BIQueryColumn[] {
@@ -433,19 +470,7 @@ function parseColumnsParam(param: any, table: string | null): BIQueryColumn[] {
     return String(param)
         .split(',')
         .filter(Boolean)
-        .map((item) => {
-            const [maybeAggregation, field] = item.split(':')
-            if (!field) {
-                return { table, field: maybeAggregation }
-            }
-
-            const aggregation = maybeAggregation === 'raw' ? undefined : maybeAggregation
-            if (aggregation && !['count', 'min', 'max', 'sum'].includes(aggregation)) {
-                return null
-            }
-
-            return { table, field, aggregation: aggregation as BIAggregation | undefined }
-        })
+        .map((item) => parseColumnItem(item, table))
         .filter(Boolean) as BIQueryColumn[]
 }
 
@@ -467,8 +492,13 @@ function parseFiltersParam(param: any, table: string | null): BIQueryFilter[] {
                     typeof item.aggregation === 'string' && ['count', 'min', 'max', 'sum'].includes(item.aggregation)
                         ? (item.aggregation as BIAggregation)
                         : undefined
+                const timeInterval =
+                    typeof item.timeInterval === 'string' &&
+                    ['hour', 'day', 'week', 'month'].includes(item.timeInterval)
+                        ? (item.timeInterval as BITimeAggregation)
+                        : undefined
                 return {
-                    column: { table, field: item.field, aggregation },
+                    column: { table, field: item.field, aggregation, timeInterval },
                     expression: item.expression,
                 }
             })
@@ -482,13 +512,71 @@ function parseSortParam(param: any, table: string | null): BIQueryColumn | null 
     if (!table || !param) {
         return null
     }
-    const [maybeAggregation, field] = String(param).split(':')
-    if (!field) {
-        return { table, field: maybeAggregation }
+    return parseColumnItem(String(param), table)
+}
+
+function parseColumnItem(item: string, table: string): BIQueryColumn | null {
+    const parts = item.split(':')
+
+    if (parts.length === 1) {
+        const field = parts[0]
+        return field ? { table, field } : null
     }
+
+    if (parts.length === 2) {
+        const [maybeAggregation, field] = parts
+        const aggregation = maybeAggregation === 'raw' ? undefined : maybeAggregation
+        if (!field) {
+            return null
+        }
+        if (aggregation && !['count', 'min', 'max', 'sum'].includes(aggregation)) {
+            return null
+        }
+        return { table, field, aggregation: aggregation as BIAggregation | undefined }
+    }
+
+    const [maybeAggregation, maybeTimeInterval, ...rest] = parts
+    const field = rest.join(':')
     const aggregation = maybeAggregation === 'raw' ? undefined : maybeAggregation
+    const timeInterval = maybeTimeInterval === 'raw' ? undefined : maybeTimeInterval
+
+    if (!field) {
+        return null
+    }
+
     if (aggregation && !['count', 'min', 'max', 'sum'].includes(aggregation)) {
         return null
     }
-    return { table, field, aggregation: aggregation as BIAggregation | undefined }
+    if (timeInterval && !['hour', 'day', 'week', 'month'].includes(timeInterval)) {
+        return null
+    }
+
+    return {
+        table,
+        field,
+        aggregation: aggregation as BIAggregation | undefined,
+        timeInterval: (timeInterval as BITimeAggregation | undefined) || undefined,
+    }
+}
+
+function wrapTimeAggregation(value: string, interval: BITimeAggregation, table: DatabaseSchemaTable): string {
+    if (getTableDialect(table) === 'postgres') {
+        return `date_trunc('${interval}', ${value})`
+    }
+
+    switch (interval) {
+        case 'hour':
+            return `toStartOfHour(${value})`
+        case 'week':
+            return `toStartOfWeek(${value})`
+        case 'month':
+            return `toStartOfMonth(${value})`
+        case 'day':
+        default:
+            return `toStartOfDay(${value})`
+    }
+}
+
+function getTableDialect(table: DatabaseSchemaTable): 'postgres' | 'clickhouse' {
+    return (table as any)?.source?.source_type === 'Postgres' ? 'postgres' : 'clickhouse'
 }

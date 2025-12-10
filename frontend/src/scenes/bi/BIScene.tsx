@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
     IconArrowLeft,
@@ -22,7 +22,7 @@ import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 import { SceneExport } from '../sceneTypes'
 import { Scene } from '../sceneTypes'
-import { BIAggregation, BIQueryFilter, biLogic, columnAlias, columnKey } from './biLogic'
+import { BIAggregation, BIQueryFilter, BITimeAggregation, biLogic, columnAlias, columnKey } from './biLogic'
 
 const COLORS = ['#5375ff', '#ff7a9e', '#2bc4ff', '#f6a700', '#7a49ff']
 
@@ -79,10 +79,12 @@ export function BIScene(): JSX.Element {
     } = useValues(biLogic)
     const {
         addColumn,
-        addAggregation,
+        setColumnAggregation,
+        setColumnTimeInterval,
         selectTable,
         removeColumn,
         addFilter,
+        updateFilter,
         removeFilter,
         setSearchTerm,
         setLimit,
@@ -156,6 +158,11 @@ export function BIScene(): JSX.Element {
                         {selectedTableObject ? (
                             <>
                                 <div className="font-semibold px-1">{selectedTableObject.name}</div>
+                                {selectedTableObject?.source?.source_type === 'Postgres' ? (
+                                    <div className="text-xs text-muted px-1">via postgres direct connection</div>
+                                ) : (
+                                    <div className="text-xs text-muted px-1">via posthog data warehouse</div>
+                                )}
                                 {filteredFields.length > 0 ? (
                                     <div>
                                         {filteredFields.map((field) => (
@@ -216,30 +223,17 @@ export function BIScene(): JSX.Element {
                         </div>
                         <div className="flex flex-wrap gap-2">
                             {filters.map((filter, index) => (
-                                <Popover
+                                <FilterPill
                                     key={`${columnKey(filter.column)}-${index}`}
-                                    visible={openFilterPopover === index}
-                                    onVisibilityChange={(visible) => {
+                                    filter={filter}
+                                    isOpen={openFilterPopover === index}
+                                    onOpenChange={(visible) => {
                                         setOpenColumnPopover(null)
                                         setOpenFilterPopover(visible ? index : null)
                                     }}
-                                    overlay={
-                                        <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
-                                            <LemonButton
-                                                size="small"
-                                                type="secondary"
-                                                onClick={() => {
-                                                    removeFilter(index)
-                                                    setOpenFilterPopover(null)
-                                                }}
-                                            >
-                                                Remove filter
-                                            </LemonButton>
-                                        </div>
-                                    }
-                                >
-                                    <div onClick={(event) => event.stopPropagation()}>{formatFilter(filter)}</div>
-                                </Popover>
+                                    onUpdate={(expression) => updateFilter(index, expression)}
+                                    onRemove={() => removeFilter(index)}
+                                />
                             ))}
                         </div>
                     </div>
@@ -277,6 +271,7 @@ export function BIScene(): JSX.Element {
                                     columns={selectedFields.map(({ column, field, alias }) => ({
                                         title: (
                                             <ColumnHeader
+                                                column={column}
                                                 alias={alias}
                                                 field={field}
                                                 onRemove={() => removeColumn(column)}
@@ -284,7 +279,18 @@ export function BIScene(): JSX.Element {
                                                     addFilter({ column, expression: expression || '= ""' })
                                                 }
                                                 onSort={() => setSort(column)}
-                                                onAddAggregation={(aggregation) => addAggregation(column, aggregation)}
+                                                onSetAggregation={(aggregation) =>
+                                                    setColumnAggregation(
+                                                        column,
+                                                        aggregation === column.aggregation ? null : aggregation
+                                                    )
+                                                }
+                                                onSetTimeInterval={(timeInterval) =>
+                                                    setColumnTimeInterval(
+                                                        column,
+                                                        timeInterval === column.timeInterval ? null : timeInterval
+                                                    )
+                                                }
                                                 isPopoverOpen={openColumnPopover === columnKey(column)}
                                                 onPopoverVisibilityChange={(visible) => {
                                                     setOpenFilterPopover(null)
@@ -312,26 +318,30 @@ export function BIScene(): JSX.Element {
 }
 
 function ColumnHeader({
+    column,
     field,
     alias,
     onRemove,
     onAddFilter,
     onSort,
-    onAddAggregation,
+    onSetAggregation,
+    onSetTimeInterval,
     isPopoverOpen,
     onPopoverVisibilityChange,
 }: {
+    column: BIQueryColumn
     field?: DatabaseSchemaField
     alias: string
     onRemove: () => void
     onAddFilter: (expression?: string) => void
     onSort: () => void
-    onAddAggregation: (aggregation: BIAggregation) => void
+    onSetAggregation: (aggregation?: BIAggregation | null) => void
+    onSetTimeInterval: (timeInterval?: BITimeAggregation | null) => void
     isPopoverOpen: boolean
     onPopoverVisibilityChange: (visible: boolean) => void
 }): JSX.Element {
     const [draft, setDraft] = useState('')
-    const isNumeric = isNumericField(field)
+    const isTemporal = isTemporalField(field)
 
     return (
         <div className="flex items-center gap-1">
@@ -362,29 +372,52 @@ function ColumnHeader({
                         >
                             Add filter
                         </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                onAddAggregation('count')
-                                onPopoverVisibilityChange(false)
-                            }}
-                        >
-                            Count
-                        </LemonButton>
-                        {isNumeric && (
-                            <div className="grid grid-cols-3 gap-1">
-                                {(['min', 'max', 'sum'] as BIAggregation[]).map((aggregation) => (
+                        <div className="space-y-1">
+                            <div className="text-muted">Aggregation</div>
+                            <div className="grid grid-cols-4 gap-1">
+                                <LemonButton
+                                    type="secondary"
+                                    status={!column.aggregation ? 'primary' : 'default'}
+                                    onClick={() => {
+                                        onSetAggregation(null)
+                                        onPopoverVisibilityChange(false)
+                                    }}
+                                >
+                                    None
+                                </LemonButton>
+                                {(['count', 'min', 'max', 'sum'] as BIAggregation[]).map((aggregation) => (
                                     <LemonButton
                                         key={aggregation}
                                         type="secondary"
+                                        status={column.aggregation === aggregation ? 'primary' : 'default'}
                                         onClick={() => {
-                                            onAddAggregation(aggregation)
+                                            onSetAggregation(aggregation)
                                             onPopoverVisibilityChange(false)
                                         }}
                                     >
                                         {aggregation.toUpperCase()}
                                     </LemonButton>
                                 ))}
+                            </div>
+                        </div>
+                        {isTemporal && (
+                            <div className="space-y-1">
+                                <div className="text-muted">Date aggregation</div>
+                                <div className="grid grid-cols-4 gap-1">
+                                    {[null, 'hour', 'day', 'week', 'month'].map((interval) => (
+                                        <LemonButton
+                                            key={interval || 'none'}
+                                            type="secondary"
+                                            status={column.timeInterval === interval ? 'primary' : 'default'}
+                                            onClick={() => {
+                                                onSetTimeInterval(interval as BITimeAggregation | null)
+                                                onPopoverVisibilityChange(false)
+                                            }}
+                                        >
+                                            {(interval || 'none').toString().replace(/^./, (c) => c.toUpperCase())}
+                                        </LemonButton>
+                                    ))}
+                                </div>
                             </div>
                         )}
                         <LemonButton
@@ -429,6 +462,76 @@ function isNumericField(field?: DatabaseSchemaField): boolean {
     }
     const type = field.type.toLowerCase()
     return type.includes('int') || type.includes('float') || type.includes('decimal') || type.includes('double')
+}
+
+function isTemporalField(field?: DatabaseSchemaField): boolean {
+    if (!field?.type || typeof field.type !== 'string') {
+        return false
+    }
+    const type = field.type.toLowerCase()
+    return type.includes('date') || type.includes('time')
+}
+
+function FilterPill({
+    filter,
+    isOpen,
+    onOpenChange,
+    onUpdate,
+    onRemove,
+}: {
+    filter: BIQueryFilter
+    isOpen: boolean
+    onOpenChange: (visible: boolean) => void
+    onUpdate: (expression: string) => void
+    onRemove: () => void
+}): JSX.Element {
+    const [draft, setDraft] = useState(filter.expression)
+
+    useEffect(() => {
+        setDraft(filter.expression)
+    }, [filter.expression])
+
+    return (
+        <Popover
+            visible={isOpen}
+            onVisibilityChange={onOpenChange}
+            overlay={
+                <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
+                    <LemonInput
+                        placeholder="= 'value' or > 10"
+                        value={draft}
+                        onChange={setDraft}
+                        onPressEnter={() => {
+                            onUpdate(draft)
+                            onOpenChange(false)
+                        }}
+                    />
+                    <div className="flex gap-2">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                onUpdate(draft)
+                                onOpenChange(false)
+                            }}
+                        >
+                            Update filter
+                        </LemonButton>
+                        <LemonButton
+                            status="danger"
+                            onClick={() => {
+                                onRemove()
+                                onOpenChange(false)
+                            }}
+                        >
+                            Remove
+                        </LemonButton>
+                    </div>
+                </div>
+            }
+        >
+            <div onClick={(event) => event.stopPropagation()}>{formatFilter(filter)}</div>
+        </Popover>
+    )
 }
 
 function fieldTypeIcon(field?: DatabaseSchemaField): JSX.Element {
