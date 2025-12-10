@@ -47,23 +47,59 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
     )
     def create(self, request, *args, **kwargs):
         domain = request.validated_data["domain"]
+        force = request.validated_data.get("force", False)
+        run_id = request.validated_data.get("run_id")
 
-        # Check for existing run (prefer READY over RUNNING)
-        existing_run = (
-            AiVisibilityRun.objects.filter(
-                domain=domain,
-                status__in=[AiVisibilityRun.Status.READY, AiVisibilityRun.Status.RUNNING],
-            )
-            .order_by(
-                # READY first, then RUNNING
-                models.Case(
-                    models.When(status=AiVisibilityRun.Status.READY, then=0),
-                    models.When(status=AiVisibilityRun.Status.RUNNING, then=1),
-                    default=2,
+        # If polling for a specific run, check its status
+        if run_id:
+            try:
+                specific_run = AiVisibilityRun.objects.get(id=run_id)
+                if specific_run.status == AiVisibilityRun.Status.READY and specific_run.s3_path:
+                    results_json = object_storage.read(specific_run.s3_path)
+                    if results_json:
+                        results = json.loads(results_json)
+                        serializer = AIVisibilityResultResponseSerializer(
+                            {
+                                "status": "ready",
+                                "run_id": specific_run.id,
+                                "domain": domain,
+                                "results": results,
+                            }
+                        )
+                        return Response(serializer.data, status=status.HTTP_200_OK)
+                elif specific_run.status == AiVisibilityRun.Status.RUNNING:
+                    serializer = AIVisibilityStartedResponseSerializer(
+                        {
+                            "workflow_id": specific_run.workflow_id,
+                            "run_id": specific_run.id,
+                            "status": "running",
+                            "created_at": specific_run.created_at,
+                        }
+                    )
+                    return Response(serializer.data, status=status.HTTP_200_OK)
+                # If FAILED, fall through to create a new run
+            except AiVisibilityRun.DoesNotExist:
+                pass
+
+        existing_run = None
+        if not force:
+            # Check for existing run (prefer READY over RUNNING, then most recent)
+            existing_run = (
+                AiVisibilityRun.objects.filter(
+                    domain=domain,
+                    status__in=[AiVisibilityRun.Status.READY, AiVisibilityRun.Status.RUNNING],
                 )
+                .order_by(
+                    # READY first, then RUNNING, then by most recent
+                    models.Case(
+                        models.When(status=AiVisibilityRun.Status.READY, then=0),
+                        models.When(status=AiVisibilityRun.Status.RUNNING, then=1),
+                        default=2,
+                    ),
+                    "-created_at",
+                )
+                .first()
             )
-            .first()
-        )
 
         if existing_run:
             if existing_run.status == AiVisibilityRun.Status.READY and existing_run.s3_path:
@@ -83,6 +119,7 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
                 serializer = AIVisibilityStartedResponseSerializer(
                     {
                         "workflow_id": existing_run.workflow_id,
+                        "run_id": existing_run.id,
                         "status": "running",
                         "created_at": existing_run.created_at,
                     }
@@ -109,6 +146,6 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
         )
 
         serializer = AIVisibilityStartedResponseSerializer(
-            {"workflow_id": workflow_id, "status": "started", "created_at": run.created_at}
+            {"workflow_id": workflow_id, "run_id": run.id, "status": "started", "created_at": run.created_at}
         )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
