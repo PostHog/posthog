@@ -384,6 +384,7 @@ export interface HogQLQueryModifiers {
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
+    usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
 }
 
