@@ -328,6 +328,7 @@ class AssistantTool(StrEnum):
     CREATE_NOTEBOOK = "create_notebook"
     BROWSER_NAVIGATE = "browser_navigate"
     COMPUTER = "computer"
+    TASK_RESULT = "task_result"
 
 
 class AssistantToolCall(BaseModel):
@@ -2683,6 +2684,7 @@ class ProductKey(StrEnum):
     SESSION_REPLAY = "session_replay"
     SITE_APPS = "site_apps"
     SURVEYS = "surveys"
+    SYNTHETIC_USERS = "synthetic_users"
     USER_INTERVIEWS = "user_interviews"
     TEAMS = "teams"
     WEB_ANALYTICS = "web_analytics"
