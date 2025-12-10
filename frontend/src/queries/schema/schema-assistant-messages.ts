@@ -396,6 +396,8 @@ export type AssistantTool =
     // Browser automation tools
     | 'browser_navigate'
     | 'computer'
+    // Synthetic users tools
+    | 'task_result'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

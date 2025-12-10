@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -6,12 +6,16 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 
 import type { sessionDetailSceneLogicType } from './sessionDetailSceneLogicType'
+import type { ParticipantStatus } from './types'
 import { Session, Study } from './types'
 
 export interface SessionDetailSceneLogicProps {
     studyId: string
     sessionId: string
 }
+
+const POLL_INTERVAL_MS = 2000
+const IN_PROGRESS_STATUSES: ParticipantStatus[] = ['generating', 'navigating']
 
 export const sessionDetailSceneLogic = kea<sessionDetailSceneLogicType>([
     props({} as SessionDetailSceneLogicProps),
@@ -20,6 +24,8 @@ export const sessionDetailSceneLogic = kea<sessionDetailSceneLogicType>([
 
     actions({
         setSession: (session: Session) => ({ session }),
+        startPolling: true,
+        stopPolling: true,
     }),
 
     reducers({
@@ -27,6 +33,18 @@ export const sessionDetailSceneLogic = kea<sessionDetailSceneLogicType>([
             null as Session | null,
             {
                 setSession: (_, { session }) => session,
+            },
+        ],
+    }),
+
+    selectors({
+        shouldPoll: [
+            (s) => [s.session],
+            (session): boolean => {
+                if (!session) {
+                    return false
+                }
+                return IN_PROGRESS_STATUSES.includes(session.status)
             },
         ],
     }),
@@ -72,7 +90,7 @@ export const sessionDetailSceneLogic = kea<sessionDetailSceneLogicType>([
         ],
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, cache }) => ({
         regenerateSessionSuccess: ({ regeneratedSession }) => {
             lemonToast.success('Persona regenerated')
             if (regeneratedSession) {
@@ -89,13 +107,45 @@ export const sessionDetailSceneLogic = kea<sessionDetailSceneLogicType>([
                 actions.setSession(startedSession)
             }
             actions.loadStudy()
+            // Start polling since session is now in progress
+            actions.startPolling()
         },
         startSessionFailure: ({ error }) => {
             lemonToast.error(`Failed to start session: ${error}`)
+        },
+        setSession: () => {
+            // Check if we should start or stop polling based on new session state
+            if (values.shouldPoll) {
+                actions.startPolling()
+            } else {
+                actions.stopPolling()
+            }
+        },
+        startPolling: () => {
+            // Clear any existing interval
+            if (cache.pollingIntervalId) {
+                clearInterval(cache.pollingIntervalId)
+            }
+            cache.pollingIntervalId = setInterval(() => {
+                actions.loadStudy()
+            }, POLL_INTERVAL_MS)
+        },
+        stopPolling: () => {
+            if (cache.pollingIntervalId) {
+                clearInterval(cache.pollingIntervalId)
+                cache.pollingIntervalId = null
+            }
         },
     })),
 
     afterMount(({ actions }) => {
         actions.loadStudy()
+    }),
+
+    beforeUnmount(({ cache }) => {
+        // Clean up polling on unmount
+        if (cache.pollingIntervalId) {
+            clearInterval(cache.pollingIntervalId)
+        }
     }),
 ])
