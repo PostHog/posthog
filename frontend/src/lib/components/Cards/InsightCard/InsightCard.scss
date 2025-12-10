@@ -164,3 +164,36 @@
     font-size: 1.25rem;
     color: var(--color-text-secondary);
 }
+
+.pmf-game-button {
+    --lemon-button-color: white;
+
+    clip-path: polygon(
+        0 6px,
+        3px 6px,
+        3px 3px,
+        6px 3px,
+        6px 0,
+        calc(100% - 6px) 0,
+        calc(100% - 6px) 3px,
+        calc(100% - 3px) 3px,
+        calc(100% - 3px) 6px,
+        100% 6px,
+        100% calc(100% - 6px),
+        calc(100% - 3px) calc(100% - 6px),
+        calc(100% - 3px) calc(100% - 3px),
+        calc(100% - 6px) calc(100% - 3px),
+        calc(100% - 6px) 100%,
+        6px 100%,
+        6px calc(100% - 3px),
+        3px calc(100% - 3px),
+        3px calc(100% - 6px),
+        0 calc(100% - 6px)
+    );
+    background: rgb(239 68 68);
+
+    &.LemonButton--tertiary:not([aria-disabled='true']):hover,
+    &.LemonButton--tertiary[data-focused='true']:not([aria-disabled='true']):focus-visible {
+        background-color: rgb(248 113 113) !important;
+    }
+}

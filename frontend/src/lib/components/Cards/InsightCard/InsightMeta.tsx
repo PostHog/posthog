@@ -169,6 +169,21 @@ export function InsightMeta({
             </div>
         ) : null
 
+    const pmfGameButton =
+        name === 'Pageview funnel, by browser' ? (
+            <div className="flex">
+                <LemonButton
+                    size="small"
+                    onClick={() => {
+                        window.open('http://localhost:8001/pmf-game?completed=product-analytics', '_blank')
+                    }}
+                    className="pmf-game-button"
+                >
+                    Complete Quest
+                </LemonButton>
+            </div>
+        ) : null
+
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
         return (
@@ -429,7 +444,7 @@ export function InsightMeta({
             moreTooltip={
                 canEditInsight ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
             }
-            extraControls={surveyOpportunityButton ?? feedbackButtons}
+            extraControls={pmfGameButton ?? surveyOpportunityButton ?? feedbackButtons}
         />
     )
 }
