@@ -5,7 +5,7 @@ import api from 'lib/api'
 
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { linkMetricSparklineLogicType } from './linkMetricSparklineLogicType'
 
@@ -22,7 +22,7 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
     props({} as Props),
     key(({ id }: Props) => id),
     path(['scenes', 'links', 'linkMetricSparklineLogic', 'id']),
-    loaders({
+    loaders(({ props }) => ({
         sparklineData: [
             null as SparklineDataResponse | null,
             {
@@ -42,12 +42,12 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
                                 properties: [
                                     {
                                         key: '$link_id',
-                                        value: [id],
-                                        operator: 'exact',
-                                        type: 'event',
+                                        value: [props.id],
+                                        operator: PropertyOperator.Exact,
+                                        type: PropertyFilterType.Event,
                                     },
                                 ],
-                                math: 'total',
+                                math: BaseMathType.TotalCount,
                             },
                         ],
                     })
@@ -56,7 +56,7 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
                 },
             },
         ],
-    }),
+    })),
     afterMount(({ actions }) => {
         actions.loadSparklineData()
     }),
