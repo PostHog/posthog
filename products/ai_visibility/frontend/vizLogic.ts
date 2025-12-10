@@ -10,6 +10,7 @@ import {
     PlatformMention,
     Prompt,
     ShareOfVoice,
+    SourceDetails,
     TopCitedSource,
     Topic,
     TopicLead,
@@ -20,7 +21,7 @@ export interface VizLogicProps {
     brand: string
 }
 
-export type DashboardTab = 'overview' | 'prompts' | 'competitors'
+export type DashboardTab = 'overview' | 'prompts' | 'competitors' | 'sources'
 
 export type ProgressStep =
     | 'starting'
@@ -664,6 +665,48 @@ export const vizLogic = kea<vizLogicType>([
                     .slice(0, 6)
             },
         ],
+
+        // Detailed source data for Sources tab
+        sourceDetails: [
+            (s) => [s.prompts],
+            (prompts: Prompt[]): SourceDetails[] => {
+                // Build domain stats from competitors in prompts
+                const domainStats = new Map<string, { topics: Set<string>; responses: number; brandMentions: number }>()
+
+                for (const p of prompts) {
+                    // Get all domains mentioned in this prompt's competitors
+                    const domains = new Set<string>()
+                    for (const comp of p.competitors ?? []) {
+                        if (comp.domain) {
+                            domains.add(comp.domain)
+                        }
+                    }
+
+                    // Update stats for each domain
+                    for (const domain of domains) {
+                        if (!domainStats.has(domain)) {
+                            domainStats.set(domain, { topics: new Set(), responses: 0, brandMentions: 0 })
+                        }
+                        const stats = domainStats.get(domain)!
+                        stats.topics.add(p.topic)
+                        stats.responses++
+                        if (p.you_mentioned) {
+                            stats.brandMentions++
+                        }
+                    }
+                }
+
+                return [...domainStats.entries()]
+                    .map(([domain, stats]) => ({
+                        domain,
+                        pages: stats.topics.size,
+                        responses: stats.responses,
+                        brandMentionRate:
+                            stats.responses > 0 ? Math.round((stats.brandMentions / stats.responses) * 100) : 0,
+                    }))
+                    .sort((a, b) => b.responses - a.responses)
+            },
+        ],
     }),
 
     listeners(({ actions, values, cache }) => ({
@@ -709,7 +752,7 @@ export const vizLogic = kea<vizLogicType>([
     urlToAction(({ actions, values }) => ({
         '/viz/:brand': () => {
             const hash = router.values.location.hash.replace('#', '')
-            const tab = ['prompts', 'competitors'].includes(hash) ? (hash as DashboardTab) : 'overview'
+            const tab = ['prompts', 'competitors', 'sources'].includes(hash) ? (hash as DashboardTab) : 'overview'
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }
@@ -720,7 +763,7 @@ export const vizLogic = kea<vizLogicType>([
         actions.loadTriggerResult()
         // Sync tab from URL hash on mount
         const hash = window.location.hash.replace('#', '')
-        const tab = ['prompts', 'competitors'].includes(hash) ? (hash as DashboardTab) : 'overview'
+        const tab = ['prompts', 'competitors', 'sources'].includes(hash) ? (hash as DashboardTab) : 'overview'
         if (tab !== 'overview') {
             actions.setActiveTab(tab)
         }

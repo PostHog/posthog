@@ -9,6 +9,7 @@ import {
     CompetitorMentionsBar,
     CompetitorTopicsHeatmap,
     RankingCard,
+    SourcesTable,
     TopBar,
     TopCitedSourcesList,
     TopTopicsList,
@@ -111,6 +112,35 @@ function CompetitorsTab({ brand }: { brand: string }): JSX.Element {
     )
 }
 
+// Sources tab content
+function SourcesTab({ brand }: { brand: string }): JSX.Element {
+    const logic = vizLogic({ brand })
+    const values = useValues(logic) as ReturnType<typeof useValues<typeof logic>> & {
+        sourceDetails: { domain: string; pages: number; responses: number; brandMentionRate: number }[]
+    }
+    const { brandDisplayName } = values
+    const sourceDetails = values.sourceDetails ?? []
+
+    return (
+        <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+                <div className="border rounded-lg p-4 bg-bg-light">
+                    <p className="text-muted text-xs uppercase font-semibold">Total sources</p>
+                    <p className="text-2xl font-bold">{sourceDetails.length}</p>
+                    <p className="text-xs text-muted">Unique domains cited by AI</p>
+                </div>
+                <div className="border rounded-lg p-4 bg-bg-light">
+                    <p className="text-muted text-xs uppercase font-semibold">Sources mentioning {brandDisplayName}</p>
+                    <p className="text-2xl font-bold">{sourceDetails.filter((s) => s.brandMentionRate > 0).length}</p>
+                    <p className="text-xs text-muted">Sources that mention your brand</p>
+                </div>
+            </div>
+
+            <SourcesTable sources={sourceDetails} brandName={brandDisplayName} />
+        </div>
+    )
+}
+
 function DashboardView({ brand, lastUpdated }: { brand: string; lastUpdated: string | null }): JSX.Element {
     const logic = vizLogic({ brand })
     const { activeTab, triggerResultLoading } = useValues(logic)
@@ -140,12 +170,14 @@ function DashboardView({ brand, lastUpdated }: { brand: string; lastUpdated: str
                             { key: 'overview', label: 'Overview' },
                             { key: 'prompts', label: 'Prompts' },
                             { key: 'competitors', label: 'Competitors' },
+                            { key: 'sources', label: 'Sources' },
                         ]}
                     />
 
                     {activeTab === 'overview' && <OverviewTab brand={brand} />}
                     {activeTab === 'prompts' && <PromptsTab brand={brand} />}
                     {activeTab === 'competitors' && <CompetitorsTab brand={brand} />}
+                    {activeTab === 'sources' && <SourcesTab brand={brand} />}
                 </div>
             </div>
         </div>
