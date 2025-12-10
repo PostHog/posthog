@@ -1793,8 +1793,14 @@ const api = {
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
-        async getSuggestions(id: number): Promise<any> {
+        async getSuggestions(id: number, context?: string): Promise<any> {
+            if (context) {
+                return await new ApiRequest().insight(id).withAction('suggestions').create({ data: { context } })
+            }
             return await new ApiRequest().insight(id).withAction('suggestions').get()
+        },
+        async analyze(id: number): Promise<{ result: string }> {
+            return await new ApiRequest().insight(id).withAction('analyze').get()
         },
     },
 
@@ -3787,7 +3793,7 @@ const api = {
             async get(taskId: Task['id'], runId: TaskRun['id']): Promise<TaskRun> {
                 return await new ApiRequest().taskRun(taskId, runId).get()
             },
-            async getLogs(taskId: Task['id'], runId: TaskRun['id'], _noCache: boolean = false): Promise<string> {
+            async getLogs(taskId: Task['id'], runId: TaskRun['id']): Promise<string> {
                 const run = await new ApiRequest().taskRun(taskId, runId).get()
                 if (run.log_url) {
                     const response = await fetch(run.log_url, {

@@ -1173,6 +1173,47 @@ When set, the specified dashboard's filters and date range override will be appl
         return response
 
     @action(methods=["GET"], detail=True)
+    def analyze(self, request: Request, **kwargs) -> Response:
+        from posthog.schema import InsightVizNode
+
+        from posthog.api.insight_suggestions import get_insight_analysis
+        from posthog.api.services.query import process_query_model
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
+        insight = self.get_object()
+
+        if not insight.query:
+            return Response({"result": ""})
+
+        try:
+            query = InsightVizNode.model_validate(insight.query)
+        except Exception:
+            return Response({"result": ""})
+
+        result = None
+        try:
+            # We try to get cached result.
+            result_ctx = process_query_model(
+                self.team,
+                query,
+                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                user=request.user,
+            )
+            if isinstance(result_ctx, BaseModel):
+                result = result_ctx.model_dump()
+            else:
+                result = result_ctx
+
+            if result and result.get("results") is None and result.get("result") is None:
+                result = None
+        except Exception:
+            result = None
+
+        analysis = get_insight_analysis(query, self.team, result)
+
+        return Response({"result": analysis})
+
+    @action(methods=["GET", "POST"], detail=True)
     def suggestions(self, request: Request, **kwargs) -> Response:
         from posthog.schema import InsightVizNode
 
@@ -1209,7 +1250,12 @@ When set, the specified dashboard's filters and date range override will be appl
         except Exception:
             result = None
 
-        suggestions = get_insight_suggestions(query, self.team, result)
+        # Get context from POST body if provided
+        context = None
+        if request.method == "POST":
+            context = request.data.get("context")
+
+        suggestions = get_insight_suggestions(query, self.team, result, context)
 
         return Response([s.model_dump() for s in suggestions])
 

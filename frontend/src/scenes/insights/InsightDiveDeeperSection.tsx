@@ -16,6 +16,7 @@ import { insightLogic } from './insightLogic'
 
 export interface InsightDiveDeeperSectionProps {
     query: InsightQueryNode
+    analysisContext?: string
 }
 
 export type InsightSuggestion = {
@@ -66,7 +67,10 @@ function DiveDeeperRow({ suggestion }: { suggestion: InsightSuggestion }): JSX.E
     )
 }
 
-export function InsightDiveDeeperSection({ query }: InsightDiveDeeperSectionProps): JSX.Element | null {
+export function InsightDiveDeeperSection({
+    query,
+    analysisContext,
+}: InsightDiveDeeperSectionProps): JSX.Element | null {
     const { insight } = useValues(insightLogic)
     const [suggestions, setSuggestions] = useState<InsightSuggestion[]>([])
     const [isLoading, setIsLoading] = useState(true)
@@ -83,7 +87,7 @@ export function InsightDiveDeeperSection({ query }: InsightDiveDeeperSectionProp
             try {
                 setIsLoading(true)
 
-                const response = await api.insights.getSuggestions(insight.id)
+                const response = await api.insights.getSuggestions(insight.id, analysisContext)
 
                 if (isMounted) {
                     setSuggestions(response)
@@ -105,7 +109,7 @@ export function InsightDiveDeeperSection({ query }: InsightDiveDeeperSectionProp
         return () => {
             isMounted = false
         }
-    }, [insight.id, JSON.stringify(query)])
+    }, [insight.id, JSON.stringify(query), analysisContext])
 
     if (isLoading) {
         return (
@@ -122,8 +126,8 @@ export function InsightDiveDeeperSection({ query }: InsightDiveDeeperSectionProp
 
     return (
         <div className="mt-4">
-            <h2 className="font-semibold text-lg m-0 mb-2">Dive deeper</h2>
-            <p className="text-muted mb-4">Explore related insights to understand your data better</p>
+            <h3 className="font-semibold text-base m-0 mb-2">Explore related insights</h3>
+            <p className="text-muted mb-4">Suggested follow-up insights to understand your data better</p>
 
             <div className="space-y-2">
                 {suggestions.map((suggestion, index) => (
