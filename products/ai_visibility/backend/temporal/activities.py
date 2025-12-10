@@ -8,7 +8,7 @@ from django.utils import timezone
 
 import structlog
 from openai import OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conlist
 from temporalio import activity
 
 from posthog.storage import object_storage
@@ -59,9 +59,14 @@ class ProbeResult(BaseModel):
     suffix: str
     topic: str
     mentions_target: bool
-    competitors: list[str]
+    competitors: conlist(str, min_length=0, max_length=5) = Field(
+        default_factory=list,
+        description="Only list competitors when clearly confident; otherwise return empty list",
+    )
     confidence: float
-    reasoning: str
+    reasoning: str = Field(
+        ..., max_length=280, description="One-sentence evidence for mention/no-mention; keep concise and grounded"
+    )
 
 
 class PlatformResult(BaseModel):
@@ -78,6 +83,7 @@ class PromptResult(BaseModel):
     platforms: dict[str, PlatformResult]
     competitors_mentioned: list[str]
     last_checked: str
+    reasoning: str
 
 
 class ShareOfVoice(BaseModel):
@@ -218,7 +224,7 @@ async def generate_prompts(payload: PromptsInput) -> list[dict]:
     prompt = (
         "Generate search-style prompts to probe AI assistants about a target business and its space. "
         "For each suffix, craft one prompt using the business name, category, and topics. "
-        "Prompts should be concise and natural.\n\n"
+        "Prompts must be 8-12 words (never more than 15), concise, natural, and non-overlapping.\n\n"
         f"Business: {info.name}\nCategory: {info.category}\nTopics: {payload.topics}\nSuffixes: {SUFFIXES}"
     )
     logger.info("ai_visibility.generate_prompts.start", domain=payload.domain)
@@ -232,7 +238,9 @@ async def _probe_suffix(domain: str, info: BusinessInfo, topic: str, suffix: str
     prompt = (
         "You are evaluating how well a business appears in AI responses.\n"
         "Given a topic and suffix, determine if the target business is prominently mentioned, and list competitors.\n"
-        "Return mentions_target=true if the business is a clear top result.\n\n"
+        "Return mentions_target=true if the business is a clear top result.\n"
+        "Only list competitors you are clearly confident about; otherwise return an empty list.\n"
+        "Provide one-sentence reasoning grounded in the deciding signals.\n\n"
         f"Business: {info.name}\nCategory: {info.category}\nTopic: {topic}\nSuffix: {suffix}"
     )
     data = await _call_structured_llm(prompt, ProbeResult)
@@ -288,6 +296,7 @@ async def combine_calls(payload: CombineInput) -> dict:
                 platforms=platforms,
                 competitors_mentioned=probe.competitors,
                 last_checked=timezone.now().isoformat(),
+                reasoning=probe.reasoning,
             )
         )
 
