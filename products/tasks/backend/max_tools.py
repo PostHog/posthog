@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.conf import settings
+
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
@@ -15,6 +17,7 @@ class CreateTaskArgs(BaseModel):
     title: str = Field(description="Title of the task")
     description: str = Field(description="Detailed description of what the task should accomplish")
     repository: str = Field(description="Repository in format 'org/repo' (e.g., 'posthog/posthog-js')")
+    run: bool = Field(default=True, description="Whether to immediately run the task after creation")
 
 
 class RunTaskArgs(BaseModel):
@@ -57,15 +60,17 @@ Use this tool when the user wants to:
 - Create a new coding task for an AI agent to execute
 - Set up a task to fix an issue, implement a feature, or make changes to a repository
 
-The task will be created but not executed immediately. Use the run_task tool to trigger execution.
+By default, the task will be created and immediately executed. Set run=false to create without executing.
     """.strip()
     args_schema: type[BaseModel] = CreateTaskArgs
 
-    async def _arun_impl(self, title: str, description: str, repository: str) -> tuple[str, dict[str, Any]]:
+    async def _arun_impl(
+        self, title: str, description: str, repository: str, run: bool = True
+    ) -> tuple[str, dict[str, Any]]:
         from posthog.models.integration import Integration
 
         @sync_to_async
-        def create_task():
+        def create_task_and_maybe_run():
             github_integration = Integration.objects.filter(team=self._team, kind="github").first()
 
             task = Task.objects.create(
@@ -77,15 +82,51 @@ The task will be created but not executed immediately. Use the run_task tool to 
                 repository=repository,
                 github_integration=github_integration,
             )
-            task_url = f"/project/{self._team.project.id}/tasks/{task.id}"
-            return {
+
+            task_run = None
+            if run:
+                task_run = task.create_run()
+
+            task_url = f"{settings.SITE_URL}/project/{self._team.project.id}/tasks/{task.id}"
+            if task_run:
+                task_url = f"{task_url}?runId={task_run.id}"
+
+            result = {
                 "task_id": str(task.id),
                 "slug": task.slug,
                 "title": task.title,
                 "url": task_url,
+                "team_id": task.team.id,
             }
 
-        result = await create_task()
+            if task_run:
+                result["latest_run"] = {
+                    "run_id": str(task_run.id),
+                    "status": task_run.status,
+                    "status_display": task_run.get_status_display(),
+                }
+
+            return result
+
+        result = await create_task_and_maybe_run()
+
+        if run and "latest_run" in result:
+            slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
+
+            execute_task_processing_workflow(
+                task_id=result["task_id"],
+                run_id=result["latest_run"]["run_id"],
+                team_id=result["team_id"],
+                user_id=self._user.id,
+                slack_thread_context=slack_thread_context,
+            )
+
+            return (
+                f"Created and started task '{result['title']}' (ID: {result['task_id']}).\n"
+                f"Run ID: {result['latest_run']['run_id']}\n"
+                f"View at {result['url']}",
+                result,
+            )
 
         return (
             f"Created task '{result['title']}' (ID: {result['task_id']}). "
@@ -115,12 +156,14 @@ Use this tool when the user wants to:
                 return None
 
             task_run = task.create_run()
+            task_url = f"{settings.SITE_URL}/project/{task.team.project.id}/tasks/{task.id}?runId={task_run.id}"
             return {
                 "task_id": str(task.id),
                 "run_id": str(task_run.id),
                 "slug": task.slug,
                 "title": task.title,
                 "team_id": task.team.id,
+                "url": task_url,
             }
 
         result = await get_task_and_create_run()
@@ -128,21 +171,26 @@ Use this tool when the user wants to:
         if not result:
             return f"Task with ID {task_id} not found", {"error": "not_found"}
 
+        # Extract slack thread context from config if available
+        slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
+
         execute_task_processing_workflow(
             task_id=result["task_id"],
             run_id=result["run_id"],
             team_id=result["team_id"],
             user_id=self._user.id,
+            slack_thread_context=slack_thread_context,
         )
 
         return (
             f"Started execution of task '{result['title']}' ({result['slug']}).\n"
             f"Run ID: {result['run_id']}\n"
-            f"Use get_task_run to monitor progress.",
+            f"View at {result['url']}",
             {
                 "task_id": result["task_id"],
                 "run_id": result["run_id"],
                 "slug": result["slug"],
+                "url": result["url"],
             },
         )
 
@@ -483,7 +531,7 @@ Use this tool when the user wants to:
         if not repos:
             if search:
                 return f"No repositories found matching '{search}'", {"repositories": []}
-            settings_url = "/settings/project-integrations"
+            settings_url = f"{settings.SITE_URL}/settings/project-integrations"
             return (
                 f"No GitHub repositories available. Please connect a GitHub integration in Settings: {settings_url}",
                 {"repositories": [], "settings_url": settings_url},

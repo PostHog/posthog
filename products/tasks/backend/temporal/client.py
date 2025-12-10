@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 
@@ -13,15 +13,27 @@ from posthog.temporal.common.client import async_connect
 
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 
+if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadContext
+
 logger = logging.getLogger(__name__)
 
 
 async def _execute_task_processing_workflow(
-    task_id: str, run_id: str, team_id: int, user_id: Optional[int] = None, create_pr: bool = True
+    task_id: str,
+    run_id: str,
+    team_id: int,
+    user_id: Optional[int] = None,
+    create_pr: bool = True,
+    slack_thread_context: Optional["SlackThreadContext"] = None,
 ) -> str:
     workflow_id = f"task-processing-{task_id}-{run_id}"
     workflow_name = "process-task"
-    workflow_input = ProcessTaskInput(run_id=run_id, create_pr=create_pr)
+    workflow_input = ProcessTaskInput(
+        run_id=run_id,
+        create_pr=create_pr,
+        slack_thread_context=slack_thread_context.to_dict() if slack_thread_context else None,
+    )
 
     logger.info(f"Starting workflow {workflow_name} ({workflow_id}) for task {task_id}, run {run_id}")
 
@@ -42,7 +54,12 @@ async def _execute_task_processing_workflow(
 
 
 def execute_task_processing_workflow(
-    task_id: str, run_id: str, team_id: int, user_id: Optional[int] = None, create_pr: bool = True
+    task_id: str,
+    run_id: str,
+    team_id: int,
+    user_id: Optional[int] = None,
+    create_pr: bool = True,
+    slack_thread_context: Optional["SlackThreadContext"] = None,
 ) -> None:
     """
     Execute the task processing workflow synchronously.
@@ -90,7 +107,11 @@ def execute_task_processing_workflow(
                     return
 
                 logger.info(f"Triggering workflow for task {task_id}, run {run_id}")
-                asyncio.run(_execute_task_processing_workflow(task_id, run_id, team_id, user_id, create_pr))
+                asyncio.run(
+                    _execute_task_processing_workflow(
+                        task_id, run_id, team_id, user_id, create_pr, slack_thread_context
+                    )
+                )
                 logger.info(f"Workflow completed for task {task_id}, run {run_id}")
             except Exception as e:
                 logger.exception(f"Workflow execution failed for task {task_id}: {e}")

@@ -21,6 +21,7 @@ from ee.models import Conversation
 
 if TYPE_CHECKING:
     from ee.hogai.utils.types.composed import MaxNodeName
+    from products.slack_app.backend.slack_thread import SlackThreadContext
 
 
 STREAMING_NODES: set["MaxNodeName"] = {
@@ -69,6 +70,7 @@ class ChatAgentRunner(BaseAgentRunner):
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantState | PartialAssistantState] = None,
         agent_mode: AgentMode | None = None,
+        slack_thread_context: Optional["SlackThreadContext"] = None,
     ):
         super().__init__(
             team,
@@ -91,6 +93,7 @@ class ChatAgentRunner(BaseAgentRunner):
                 team=team,
                 user=user,
             ),
+            slack_thread_context=slack_thread_context,
         )
         self._selected_agent_mode = agent_mode
 
