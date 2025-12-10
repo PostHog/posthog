@@ -127,7 +127,7 @@ export class CdpApi {
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
-        router.get('/public/short_links/:short_id', asyncHandler(this.handleShortLink()))
+        router.get('/public/short_links/:short_link_domain/:short_code', asyncHandler(this.handleShortLink()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
         router.post('/public/m/ses_webhook', express.text(), asyncHandler(this.postSesWebhook()))
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
@@ -473,15 +473,14 @@ export class CdpApi {
     private handleShortLink =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-            const { short_id } = req.params
-            const shortLinkDomain = req.headers['host']
+            const { short_link_domain, short_code } = req.params
 
             try {
-                if (!shortLinkDomain) {
-                    return res.status(400).json({ error: 'Host is not set' })
+                if (!short_link_domain || !short_code) {
+                    return res.status(400).json({ error: 'Short domain or code is not set' })
                 }
 
-                const link = await this.linkManager.getLink(shortLinkDomain, short_id)
+                const link = await this.linkManager.getLink(short_link_domain, short_code)
 
                 if (!link) {
                     return res.status(404).json({ error: 'Link not found' })
