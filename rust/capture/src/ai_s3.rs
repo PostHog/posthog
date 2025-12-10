@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
 use rand::Rng;
-use serde_json::{Map, Value};
 
 use crate::s3_client::{S3Client, S3Error};
 
@@ -29,19 +28,6 @@ pub struct BlobPartRange {
     pub property_name: String,
     pub range_start: usize,
     pub range_end: usize,
-}
-
-impl UploadedBlobs {
-    /// Insert S3 URLs into event properties.
-    pub fn insert_urls_into_properties(&self, properties: &mut Map<String, Value>) {
-        for part in &self.parts {
-            let url = format!(
-                "{}?range={}-{}",
-                self.base_url, part.range_start, part.range_end
-            );
-            properties.insert(part.property_name.clone(), Value::String(url));
-        }
-    }
 }
 
 /// Trait for blob storage implementations.
@@ -292,38 +278,6 @@ impl BlobStorage for MockBlobStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_blob_part_range_url_generation() {
-        let uploaded = UploadedBlobs {
-            base_url: "s3://capture/llma/phc_test_token/abc-def".to_string(),
-            boundary: "----posthog-ai-abc-def".to_string(),
-            parts: vec![
-                BlobPartRange {
-                    property_name: "$ai_input".to_string(),
-                    range_start: 0,
-                    range_end: 99,
-                },
-                BlobPartRange {
-                    property_name: "$ai_output".to_string(),
-                    range_start: 100,
-                    range_end: 249,
-                },
-            ],
-        };
-
-        let mut properties = Map::new();
-        uploaded.insert_urls_into_properties(&mut properties);
-
-        assert_eq!(
-            properties.get("$ai_input").unwrap().as_str().unwrap(),
-            "s3://capture/llma/phc_test_token/abc-def?range=0-99"
-        );
-        assert_eq!(
-            properties.get("$ai_output").unwrap().as_str().unwrap(),
-            "s3://capture/llma/phc_test_token/abc-def?range=100-249"
-        );
-    }
 
     #[test]
     fn test_multipart_part_format() {

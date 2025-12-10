@@ -47,6 +47,20 @@ struct BlobPart {
     data: Bytes,
 }
 
+/// Insert S3 URLs from uploaded blobs into event properties.
+fn insert_blob_urls_into_properties(
+    uploaded: &crate::ai_s3::UploadedBlobs,
+    properties: &mut serde_json::Map<String, Value>,
+) {
+    for part in &uploaded.parts {
+        let url = format!(
+            "{}?range={}-{}",
+            uploaded.base_url, part.range_start, part.range_end
+        );
+        properties.insert(part.property_name.clone(), Value::String(url));
+    }
+}
+
 /// Metadata extracted from the event part for early checks (token dropper, quota)
 #[derive(Debug)]
 struct EventMetadata {
@@ -237,7 +251,7 @@ pub async fn ai_handler(
             .and_then(|obj| obj.get_mut("properties"))
             .and_then(|p| p.as_object_mut())
         {
-            uploaded.insert_urls_into_properties(properties);
+            insert_blob_urls_into_properties(&uploaded, properties);
         }
     }
 
@@ -924,4 +938,42 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ai_s3::{BlobPartRange, UploadedBlobs};
+
+    #[test]
+    fn test_insert_blob_urls_into_properties() {
+        let uploaded = UploadedBlobs {
+            base_url: "s3://capture/llma/phc_test_token/abc-def".to_string(),
+            boundary: "----posthog-ai-abc-def".to_string(),
+            parts: vec![
+                BlobPartRange {
+                    property_name: "$ai_input".to_string(),
+                    range_start: 0,
+                    range_end: 99,
+                },
+                BlobPartRange {
+                    property_name: "$ai_output".to_string(),
+                    range_start: 100,
+                    range_end: 249,
+                },
+            ],
+        };
+
+        let mut properties = serde_json::Map::new();
+        insert_blob_urls_into_properties(&uploaded, &mut properties);
+
+        assert_eq!(
+            properties.get("$ai_input").unwrap().as_str().unwrap(),
+            "s3://capture/llma/phc_test_token/abc-def?range=0-99"
+        );
+        assert_eq!(
+            properties.get("$ai_output").unwrap().as_str().unwrap(),
+            "s3://capture/llma/phc_test_token/abc-def?range=100-249"
+        );
+    }
 }
