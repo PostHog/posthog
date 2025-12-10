@@ -1,11 +1,18 @@
+import json
 import asyncio
 from dataclasses import dataclass
 from typing import Any
+
+from django.conf import settings
 
 import structlog
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from temporalio import activity
+
+from posthog.storage import object_storage
+
+from products.ai_visibility.backend.models import AiVisibilityRun
 
 logger = structlog.get_logger(__name__)
 
@@ -71,6 +78,8 @@ class ShareOfVoice(BaseModel):
 
 class DashboardData(BaseModel):
     visibility_score: int
+    score_change: int
+    score_change_period: str
     share_of_voice: ShareOfVoice
     prompts: list[PromptResult]
 
@@ -107,6 +116,12 @@ class CombineInput:
     info: dict
     topics: list[str]
     ai_calls: list[dict]
+
+
+@dataclass
+class SaveResultsInput:
+    run_id: str
+    combined: dict
 
 
 def _compute_share_of_voice(probes: list[ProbeResult], target: str) -> ShareOfVoice:
@@ -255,9 +270,12 @@ async def combine_calls(payload: CombineInput) -> dict:
         )
 
     visibility_score = int(min(100, max(0, share.you * 100)))
+    score_change = 0
 
     dashboard = DashboardData(
         visibility_score=visibility_score,
+        score_change=score_change,
+        score_change_period="week",
         share_of_voice=share,
         prompts=prompt_items,
     )
@@ -266,3 +284,19 @@ async def combine_calls(payload: CombineInput) -> dict:
         "ai_visibility.combine_calls.done", domain=payload.domain, probes=len(probes), visibility_score=visibility_score
     )
     return dashboard.model_dump()
+
+
+@activity.defn(name="saveResults")
+async def save_results(payload: SaveResultsInput) -> str:
+    await asyncio.sleep(0)
+    logger.info("ai_visibility.save_results", run_id=payload.run_id)
+
+    s3_key = f"{settings.OBJECT_STORAGE_AI_VISIBILITY_FOLDER}/{payload.run_id}.json"
+    content = json.dumps(payload.combined)
+    object_storage.write(s3_key, content)
+
+    run = await asyncio.to_thread(AiVisibilityRun.objects.get, id=payload.run_id)
+    await asyncio.to_thread(run.mark_ready, s3_key)
+
+    logger.info("ai_visibility.save_results.complete", run_id=payload.run_id, s3_path=s3_key)
+    return s3_key
