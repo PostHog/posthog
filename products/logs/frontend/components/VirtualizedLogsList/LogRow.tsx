@@ -29,7 +29,7 @@ export interface LogColumnConfig {
 
 export const LOG_COLUMNS: LogColumnConfig[] = [
     { key: 'severity', width: 8 },
-    { key: 'expand', width: 24 },
+    { key: 'expand', width: 28 },
     { key: 'timestamp', label: 'Timestamp', width: 180 },
     { key: 'message', label: 'Message', minWidth: 300, flex: 1 },
     { key: 'actions', width: 70 },
@@ -109,10 +109,9 @@ export function LogRow({
             }
             case 'expand':
                 return (
-                    <div key={column.key} style={cellStyle} className="flex items-center justify-center">
+                    <div key={column.key} style={cellStyle} className="flex items-stretch self-stretch  justify-center">
                         <LemonButton
                             size="xsmall"
-                            noPadding
                             icon={
                                 <IconChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
                             }
