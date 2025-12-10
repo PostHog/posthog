@@ -228,8 +228,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 properties={
                     "endpoint_id": str(endpoint.id),
                     "endpoint_name": endpoint.name,
-                    "is_materialized": endpoint.is_materialized,
-                    "has_cache_age": endpoint.cache_age_seconds is not None,
                     "query_kind": endpoint.query.get("kind") if isinstance(endpoint.query, dict) else None,
                 },
                 team=self.team,
