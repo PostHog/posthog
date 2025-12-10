@@ -313,8 +313,16 @@ function TopicsTable({ topics }: { topics: Topic[] }): JSX.Element {
                                         <div className="flex items-center gap-2">
                                             {topic.topCompetitors.slice(0, 4).map((c) => (
                                                 <Tooltip key={c.name} title={c.name}>
-                                                    <div className="w-5 h-5 rounded-full bg-border flex items-center justify-center text-[10px]">
-                                                        {c.name.charAt(0)}
+                                                    <div className="w-5 h-5 rounded-full bg-border overflow-hidden flex items-center justify-center text-[10px]">
+                                                        {c.icon ? (
+                                                            <img
+                                                                src={c.icon}
+                                                                alt={c.name}
+                                                                className="w-full h-full object-contain"
+                                                            />
+                                                        ) : (
+                                                            c.name.charAt(0)
+                                                        )}
                                                     </div>
                                                 </Tooltip>
                                             ))}
@@ -347,9 +355,27 @@ function TopicsTable({ topics }: { topics: Topic[] }): JSX.Element {
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                         <CategoryTag category={prompt.category} />
-                                                        {prompt.competitors_mentioned.slice(0, 2).map((c) => (
-                                                            <LemonTag key={c} type="muted" size="small">
-                                                                {c}
+                                                        {(prompt.competitors?.length
+                                                            ? prompt.competitors.slice(0, 2)
+                                                            : prompt.competitors_mentioned
+                                                                  .slice(0, 2)
+                                                                  .map((name) => ({ name, logo_url: undefined }))
+                                                        ).map((comp) => (
+                                                            <LemonTag key={comp.name} type="muted" size="small">
+                                                                <span className="flex items-center gap-1">
+                                                                    {comp.logo_url ? (
+                                                                        <img
+                                                                            src={comp.logo_url}
+                                                                            alt={comp.name}
+                                                                            className="w-4 h-4 rounded-full"
+                                                                        />
+                                                                    ) : (
+                                                                        <span className="w-4 h-4 rounded-full bg-border flex items-center justify-center text-[10px]">
+                                                                            {comp.name.charAt(0)}
+                                                                        </span>
+                                                                    )}
+                                                                    <span>{comp.name}</span>
+                                                                </span>
                                                             </LemonTag>
                                                         ))}
                                                     </div>
@@ -375,52 +401,31 @@ function ComparisonCard({
     comparison: CompetitorComparison
     brandName: string
 }): JSX.Element {
-    const youWidth = comparison.youLeadPercentage
-    const theyWidth = 100 - comparison.youLeadPercentage
-    const tieWidth = 0 // simplified
-
     return (
         <div className="border rounded-lg p-4 bg-bg-light">
             <div className="flex items-center justify-between mb-2">
-                <span className="text-primary font-semibold">{brandName}</span>
+                <span className="font-semibold">{brandName}</span>
                 <span className="text-xs text-muted">vs</span>
                 <span className="font-semibold">{comparison.competitor}</span>
             </div>
             <p className="text-sm text-muted mb-2">
-                {brandName} appears higher for {comparison.youLeadPercentage}% of shared prompts
+                {brandName} appears higher in <span className="font-bold">{comparison.youLeadPercentage}%</span> of
+                prompts
             </p>
-            <p className="text-xs text-muted mb-3">{comparison.sharedPrompts} shared prompts</p>
+            <p className="text-xs text-muted mb-3">{comparison.sharedPrompts} prompts analyzed</p>
 
-            {/* Progress bar */}
-            <div className="flex h-3 rounded overflow-hidden mb-4">
-                <div className="bg-primary" style={{ width: `${youWidth}%` }} />
-                <div className="bg-gray-300" style={{ width: `${tieWidth}%` }} />
-                <div className="bg-warning" style={{ width: `${theyWidth}%` }} />
+            {/* Progress bar - brand percentage from left in blue */}
+            <div className="flex h-3 rounded overflow-hidden mb-4 bg-gray-200">
+                <div className="bg-[#3b82f6]" style={{ width: `${comparison.youLeadPercentage}%` }} />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <p className="text-xs text-primary font-medium mb-2">● {brandName} leads in:</p>
-                    <div className="space-y-1">
-                        {comparison.youLeadsIn.slice(0, 5).map((item) => (
-                            <div key={item.topic} className="flex justify-between text-xs">
-                                <span className="text-muted">{item.topic}</span>
-                                <span>{item.percentage}%</span>
-                            </div>
-                        ))}
+            <div className="space-y-1">
+                {comparison.topicResults.map((result) => (
+                    <div key={result.topic} className="flex justify-between text-xs">
+                        <span className="text-muted">{result.topic}</span>
+                        <span>{result.youPercentage}%</span>
                     </div>
-                </div>
-                <div>
-                    <p className="text-xs text-warning font-medium mb-2">● {comparison.competitor} leads in:</p>
-                    <div className="space-y-1">
-                        {comparison.theyLeadIn.slice(0, 5).map((item) => (
-                            <div key={item.topic} className="flex justify-between text-xs">
-                                <span className="text-muted">{item.topic}</span>
-                                <span>{item.percentage}%</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                ))}
             </div>
         </div>
     )
@@ -514,11 +519,11 @@ function CompetitorTopicsHeatmap({
                                                 )}
                                             >
                                                 {showRank
-                                                    ? isBrand
-                                                        ? topic.avgRank > 0
-                                                            ? `#${topic.avgRank.toFixed(1)}`
-                                                            : '-'
-                                                        : '-'
+                                                    ? (() => {
+                                                          const cell = getCell(topic.name, comp.name)
+                                                          const rank = cell?.avgRank
+                                                          return rank && rank > 0 ? `#${rank}` : '-'
+                                                      })()
                                                     : `${cellValue}%`}
                                             </div>
                                         </td>
@@ -623,7 +628,7 @@ function CompetitorsTab({ brand }: { brand: string }): JSX.Element {
 
 function DashboardView({ brand, lastUpdated }: { brand: string; lastUpdated: string | null }): JSX.Element {
     const logic = vizLogic({ brand })
-    const { brandDisplayName, activeTab, triggerResultLoading } = useValues(logic)
+    const { activeTab, triggerResultLoading } = useValues(logic)
     const { setActiveTab, forceNewRun } = useActions(logic)
 
     return (
@@ -632,8 +637,15 @@ function DashboardView({ brand, lastUpdated }: { brand: string; lastUpdated: str
             <div className="flex-1 overflow-auto">
                 <div className="p-6 space-y-6 max-w-7xl mx-auto">
                     <div>
-                        <h1 className="text-2xl font-bold mb-1">AI visibility for {brandDisplayName}</h1>
-                        <p className="text-muted">Track how AI assistants mention your brand across prompts</p>
+                        <h1 className="text-4xl font-bold mb-1 flex items-center gap-2">
+                            <img
+                                src={`https://www.google.com/s2/favicons?domain=${brand}&sz=128`}
+                                alt=""
+                                className="w-6 h-6"
+                            />
+                            {brand}
+                        </h1>
+                        <p className="text-muted text-lg">Track how AI assistants mention your brand across prompts</p>
                     </div>
 
                     <LemonTabs

@@ -1,4 +1,5 @@
 import json
+import random
 import asyncio
 from dataclasses import dataclass
 from typing import Any
@@ -20,10 +21,16 @@ logger = structlog.get_logger(__name__)
 # Lazily instantiate a single client per process
 _client: OpenAI | None = None
 
-# Shared prompt suffixes to keep probes and generation in sync
-SUFFIXES = ["alternatives", "competitors", "best"]
+# Hardcoded brand-based prompt templates (use {brand} placeholder)
+BRAND_PROMPT_TEMPLATES = [
+    "{brand} alternatives",
+    "{brand} competitors ranked",
+    "{brand} vs competitors",
+    "best {brand} alternatives",
+    "{brand} reviews",
+]
 # Limit concurrent probes to avoid flooding the LLM/API
-_PROBE_CONCURRENCY = 10
+_PROBE_CONCURRENCY = 15
 # LLM call protection
 _LLM_TIMEOUT_SECONDS = 20
 _LLM_MAX_RETRIES = 3
@@ -42,13 +49,30 @@ class BusinessInfo(BaseModel):
     summary: str = Field(..., description="One sentence summary of what the business does")
 
 
+class CategoryOutput(BaseModel):
+    name: str = Field(..., description="Short category name (2-5 words)")
+    description: str = Field(..., description="One sentence describing what this category covers")
+
+
 class TopicsOutput(BaseModel):
-    topics: list[str] = Field(..., description="Key features, solutions, or topics associated with the business")
+    categories: list[CategoryOutput] = Field(
+        ...,
+        description="Topic categories customers search for (e.g., 'Self-hosted Analytics', 'Privacy-first Analytics')",
+    )
 
 
 class PromptVariant(BaseModel):
-    intent: str
-    prompt: str
+    category: str = Field(..., description="Category this prompt belongs to")
+    prompt: str = Field(..., description="Natural freeform search prompt")
+
+
+class CompetitorInfo(BaseModel):
+    name: str = Field(..., description="Competitor brand name (not a generic category)")
+    domain: str | None = Field(default=None, description="Primary domain for the competitor, no protocol")
+    logo_url: str | None = Field(
+        default=None,
+        description="Logo URL; prefer https://www.google.com/s2/favicons?domain=<domain>&sz=128 when domain is known, else null",
+    )
 
 
 class PromptsOutput(BaseModel):
@@ -56,12 +80,11 @@ class PromptsOutput(BaseModel):
 
 
 class ProbeResult(BaseModel):
-    suffix: str
-    topic: str
+    prompt: str = Field(..., description="The exact prompt that was probed")
+    category: str = Field(..., description="Category this prompt belongs to")
     mentions_target: bool
-    competitors: conlist(str, min_length=0, max_length=5) = Field(
-        default_factory=list,
-        description="Only list competitors when clearly confident; otherwise return empty list",
+    competitors: conlist(CompetitorInfo, min_length=0, max_length=5) = Field(
+        default_factory=list, description="Competitor brand details"
     )
     confidence: float
     reasoning: str = Field(
@@ -78,9 +101,11 @@ class PlatformResult(BaseModel):
 class PromptResult(BaseModel):
     id: str
     text: str
-    category: str
+    topic: str  # The category/topic this prompt belongs to (e.g., "Self-hosted Analytics")
+    category: str  # Intent type: commercial or informational
     you_mentioned: bool
     platforms: dict[str, PlatformResult]
+    competitors: list[CompetitorInfo] = Field(default_factory=list)
     competitors_mentioned: list[str]
     last_checked: str
     reasoning: str
@@ -111,7 +136,7 @@ class TopicsInput:
 @dataclass
 class PromptsInput:
     domain: str
-    topics: list[str]
+    topics: list[dict]  # List of category dicts with name/description
     info: dict
 
 
@@ -120,14 +145,14 @@ class AICallsInput:
     domain: str
     prompts: list[dict]
     info: dict
-    topics: list[str]
+    topics: list[dict]
 
 
 @dataclass
 class CombineInput:
     domain: str
     info: dict
-    topics: list[str]
+    topics: list[dict]
     ai_calls: list[dict]
 
 
@@ -154,7 +179,7 @@ def _compute_share_of_voice(probes: list[ProbeResult], target: str) -> ShareOfVo
     comp_counts: dict[str, int] = {}
     for p in probes:
         for comp in p.competitors:
-            comp_counts[comp] = comp_counts.get(comp, 0) + 1
+            comp_counts[comp.name] = comp_counts.get(comp.name, 0) + 1
 
     comp_sum = sum(comp_counts.values()) or 1
     competitors = {k: v / comp_sum for k, v in comp_counts.items()}
@@ -167,7 +192,9 @@ def _build_openai_platforms(mentioned: bool, base_position: int) -> dict[str, Pl
     return {"openai": PlatformResult(mentioned=True, position=max(1, base_position), cited=True)}
 
 
-async def _call_structured_llm(prompt: str, schema_model: type[BaseModel]) -> dict[str, Any]:
+async def _call_structured_llm(
+    prompt: str, schema_model: type[BaseModel], *, temperature: float = 0.2
+) -> dict[str, Any]:
     client = get_client()
 
     def _call_sync() -> dict[str, Any]:
@@ -175,7 +202,7 @@ async def _call_structured_llm(prompt: str, schema_model: type[BaseModel]) -> di
             model="gpt-5.1",
             input=[{"role": "user", "content": prompt}],
             text_format=schema_model,
-            temperature=0.2,
+            temperature=temperature,
         )
         parsed = response.output_parsed
         if parsed is None:
@@ -211,48 +238,97 @@ async def extract_info_from_url(payload: ExtractInfoInput) -> dict:
 
 
 @activity.defn(name="getTopics")
-async def get_topics(payload: TopicsInput) -> list[str]:
+async def get_topics(payload: TopicsInput) -> list[dict]:
     info = BusinessInfo.model_validate(payload.info)
     prompt = (
-        "List the top problem/solution themes this business addresses. "
-        "Use generic capability terms customers would search for (e.g., containerization, app portability, orchestration). "
-        "Do NOT output brand or product names. Keep topics short (2-5 words), focused, and non-overlapping. Return 5-10 items.\n\n"
-        f"Business: {info.name}\nCategory: {info.category}\nSummary: {info.summary}"
+        "Generate topic categories that customers search for when looking for solutions like this business provides. "
+        "Categories should be natural search themes, not product features. "
+        "Examples for an analytics company: 'Self-hosted Analytics', 'Privacy-first Analytics', 'Open Source Analytics', 'GA4 Alternatives'. "
+        "Examples for a payment company: 'Online Payment Processing', 'Subscription Billing', 'Payment Gateway Solutions'. "
+        "Do NOT output brand names. Keep category names short (2-5 words). Return 5-8 diverse, non-overlapping categories.\n\n"
+        f"Business: {info.name}\nIndustry: {info.category}\nSummary: {info.summary}"
     )
     logger.info("ai_visibility.get_topics.start", domain=payload.domain, business=info.name)
     data = await _call_structured_llm(prompt, TopicsOutput)
-    topics = data.get("topics", [])
-    logger.info("ai_visibility.get_topics.done", domain=payload.domain, topics=len(topics))
-    return topics
+    categories = data.get("categories", [])
+    logger.info("ai_visibility.get_topics.done", domain=payload.domain, categories=len(categories))
+    return categories
 
 
 @activity.defn(name="generatePrompts")
 async def generate_prompts(payload: PromptsInput) -> list[dict]:
     info = BusinessInfo.model_validate(payload.info)
+    categories = payload.topics  # Now list of dicts with name/description
+
+    # Build category names for the LLM prompt
+    category_lines = "\n".join(
+        f"- {c['name']}: {c['description']}" if isinstance(c, dict) else f"- {c}" for c in categories
+    )
+
+    prompts_per_category = random.choice([3, 5, 7, 9])
     prompt = (
-        "Generate search-style prompts to probe AI assistants about how well a business solves customer problems in its category. "
-        "Use the topics as problem/solution themes (avoid brand/product names). "
-        "For each suffix, craft one distinct prompt using the business name, category, and topics. "
-        "Prompts must be 8-12 words (never more than 15), concise, natural, and non-overlapping.\n\n"
-        f"Business: {info.name}\nCategory: {info.category}\nProblem/Solution topics: {payload.topics}\nSuffixes: {SUFFIXES}"
+        "Generate natural search prompts that customers would use when researching solutions in each category. "
+        "Prompts should be freeform, varied, and sound like real questions people ask AI assistants. "
+        "Do NOT mechanically append words like 'alternatives' or 'ranked' - be creative and natural. "
+        "Do NOT include the target business name in prompts - we're testing if AI would recommend them organically. "
+        "Competitor brand mentions are okay when they make the query more natural.\n\n"
+        "Examples of good prompts:\n"
+        "- 'recommend a self hosted product analytics stack'\n"
+        "- 'tools for privacy first analytics'\n"
+        "- 'open source analytics platforms ranked'\n"
+        "- 'what's the best GA4 alternative that I can self-host'\n"
+        "- 'comparing session replay tools for startups'\n\n"
+        f"Business context: {info.name} - {info.summary}\n\n"
+        f"Categories:\n{category_lines}\n\n"
+        f"Generate exactly {prompts_per_category} diverse prompts per category. Keep prompts 6-15 words, natural, non-overlapping."
     )
     logger.info("ai_visibility.generate_prompts.start", domain=payload.domain)
-    data = await _call_structured_llm(prompt, PromptsOutput)
+    data = await _call_structured_llm(prompt, PromptsOutput, temperature=0.8)
     prompts = data.get("prompts", [])
-    logger.info("ai_visibility.generate_prompts.done", domain=payload.domain, prompts=len(prompts))
-    return [p for p in prompts if isinstance(p, dict)]
+
+    # Dedupe LLM-generated prompts
+    deduped: list[dict] = []
+    seen: set[str] = set()
+    for p in prompts:
+        text = p.get("prompt") if isinstance(p, dict) else getattr(p, "prompt", None)
+        category = p.get("category") if isinstance(p, dict) else getattr(p, "category", "General")
+        if not text:
+            continue
+        key = text.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append({"category": category, "prompt": text})
+
+    # Add hardcoded brand-based prompts
+    brand_category = "Brand Comparison"
+    for template in BRAND_PROMPT_TEMPLATES:
+        text = template.format(brand=info.name)
+        key = text.strip().lower()
+        if key not in seen:
+            seen.add(key)
+            deduped.append({"category": brand_category, "prompt": text})
+
+    logger.info("ai_visibility.generate_prompts.done", domain=payload.domain, prompts=len(deduped))
+    return deduped
 
 
-async def _probe_suffix(domain: str, info: BusinessInfo, topic: str, suffix: str) -> dict:
-    prompt = (
+async def _probe_prompt(domain: str, info: BusinessInfo, search_prompt: str, category: str) -> dict:
+    llm_prompt = (
         "You are evaluating how well a business appears in AI responses.\n"
-        "Given a topic and suffix, determine if the target business is prominently mentioned, and list competitors.\n"
-        "Return mentions_target=true if the business is a clear top result.\n"
-        "Only list competitors you are clearly confident about; otherwise return an empty list.\n"
+        "Given a search prompt, determine if the target business would be prominently mentioned in an AI response.\n"
+        "Return mentions_target=true if the business would be a clear top result for this query.\n"
+        "List up to 5 competitor brands that would likely appear (brand names only, not generic categories). "
+        "For each competitor, include the primary domain (no protocol) and a logo URL; "
+        "use https://www.google.com/s2/favicons?domain=<domain>&sz=128 when the domain is known, else leave logo_url null. "
+        "Exclude the target brand from competitors.\n"
         "Provide one-sentence reasoning grounded in the deciding signals.\n\n"
-        f"Business: {info.name}\nCategory: {info.category}\nTopic: {topic}\nSuffix: {suffix}"
+        f"Target business: {info.name}\nIndustry: {info.category}\nSearch prompt: {search_prompt}\nCategory: {category}"
     )
-    data = await _call_structured_llm(prompt, ProbeResult)
+    data = await _call_structured_llm(llm_prompt, ProbeResult)
+    # Ensure prompt and category are set correctly
+    data["prompt"] = search_prompt
+    data["category"] = category
     return data
 
 
@@ -262,14 +338,16 @@ async def make_ai_calls(payload: AICallsInput) -> list[dict]:
     tasks: list[asyncio.Task] = []
     semaphore = asyncio.Semaphore(_PROBE_CONCURRENCY)
 
-    async def run_probe(topic: str, suffix: str) -> dict:
+    async def run_probe(search_prompt: str, category: str) -> dict:
         async with semaphore:
-            return await _probe_suffix(payload.domain, info, topic, suffix)
+            return await _probe_prompt(payload.domain, info, search_prompt, category)
 
-    logger.info("ai_visibility.make_ai_calls.start", domain=payload.domain, topics=len(payload.topics))
-    for topic in payload.topics:
-        for suffix in SUFFIXES:
-            tasks.append(asyncio.create_task(run_probe(topic, suffix)))
+    logger.info("ai_visibility.make_ai_calls.start", domain=payload.domain, prompts=len(payload.prompts))
+    for prompt_item in payload.prompts:
+        search_prompt = prompt_item.get("prompt", "")
+        category = prompt_item.get("category", "General")
+        if search_prompt:
+            tasks.append(asyncio.create_task(run_probe(search_prompt, category)))
 
     results: list[dict] = []
     for coro in asyncio.as_completed(tasks):
@@ -289,21 +367,28 @@ async def combine_calls(payload: CombineInput) -> dict:
 
     share = _compute_share_of_voice(probes, target=info.name)
 
-    # Build prompt-like objects from probes: one per (topic, suffix)
+    # Classify prompts as commercial vs informational based on category/content
+    commercial_categories = {"Brand Comparison"}
+    commercial_keywords = {"alternative", "competitor", "vs", "compare", "pricing", "best", "ranked"}
+
     prompt_items: list[PromptResult] = []
     for probe in probes:
-        # Heuristic prompt text and category
-        category = "commercial" if probe.suffix in {"alternatives", "competitors", "best"} else "informational"
-        text = f"{probe.topic} {probe.suffix}".strip()
+        # Determine intent type
+        prompt_lower = probe.prompt.lower()
+        is_commercial = probe.category in commercial_categories or any(kw in prompt_lower for kw in commercial_keywords)
+        intent_type = "commercial" if is_commercial else "informational"
+
         platforms = _build_openai_platforms(probe.mentions_target, base_position=max(1, int(5 - probe.confidence * 4)))
         prompt_items.append(
             PromptResult(
-                id=f"{payload.domain}:{probe.topic}:{probe.suffix}",
-                text=text,
-                category=category,
+                id=f"{payload.domain}:{hash(probe.prompt) & 0xFFFFFFFF}",
+                text=probe.prompt,
+                topic=probe.category,  # The actual topic category (e.g., "Self-hosted Analytics")
+                category=intent_type,  # commercial or informational
                 you_mentioned=probe.mentions_target,
                 platforms=platforms,
-                competitors_mentioned=probe.competitors,
+                competitors=probe.competitors,
+                competitors_mentioned=[c.name for c in probe.competitors],
                 last_checked=timezone.now().isoformat(),
                 reasoning=probe.reasoning,
             )
