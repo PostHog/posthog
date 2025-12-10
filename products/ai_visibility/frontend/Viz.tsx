@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -600,6 +600,17 @@ export function Viz({ brand }: VizProps): JSX.Element {
     const { isReady, isPolling, triggerResultLoading, lastError, results, workflowId, brandDisplayName } =
         useValues(logic)
     const { loadTriggerResult } = useActions(logic)
+    const [dotCount, setDotCount] = useState(1)
+
+    useEffect(() => {
+        if (!isPolling) {
+            return
+        }
+        const interval = setInterval(() => {
+            setDotCount((prev) => (prev % 3) + 1)
+        }, 500)
+        return () => clearInterval(interval)
+    }, [isPolling])
 
     // Show dashboard when we have results
     if (isReady && results) {
@@ -629,7 +640,7 @@ export function Viz({ brand }: VizProps): JSX.Element {
                 <div className="rounded border border-border bg-bg-300 p-3">
                     <div className="flex items-center gap-2">
                         <Spinner />
-                        <span>{isPolling ? 'Processing... checking again in 5 seconds' : 'Starting analysis...'}</span>
+                        <span>{isPolling ? `Processing${'.'.repeat(dotCount)}` : 'Starting analysis...'}</span>
                     </div>
                     {workflowId && (
                         <div className="mt-2 text-xs text-muted">
