@@ -2,9 +2,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconLogomark, IconMessage, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 
 import { CompetitorComparison, MatrixCell, TopCitedSource, Topic } from './types'
@@ -12,6 +13,42 @@ import { DashboardTab, vizLogic } from './vizLogic'
 
 export interface VizProps {
     brand: string
+}
+
+function TopBar({
+    lastUpdated,
+    onRefresh,
+    isRefreshing,
+}: {
+    lastUpdated: string | null
+    onRefresh: () => void
+    isRefreshing: boolean
+}): JSX.Element {
+    const formattedDate = lastUpdated ? dayjs(lastUpdated).format('MMM D') : null
+
+    return (
+        <div className="flex items-center justify-between px-4 py-2 border-b bg-bg-light">
+            <div className="flex items-center gap-2">
+                <IconLogomark className="text-2xl" />
+                <span className="font-semibold text-base">AI visibility</span>
+            </div>
+            <div className="flex items-center gap-3">
+                {formattedDate && <span className="text-muted text-sm">Data last updated on {formattedDate}</span>}
+                <LemonButton size="small" icon={<IconMessage />} type="secondary">
+                    Feedback
+                </LemonButton>
+                <LemonButton
+                    size="small"
+                    icon={<IconRefresh />}
+                    type="primary"
+                    onClick={onRefresh}
+                    loading={isRefreshing}
+                >
+                    Generate new report
+                </LemonButton>
+            </div>
+        </div>
+    )
 }
 
 function CategoryTag({ category }: { category: string }): JSX.Element {
@@ -67,7 +104,7 @@ function RankingCard({
                     <span className="text-5xl font-bold">#{rank}</span>
                     <span className="text-lg opacity-80">Most mentioned in your generated prompts</span>
                 </div>
-                <p className="text-sm opacity-80 mb-4">Login to Amplitude to customize your prompts</p>
+                <p className="text-sm opacity-80 mb-4">Login to PostHog to customize your prompts</p>
                 <h3 className="text-xl font-semibold mb-3">Congratulations 🎉</h3>
                 <div className="bg-black/30 rounded-lg p-4">
                     <div className="flex justify-between text-sm mb-2 opacity-80">
@@ -107,10 +144,21 @@ function CompetitorMentionsBar({
     visibilityScore: number
     competitors: { name: string; visibility: number }[]
 }): JSX.Element {
-    const allBrands = [{ name: brandName, visibility: visibilityScore }, ...competitors].sort(
-        (a, b) => b.visibility - a.visibility
-    )
-    const maxVisibility = Math.max(...allBrands.map((b) => b.visibility), 1)
+    // Build full sorted list to get accurate rankings
+    const fullList = [
+        { name: brandName, visibility: visibilityScore, isOurBrand: true },
+        ...competitors.map((c) => ({ ...c, isOurBrand: false })),
+    ].sort((a, b) => b.visibility - a.visibility)
+
+    // Add rank to each entry
+    const rankedList = fullList.map((brand, index) => ({ ...brand, rank: index + 1 }))
+
+    // Get top 9 competitors + our brand (with their true ranks)
+    const ourBrand = rankedList.find((b) => b.isOurBrand)!
+    const topCompetitors = rankedList.filter((b) => !b.isOurBrand).slice(0, 9)
+    const displayList = [...topCompetitors, ourBrand].sort((a, b) => a.rank - b.rank)
+
+    const maxVisibility = Math.max(...displayList.map((b) => b.visibility), 1)
 
     return (
         <div className="border rounded-lg p-4 bg-bg-light">
@@ -121,22 +169,29 @@ function CompetitorMentionsBar({
                 </Link>
             </div>
             <div className="space-y-3">
-                {allBrands.slice(0, 10).map((brand) => (
+                {displayList.map((brand) => (
                     <div key={brand.name} className="flex items-center gap-3">
-                        <span className="w-32 text-sm truncate text-right">{brand.name}</span>
+                        <span
+                            className={clsx(
+                                'w-6 text-sm text-muted text-right',
+                                brand.isOurBrand && 'text-[#f97316] font-semibold'
+                            )}
+                        >
+                            {brand.rank}
+                        </span>
+                        <span className={clsx('w-28 text-sm truncate', brand.isOurBrand && 'font-semibold')}>
+                            {brand.name}
+                        </span>
                         <div className="flex-1 h-4 bg-border rounded overflow-hidden">
                             <div
-                                className={clsx(
-                                    'h-full rounded',
-                                    brand.name === brandName ? 'bg-primary' : 'bg-gray-400'
-                                )}
+                                className={clsx('h-full rounded', brand.isOurBrand ? 'bg-[#f97316]' : 'bg-gray-400')}
                                 style={{ width: `${(brand.visibility / maxVisibility) * 100}%` }}
                             />
                         </div>
                         <span
                             className={clsx(
                                 'w-10 text-sm text-right',
-                                brand.name === brandName ? 'text-primary font-semibold' : ''
+                                brand.isOurBrand ? 'text-[#f97316] font-semibold' : ''
                             )}
                         >
                             {brand.visibility}%
@@ -569,34 +624,43 @@ function CompetitorsTab({ brand }: { brand: string }): JSX.Element {
     )
 }
 
-function DashboardView({ brand }: { brand: string }): JSX.Element {
+function DashboardView({ brand, lastUpdated }: { brand: string; lastUpdated: string | null }): JSX.Element {
     const logic = vizLogic({ brand })
-    const { activeTab } = useValues(logic)
-    const { setActiveTab } = useActions(logic)
+    const { activeTab, triggerResultLoading } = useValues(logic)
+    const { setActiveTab, forceNewRun } = useActions(logic)
 
     return (
-        <div className="p-6 space-y-6 max-w-7xl mx-auto">
-            <div>
-                <h1 className="text-4xl font-bold mb-1 flex items-center gap-2">
-                    <img src={`https://www.google.com/s2/favicons?domain=${brand}&sz=128`} alt="" className="w-6 h-6" />
-                    {brand}
-                </h1>
-                <p className="text-muted text-lg">Track how AI assistants mention your brand across prompts</p>
+        <div className="flex flex-col h-full">
+            <TopBar lastUpdated={lastUpdated} onRefresh={forceNewRun} isRefreshing={triggerResultLoading} />
+            <div className="flex-1 overflow-auto">
+                <div className="p-6 space-y-6 max-w-7xl mx-auto">
+                    <div>
+                        <h1 className="text-4xl font-bold mb-1 flex items-center gap-2">
+                            <img
+                                src={`https://www.google.com/s2/favicons?domain=${brand}&sz=128`}
+                                alt=""
+                                className="w-6 h-6"
+                            />
+                            {brand}
+                        </h1>
+                        <p className="text-muted text-lg">Track how AI assistants mention your brand across prompts</p>
+                    </div>
+
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(key) => setActiveTab(key as DashboardTab)}
+                        tabs={[
+                            { key: 'overview', label: 'Overview' },
+                            { key: 'prompts', label: 'Prompts' },
+                            { key: 'competitors', label: 'Competitors' },
+                        ]}
+                    />
+
+                    {activeTab === 'overview' && <OverviewTab brand={brand} />}
+                    {activeTab === 'prompts' && <PromptsTab brand={brand} />}
+                    {activeTab === 'competitors' && <CompetitorsTab brand={brand} />}
+                </div>
             </div>
-
-            <LemonTabs
-                activeKey={activeTab}
-                onChange={(key) => setActiveTab(key as DashboardTab)}
-                tabs={[
-                    { key: 'overview', label: 'Overview' },
-                    { key: 'prompts', label: 'Prompts' },
-                    { key: 'competitors', label: 'Competitors' },
-                ]}
-            />
-
-            {activeTab === 'overview' && <OverviewTab brand={brand} />}
-            {activeTab === 'prompts' && <PromptsTab brand={brand} />}
-            {activeTab === 'competitors' && <CompetitorsTab brand={brand} />}
         </div>
     )
 }
@@ -607,6 +671,7 @@ export function Viz({ brand }: VizProps): JSX.Element {
         useValues(logic)
     const { loadTriggerResult } = useActions(logic)
     const [dotCount, setDotCount] = useState(1)
+    const [lastUpdated, setLastUpdated] = useState<string | null>(null)
 
     useEffect(() => {
         if (!isPolling) {
@@ -618,43 +683,57 @@ export function Viz({ brand }: VizProps): JSX.Element {
         return () => clearInterval(interval)
     }, [isPolling])
 
+    useEffect(() => {
+        if (isReady && results) {
+            setLastUpdated(new Date().toISOString())
+        }
+    }, [isReady, results])
+
     // Show dashboard when we have results
     if (isReady && results) {
-        return <DashboardView brand={brand} />
+        return <DashboardView brand={brand} lastUpdated={lastUpdated} />
     }
 
     return (
-        <div className="flex flex-col gap-3 p-4 max-w-2xl mx-auto">
-            <div>
-                <h2 className="text-lg font-semibold">AI Visibility</h2>
-                <p className="text-sm text-muted">
-                    Analyzing: <span className="font-mono">{brandDisplayName}</span>
-                </p>
+        <div className="flex flex-col h-full">
+            <div className="flex items-center px-4 py-2 border-b bg-bg-light">
+                <div className="flex items-center gap-2">
+                    <IconLogomark className="text-2xl" />
+                    <span className="font-semibold text-base">AI visibility</span>
+                </div>
             </div>
+            <div className="flex-1 overflow-auto">
+                <div className="p-6 max-w-2xl mx-auto space-y-4">
+                    <div>
+                        <h1 className="text-2xl font-bold mb-1">AI visibility for {brandDisplayName}</h1>
+                        <p className="text-muted">Track how AI assistants mention your brand across prompts</p>
+                    </div>
 
-            {lastError ? (
-                <div className="rounded border border-border bg-bg-300 p-3">
-                    <div className="flex flex-col gap-2">
-                        <span className="text-danger font-semibold">Failed to load results</span>
-                        <code className="text-xs break-all">{lastError}</code>
-                        <LemonButton type="primary" onClick={() => loadTriggerResult()}>
-                            Retry
-                        </LemonButton>
-                    </div>
-                </div>
-            ) : triggerResultLoading || isPolling ? (
-                <div className="rounded border border-border bg-bg-300 p-3">
-                    <div className="flex items-center gap-2">
-                        <Spinner />
-                        <span>{isPolling ? `Processing${'.'.repeat(dotCount)}` : 'Starting analysis...'}</span>
-                    </div>
-                    {workflowId && (
-                        <div className="mt-2 text-xs text-muted">
-                            Workflow ID: <span className="font-mono">{workflowId}</span>
+                    {lastError ? (
+                        <div className="rounded border border-border bg-bg-light p-4">
+                            <div className="flex flex-col gap-2">
+                                <span className="text-danger font-semibold">Failed to load results</span>
+                                <code className="text-xs break-all">{lastError}</code>
+                                <LemonButton type="primary" onClick={() => loadTriggerResult()}>
+                                    Retry
+                                </LemonButton>
+                            </div>
                         </div>
-                    )}
+                    ) : triggerResultLoading || isPolling ? (
+                        <div className="rounded border border-border bg-bg-light p-4">
+                            <div className="flex items-center gap-2">
+                                <Spinner />
+                                <span>{isPolling ? `Processing${'.'.repeat(dotCount)}` : 'Starting analysis...'}</span>
+                            </div>
+                            {workflowId && (
+                                <div className="mt-2 text-xs text-muted">
+                                    Workflow ID: <span className="font-mono">{workflowId}</span>
+                                </div>
+                            )}
+                        </div>
+                    ) : null}
                 </div>
-            ) : null}
+            </div>
         </div>
     )
 }
