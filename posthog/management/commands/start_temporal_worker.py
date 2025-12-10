@@ -94,6 +94,10 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
+from products.ai_visibility.backend.temporal import (
+    ACTIVITIES as AI_VISIBILITY_ACTIVITIES,
+    WORKFLOWS as AI_VISIBILITY_WORKFLOWS,
+)
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -154,6 +158,11 @@ _task_queue_specs = [
         settings.TASKS_TASK_QUEUE,
         TASKS_WORKFLOWS,
         TASKS_ACTIVITIES,
+    ),
+    (
+        settings.AI_VISIBILITY_TASK_QUEUE,
+        AI_VISIBILITY_WORKFLOWS,
+        AI_VISIBILITY_ACTIVITIES,
     ),
     (
         settings.MAX_AI_TASK_QUEUE,

@@ -40,7 +40,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
-    Viz: () => import('../../products/ai_visibility/frontend/Viz'),
+    Viz: () => import('../../products/ai_visibility/frontend/VizScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import(
@@ -100,7 +100,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
-    '/viz': ['Viz', 'viz'],
+    '/viz/:brand': ['Viz', 'viz'],
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
@@ -161,6 +161,7 @@ export const productRedirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
+    '/viz': '/viz/posthog',
     '/llm-observability': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics`, searchParams, hashParams).url,
     '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
@@ -410,6 +411,7 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    viz: (brand: string): string => `/viz/${brand}`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,

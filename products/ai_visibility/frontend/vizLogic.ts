@@ -1,4 +1,5 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import { BRAND_DISPLAY_NAMES, MOCK_DATA_BY_BRAND } from './mockData'
 import { DashboardData, Prompt } from './types'
@@ -6,6 +7,11 @@ import type { vizLogicType } from './vizLogicType'
 
 export interface VizLogicProps {
     brand: string
+}
+
+interface TriggerResponse {
+    workflow_id: string
+    status: string
 }
 
 export const vizLogic = kea<vizLogicType>([
@@ -17,6 +23,30 @@ export const vizLogic = kea<vizLogicType>([
         setSelectedPrompt: (prompt: Prompt | null) => ({ prompt }),
         setFilterCategory: (category: 'all' | 'commercial' | 'informational' | 'navigational') => ({ category }),
     }),
+
+    loaders(({ props }) => ({
+        triggerResult: [
+            null as TriggerResponse | null,
+            {
+                loadTriggerResult: async () => {
+                    if (!props.brand) {
+                        throw new Error('Brand missing')
+                    }
+                    const response = await fetch('/api/ai_visibility/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ domain: props.brand }),
+                    })
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}))
+                        const message = data?.error || `Request failed with status ${response.status}`
+                        throw new Error(message)
+                    }
+                    return await response.json()
+                },
+            },
+        ],
+    })),
 
     reducers({
         selectedPrompt: [
@@ -31,6 +61,13 @@ export const vizLogic = kea<vizLogicType>([
                 setFilterCategory: (_, { category }) => category,
             },
         ],
+        lastError: [
+            null as string | null,
+            {
+                loadTriggerResultFailure: (_, { error }) => error?.message ?? 'Failed to start workflow',
+                loadTriggerResultSuccess: () => null,
+            },
+        ],
     }),
 
     selectors({
@@ -39,18 +76,21 @@ export const vizLogic = kea<vizLogicType>([
             (s) => [s.brand],
             (brand) => BRAND_DISPLAY_NAMES[brand] || brand.charAt(0).toUpperCase() + brand.slice(1),
         ],
+
+        hasData: [(s) => [s.brand], (brand): boolean => brand in MOCK_DATA_BY_BRAND],
+
         data: [
             (s) => [s.brand],
-            (brand): DashboardData => {
-                return MOCK_DATA_BY_BRAND[brand] || MOCK_DATA_BY_BRAND['posthog']
+            (brand): DashboardData | null => {
+                return MOCK_DATA_BY_BRAND[brand] || null
             },
         ],
-        visibilityScore: [(s) => [s.data], (data) => data.visibility_score],
-        scoreChange: [(s) => [s.data], (data) => data.score_change],
-        scoreChangePeriod: [(s) => [s.data], (data) => data.score_change_period],
-        shareOfVoice: [(s) => [s.data], (data) => data.share_of_voice],
-        mentionRateOverTime: [(s) => [s.data], (data) => data.mention_rate_over_time],
-        prompts: [(s) => [s.data], (data) => data.prompts],
+        visibilityScore: [(s) => [s.data], (data) => data?.visibility_score ?? 0],
+        scoreChange: [(s) => [s.data], (data) => data?.score_change ?? 0],
+        scoreChangePeriod: [(s) => [s.data], (data) => data?.score_change_period ?? 'week'],
+        shareOfVoice: [(s) => [s.data], (data) => data?.share_of_voice ?? { you: 0, competitors: {} }],
+        mentionRateOverTime: [(s) => [s.data], (data) => data?.mention_rate_over_time ?? []],
+        prompts: [(s) => [s.data], (data) => data?.prompts ?? []],
 
         filteredPrompts: [
             (s) => [s.prompts, s.filterCategory],
@@ -65,6 +105,9 @@ export const vizLogic = kea<vizLogicType>([
         chartData: [
             (s) => [s.mentionRateOverTime],
             (mentionRate) => {
+                if (!mentionRate.length) {
+                    return { dates: [], series: [] }
+                }
                 const dates = mentionRate.map((d) => d.date)
                 const keys = Object.keys(mentionRate[0] || {}).filter((k) => k !== 'date')
 
@@ -107,5 +150,14 @@ export const vizLogic = kea<vizLogicType>([
         ],
 
         availableBrands: [() => [], () => Object.keys(MOCK_DATA_BY_BRAND)],
+
+        workflowId: [(s) => [s.triggerResult], (triggerResult): string | null => triggerResult?.workflow_id ?? null],
+        workflowStatus: [(s) => [s.triggerResult], (triggerResult): string | null => triggerResult?.status ?? null],
+    }),
+
+    afterMount(({ actions, values }) => {
+        if (!values.hasData) {
+            actions.loadTriggerResult()
+        }
     }),
 ])
