@@ -255,7 +255,7 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     )
 
     # Build conversation URL for the "View chat in PostHog" button
-    conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={inputs.conversation_id}"
+    conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={conversation.id}"
 
     # Start background task to update the "working on it" message with thinking messages
     async def update_thinking_message():
