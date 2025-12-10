@@ -33,28 +33,21 @@ class FunnelUDFMixin:
         if not breakdown:
             return f"[{self._default_breakdown_selector()}]"
         if breakdownType == BreakdownType.COHORT:
-            return "groupUniqArray(prop_basic)"
+            return "groupUniqArray(prop)"
 
         has_array_breakdown = self._query_has_array_breakdown()
         if self.context.breakdownAttributionType == BreakdownAttributionType.FIRST_TOUCH:
             if has_array_breakdown:
-                return "argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic)))"
-            return "[argMinIf(prop_basic, timestamp, isNotNull(prop_basic))]"
+                return "argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop)))"
+            return "[argMinIf(prop, timestamp, isNotNull(prop))]"
         if self.context.breakdownAttributionType == BreakdownAttributionType.LAST_TOUCH:
             if has_array_breakdown:
-                return "argMaxIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic)))"
-            return "[argMaxIf(prop_basic, timestamp, isNotNull(prop_basic))]"
+                return "argMaxIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop)))"
+            return "[argMaxIf(prop, timestamp, isNotNull(prop))]"
 
-        if (
-            self.context.breakdownAttributionType == BreakdownAttributionType.STEP
-            and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
-        ):
-            prop = "prop"
-        else:
-            prop = "prop_basic"
         if self._query_has_array_breakdown():
-            return f"groupUniqArrayIf(arrayMap(x -> ifNull(x, ''), {prop}), notEmpty({prop}))"
-        return f"groupUniqArray(ifNull({prop}, ''))"
+            return f"groupUniqArrayIf(arrayMap(x -> ifNull(x, ''), prop), notEmpty(prop))"
+        return f"groupUniqArray(ifNull(prop, ''))"
 
     def _default_breakdown_selector(self: FunnelProtocol) -> str:
         return "[]" if self._query_has_array_breakdown() else "''"
@@ -118,9 +111,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         if not self.context.breakdown:
             prop_selector = self._default_breakdown_selector()
         elif self._query_has_array_breakdown():
-            prop_selector = "arrayMap(x -> ifNull(x, ''), prop_basic)"
+            prop_selector = "arrayMap(x -> ifNull(x, ''), prop)"
         else:
-            prop_selector = "ifNull(prop_basic, '')"
+            prop_selector = "ifNull(prop, '')"
 
         prop_vals = self._prop_vals()
 
