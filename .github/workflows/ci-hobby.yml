@@ -32,24 +32,39 @@ jobs:
         steps:
             - name: 'Check for preview mode'
               id: check-preview
-              run: |
-                  echo "Fetching labels for PR #${{ github.event.pull_request.number }}"
-                  LABELS=$(gh pr view ${{ github.event.pull_request.number }} --json labels -q '.labels[].name' 2>&1)
-                  LABEL_CHECK_EXIT=$?
-                  echo "Label fetch exit code: $LABEL_CHECK_EXIT"
-                  echo "Raw labels output: $LABELS"
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              with:
+                  script: |
+                      const fs = require('fs');
+                      console.log(`Fetching labels for PR #${context.issue.number}`);
 
-                  # Check if hobby-preview label exists (case-insensitive)
-                  if echo "$LABELS" | grep -iq "hobby-preview"; then
-                    echo "preview=true" >> $GITHUB_OUTPUT
-                    echo "✅ Preview mode enabled - found 'hobby-preview' label"
-                  else
-                    echo "preview=false" >> $GITHUB_OUTPUT
-                    echo "🧪 Smoke test mode - 'hobby-preview' label not found"
-                    echo "Available labels: $LABELS"
-                  fi
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                      try {
+                          const { data: pullRequest } = await github.rest.pulls.get({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              pull_number: context.issue.number,
+                          });
+
+                          const labels = pullRequest.labels.map(label => label.name);
+                          console.log(`Found labels: ${labels.join(', ')}`);
+
+                          const hasPreviewLabel = labels.some(label =>
+                              label.toLowerCase() === 'hobby-preview'
+                          );
+
+                          if (hasPreviewLabel) {
+                              console.log('✅ Preview mode enabled - found "hobby-preview" label');
+                              fs.appendFileSync(process.env.GITHUB_OUTPUT, 'preview=true\n');
+                          } else {
+                              console.log('🧪 Smoke test mode - "hobby-preview" label not found');
+                              console.log(`Available labels: ${labels.join(', ')}`);
+                              fs.appendFileSync(process.env.GITHUB_OUTPUT, 'preview=false\n');
+                          }
+                      } catch (error) {
+                          console.error('Error fetching PR labels:', error.message);
+                          console.log('Defaulting to smoke test mode');
+                          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'preview=false\n');
+                      }
             - name: Post initial PR comment
               id: post-comment
               if: steps.check-preview.outputs.preview == 'true'
