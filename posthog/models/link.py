@@ -1,5 +1,7 @@
 from django.db import models
 from django.db.models import QuerySet
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 import structlog
 
@@ -7,6 +9,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.plugins.plugin_server_api import reload_links_on_workers
 
 logger = structlog.get_logger(__name__)
 
@@ -91,3 +94,19 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
             },
             should_delete=False,
         )
+
+
+@receiver(post_save, sender=Link)
+def link_saved(sender, instance: Link, created, **kwargs):
+    reload_links_on_workers(
+        team_id=instance.team_id,
+        links=[{"shortLinkDomain": instance.short_link_domain, "shortCode": instance.short_code}],
+    )
+
+
+@receiver(post_delete, sender=Link)
+def link_deleted(sender, instance: Link, **kwargs):
+    reload_links_on_workers(
+        team_id=instance.team_id,
+        links=[{"shortLinkDomain": instance.short_link_domain, "shortCode": instance.short_code}],
+    )

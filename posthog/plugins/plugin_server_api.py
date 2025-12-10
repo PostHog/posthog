@@ -58,6 +58,17 @@ def reload_integrations_on_workers(team_id: int, integration_ids: list[int]):
     publish_message("reload-integrations", {"teamId": team_id, "integrationIds": integration_ids})
 
 
+def reload_links_on_workers(team_id: int, links: list[dict[str, str]]):
+    """
+    Reload links on workers.
+    Args:
+        team_id: The team ID
+        links: List of dicts with 'shortLinkDomain' and 'shortCode' keys
+    """
+    logger.info(f"Reloading links {links} on workers")
+    publish_message("reload-links", {"teamId": team_id, "links": links})
+
+
 def populate_plugin_capabilities_on_workers(plugin_id: str):
     logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
     publish_message("populate-plugin-capabilities", {"pluginId": plugin_id})

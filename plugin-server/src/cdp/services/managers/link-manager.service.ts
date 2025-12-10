@@ -44,6 +44,14 @@ export class LinkManagerService {
             name: 'link_manager',
             loader: async (ids) => await this.fetchLinks(ids),
         })
+
+        this.hub.pubSub.on<{ teamId: number; links: Array<{ shortLinkDomain: string; shortCode: string }> }>(
+            'reload-links',
+            ({ links }) => {
+                logger.debug('⚡', '[PubSub] Reloading links!', { links })
+                this.onLinksReloaded(links)
+            }
+        )
     }
 
     public async getLink(shortLinkDomain: string, shortCode: string): Promise<LinkType | null> {
@@ -61,6 +69,11 @@ export class LinkManagerService {
 
     public clear(): void {
         this.lazyLoader.clear()
+    }
+
+    private onLinksReloaded(links: Array<{ shortLinkDomain: string; shortCode: string }>): void {
+        const keys = links.map((link) => toKey(link.shortLinkDomain, link.shortCode))
+        this.lazyLoader.markForRefresh(keys)
     }
 
     private async fetchLinks(keys: string[]): Promise<Record<string, LinkType | undefined>> {
