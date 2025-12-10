@@ -249,8 +249,8 @@
      WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), in(events.event, tuple('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')), 1, notEquals(breakdown_value, NULL))
      GROUP BY session_id,
               breakdown_value)
-  WHERE or(greater(rage_clicks_count, 0), greater(dead_clicks_count, 0), greater(errors_count, 0))
   GROUP BY `context.columns.breakdown_value`
+  HAVING or(greater(`context.columns.rage_clicks`, tuple(0, 0)), greater(`context.columns.dead_clicks`, tuple(0, 0)), greater(`context.columns.errors`, tuple(0, 0)))
   ORDER BY `context.columns.errors` DESC,
            `context.columns.rage_clicks` DESC,
            `context.columns.dead_clicks` DESC
