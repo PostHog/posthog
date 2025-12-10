@@ -1,3 +1,4 @@
+import re
 import json
 import random
 import asyncio
@@ -108,21 +109,36 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
 
         # Resolve user IDs to display names, filtering out our own bot's messages
         user_cache: dict[str, str] = {}
+
+        def resolve_user(uid: str) -> str:
+            """Resolve a Slack user ID to display name, with caching."""
+            if uid not in user_cache:
+                try:
+                    user_info = slack.client.users_info(user=uid)
+                    profile = user_info.get("user", {}).get("profile", {})
+                    user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
+                except Exception:
+                    user_cache[uid] = "Unknown"
+            return user_cache[uid]
+
+        def replace_user_mentions(text: str) -> str:
+            """Replace <@USER_ID> mentions with resolved @display names."""
+
+            def replace_mention(match: re.Match) -> str:
+                uid = match.group(1)
+                return f"@{resolve_user(uid)}"
+
+            return re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
+
         messages = []
         for msg in raw_messages:
             # Skip messages from our own bot (but allow messages from other bots/apps)
             if our_bot_id and msg.get("bot_id") == our_bot_id:
                 continue
             user_id = msg.get("user")
-            if user_id and user_id not in user_cache:
-                try:
-                    user_info = slack.client.users_info(user=user_id)
-                    profile = user_info.get("user", {}).get("profile", {})
-                    # Prefer display_name, fall back to real_name
-                    user_cache[user_id] = profile.get("display_name") or profile.get("real_name") or "Unknown"
-                except Exception:
-                    user_cache[user_id] = "Unknown"
-            messages.append({"user": user_cache.get(user_id, "Unknown"), "text": msg.get("text")})
+            username = resolve_user(user_id) if user_id else "Unknown"
+            text = replace_user_mentions(msg.get("text", ""))
+            messages.append({"user": username, "text": text})
 
         # Use existing conversation ID if available
         conversation_id = str(existing_conversation.id) if existing_conversation else None
@@ -136,7 +152,7 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
 
         thinking_message = f"{random.choice(THINKING_MESSAGES)}..."
 
-        # Build blocks for the initial message - only include "View in PostHog" if we have an existing conversation
+        # Build blocks for the initial message - only include "View chat in PostHog" if we have an existing conversation
         initial_blocks: list[dict] = [
             {
                 "type": "section",
@@ -151,7 +167,7 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
                     "elements": [
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "View in PostHog", "emoji": True},
+                            "text": {"type": "plain_text", "text": "View chat in PostHog", "emoji": True},
                             "url": conversation_url,
                         }
                     ],
