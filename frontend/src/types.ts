@@ -5923,6 +5923,7 @@ export type LinkType = {
     short_link_domain: string
     short_code: string
     description?: string
+    expires_at?: string | null
     created_by: UserBasicType
     created_at: string
     updated_at: string

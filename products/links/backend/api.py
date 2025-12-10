@@ -34,6 +34,7 @@ class LinkSerializer(serializers.ModelSerializer):
             "short_link_domain",
             "short_code",
             "description",
+            "expires_at",
             "created_at",
             "updated_at",
             "created_by",

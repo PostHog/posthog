@@ -10,6 +10,7 @@ export type LinkType = {
     short_link_domain: string
     short_code: string
     description: string | null
+    expires_at: string | null
     created_at: string
     updated_at: string
     hog_function_id: string
@@ -22,6 +23,7 @@ const LINK_FIELDS = [
     'short_link_domain',
     'short_code',
     'description',
+    'expires_at',
     'created_at',
     'updated_at',
     'hog_function_id',

@@ -486,6 +486,14 @@ export class CdpApi {
                     return res.status(404).json({ error: 'Link not found' })
                 }
 
+                if (link.expires_at) {
+                    const expirationDate = new Date(link.expires_at)
+                    const now = new Date()
+                    if (now > expirationDate) {
+                        return res.status(410).json({ error: 'Link has expired' })
+                    }
+                }
+
                 if (!link.hog_function_id) {
                     return res.status(404).json({ error: 'Hog function is not set' })
                 }

@@ -33,6 +33,11 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
         help_text="Team that owns this link",
     )
     description = models.TextField(null=True, blank=True)
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Optional expiration date. After this date, the link will return an error instead of redirecting.",
+    )
     hog_function = models.ForeignKey(
         "posthog.HogFunction",
         on_delete=models.CASCADE,

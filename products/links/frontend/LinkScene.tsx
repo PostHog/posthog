@@ -6,6 +6,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { IconCopy, IconDownload } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCalendarSelectInput,
     LemonDivider,
     LemonInput,
     LemonLabel,
@@ -18,6 +19,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { dayjs } from 'lib/dayjs'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -234,6 +236,33 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                     </div>
                                 ) : (
                                     <div>{link.description || <span className="text-muted">No description</span>}</div>
+                                )}
+                            </div>
+
+                            <div className="flex flex-col">
+                                <LemonLabel>Expiration date (optional)</LemonLabel>
+                                {displayForm ? (
+                                    <LemonField name="expires_at">
+                                        {({ value, onChange }) => (
+                                            <LemonCalendarSelectInput
+                                                value={value ? dayjs(value) : null}
+                                                onChange={(date) => {
+                                                    onChange(date ? date.toISOString() : null)
+                                                }}
+                                                granularity="minute"
+                                                clearable
+                                                placeholder="No expiration"
+                                            />
+                                        )}
+                                    </LemonField>
+                                ) : (
+                                    <div>
+                                        {link.expires_at ? (
+                                            <span>{dayjs(link.expires_at).format('MMMM D, YYYY h:mm A')}</span>
+                                        ) : (
+                                            <span className="text-muted">No expiration</span>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         </div>
