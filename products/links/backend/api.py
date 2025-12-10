@@ -124,3 +124,33 @@ class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         exists = Link.objects.filter(short_link_domain=short_link_domain, short_code=short_code).exists()
         return Response({"available": not exists}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="generate-short-code")
+    def generate_short_code(self, request: Request, **kwargs: Any) -> Response:
+        """
+        Generate an AI-powered short code suggestion based on redirect URL.
+
+        Request body:
+            - redirect_url: The destination URL (required)
+
+        Returns:
+            - short_code: suggested short code
+            - success: boolean
+            - error: error message if failed (optional)
+        """
+        redirect_url = request.data.get("redirect_url")
+
+        if not redirect_url:
+            raise serializers.ValidationError({"redirect_url": "Redirect URL is required"})
+
+        try:
+            from products.links.backend.services.short_code_generator import generate_short_code
+
+            short_code = generate_short_code(redirect_url)
+            return Response({"short_code": short_code, "success": True}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.exception(f"Failed to generate short code: {e}")
+            return Response(
+                {"short_code": None, "success": False, "error": "Failed to generate short code"},
+                status=status.HTTP_200_OK,
+            )

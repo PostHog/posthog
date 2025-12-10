@@ -3102,6 +3102,11 @@ const api = {
                 .withQueryString({ short_code, short_link_domain })
                 .get()
         },
+        async generateShortCode(
+            redirect_url: string
+        ): Promise<{ short_code: string | null; success: boolean; error?: string }> {
+            return await new ApiRequest().links().withAction('generate-short-code').create({ data: { redirect_url } })
+        },
     },
 
     annotations: {

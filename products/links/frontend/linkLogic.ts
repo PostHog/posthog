@@ -54,6 +54,7 @@ export const linkLogic = kea<linkLogicType>([
         setLinkMissing: true,
         editLink: (editing: boolean) => ({ editing }),
         deleteLink: (linkId: LinkType['id']) => ({ linkId }),
+        applyGeneratedShortCode: () => true,
     }),
     loaders(({ props, actions }) => ({
         link: {
@@ -85,6 +86,12 @@ export const linkLogic = kea<linkLogicType>([
             checkShortCodeAvailability: async ({ shortCode, domain }, breakpoint) => {
                 await breakpoint(300)
                 const response = await api.links.checkAvailability(shortCode, domain)
+                return response
+            },
+        },
+        generatedShortCode: {
+            generateShortCode: async (redirectUrl) => {
+                const response = await api.links.generateShortCode(redirectUrl)
                 return response
             },
         },
@@ -192,6 +199,23 @@ export const linkLogic = kea<linkLogicType>([
             }
 
             actions.checkShortCodeAvailability({ shortCode: currentShortCode, domain: currentDomain })
+        },
+        generateShortCodeSuccess: ({ generatedShortCode }) => {
+            if (generatedShortCode.success && generatedShortCode.short_code) {
+                // Set the short code value, which will trigger availability check automatically
+                actions.setLinkValue('short_code', generatedShortCode.short_code)
+                lemonToast.success(`Generated: ${generatedShortCode.short_code}`)
+            } else {
+                lemonToast.error(generatedShortCode.error || 'Failed to generate short code')
+            }
+        },
+        applyGeneratedShortCode: () => {
+            const redirectUrl = values.link.redirect_url
+            if (!redirectUrl) {
+                lemonToast.error('Enter a destination URL first')
+                return
+            }
+            actions.generateShortCode(redirectUrl)
         },
     })),
     urlToAction(({ actions, props }) => ({

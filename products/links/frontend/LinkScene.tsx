@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { QRCodeSVG } from 'qrcode.react'
 
-import { IconCopy, IconDownload } from '@posthog/icons'
+import { IconCopy, IconDownload, IconSparkles } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelectInput,
@@ -68,8 +68,9 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
         linkMissing,
         shortCodeAvailabilityLoading,
         shortCodeAvailabilityError,
+        generatedShortCodeLoading,
     } = useValues(linkLogic)
-    const { submitLinkRequest, loadLink, editLink, deleteLink } = useActions(linkLogic)
+    const { submitLinkRequest, loadLink, editLink, deleteLink, applyGeneratedShortCode } = useActions(linkLogic)
 
     const linkId = link?.id && link?.id !== 'new' ? link.id : null
 
@@ -217,11 +218,10 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                                 />
                                             </LemonField>
                                             <span className="text-muted">/</span>
-                                            <LemonField name="short_code" className="w-full">
+                                            <LemonField name="short_code" className="flex-1">
                                                 <LemonInput
                                                     fullWidth
                                                     placeholder="short"
-                                                    className="flex-1"
                                                     autoWidth={false}
                                                     suffix={
                                                         shortCodeAvailabilityLoading ? (
@@ -230,6 +230,20 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                                     }
                                                 />
                                             </LemonField>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                icon={<IconSparkles />}
+                                                onClick={applyGeneratedShortCode}
+                                                loading={generatedShortCodeLoading}
+                                                disabledReason={
+                                                    !link.redirect_url ? 'Enter destination URL first' : undefined
+                                                }
+                                                tooltip="Generate with AI"
+                                                data-attr="generate-short-code-ai"
+                                            >
+                                                Generate
+                                            </LemonButton>
                                         </div>
                                         {shortCodeAvailabilityError && (
                                             <div className="mt-2">

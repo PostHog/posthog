@@ -235,3 +235,38 @@ class TestLink(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         json_response = response.json()
         self.assertIn("short_code", json_response["attr"])
         self.assertIn("Short code is required", json_response["detail"])
+
+    def test_generate_short_code_success(self):
+        """Test successful short code generation"""
+        data = {"redirect_url": "https://posthog.com/docs/product-analytics"}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/links/generate-short-code",
+            data=data,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        json_response = response.json()
+        self.assertTrue(json_response["success"])
+        self.assertIsNotNone(json_response["short_code"])
+        # Verify it's URL-safe
+        short_code = json_response["short_code"]
+        self.assertRegex(short_code, r"^[a-z0-9-]+$")
+
+    def test_generate_short_code_missing_url(self):
+        """Test error when redirect_url is missing"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/links/generate-short-code",
+            data={},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_generate_short_code_empty_url(self):
+        """Test handling of empty URL"""
+        data = {"redirect_url": ""}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/links/generate-short-code",
+            data=data,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
