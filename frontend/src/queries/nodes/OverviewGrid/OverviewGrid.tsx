@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { IconTrending } from '@posthog/icons'
-import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconTrending, IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
@@ -31,6 +31,8 @@ export interface OverviewItem {
     changeFromPreviousPct?: number | undefined
     kind: WebAnalyticsItemKind
     isIncreaseBad?: boolean
+    warning?: string
+    warningLink?: string
 }
 
 export interface SamplingRate {
@@ -185,10 +187,27 @@ const OverviewItemCell = ({
                 )}
             >
                 {usedPreAggregatedTables && <PreAggregatedBadge />}
-                <div className="flex flex-row w-full justify-center">
-                    <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>
-                        {label}&nbsp;
-                    </div>
+                <div className="flex flex-row w-full justify-center items-center gap-1">
+                    <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>{label}</div>
+                    {item.warning && (
+                        <Tooltip
+                            title={
+                                <div>
+                                    {item.warning}
+                                    {item.warningLink && (
+                                        <>
+                                            {' '}
+                                            <Link to={item.warningLink} className="text-link">
+                                                Learn more
+                                            </Link>
+                                        </>
+                                    )}
+                                </div>
+                            }
+                        >
+                            <IconWarning className="text-warning h-3.5 w-3.5 cursor-pointer" />
+                        </Tooltip>
+                    )}
                 </div>
                 <div className="w-full flex-1 flex items-center justify-center">
                     <div className={compact ? 'text-lg' : 'text-2xl'}>

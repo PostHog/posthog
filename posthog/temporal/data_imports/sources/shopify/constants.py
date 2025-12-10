@@ -9,6 +9,8 @@ from .queries.orders import ORDERS_QUERY
 from .queries.products import PRODUCTS_QUERY
 from .utils import ShopifyGraphQLObject
 
+SHOPIFY_ACCESS_TOKEN_URL = "https://{}.myshopify.com/admin/oauth/access_token"
+SHOPIFY_ACCESS_TOKEN_GRANT = "client_credentials"
 SHOPIFY_API_VERSION = "2025-10"
 SHOPIFY_API_URL = "https://{}.myshopify.com/admin/api/{}/graphql.json"
 SHOPIFY_DEFAULT_PAGE_SIZE = 100

@@ -12,7 +12,15 @@ import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/inge
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { CookielessServerHashMode, Hub, IncomingEventWithTeam, PipelineEvent, Team } from '../../src/types'
+import {
+    CookielessServerHashMode,
+    EventHeaders,
+    Hub,
+    IncomingEvent,
+    IncomingEventWithTeam,
+    PipelineEvent,
+    Team,
+} from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
@@ -71,6 +79,9 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
             {
                 uuid: Buffer.from(event.uuid || ''),
             },
+            {
+                now: Buffer.from(event.now || ''),
+            },
         ],
     }
 }
@@ -79,22 +90,37 @@ const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => 
     return events.map(createKafkaMessage)
 }
 
-const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): IncomingEventWithTeam[] => {
-    return events.map<IncomingEventWithTeam>(
-        (e): IncomingEventWithTeam => ({
-            event: {
-                ...e,
-                team_id: team.id,
+type PreprocessedEvent = {
+    message: Message
+    headers: EventHeaders
+    event: IncomingEvent
+    eventWithTeam: IncomingEventWithTeam
+}
+
+const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): PreprocessedEvent[] => {
+    return events.map((e): PreprocessedEvent => {
+        const message = createKafkaMessage(e)
+        const headers = {
+            token: e.token || '',
+            distinct_id: e.distinct_id || '',
+            force_disable_person_processing: false,
+            historical_migration: false,
+        }
+        return {
+            message,
+            headers,
+            event: { event: e },
+            eventWithTeam: {
+                event: {
+                    ...e,
+                    team_id: team.id,
+                },
+                team: team,
+                message,
+                headers,
             },
-            team: team,
-            message: createKafkaMessage(e),
-            headers: {
-                token: e.token || '',
-                distinct_id: e.distinct_id || '',
-                force_disable_person_processing: false,
-            },
-        })
-    )
+        }
+    })
 }
 
 describe('IngestionConsumer', () => {
@@ -165,9 +191,9 @@ describe('IngestionConsumer', () => {
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
-        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((hub, hogTransformer) => {
+        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((hub, hogTransformer, personsStore) => {
             const original = jest.requireActual('./event-processing/event-pipeline-runner-v1-step')
-            return original.createEventPipelineRunnerV1Step(hub, hogTransformer)
+            return original.createEventPipelineRunnerV1Step(hub, hogTransformer, personsStore)
         })
 
         ingester = await createIngestionConsumer(hub)
@@ -695,7 +721,7 @@ describe('IngestionConsumer', () => {
             ]
 
             // Create messages with custom headers
-            const messages: IncomingEventWithTeam[] = events.map((event, index) => {
+            const messages: PreprocessedEvent[] = events.map((event, index): PreprocessedEvent => {
                 const message = createKafkaMessage(event)
                 message.headers = [
                     { token: Buffer.from(team.api_token) },
@@ -703,15 +729,23 @@ describe('IngestionConsumer', () => {
                     { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
                 ]
 
+                const headers = {
+                    token: team.api_token,
+                    distinct_id: event.distinct_id || '',
+                    timestamp: (Date.now() + index * 1000).toString(),
+                    force_disable_person_processing: false,
+                    historical_migration: false,
+                }
+
                 return {
-                    event: { ...event, team_id: team.id },
-                    team: team,
-                    message: message,
-                    headers: {
-                        token: team.api_token,
-                        distinct_id: event.distinct_id || '',
-                        timestamp: (Date.now() + index * 1000).toString(),
-                        force_disable_person_processing: false,
+                    message,
+                    headers,
+                    event: { event },
+                    eventWithTeam: {
+                        event: { ...event, team_id: team.id },
+                        team: team,
+                        message: message,
+                        headers,
                     },
                 }
             })
@@ -726,6 +760,7 @@ describe('IngestionConsumer', () => {
                 distinct_id: 'distinct-id-1',
                 timestamp: expect.any(String),
                 force_disable_person_processing: false,
+                historical_migration: false,
             })
 
             expect(batches[`${team.api_token}:distinct-id-2`].events[0].headers).toEqual({
@@ -733,12 +768,76 @@ describe('IngestionConsumer', () => {
                 distinct_id: 'distinct-id-2',
                 timestamp: expect.any(String),
                 force_disable_person_processing: false,
+                historical_migration: false,
             })
 
             // Verify the timestamp values are different
             const timestamp1 = parseInt(batches[`${team.api_token}:distinct-id-1`].events[0].headers.timestamp!)
             const timestamp2 = parseInt(batches[`${team.api_token}:distinct-id-2`].events[0].headers.timestamp!)
             expect(timestamp2 - timestamp1).toBe(1000)
+        })
+
+        it('should validate historical_migration flag based on timestamp age', async () => {
+            const ingestionTime = fixedTime // Now = ingestion time
+            const oldEventTime = ingestionTime.minus({ hours: 50 }) // Event happened 50 hours ago (>48 hours)
+            const recentEventTime = ingestionTime.minus({ hours: 24 }) // Event happened 24 hours ago (<48 hours)
+
+            const events = [
+                createEvent({
+                    distinct_id: 'user-old-event',
+                    event: 'old-event',
+                    timestamp: oldEventTime.toISO()!, // Event time in the event payload
+                    now: ingestionTime.toISO()!, // Ingestion time in the event payload
+                }),
+                createEvent({
+                    distinct_id: 'user-recent-event',
+                    event: 'recent-event',
+                    timestamp: recentEventTime.toISO()!, // Event time in the event payload
+                    now: ingestionTime.toISO()!, // Ingestion time in the event payload
+                }),
+            ]
+
+            // Create messages with different event timestamps but same ingestion time (now)
+            // The validate-historical-migration step compares: now - timestamp >= 48 hours
+            const messages: Message[] = [
+                {
+                    ...createKafkaMessage(events[0]),
+                    headers: [
+                        { token: Buffer.from(team.api_token) },
+                        { distinct_id: Buffer.from('user-old-event') },
+                        { timestamp: Buffer.from(oldEventTime.toISO()!) }, // Event time (when it actually happened)
+                        { now: Buffer.from(ingestionTime.toISO()!) }, // Ingestion time (when we received it)
+                        { historical_migration: Buffer.from('true') },
+                    ],
+                },
+                {
+                    ...createKafkaMessage(events[1]),
+                    headers: [
+                        { token: Buffer.from(team.api_token) },
+                        { distinct_id: Buffer.from('user-recent-event') },
+                        { timestamp: Buffer.from(recentEventTime.toISO()!) }, // Event time (when it actually happened)
+                        { now: Buffer.from(ingestionTime.toISO()!) }, // Ingestion time (when we received it)
+                        { historical_migration: Buffer.from('true') },
+                    ],
+                },
+            ]
+
+            await ingester.handleKafkaBatch(messages)
+
+            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
+            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
+
+            expect(eventsTopicMessages).toHaveLength(2)
+
+            // Old event should have historical_migration: true (>48 hours)
+            const oldEventMessage = eventsTopicMessages.find((m) => m.value.event === 'old-event')
+            expect(oldEventMessage).toBeDefined()
+            expect(oldEventMessage?.value.historical_migration).toBe(true)
+
+            // Recent event should not have historical_migration set (<48 hours, defaults to false)
+            const recentEventMessage = eventsTopicMessages.find((m) => m.value.event === 'recent-event')
+            expect(recentEventMessage).toBeDefined()
+            expect(recentEventMessage?.value.historical_migration).toBeUndefined()
         })
     })
 
@@ -1279,6 +1378,7 @@ describe('IngestionConsumer', () => {
                     "headers": {
                       "distinct_id": "user-1",
                       "event": "$pageview",
+                      "now": "2025-01-01T00:00:00.000Z",
                       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
                       "uuid": "<REPLACED-UUID-0>",
                     },

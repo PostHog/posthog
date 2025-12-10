@@ -332,8 +332,8 @@ class TestUserProductList(BaseTest):
         UserProductList.objects.create(user=user, team=self.team, product_path="Data pipelines", enabled=True)
 
         # Add a product from the Unreleased category
-        assert "Customer analytics" in products_by_category.get("Unreleased", [])
-        UserProductList.objects.create(user=user, team=self.team, product_path="Customer analytics", enabled=True)
+        assert "Links" in products_by_category.get("Unreleased", [])
+        UserProductList.objects.create(user=user, team=self.team, product_path="Links", enabled=True)
 
         created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
         created_paths = {item.product_path for item in created_items}

@@ -3,6 +3,7 @@ kafka:
     brokers: 'kafka:9092'
     topic: 'events_plugin_ingestion'
     group_id: 'livestream-dev'
+    session_recording_enabled: true
 mmdb:
     path: 'GeoLite2-City.mmdb'
 jwt:

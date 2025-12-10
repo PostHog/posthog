@@ -35,6 +35,35 @@ import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 const getEdgeId = (edge: HogFlow['edges'][number]): string =>
     `${edge.from}->${edge.to} ${edge.type} ${edge.index ?? ''}`.trim()
 
+/**
+ * Helper to get branch label with custom name fallback
+ */
+const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'][0]): string => {
+    if (!action) {
+        return `If condition #${(edge.index || 0) + 1} matches`
+    }
+
+    switch (action.type) {
+        case 'wait_until_condition': {
+            const waitAction = action as Extract<HogFlowAction, { type: 'wait_until_condition' }>
+            const customName = waitAction.config.condition?.name
+            return customName || 'If condition matches'
+        }
+        case 'random_cohort_branch': {
+            const cohortAction = action as Extract<HogFlowAction, { type: 'random_cohort_branch' }>
+            const cohort = cohortAction.config.cohorts?.[edge.index || 0]
+            return cohort?.name || `If cohort #${(edge.index || 0) + 1} matches`
+        }
+        case 'conditional_branch': {
+            const branchAction = action as Extract<HogFlowAction, { type: 'conditional_branch' }>
+            const condition = branchAction.config.conditions?.[edge.index || 0]
+            return condition?.name || `If condition #${(edge.index || 0) + 1} matches`
+        }
+        default:
+            return `If condition #${(edge.index || 0) + 1} matches`
+    }
+}
+
 export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 export type HogFlowEditorActionMetrics = {
@@ -261,16 +290,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const edges: Edge[] = hogFlow.edges.map((edge) => {
                     const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
                     const edgeSourceAction = hogFlow.actions.find((action) => action.id === edge.from)
-                    const branchResourceName = () => {
-                        switch (edgeSourceAction?.type) {
-                            case 'wait_until_condition':
-                                return 'condition'
-                            case 'random_cohort_branch':
-                                return `cohort #${(edge.index || 0) + 1}`
-                            default:
-                                return `condition #${(edge.index || 0) + 1}`
-                        }
-                    }
 
                     return {
                         // Only these values are set by the user
@@ -293,7 +312,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ? undefined
                                 : edge.type === 'continue'
                                   ? `No match`
-                                  : `If ${branchResourceName()} matches`,
+                                  : getBranchLabel(edgeSourceAction, edge),
                         },
                         labelShowBg: false,
                         targetHandle: `target_${edge.to}`,

@@ -6,12 +6,17 @@ import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
+import { webVitalsToolbarLogic } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
 
 import { generatePiiMaskingCSS } from './piiMaskingStyles'
 import type { toolbarLogicType } from './toolbarLogicType'
@@ -29,6 +34,7 @@ export type MenuState =
     | 'debugger'
     | 'experiments'
     | 'web-vitals'
+    | 'product-tours'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -46,7 +52,20 @@ export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
 
     connect(() => ({
-        values: [toolbarConfigLogic, ['posthog']],
+        values: [
+            toolbarConfigLogic,
+            ['posthog'],
+            heatmapToolbarMenuLogic,
+            ['elementStatsLoading', 'rawHeatmapLoading', 'isRefreshing'],
+            actionsLogic,
+            ['allActionsLoading'],
+            flagsToolbarLogic,
+            ['userFlagsLoading'],
+            experimentsLogic,
+            ['allExperimentsLoading'],
+            webVitalsToolbarLogic,
+            ['remoteWebVitalsLoading'],
+        ],
         actions: [
             actionsTabLogic,
             [
@@ -60,6 +79,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
+            productToursLogic,
+            ['showButtonProductTours', 'hideButtonProductTours'],
             heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
@@ -69,9 +90,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'setHeatmapColorPalette',
                 'setCommonFilters',
                 'toggleClickmapsEnabled',
-                'loadHeatmap',
-                'loadHeatmapSuccess',
-                'loadHeatmapFailure',
             ],
         ],
     })),
@@ -357,12 +375,40 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 return warnings
             },
         ],
+        isLoading: [
+            (s) => [
+                s.elementStatsLoading,
+                s.rawHeatmapLoading,
+                s.isRefreshing,
+                s.allActionsLoading,
+                s.userFlagsLoading,
+                s.allExperimentsLoading,
+                s.remoteWebVitalsLoading,
+            ],
+            (
+                elementStatsLoading,
+                rawHeatmapLoading,
+                isRefreshing,
+                allActionsLoading,
+                userFlagsLoading,
+                allExperimentsLoading,
+                remoteWebVitalsLoading
+            ) =>
+                elementStatsLoading ||
+                rawHeatmapLoading ||
+                isRefreshing ||
+                allActionsLoading ||
+                userFlagsLoading ||
+                allExperimentsLoading ||
+                remoteWebVitalsLoading,
+        ],
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
             actions.disableInspect()
             actions.disableHeatmap()
             actions.hideButtonActions()
+            actions.hideButtonProductTours()
 
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
@@ -378,6 +424,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
                 values.hedgehogActor?.setAnimation('inspect')
+            } else if (visibleMenu === 'product-tours') {
+                actions.showButtonProductTours()
             }
         },
 

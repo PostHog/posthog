@@ -120,6 +120,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     clicks_field: str = MarketingAnalyticsColumnsSchemaNames.CLICKS
     cost_field: str = MarketingAnalyticsColumnsSchemaNames.COST
     reported_conversion_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION
+    reported_conversion_value_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE
     match_key_field: str = MATCH_KEY_FIELD
 
     @classmethod
@@ -208,7 +209,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     @abstractmethod
     def _get_reported_conversion_field(self) -> ast.Expr:
-        """Get the reported conversion field expression"""
+        """Get the reported conversion count field expression"""
+        pass
+
+    @abstractmethod
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        """Get the reported conversion value (monetary) field expression"""
         pass
 
     @abstractmethod
@@ -270,19 +276,24 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """
         Build SelectQuery that returns marketing data in standardized format.
 
-        MUST return columns in this exact order and format:
+        MUST return columns in this exact order and format (9 columns):
+        - match_key (string): Campaign match field for joining with conversion goals
         - campaign_name (string): Campaign identifier (human-readable name)
         - campaign_id (string): Campaign identifier (platform ID)
         - source_name (string): Source identifier
         - impressions (float): Number of impressions
         - clicks (float): Number of clicks
         - cost (float): Total cost in base currency
+        - reported_conversion (float): Number of reported conversions
+        - reported_conversion_value (float): Monetary value of reported conversions
 
         Returns None if this source cannot provide data for the given context.
         """
         try:
-            # Build SELECT columns
+            # Build SELECT columns - match_key first (stable position for joins), then data columns
+            # Each adapter decides whether to use campaign_name or campaign_id for match_key based on team preferences
             select_columns: list[ast.Expr] = [
+                ast.Alias(alias=self.match_key_field, expr=self.get_campaign_match_field()),
                 ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
                 ast.Alias(alias=self.campaign_id_field, expr=self._get_campaign_id_field()),
                 ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
@@ -290,9 +301,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
                 ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
                 ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
-                # match_key is used for joining with conversion goals
-                # Each adapter decides whether to use campaign_name or campaign_id based on team preferences
-                ast.Alias(alias=self.match_key_field, expr=self.get_campaign_match_field()),
+                ast.Alias(alias=self.reported_conversion_value_field, expr=self._get_reported_conversion_value_field()),
             ]
 
             # Build query components

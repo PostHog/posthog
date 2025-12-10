@@ -14,10 +14,10 @@ from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
-import lxml
 import requests
-import toronado
+import css_inline
 from celery import shared_task
+from lxml import html as lxml_html
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
@@ -30,11 +30,11 @@ def inline_css(value: str) -> str:
     Returns an HTML document with inline CSS.
     Forked from getsentry/sentry
     """
-    tree = lxml.html.document_fromstring(value)
-    toronado.inline(tree)
+    inlined = css_inline.inline(value)
+    tree = lxml_html.document_fromstring(inlined)
     # CSS media query support is inconsistent when the DOCTYPE declaration is
     # missing, so we force it to HTML5 here.
-    return lxml.html.tostring(tree, doctype="<!DOCTYPE html>").decode("utf-8")
+    return lxml_html.tostring(tree, doctype="<!DOCTYPE html>").decode("utf-8")
 
 
 def is_http_email_service_available() -> bool:

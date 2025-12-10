@@ -524,6 +524,17 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @action(methods=["GET"], detail=False, url_path="coupons/overview")
+    def coupons_overview(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response({"claimed_coupons": []}, status=status.HTTP_200_OK)
+
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.coupons_overview(organization)
+        return Response(res, status=status.HTTP_200_OK)
+
     @action(
         methods=["GET"],
         detail=False,

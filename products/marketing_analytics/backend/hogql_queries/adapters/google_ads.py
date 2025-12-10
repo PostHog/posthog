@@ -65,17 +65,50 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
 
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_impressions"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "metrics_impressions"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_clicks_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_clicks"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "metrics_clicks"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_conversions"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "metrics_conversions"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
+        return ast.Call(name="toFloat", args=[sum])
+
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        stats_table_name = self.config.stats_table.name
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "metrics_conversions_value"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:

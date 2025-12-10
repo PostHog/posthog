@@ -1,6 +1,4 @@
-import { useEffect, useRef } from 'react'
-
-import { Chart, ChartConfiguration } from 'lib/Chart'
+import { useChart } from 'lib/hooks/useChart'
 
 import { ProcessedChartData } from '../../experimentTimeseriesLogic'
 import { useChartColors } from '../shared/colors'
@@ -14,36 +12,18 @@ export function VariantTimeseriesChart({
     chartData: data,
     isRatioMetric = false,
 }: VariantTimeseriesChartProps): JSX.Element {
-    const canvasRef = useRef<HTMLCanvasElement>(null)
-    const chartRef = useRef<Chart | null>(null)
     const colors = useChartColors()
 
-    useEffect(() => {
-        if (!data) {
-            return
-        }
-
-        // Use setTimeout to ensure the canvas is in the DOM
-        const timeoutId = setTimeout(() => {
-            const ctx = canvasRef.current
-            if (!ctx) {
-                console.error('Canvas element not found')
-                return
+    const { canvasRef } = useChart({
+        getConfig: () => {
+            if (!data) {
+                return null
             }
-
-            // Destroy existing chart if it exists
-            const existingChart = Chart.getChart(ctx)
-            if (existingChart) {
-                existingChart.destroy()
-            }
-
-            ctx.style.width = '100%'
-            ctx.style.height = '100%'
 
             const { labels, datasets, processedData } = data
 
-            const config: ChartConfiguration = {
-                type: 'line',
+            return {
+                type: 'line' as const,
                 data: { labels, datasets },
                 options: {
                     responsive: true,
@@ -100,7 +80,6 @@ export function VariantTimeseriesChart({
                                         const dataPoint = processedData[dataIndex]
                                         const lines = []
 
-                                        // Show if data is pending/interpolated
                                         if (dataPoint && !dataPoint.hasRealData) {
                                             lines.push('⚠️ Data pending - showing last known value')
                                         }
@@ -132,23 +111,13 @@ export function VariantTimeseriesChart({
                             boxWidth: 16,
                             boxHeight: 1,
                         },
-                        // @ts-expect-error Types of library are out of date
                         crosshair: false,
                     },
                 },
             }
-
-            chartRef.current = new Chart(ctx, config)
-        }, 0)
-
-        return () => {
-            clearTimeout(timeoutId)
-            if (chartRef.current) {
-                chartRef.current.destroy()
-                chartRef.current = null
-            }
-        }
-    }, [data, colors.EXPOSURES_AXIS_LINES, isRatioMetric])
+        },
+        deps: [data, colors.EXPOSURES_AXIS_LINES, isRatioMetric],
+    })
 
     return (
         <div className="relative h-[224px]">

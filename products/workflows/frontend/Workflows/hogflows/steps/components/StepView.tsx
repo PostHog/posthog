@@ -1,9 +1,13 @@
+import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconEllipsis } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../../constants'
@@ -14,9 +18,12 @@ import { StepViewMetrics } from './StepViewMetrics'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
-    const { selectedNode, mode } = useValues(hogFlowEditorLogic)
+    const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
+    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
+    const { deleteElements } = useReactFlow()
     const isSelected = selectedNode?.id === action.id
+    const node = nodesById[action.id]
 
     const stepViewLogicProps: StepViewLogicProps = { action, workflowLogicProps: logicProps }
     const { isEditingName, isEditingDescription, editNameValue, editDescriptionValue } = useValues(
@@ -76,7 +83,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                 >
                     {icon}
                 </div>
-                <div className="flex flex-col flex-1 min-w-0">
+                <div className="flex flex-col flex-1 min-w-0 pr-4">
                     <div className="flex justify-between items-center gap-1">
                         {isEditingName ? (
                             <div onClick={(e) => e.stopPropagation()} className="flex-1 min-w-0">
@@ -126,13 +133,17 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                 autoFocus
                                 value={editDescriptionValue}
                                 onChange={setEditDescriptionValue}
+                                onFocus={(e: React.FocusEvent<HTMLTextAreaElement>) => {
+                                    const el = e.target
+                                    el.setSelectionRange(el.value.length, el.value.length)
+                                }}
                                 onBlur={(e: React.FocusEvent) => {
                                     e.stopPropagation()
                                     saveDescription()
                                 }}
                                 onKeyDown={(e: React.KeyboardEvent) => {
                                     e.stopPropagation()
-                                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
                                         e.preventDefault()
                                         saveDescription()
                                         ;(e.target as HTMLTextAreaElement).blur()
@@ -148,7 +159,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     ) : (
                         <Tooltip title={action.description || ''}>
                             <div
-                                className={`text-[0.3rem]/1.5 text-muted line-clamp-2 rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 overflow-hidden ${isSelected ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
+                                className={`text-[0.3rem]/1.5 text-muted line-clamp-2 rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 min-h-[0.45rem] overflow-hidden ${isSelected ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
                                 onClick={(e) => {
                                     if (isSelected) {
                                         e.stopPropagation()
@@ -161,12 +172,33 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                         </Tooltip>
                     )}
                 </div>
+                {isSelected && node?.deletable && (
+                    <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Delete',
+                                    status: 'danger',
+                                    onClick: () => {
+                                        void deleteElements({ nodes: [node] })
+                                        setSelectedNodeId(null)
+                                    },
+                                    disabledReason: !selectedNodeCanBeDeleted
+                                        ? 'Clean up branching steps first'
+                                        : undefined,
+                                },
+                            ]}
+                        >
+                            <LemonButton icon={<IconEllipsis />} size="xsmall" noPadding />
+                        </LemonMenu>
+                    </div>
+                )}
             </div>
-            {hasValidationError && (
+            {hasValidationError ? (
                 <div className="absolute top-0 right-0 scale-75">
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
-            )}
+            ) : null}
             {mode === 'metrics' && (
                 <div
                     style={{

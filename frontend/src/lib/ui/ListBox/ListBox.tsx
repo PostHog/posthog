@@ -37,6 +37,7 @@ interface ListBoxContextType {
     registerGroupItem?: (groupId: string, index: number, element: HTMLLIElement) => void
     unregisterGroupItem?: (groupId: string, index: number) => void
     focusGroupItem?: (groupId: string, index: number) => boolean
+    syncVirtualFocus?: (element: HTMLElement) => void
 }
 
 const ListBoxContext = createContext<ListBoxContextType>({ containerRef: null })
@@ -601,8 +602,9 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             registerGroupItem,
             unregisterGroupItem,
             focusGroupItem,
+            syncVirtualFocus: virtualFocus ? setVirtualFocusedElement : undefined,
         }),
-        [registerGroupItem, unregisterGroupItem, focusGroupItem]
+        [registerGroupItem, unregisterGroupItem, focusGroupItem, setVirtualFocusedElement, virtualFocus]
     )
 
     // Keep internal maps in sync and refresh sticky row when children change.
@@ -679,7 +681,7 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
         { children, asChild, onClick, virtualFocusIgnore, focusFirst, row, column, focusKey, index, ...props },
         ref
     ): JSX.Element => {
-        const { containerRef } = useContext(ListBoxContext)
+        const { containerRef, syncVirtualFocus } = useContext(ListBoxContext)
         const groupContext = useContext(ListBoxGroupContext)
 
         const handleFocus = (e: React.FocusEvent): void => {
@@ -695,6 +697,9 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
                     })
                 )
             }
+
+            // Sync virtual focus so keyboard navigation follows mouse selection
+            syncVirtualFocus?.(e.currentTarget as HTMLElement)
 
             // Track all focus keys for history
             const currentFocusKey = (e.currentTarget as HTMLElement).getAttribute('data-focus-key')

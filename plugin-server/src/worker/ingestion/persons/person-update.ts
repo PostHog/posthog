@@ -5,7 +5,11 @@ import { cloneObject } from '~/utils/utils'
 import { InternalPerson } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from './metrics'
-import { eventToPersonProperties, initialEventToPersonProperties } from './person-property-utils'
+import {
+    eventToPersonProperties,
+    initialEventToPersonProperties,
+    isFilteredPersonUpdateProperty,
+} from './person-property-utils'
 
 export interface PropertyUpdates {
     toSet: Properties
@@ -76,20 +80,30 @@ export function computeEventPropertyUpdates(
         }
     })
 
+    // First pass: detect if any property would trigger an update
+    // If so, all changed properties in this $set should be updated together
+    let anyPropertyTriggersUpdate = false
+    const changedProperties: Array<[string, unknown]> = []
+
     Object.entries(properties).forEach(([key, value]) => {
         if (personProperties[key] !== value) {
+            changedProperties.push([key, value])
             const isNewProperty = typeof personProperties[key] === 'undefined'
-            const shouldUpdate = isNewProperty || shouldUpdatePersonIfOnlyChange(event, key, updateAllProperties)
-
-            if (shouldUpdate) {
-                hasChanges = true
-                hasNonFilteredChanges = true
-            } else {
-                hasChanges = true
-                ignoredProperties.push(key)
+            if (isNewProperty || shouldUpdatePersonIfOnlyChange(event, key, updateAllProperties)) {
+                anyPropertyTriggersUpdate = true
             }
-            toSet[key] = value
         }
+    })
+
+    // Second pass: apply changes - if any property triggers update, all do
+    changedProperties.forEach(([key, value]) => {
+        hasChanges = true
+        if (anyPropertyTriggersUpdate) {
+            hasNonFilteredChanges = true
+        } else {
+            ignoredProperties.push(key)
+        }
+        toSet[key] = value
     })
 
     unsetProperties.forEach((propertyKey) => {
@@ -170,13 +184,5 @@ function shouldUpdatePersonIfOnlyChange(event: PluginEvent, key: string, updateA
         // for person events always update everything
         return true
     }
-    // These are properties we add from the event and some change often, it's useless to update person always
-    if (eventToPersonProperties.has(key)) {
-        return false
-    }
-    // same as above, coming from GeoIP plugin
-    if (key.startsWith('$geoip_')) {
-        return false
-    }
-    return true
+    return !isFilteredPersonUpdateProperty(key)
 }

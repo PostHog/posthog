@@ -146,7 +146,12 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
             ) : (
                 recordingProperties.map(({ property, value, label }) => (
                     <Tooltip key={property} title={label}>
-                        <PropertyIcon className={iconClassNames} property={property} value={value} />
+                        <span className="flex items-center gap-x-0.5">
+                            <PropertyIcon className={iconClassNames} property={property} value={value} />
+                            <span className="SessionRecordingPreview__property-label text-secondary truncate">
+                                {label}
+                            </span>
+                        </span>
                     </Tooltip>
                 ))
             )}
@@ -307,12 +312,18 @@ export const SessionRecordingPreview = memo(
                                         <span className="flex gap-x-0.5">
                                             <IconCursorClick className={iconClassNames} />
                                             <span>{recording.click_count}</span>
+                                            <span className="SessionRecordingPreview__activity-label text-secondary">
+                                                clicks
+                                            </span>
                                         </span>
                                     </Tooltip>
                                     <Tooltip className="flex items-center" title="Key presses">
                                         <span className="flex gap-x-0.5">
                                             <IconKeyboard className={iconClassNames} />
                                             <span>{recording.keypress_count}</span>
+                                            <span className="SessionRecordingPreview__activity-label text-secondary">
+                                                keys
+                                            </span>
                                         </span>
                                     </Tooltip>
                                 </div>

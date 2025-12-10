@@ -29,6 +29,7 @@ from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+from products.product_tours.backend.models import ProductTour
 
 tracer = trace.get_tracer(__name__)
 
@@ -204,16 +205,11 @@ class RemoteConfig(UUIDTModel):
             rrweb_script_config = None
 
             recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
+            if not recorder_script and settings.DEBUG:
+                recorder_script = "posthog-recorder"
             if recorder_script:
                 rrweb_script_config = {
                     "script": recorder_script,
-                }
-            elif (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
-                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-            ):
-                rrweb_script_config = {
-                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
                 }
 
             session_recording_config_response = {
@@ -275,6 +271,15 @@ class RemoteConfig(UUIDTModel):
                 config["surveys"] = False
         else:
             config["surveys"] = False
+
+        # MARK: Product tours
+        # Only enable if the team has active tours (toolbar is gated by feature flag)
+        has_active_tours = ProductTour.objects.filter(
+            team=team,
+            archived=False,
+            start_date__isnull=False,
+        ).exists()
+        config["productTours"] = has_active_tours
 
         config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
@@ -535,6 +540,11 @@ def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
 
 @receiver(post_save, sender=Survey)
 def survey_saved(sender, instance: "Survey", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="product_tours.ProductTour")
+def product_tour_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
