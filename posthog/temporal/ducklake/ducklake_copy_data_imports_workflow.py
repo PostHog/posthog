@@ -265,20 +265,30 @@ def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
     return [column for column in partition_columns if column]
 
 
+def _get_source_credentials() -> tuple[str, str, str, str]:
+    """Get source bucket credentials (access_key, secret_key, region, endpoint)."""
+    return (
+        settings.AIRBYTE_BUCKET_KEY or "",
+        settings.AIRBYTE_BUCKET_SECRET or "",
+        getattr(settings, "AIRBYTE_BUCKET_REGION", "") or "",
+        getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or "",
+    )
+
+
 def _get_delta_storage_options() -> dict[str, str]:
     """Build storage options for deltalake library."""
+    access_key, secret_key, region, endpoint = _get_source_credentials()
+
     options: dict[str, str] = {
-        "aws_access_key_id": getattr(settings, "AIRBYTE_BUCKET_KEY", "") or "",
-        "aws_secret_access_key": getattr(settings, "AIRBYTE_BUCKET_SECRET", "") or "",
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
-    region = getattr(settings, "AIRBYTE_BUCKET_REGION", "") or ""
     if region:
         options["region_name"] = region
         options["AWS_DEFAULT_REGION"] = region
 
-    endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or ""
     if endpoint:
         options["endpoint_url"] = endpoint
         options["AWS_ALLOW_HTTP"] = "true"
@@ -303,16 +313,14 @@ def _configure_source_storage(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("INSTALL delta")
     conn.execute("LOAD delta")
 
-    access_key = settings.AIRBYTE_BUCKET_KEY
-    secret_key = settings.AIRBYTE_BUCKET_SECRET
-    region = getattr(settings, "AIRBYTE_BUCKET_REGION", "")
+    access_key, secret_key, region, endpoint = _get_source_credentials()
 
-    endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or ""
     normalized_endpoint = ""
     use_ssl = True
     if endpoint:
         normalized_endpoint, use_ssl = _normalize_object_storage_endpoint(endpoint)
 
+    # Source bucket secret (scoped to BUCKET_URL)
     secret_parts = ["TYPE S3"]
     if access_key:
         secret_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
@@ -324,7 +332,41 @@ def _configure_source_storage(conn: duckdb.DuckDBPyConnection) -> None:
         secret_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
     secret_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
     secret_parts.append("URL_STYLE 'path'")
-    conn.execute(f"CREATE OR REPLACE SECRET ducklake_minio ({', '.join(secret_parts)})")
+    secret_parts.append(f"SCOPE '{ducklake_escape(settings.BUCKET_URL)}'")
+    conn.execute(f"CREATE OR REPLACE SECRET ducklake_source ({', '.join(secret_parts)})")
+
+    # Destination bucket secret
+    config = get_config()
+    dest_bucket = f"s3://{config['DUCKLAKE_BUCKET']}/"
+    dest_region = config.get("DUCKLAKE_BUCKET_REGION", "us-east-1")
+    if settings.USE_LOCAL_SETUP:
+        # Local dev: DuckLake bucket credentials, scoped to destination bucket
+        dest_access_key = config.get("DUCKLAKE_S3_ACCESS_KEY", "")
+        dest_secret_key = config.get("DUCKLAKE_S3_SECRET_KEY", "")
+
+        dest_parts = ["TYPE S3"]
+        if dest_access_key:
+            dest_parts.append(f"KEY_ID '{ducklake_escape(dest_access_key)}'")
+        if dest_secret_key:
+            dest_parts.append(f"SECRET '{ducklake_escape(dest_secret_key)}'")
+        if dest_region:
+            dest_parts.append(f"REGION '{ducklake_escape(dest_region)}'")
+        if normalized_endpoint:
+            dest_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
+        dest_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
+        dest_parts.append("URL_STYLE 'path'")
+        dest_parts.append(f"SCOPE '{ducklake_escape(dest_bucket)}'")
+        conn.execute(f"CREATE OR REPLACE SECRET ducklake_dest ({', '.join(dest_parts)})")
+    else:
+        # Production: credential chain (IRSA), scoped to destination bucket
+        conn.execute(f"""
+            CREATE OR REPLACE SECRET ducklake_dest (
+                TYPE S3,
+                PROVIDER CREDENTIAL_CHAIN,
+                REGION '{ducklake_escape(dest_region)}',
+                SCOPE '{ducklake_escape(dest_bucket)}'
+            )
+        """)
 
 
 def _normalize_object_storage_endpoint(endpoint: str) -> tuple[str, bool]:
