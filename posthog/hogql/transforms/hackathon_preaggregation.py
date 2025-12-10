@@ -215,22 +215,10 @@ def _extract_timestamp_range(where_exprs: list[ast.Expr], context: HogQLContext)
                 end_dt = _extract_datetime_constant(compare_expr.left, context)
 
     # Require at least one bound (start or end)
-    if not start_dt and not end_dt:
+    if not start_dt or not end_dt:
         return None
 
-    # If we only have start, use a far future end (1 year from start)
-    if start_dt and not end_dt:
-        from datetime import timedelta
-
-        end_dt = start_dt + timedelta(days=365)
-
-    # If we only have end, use epoch as start (or a reasonable past date)
-    if end_dt and not start_dt:
-        from datetime import timedelta
-
-        start_dt = end_dt - timedelta(days=365)
-
-    return (start_dt, end_dt)
+    return start_dt, end_dt
 
 
 def _flatten_and(node: Optional[ast.Expr]) -> list[ast.Expr]:
