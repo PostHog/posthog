@@ -3,9 +3,10 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
+import createHogQLParser, { HogQLParser, ParseResult } from '@posthog/hogql-parser'
 import {
     IconBolt,
     IconBrackets,
@@ -25,6 +26,7 @@ import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip }
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useHogQLSelect } from 'lib/hogql/hooks'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconTableChart } from 'lib/lemon-ui/icons'
@@ -493,6 +495,11 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             icon: <IconCode2 />,
                             flag: FEATURE_FLAGS.ENDPOINTS,
                         },
+                        {
+                            key: OutputTab.WASM,
+                            label: 'WASM',
+                            icon: <IconCode2 />,
+                        },
                     ]
                         .filter((tab) => !tab.flag || featureFlags[tab.flag])
                         .map((tab) => (
@@ -856,6 +863,16 @@ const Content = ({
         )
     }
 
+    if (activeTab === OutputTab.WASM) {
+        return (
+            <TabScroller>
+                <div className="px-6 py-4 border-t">
+                    <WASMHogQL query={sourceQuery.source.query} />
+                </div>
+            </TabScroller>
+        )
+    }
+
     if (activeTab === OutputTab.Variables) {
         if (editingView) {
             return (
@@ -954,4 +971,22 @@ const Content = ({
         )
     }
     return null
+}
+
+const WASMHogQL = ({ query }: { query: string }): JSX.Element => {
+    const { ast, loading, error } = useHogQLSelect(query)
+
+    if (loading) {
+        return <></>
+    }
+
+    if (error || !ast) {
+        return (
+            <>
+                <strong>Error: </strong> {error}
+            </>
+        )
+    }
+
+    return <>{JSON.stringify(ast, null, 2)}</>
 }

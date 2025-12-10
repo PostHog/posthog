@@ -8,6 +8,7 @@ export enum OutputTab {
     Variables = 'variables',
     Materialization = 'materialization',
     Endpoint = 'endpoint',
+    WASM = 'wasm',
 }
 
 export interface OutputTabProps {

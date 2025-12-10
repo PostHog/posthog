@@ -17,6 +17,7 @@ const esmModules = [
     'escape-string-regexp',
     'unist-util-visit-parents',
     'unist-util-is',
+    '@posthog/hogql-parser',
 ]
 function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']
@@ -34,6 +35,9 @@ const config: Config = {
 
     // Automatically clear mock calls and instances between every test
     clearMocks: true,
+
+    // Enable experimental VM modules for ES module support (needed for WASM)
+    extensionsToTreatAsEsm: ['.ts', '.tsx'],
 
     // Indicates whether the coverage information should be collected while executing the test
     // collectCoverage: false,
