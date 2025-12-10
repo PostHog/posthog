@@ -5,7 +5,6 @@ import { IconFilter, IconPlay, IconPlus, IconStack } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonTable, LemonTag, Popover } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { SceneExport } from '../sceneTypes'
 import { Scene } from '../sceneTypes'
@@ -52,8 +51,16 @@ export const scene: SceneExport = {
 }
 
 export function BIScene(): JSX.Element {
-    const { filteredTables } = useValues(databaseTableListLogic)
-    const { selectedTableObject, selectedFields, queryResponse, filters, queryString, limit } = useValues(biLogic)
+    const {
+        filteredTables,
+        selectedTableObject,
+        selectedFields,
+        queryResponse,
+        filters,
+        queryString,
+        limit,
+        searchTerm,
+    } = useValues(biLogic)
     const {
         addColumn,
         selectTable,
@@ -105,13 +112,14 @@ export function BIScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4 h-full">
-            <div className="flex gap-4 h-full">
-                <LemonCard className="flex-1 max-w-80 h-full">
+            <div className="flex gap-4 h-full min-h-0">
+                <LemonCard className="flex-1 max-w-80 h-full min-h-0">
                     <div className="flex items-center gap-2">
                         <LemonInput
                             type="search"
                             placeholder="Search tables or fields"
                             onChange={(value) => setSearchTerm(value)}
+                            value={searchTerm}
                             fullWidth
                         />
                     </div>
@@ -148,7 +156,7 @@ export function BIScene(): JSX.Element {
                     </div>
                 </LemonCard>
 
-                <div className="flex-1 space-y-2">
+                <div className="flex-1 flex flex-col gap-2 min-h-0">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <LemonButton type="secondary" onClick={() => refreshQuery()} icon={<IconPlay />}>
@@ -185,6 +193,13 @@ export function BIScene(): JSX.Element {
                         </div>
                     </div>
 
+                    {queryString && (
+                        <LemonCard>
+                            <div className="text-muted">Generated HogQL</div>
+                            <pre className="overflow-x-auto whitespace-pre-wrap text-xs">{queryString}</pre>
+                        </LemonCard>
+                    )}
+
                     {numericColumns.length > 0 && (
                         <LemonCard>
                             <div className="flex items-center gap-4">
@@ -200,43 +215,38 @@ export function BIScene(): JSX.Element {
                         </LemonCard>
                     )}
 
-                    <LemonCard>
+                    <LemonCard className="flex-1 min-h-0">
                         {selectedFields.length === 0 ? (
                             <div className="text-muted">Select columns from the left to build your table.</div>
                         ) : (
-                            <LemonTable
-                                dataSource={rows}
-                                loading={!queryResponse && selectedFields.length > 0}
-                                columns={selectedFields.map(({ column }) => ({
-                                    title: (
-                                        <ColumnHeader
-                                            column={column}
-                                            onRemove={() => removeColumn(column)}
-                                            onAddFilter={(expression) =>
-                                                addFilter({ column, expression: expression || '= ""' })
+                            <div className="max-h-[60vh] overflow-auto">
+                                <LemonTable
+                                    dataSource={rows}
+                                    loading={!queryResponse && selectedFields.length > 0}
+                                    columns={selectedFields.map(({ column }) => ({
+                                        title: (
+                                            <ColumnHeader
+                                                column={column}
+                                                onRemove={() => removeColumn(column)}
+                                                onAddFilter={(expression) =>
+                                                    addFilter({ column, expression: expression || '= ""' })
+                                                }
+                                                onSort={() => setSort(column)}
+                                            />
+                                        ),
+                                        dataIndex: column.field,
+                                        key: columnKey(column),
+                                        render: function RenderCell(value) {
+                                            if (typeof value === 'number') {
+                                                return humanFriendlyNumber(value)
                                             }
-                                            onSort={() => setSort(column)}
-                                        />
-                                    ),
-                                    dataIndex: column.field,
-                                    key: columnKey(column),
-                                    render: function RenderCell(value) {
-                                        if (typeof value === 'number') {
-                                            return humanFriendlyNumber(value)
-                                        }
-                                        return value === null || value === undefined ? '—' : String(value)
-                                    },
-                                }))}
-                            />
+                                            return value === null || value === undefined ? '—' : String(value)
+                                        },
+                                    }))}
+                                />
+                            </div>
                         )}
                     </LemonCard>
-
-                    {queryString && (
-                        <LemonCard>
-                            <div className="text-muted">Generated HogQL</div>
-                            <pre className="overflow-x-auto whitespace-pre-wrap text-xs">{queryString}</pre>
-                        </LemonCard>
-                    )}
                 </div>
             </div>
         </div>
@@ -255,34 +265,57 @@ function ColumnHeader({
     onSort: () => void
 }): JSX.Element {
     const [draft, setDraft] = useState('')
+    const [optionsOpen, setOptionsOpen] = useState(false)
 
     return (
         <div className="flex items-center gap-1">
             <span className="font-semibold">{column.field}</span>
             <Popover
+                visible={optionsOpen}
+                onVisibilityChange={setOptionsOpen}
                 overlay={
                     <div className="space-y-2">
                         <LemonInput
                             placeholder="= 'value' or > 10"
                             value={draft}
                             onChange={setDraft}
-                            onPressEnter={() => onAddFilter(draft)}
+                            onPressEnter={() => {
+                                onAddFilter(draft)
+                                setOptionsOpen(false)
+                            }}
                         />
-                        <LemonButton type="secondary" onClick={() => onAddFilter(draft)} icon={<IconFilter />}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                onAddFilter(draft)
+                                setOptionsOpen(false)
+                            }}
+                            icon={<IconFilter />}
+                        >
                             Add filter
                         </LemonButton>
-                        <LemonButton type="secondary" onClick={() => onSort()}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                onSort()
+                                setOptionsOpen(false)
+                            }}
+                        >
                             Sort
                         </LemonButton>
-                        <LemonButton status="danger" onClick={onRemove}>
+                        <LemonButton
+                            status="danger"
+                            onClick={() => {
+                                onRemove()
+                                setOptionsOpen(false)
+                            }}
+                        >
                             Remove column
                         </LemonButton>
                     </div>
                 }
             >
-                <LemonButton size="small" type="secondary" icon={<IconFilter />}>
-                    Options
-                </LemonButton>
+                <LemonButton size="small" type="secondary" icon={<IconFilter />} aria-label="Column options" />
             </Popover>
         </div>
     )

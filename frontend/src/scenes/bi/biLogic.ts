@@ -34,7 +34,12 @@ export const biLogic = kea([
         refreshQuery: true,
     }),
     reducers({
-        selectedTable: [null as string | null, { selectTable: (_, { table }) => table }],
+        selectedTable: [
+            null as string | null,
+            {
+                selectTable: (state, { table }) => (state === table ? null : table),
+            },
+        ],
         selectedColumns: [
             [] as BIQueryColumn[],
             {
