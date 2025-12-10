@@ -165,7 +165,7 @@ def slack_event(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        SlackIntegration.validate_request(request)  # type: ignore[arg-type]
+        SlackIntegration.validate_request(request)
     except SlackIntegrationError as e:
         slack_config = SlackIntegration.slack_config()
         logger.warning(
