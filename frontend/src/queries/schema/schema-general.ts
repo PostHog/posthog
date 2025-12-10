@@ -129,6 +129,7 @@ export enum NodeKind {
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
     WebTrendsQuery = 'WebTrendsQuery',
+    WebAvgTimeOnPageTrendsQuery = 'WebAvgTimeOnPageTrendsQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
@@ -200,6 +201,7 @@ export type AnyDataNode =
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
     | WebTrendsQuery
+    | WebAvgTimeOnPageTrendsQuery
     | WebAnalyticsExternalSummaryQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
@@ -261,6 +263,7 @@ export type QuerySchema =
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
     | WebAnalyticsExternalSummaryQuery
+    | WebAvgTimeOnPageTrendsQuery
 
     // Revenue analytics
     | RevenueAnalyticsGrossRevenueQuery
@@ -4195,6 +4198,24 @@ export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryResponse>
+
+export interface WebAvgTimeOnPageTrendsItem {
+    bucket: string
+    avgTimeOnPage: number
+    previousAvgTimeOnPage?: number
+}
+
+export interface WebAvgTimeOnPageTrendsQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebAvgTimeOnPageTrendsItem[]
+    samplingRate?: SamplingRate
+}
+
+export interface WebAvgTimeOnPageTrendsQuery extends WebAnalyticsQueryBase<WebAvgTimeOnPageTrendsQueryResponse> {
+    kind: NodeKind.WebAvgTimeOnPageTrendsQuery
+    interval: IntervalType
+}
+
+export type CachedWebAvgTimeOnPageTrendsQueryResponse = CachedQueryResponse<WebAvgTimeOnPageTrendsQueryResponse>
 
 export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC']
 
