@@ -53,13 +53,15 @@ services:
                     }
 
                     @vite {
-                        path /@vite/*
-                        path /@react-refresh
-                        path /@fs/*
-                        path /@id/*
+                        path /@*
                         path /src/*
                         path /node_modules/*
                         path /products/*
+                    }
+
+                    @websocket {
+                        header Connection *Upgrade*
+                        header Upgrade websocket
                     }
 
                     handle @capture {
@@ -79,6 +81,10 @@ services:
                     }
 
                     handle @vite {
+                        reverse_proxy vite:8234
+                    }
+
+                    handle @websocket {
                         reverse_proxy vite:8234
                     }
 
