@@ -444,6 +444,16 @@ export function columnAlias(column: BIQueryColumn): string {
     return alias
 }
 
+export function isJsonField(field?: DatabaseSchemaField): boolean {
+    if (!field?.type || typeof field.type !== 'string') {
+        return false
+    }
+
+    const type = field.type.toLowerCase()
+
+    return type.includes('json') || type.includes('map') || type.includes('struct')
+}
+
 function columnExpression(
     column: BIQueryColumn,
     field: DatabaseSchemaField,
@@ -697,22 +707,25 @@ function resolveFieldAndExpression(
 
     for (let index = 0; index < parts.length; index++) {
         const part = parts[index]
-        field = currentTable?.fields?.[part]
+        const candidateField = currentTable?.fields?.[part]
 
-        if (!field) {
+        if (candidateField) {
+            field = candidateField
+            expression = expression ? `${expression}.${candidateField.hogql_value}` : candidateField.hogql_value
+        } else if (field && isJsonField(field)) {
+            expression = expression ? `${expression}.${part}` : part
+        } else {
             return null
         }
 
-        expression = expression ? `${expression}.${field.hogql_value}` : field.hogql_value
-
         if (index < parts.length - 1) {
-            if (!field.table) {
-                return null
-            }
+            if (candidateField?.table) {
+                currentTable = getTableFromDatabase(database, candidateField.table)
 
-            currentTable = getTableFromDatabase(database, field.table)
-
-            if (!currentTable) {
+                if (!currentTable) {
+                    return null
+                }
+            } else if (!(field && isJsonField(field))) {
                 return null
             }
         }
