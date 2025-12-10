@@ -88,7 +88,41 @@ export function ToolbarRichTextEditor({
     }, [editor, onCreate])
 
     return (
-        <div className="ToolbarRichTextEditor flex flex-col border rounded divide-y">
+        <div className="ToolbarRichTextEditor flex flex-col border rounded">
+            {/* Always-visible formatting toolbar */}
+            {editor && (
+                <div className="flex items-center gap-0.5 p-1.5 border-b bg-bg-light">
+                    <LemonButton
+                        size="xsmall"
+                        active={editor.isActive('heading', { level: 1 })}
+                        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                        icon={<HeadingIcon level={1} />}
+                        tooltip="Heading 1"
+                    />
+                    <LemonButton
+                        size="xsmall"
+                        active={editor.isActive('heading', { level: 2 })}
+                        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                        icon={<HeadingIcon level={2} />}
+                        tooltip="Heading 2"
+                    />
+                    <div className="w-px h-4 bg-border mx-1" />
+                    <LemonButton
+                        size="xsmall"
+                        active={editor.isActive('bold')}
+                        onClick={() => editor.chain().focus().toggleBold().run()}
+                        icon={<IconBold />}
+                        tooltip="Bold"
+                    />
+                    <LemonButton
+                        size="xsmall"
+                        active={editor.isActive('italic')}
+                        onClick={() => editor.chain().focus().toggleItalic().run()}
+                        icon={<IconItalic />}
+                        tooltip="Italic"
+                    />
+                </div>
+            )}
             <EditorContent
                 editor={editor}
                 className="ToolbarRichContentEditor p-2 prose prose-sm max-w-none focus:outline-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:min-h-[3em]"

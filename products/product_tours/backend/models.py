@@ -37,6 +37,8 @@ class ProductTour(models.Model):
 
     content = models.JSONField(default=dict, blank=True)
 
+    auto_launch = models.BooleanField(default=False)
+
     start_date = models.DateTimeField(null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
 

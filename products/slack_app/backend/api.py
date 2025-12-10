@@ -1,4 +1,5 @@
 import json
+import random
 import asyncio
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ logger = structlog.get_logger(__name__)
 def handle_app_mention(event: dict, slack_team_id: str) -> None:
     """Handle app_mention events - when the bot is @mentioned."""
     from posthog.temporal.ai.slack_conversation import (
+        THINKING_MESSAGES,
         SlackConversationRunnerWorkflow,
         SlackConversationRunnerWorkflowInputs,
     )
@@ -77,15 +79,23 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
         conversation_id = str(uuid4())
         conversation_url = f"{settings.SITE_URL}/project/{integration.team_id}/ai?chat={conversation_id}"
 
+        # Get the timestamp of the message that mentioned us (for emoji reactions)
+        user_message_ts = event.get("ts")
+
+        # Add a loading emoji reaction to the user's message
+        if user_message_ts:
+            slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="hourglass_flowing_sand")
+
+        thinking_message = f"{random.choice(THINKING_MESSAGES)}..."
         # Post initial "working on it" message in the thread with link to conversation
         initial_response = slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="Hey, I'm starting to work on your question...",
+            text=thinking_message,
             blocks=[
                 {
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": "Hey, I'm starting to work on your question..."},
+                    "text": {"type": "mrkdwn", "text": thinking_message},
                 },
                 {
                     "type": "actions",
@@ -111,6 +121,7 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
             channel=channel,
             thread_ts=thread_ts,
             initial_message_ts=initial_message_ts,
+            user_message_ts=user_message_ts,
             messages=messages,
             conversation_id=conversation_id,
         )

@@ -306,8 +306,6 @@ class NonIntegratedConversionsTableQueryRunner(
 
         # Add LEFT JOIN with campaign_costs and filter for non-matching rows
         # This gives us only conversions that don't have matching campaign data
-        # Use OR condition to support both campaign_name and campaign_id matching
-        # (same as the main marketing table query runner)
         campaign_costs_alias = "cc"
         from_clause.next_join = ast.JoinExpr(
             join_type="LEFT JOIN",
@@ -316,24 +314,12 @@ class NonIntegratedConversionsTableQueryRunner(
             constraint=ast.JoinConstraint(
                 expr=ast.And(
                     exprs=[
-                        # Join on campaign OR id to support both campaign_name and campaign_id matching
-                        # When campaign_name matching is used, campaign fields match
-                        # When campaign_id matching is used, id fields match
-                        ast.Or(
-                            exprs=[
-                                ast.CompareOperation(
-                                    left=ast.Field(
-                                        chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS, self.config.campaign_field]
-                                    ),
-                                    op=ast.CompareOperationOp.Eq,
-                                    right=ast.Field(chain=[campaign_costs_alias, self.config.campaign_field]),
-                                ),
-                                ast.CompareOperation(
-                                    left=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS, self.config.id_field]),
-                                    op=ast.CompareOperationOp.Eq,
-                                    right=ast.Field(chain=[campaign_costs_alias, self.config.id_field]),
-                                ),
-                            ]
+                        # Join on match_key (ClickHouse doesn't support OR in JOIN ON conditions)
+                        # match_key is set by adapters based on team preferences (campaign_name or campaign_id)
+                        ast.CompareOperation(
+                            left=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS, self.config.match_key_field]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=[campaign_costs_alias, self.config.match_key_field]),
                         ),
                         ast.CompareOperation(
                             left=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS, self.config.source_field]),

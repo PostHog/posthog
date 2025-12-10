@@ -1,14 +1,79 @@
 import { URL } from 'url'
 
-import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
-import { logger } from '../../../utils/logger'
-import { castTimestampOrNow } from '../../../utils/utils'
-import { isDistinctIdIllegal } from '../persons/person-merge-service'
-import { captureIngestionWarning } from '../utils'
-import { EventPipelineRunner } from './runner'
+import { Hub, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../types'
+import { logger } from '../../utils/logger'
+import { castTimestampOrNow } from '../../utils/utils'
+import { isDistinctIdIllegal } from '../../worker/ingestion/persons/person-merge-service'
+import { PipelineWarning } from '../pipelines/pipeline.interface'
+import { PipelineResult, drop, isOkResult, ok } from '../pipelines/results'
+import { ProcessingStep } from '../pipelines/steps'
 
-// This represents the scale factor for the heatmap data. Essentially how much we are reducing the resolution by.
+export interface ExtractHeatmapDataStepInput {
+    preparedEvent: PreIngestionEvent
+}
+
+export type ExtractHeatmapDataStepResult<TInput> = TInput & {
+    preparedEvent: PreIngestionEvent
+}
+
+export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataStepInput>(
+    hub: Pick<Hub, 'CLICKHOUSE_HEATMAPS_KAFKA_TOPIC' | 'kafkaProducer'>
+): ProcessingStep<TInput, ExtractHeatmapDataStepResult<TInput>> {
+    return async function extractHeatmapDataStep(
+        input: TInput
+    ): Promise<PipelineResult<ExtractHeatmapDataStepResult<TInput>>> {
+        const { preparedEvent } = input
+
+        // Early return if there's no heatmap data to process
+        if (!preparedEvent.properties?.['$heatmap_data']) {
+            return Promise.resolve(ok({ ...input, preparedEvent }))
+        }
+
+        const { eventUuid } = preparedEvent
+        const acks: Promise<void>[] = []
+        const warnings: PipelineWarning[] = []
+
+        try {
+            const extractResult = extractScrollDepthHeatmapData(preparedEvent)
+
+            if (!isOkResult(extractResult)) {
+                return extractResult
+            }
+
+            const { heatmapEvents, warnings: extractWarnings } = extractResult.value
+            warnings.push(...extractWarnings)
+
+            if (heatmapEvents.length > 0) {
+                acks.push(
+                    hub.kafkaProducer.queueMessages({
+                        topic: hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                        messages: heatmapEvents.map((rawEvent) => ({
+                            key: eventUuid,
+                            value: JSON.stringify(rawEvent),
+                        })),
+                    })
+                )
+            }
+        } catch (e) {
+            warnings.push({
+                type: 'invalid_heatmap_data',
+                details: {
+                    eventUuid,
+                },
+            })
+        }
+
+        // Create a copy without the $heatmap_data property (we don't want to ingest this to the events table)
+        const { $heatmap_data, ...propertiesWithoutHeatmapData } = preparedEvent.properties
+        const preparedEventWithoutHeatmapData: PreIngestionEvent = {
+            ...preparedEvent,
+            properties: propertiesWithoutHeatmapData,
+        }
+
+        return Promise.resolve(ok({ ...input, preparedEvent: preparedEventWithoutHeatmapData }, acks, warnings))
+    }
+}
+
 const SCALE_FACTOR = 16
 
 type HeatmapDataItem = {
@@ -19,46 +84,6 @@ type HeatmapDataItem = {
 }
 
 type HeatmapData = Record<string, HeatmapDataItem[]>
-
-export async function extractHeatmapDataStep(
-    runner: EventPipelineRunner,
-    event: PreIngestionEvent
-): Promise<[PreIngestionEvent, Promise<unknown>[]]> {
-    const { eventUuid, teamId } = event
-
-    const acks: Promise<unknown>[] = []
-
-    try {
-        const team = await runner.hub.teamManager.getTeam(teamId)
-
-        if (team?.heatmaps_opt_in !== false) {
-            const heatmapEvents = (await extractScrollDepthHeatmapData(event, runner)) ?? []
-
-            if (heatmapEvents.length > 0) {
-                acks.push(
-                    runner.hub.kafkaProducer.queueMessages({
-                        topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                        messages: heatmapEvents.map((rawEvent) => ({
-                            key: eventUuid,
-                            value: JSON.stringify(rawEvent),
-                        })),
-                    })
-                )
-            }
-        }
-    } catch (e) {
-        acks.push(
-            captureIngestionWarning(runner.hub.kafkaProducer, teamId, 'invalid_heatmap_data', {
-                eventUuid,
-            })
-        )
-    }
-
-    // We don't want to ingest this data to the events table
-    delete event.properties['$heatmap_data']
-
-    return [event, acks]
-}
 
 function replacePathInUrl(url: string, newPath: string): string {
     const parsedUrl = new URL(url)
@@ -78,19 +103,10 @@ function isValidBoolean(b: unknown): b is boolean {
     return typeof b === 'boolean'
 }
 
-async function extractScrollDepthHeatmapData(
-    event: PreIngestionEvent,
-    runner: EventPipelineRunner
-): Promise<RawClickhouseHeatmapEvent[]> {
-    function drop(cause: string): RawClickhouseHeatmapEvent[] {
-        eventDroppedCounter
-            .labels({
-                event_type: 'heatmap_event_extraction',
-                drop_cause: cause,
-            })
-            .inc()
-        return []
-    }
+function extractScrollDepthHeatmapData(
+    event: PreIngestionEvent
+): PipelineResult<{ heatmapEvents: RawClickhouseHeatmapEvent[]; warnings: PipelineWarning[] }> {
+    const warnings: PipelineWarning[] = []
 
     const { teamId, timestamp, properties, distinctId } = event
     const {
@@ -124,11 +140,11 @@ async function extractScrollDepthHeatmapData(
     let heatmapEvents: RawClickhouseHeatmapEvent[] = []
 
     if (!heatmapData || Object.entries(heatmapData).length === 0) {
-        return []
+        return ok({ heatmapEvents: [], warnings })
     }
 
     if (!isValidString(distinctId) || isDistinctIdIllegal(distinctId)) {
-        return drop('invalid_distinct_id')
+        return drop('heatmap_invalid_distinct_id')
     }
 
     if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
@@ -139,21 +155,19 @@ async function extractScrollDepthHeatmapData(
             $viewport_height,
             $viewport_width,
         })
-        return drop('invalid_viewport_dimensions')
+        return drop('heatmap_invalid_viewport_dimensions')
     }
 
-    const promises = Object.entries(heatmapData).map(async ([url, items]) => {
+    Object.entries(heatmapData).forEach(([url, items]) => {
         if (!isValidString(url)) {
-            await captureIngestionWarning(
-                runner.hub.kafkaProducer,
-                teamId,
-                'rejecting_heatmap_data_with_invalid_url',
-                {
+            warnings.push({
+                type: 'rejecting_heatmap_data_with_invalid_url',
+                details: {
                     heatmapUrl: url,
                     session_id: $session_id,
                 },
-                { key: $session_id }
-            )
+                key: $session_id,
+            })
             return
         }
 
@@ -196,20 +210,16 @@ async function extractScrollDepthHeatmapData(
                     .filter((x): x is RawClickhouseHeatmapEvent => x !== null)
             )
         } else {
-            await captureIngestionWarning(
-                runner.hub.kafkaProducer,
-                teamId,
-                'rejecting_heatmap_data_with_invalid_items',
-                {
+            warnings.push({
+                type: 'rejecting_heatmap_data_with_invalid_items',
+                details: {
                     heatmapUrl: url,
                     session_id: $session_id,
                 },
-                { key: $session_id }
-            )
+                key: $session_id,
+            })
         }
     })
 
-    await Promise.all(promises)
-
-    return heatmapEvents
+    return ok({ heatmapEvents, warnings })
 }
