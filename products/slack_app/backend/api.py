@@ -1,7 +1,7 @@
+import re
 import json
 import random
 import asyncio
-from uuid import uuid4
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -17,6 +17,11 @@ from posthog.utils import get_instance_region
 logger = structlog.get_logger(__name__)
 
 
+def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: str) -> str:
+    """Build the unique key for a Slack thread."""
+    return f"{slack_workspace_id}:{channel}:{thread_ts}"
+
+
 def handle_app_mention(event: dict, slack_team_id: str) -> None:
     """Handle app_mention events - when the bot is @mentioned."""
     from posthog.temporal.ai.slack_conversation import (
@@ -24,6 +29,8 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
         SlackConversationRunnerWorkflow,
         SlackConversationRunnerWorkflowInputs,
     )
+
+    from ee.models.assistant import Conversation
 
     channel = event.get("channel")
     if not channel:
@@ -53,31 +60,88 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
         logger.info("slack_app_mention_skipped", team_id=integration.team_id, region=get_instance_region())
         return
 
+    slack_thread_key = _build_slack_thread_key(slack_team_id, channel, thread_ts)
+
+    # Check if a conversation already exists for this Slack thread
+    existing_conversation = Conversation.objects.filter(
+        team_id=integration.team_id, slack_thread_key=slack_thread_key
+    ).first()
+
     try:
         slack = SlackIntegration(integration)
+
+        # Get our bot's IDs so we can filter out our own messages and check reactions
+        auth_response = slack.client.auth_test()
+        our_bot_id = auth_response.get("bot_id")
+        our_user_id = auth_response.get("user_id")  # Bot's user ID (used for reactions)
 
         # Fetch all messages in the thread BEFORE posting our response
         thread_messages = slack.client.conversations_replies(channel=channel, ts=thread_ts)
         raw_messages = thread_messages.get("messages", [])
 
-        # Resolve user IDs to display names
+        # Filter messages: for continuing conversations, only use messages since the last processed app mention
+        # A mention is considered "processed" if our bot reacted to it (confirming reception)
+        current_event_ts = event.get("ts")
+        if existing_conversation:
+            # Find the timestamp of the last processed app mention (before the current one)
+            previous_mention_ts = None
+            for msg in reversed(raw_messages):
+                msg_ts = msg.get("ts")
+                # Skip the current triggering message
+                if msg_ts == current_event_ts:
+                    continue
+                # Check if this is an app mention (has subtype or contains mention pattern)
+                is_app_mention = msg.get("subtype") == "app_mention" or (
+                    msg.get("text") and "<@" in msg.get("text", "") and ">" in msg.get("text", "")
+                )
+                if not is_app_mention:
+                    continue
+                # Check if our bot reacted to this message (confirming we processed it)
+                reactions = msg.get("reactions", [])
+                our_bot_reacted = any(our_user_id in reaction.get("users", []) for reaction in reactions)
+                if our_bot_reacted:
+                    previous_mention_ts = msg_ts
+                    break
+
+            if previous_mention_ts:
+                # Filter to only messages AFTER the previous processed mention
+                raw_messages = [msg for msg in raw_messages if float(msg.get("ts", 0)) > float(previous_mention_ts)]
+
+        # Resolve user IDs to display names, filtering out our own bot's messages
         user_cache: dict[str, str] = {}
+
+        def resolve_user(uid: str) -> str:
+            """Resolve a Slack user ID to display name, with caching."""
+            if uid not in user_cache:
+                try:
+                    user_info = slack.client.users_info(user=uid)
+                    profile = user_info.get("user", {}).get("profile", {})
+                    user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
+                except Exception:
+                    user_cache[uid] = "Unknown"
+            return user_cache[uid]
+
+        def replace_user_mentions(text: str) -> str:
+            """Replace <@USER_ID> mentions with resolved @display names."""
+
+            def replace_mention(match: re.Match) -> str:
+                uid = match.group(1)
+                return f"@{resolve_user(uid)}"
+
+            return re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
+
         messages = []
         for msg in raw_messages:
+            # Skip messages from our own bot (but allow messages from other bots/apps)
+            if our_bot_id and msg.get("bot_id") == our_bot_id:
+                continue
             user_id = msg.get("user")
-            if user_id and user_id not in user_cache:
-                try:
-                    user_info = slack.client.users_info(user=user_id)
-                    profile = user_info.get("user", {}).get("profile", {})
-                    # Prefer display_name, fall back to real_name, then user_id
-                    user_cache[user_id] = profile.get("display_name") or profile.get("real_name") or user_id
-                except Exception:
-                    user_cache[user_id] = user_id
-            messages.append({"user": user_cache.get(user_id, user_id), "text": msg.get("text")})
+            username = resolve_user(user_id) if user_id else "Unknown"
+            text = replace_user_mentions(msg.get("text", ""))
+            messages.append({"user": username, "text": text})
 
-        # Generate conversation ID upfront so we can link to it
-        conversation_id = str(uuid4())
-        conversation_url = f"{settings.SITE_URL}/project/{integration.team_id}/ai?chat={conversation_id}"
+        # Use existing conversation ID if available
+        conversation_id = str(existing_conversation.id) if existing_conversation else None
 
         # Get the timestamp of the message that mentioned us (for emoji reactions)
         user_message_ts = event.get("ts")
@@ -87,27 +151,35 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
             slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="hourglass_flowing_sand")
 
         thinking_message = f"{random.choice(THINKING_MESSAGES)}..."
-        # Post initial "working on it" message in the thread with link to conversation
-        initial_response = slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text=thinking_message,
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": thinking_message},
-                },
+
+        # Build blocks for the initial message - only include "View chat in PostHog" if we have an existing conversation
+        initial_blocks: list[dict] = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": thinking_message},
+            },
+        ]
+        if conversation_id:
+            conversation_url = f"{settings.SITE_URL}/project/{integration.team_id}/ai?chat={conversation_id}"
+            initial_blocks.append(
                 {
                     "type": "actions",
                     "elements": [
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "View in PostHog", "emoji": True},
+                            "text": {"type": "plain_text", "text": "View chat in PostHog", "emoji": True},
                             "url": conversation_url,
                         }
                     ],
-                },
-            ],
+                }
+            )
+
+        # Post initial "working on it" message in the thread
+        initial_response = slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=thinking_message,
+            blocks=initial_blocks,
         )
         initial_message_ts = initial_response.get("ts")
         if not initial_message_ts:
@@ -123,10 +195,12 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
             initial_message_ts=initial_message_ts,
             user_message_ts=user_message_ts,
             messages=messages,
+            slack_thread_key=slack_thread_key,
             conversation_id=conversation_id,
         )
 
-        workflow_id = f"slack-conversation-{integration.team_id}-{channel}-{thread_ts}-{uuid4().hex[:8]}"
+        # Deterministic workflow ID ensures only one workflow runs per Slack thread at a time
+        workflow_id = f"slack-conversation-{slack_thread_key}"
 
         client = sync_connect()
         asyncio.run(
@@ -146,6 +220,7 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
             team_id=integration.team_id,
             channel=channel,
             thread_ts=thread_ts,
+            is_continuation=existing_conversation is not None,
         )
 
     except Exception as e:
