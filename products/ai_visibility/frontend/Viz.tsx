@@ -1,55 +1,617 @@
-import 'chartjs-adapter-dayjs-3'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconCheck, IconTrending, IconX } from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonButton,
-    LemonSegmentedButton,
-    LemonTable,
-    LemonTag,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { ChartDataset, ChartOptions } from 'lib/Chart'
-import { getSeriesColor } from 'lib/colors'
-import { useChart } from 'lib/hooks/useChart'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 
-import { PlatformMention, Prompt } from './types'
-import { vizLogic } from './vizLogic'
+import { CompetitorComparison, MatrixCell, TopCitedSource, Topic } from './types'
+import { DashboardTab, vizLogic } from './vizLogic'
 
 export interface VizProps {
     brand: string
 }
 
-function WorkflowTriggerView({ brand }: { brand: string }): JSX.Element {
-    const logic = vizLogic({ brand })
-    const { loadTriggerResult } = useActions(logic)
-    const {
-        workflowId,
-        triggerResultLoading,
-        lastError,
-        isReady,
-        results,
-        isPolling,
-        triggerResult,
-        brandDisplayName,
-    } = useValues(logic)
+function CategoryTag({ category }: { category: string }): JSX.Element {
+    const colors: Record<string, 'primary' | 'highlight' | 'caution'> = {
+        commercial: 'primary',
+        informational: 'highlight',
+        navigational: 'caution',
+    }
+    return <LemonTag type={colors[category] || 'default'}>{category}</LemonTag>
+}
 
-    // Only show loading spinner on initial load, not during polling
-    const isInitialLoading = triggerResultLoading && !triggerResult
+// Visibility bar component for topics table
+function VisibilityBar({ value, max = 100 }: { value: number; max?: number }): JSX.Element {
+    const percentage = Math.min(100, (value / max) * 100)
+    const getColor = (pct: number): string => {
+        if (pct >= 60) {
+            return 'bg-success'
+        }
+        if (pct >= 30) {
+            return 'bg-warning'
+        }
+        return 'bg-danger'
+    }
+
+    return (
+        <div className="flex items-center gap-2">
+            <div className="w-24 h-2 bg-border rounded-full overflow-hidden">
+                <div
+                    className={clsx('h-full rounded-full', getColor(percentage))}
+                    style={{ width: `${percentage}%` }}
+                />
+            </div>
+            <span className="text-sm font-medium w-10">{value}%</span>
+        </div>
+    )
+}
+
+// Ranking hero card
+function RankingCard({
+    rank,
+    brandName,
+    topCompetitors,
+}: {
+    rank: number
+    brandName: string
+    topCompetitors: { name: string; visibility: number }[]
+}): JSX.Element {
+    return (
+        <div className="relative overflow-hidden rounded-lg bg-gradient-to-r from-[#1d4ed8] to-[#7c3aed] p-6 text-white">
+            <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-black/20 to-transparent" />
+            <div className="relative z-10">
+                <div className="flex items-baseline gap-1 mb-2">
+                    <span className="text-5xl font-bold">#{rank}</span>
+                    <span className="text-lg opacity-80">Most mentioned in your generated prompts</span>
+                </div>
+                <p className="text-sm opacity-80 mb-4">Login to Amplitude to customize your prompts</p>
+                <h3 className="text-xl font-semibold mb-3">Congratulations 🎉</h3>
+                <div className="bg-black/30 rounded-lg p-4">
+                    <div className="flex justify-between text-sm mb-2 opacity-80">
+                        <span>Brand</span>
+                        <span>% of AI responses that mention the brand</span>
+                    </div>
+                    {topCompetitors.slice(0, 3).map((comp, i) => (
+                        <div key={comp.name} className="flex items-center justify-between py-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-lg">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</span>
+                                <span className={comp.name === brandName ? 'font-bold' : ''}>{comp.name}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-48 h-2 bg-white/20 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-white/80 rounded-full"
+                                        style={{ width: `${comp.visibility}%` }}
+                                    />
+                                </div>
+                                <span className="w-12 text-right">{comp.visibility.toFixed(1)}%</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+// Competitor mentions bar chart
+function CompetitorMentionsBar({
+    brandName,
+    visibilityScore,
+    competitors,
+}: {
+    brandName: string
+    visibilityScore: number
+    competitors: { name: string; visibility: number }[]
+}): JSX.Element {
+    const allBrands = [{ name: brandName, visibility: visibilityScore }, ...competitors].sort(
+        (a, b) => b.visibility - a.visibility
+    )
+    const maxVisibility = Math.max(...allBrands.map((b) => b.visibility), 1)
+
+    return (
+        <div className="border rounded-lg p-4 bg-bg-light">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">Competitor mentions vs {brandName}</h3>
+                <Link to="#" className="text-xs text-primary">
+                    View all
+                </Link>
+            </div>
+            <div className="space-y-3">
+                {allBrands.slice(0, 10).map((brand) => (
+                    <div key={brand.name} className="flex items-center gap-3">
+                        <span className="w-32 text-sm truncate text-right">{brand.name}</span>
+                        <div className="flex-1 h-4 bg-border rounded overflow-hidden">
+                            <div
+                                className={clsx(
+                                    'h-full rounded',
+                                    brand.name === brandName ? 'bg-primary' : 'bg-gray-400'
+                                )}
+                                style={{ width: `${(brand.visibility / maxVisibility) * 100}%` }}
+                            />
+                        </div>
+                        <span
+                            className={clsx(
+                                'w-10 text-sm text-right',
+                                brand.name === brandName ? 'text-primary font-semibold' : ''
+                            )}
+                        >
+                            {brand.visibility}%
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+// Top topics by visibility
+function TopTopicsList({ topics }: { topics: Topic[] }): JSX.Element {
+    return (
+        <div className="border rounded-lg p-4 bg-bg-light">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">Top topics by visibility</h3>
+                <Link to="#" className="text-xs text-primary">
+                    View all
+                </Link>
+            </div>
+            <div className="space-y-3">
+                {topics.slice(0, 5).map((topic) => (
+                    <div key={topic.name} className="flex items-center justify-between">
+                        <div>
+                            <p className="text-sm font-medium">{topic.name}</p>
+                            <p className="text-xs text-muted">
+                                {topic.promptCount} mentions in {topic.prompts.length} responses
+                            </p>
+                        </div>
+                        <VisibilityBar value={topic.visibility} />
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+// Top cited sources
+function TopCitedSourcesList({ sources }: { sources: TopCitedSource[] }): JSX.Element {
+    return (
+        <div className="border rounded-lg p-4 bg-bg-light">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">Top cited sources</h3>
+                <Link to="#" className="text-xs text-primary">
+                    View all
+                </Link>
+            </div>
+            <div className="space-y-3">
+                {sources.slice(0, 6).map((source) => (
+                    <div key={source.domain} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <div className="w-5 h-5 rounded bg-border flex items-center justify-center text-xs">🌐</div>
+                            <span className="text-sm">{source.domain}</span>
+                        </div>
+                        <span className="text-sm">
+                            <strong>{source.responseCount}</strong> <span className="text-muted">responses</span>
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+// Topics table with expandable rows
+function TopicsTable({ topics }: { topics: Topic[] }): JSX.Element {
+    const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set())
+
+    const toggleTopic = (name: string): void => {
+        const newExpanded = new Set(expandedTopics)
+        if (newExpanded.has(name)) {
+            newExpanded.delete(name)
+        } else {
+            newExpanded.add(name)
+        }
+        setExpandedTopics(newExpanded)
+    }
+
+    return (
+        <div className="border rounded-lg bg-bg-light">
+            <div className="p-4 border-b">
+                <h3 className="text-sm font-semibold">Topics</h3>
+            </div>
+            <table className="w-full">
+                <thead>
+                    <tr className="border-b text-left text-xs text-muted uppercase">
+                        <th className="p-3">Topic</th>
+                        <th className="p-3 text-right">Visibility</th>
+                        <th className="p-3 text-right">Relevancy</th>
+                        <th className="p-3 text-right">Avg rank</th>
+                        <th className="p-3 text-right">Citations</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {topics.map((topic) => (
+                        <>
+                            <tr
+                                key={topic.name}
+                                className="border-b hover:bg-bg-300 cursor-pointer"
+                                onClick={() => toggleTopic(topic.name)}
+                            >
+                                <td className="p-3">
+                                    <div className="flex items-center gap-2">
+                                        <IconChevronRight
+                                            className={clsx(
+                                                'w-4 h-4 transition-transform',
+                                                expandedTopics.has(topic.name) && 'rotate-90'
+                                            )}
+                                        />
+                                        <div>
+                                            <p className="font-medium">{topic.name}</p>
+                                            <p className="text-xs text-muted">{topic.promptCount} prompts</p>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td className="p-3">
+                                    <div className="flex justify-end">
+                                        <div className="flex items-center gap-2">
+                                            {topic.topCompetitors.slice(0, 4).map((c) => (
+                                                <Tooltip key={c.name} title={c.name}>
+                                                    <div className="w-5 h-5 rounded-full bg-border flex items-center justify-center text-[10px]">
+                                                        {c.name.charAt(0)}
+                                                    </div>
+                                                </Tooltip>
+                                            ))}
+                                            <VisibilityBar value={topic.visibility} />
+                                        </div>
+                                    </div>
+                                </td>
+                                <td className="p-3 text-right">{topic.relevancy}%</td>
+                                <td className="p-3 text-right">
+                                    {topic.avgRank > 0 ? `#${topic.avgRank.toFixed(1)}` : '-'}
+                                </td>
+                                <td className="p-3 text-right">{topic.citations}</td>
+                            </tr>
+                            {expandedTopics.has(topic.name) && (
+                                <tr key={`${topic.name}-expanded`}>
+                                    <td colSpan={5} className="bg-bg-300 p-4">
+                                        <div className="space-y-2">
+                                            {topic.prompts.map((prompt) => (
+                                                <div
+                                                    key={prompt.id}
+                                                    className="flex items-center justify-between p-2 bg-bg-light rounded"
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        {prompt.you_mentioned ? (
+                                                            <IconCheck className="w-4 h-4 text-success" />
+                                                        ) : (
+                                                            <IconX className="w-4 h-4 text-muted" />
+                                                        )}
+                                                        <span className="text-sm">{prompt.text}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <CategoryTag category={prompt.category} />
+                                                        {prompt.competitors_mentioned.slice(0, 2).map((c) => (
+                                                            <LemonTag key={c} type="muted" size="small">
+                                                                {c}
+                                                            </LemonTag>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </td>
+                                </tr>
+                            )}
+                        </>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    )
+}
+
+// Competitor comparison card
+function ComparisonCard({
+    comparison,
+    brandName,
+}: {
+    comparison: CompetitorComparison
+    brandName: string
+}): JSX.Element {
+    const youWidth = comparison.youLeadPercentage
+    const theyWidth = 100 - comparison.youLeadPercentage
+    const tieWidth = 0 // simplified
+
+    return (
+        <div className="border rounded-lg p-4 bg-bg-light">
+            <div className="flex items-center justify-between mb-2">
+                <span className="text-primary font-semibold">{brandName}</span>
+                <span className="text-xs text-muted">vs</span>
+                <span className="font-semibold">{comparison.competitor}</span>
+            </div>
+            <p className="text-sm text-muted mb-2">
+                {brandName} appears higher for {comparison.youLeadPercentage}% of shared prompts
+            </p>
+            <p className="text-xs text-muted mb-3">{comparison.sharedPrompts} shared prompts</p>
+
+            {/* Progress bar */}
+            <div className="flex h-3 rounded overflow-hidden mb-4">
+                <div className="bg-primary" style={{ width: `${youWidth}%` }} />
+                <div className="bg-gray-300" style={{ width: `${tieWidth}%` }} />
+                <div className="bg-warning" style={{ width: `${theyWidth}%` }} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <p className="text-xs text-primary font-medium mb-2">● {brandName} leads in:</p>
+                    <div className="space-y-1">
+                        {comparison.youLeadsIn.slice(0, 5).map((item) => (
+                            <div key={item.topic} className="flex justify-between text-xs">
+                                <span className="text-muted">{item.topic}</span>
+                                <span>{item.percentage}%</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div>
+                    <p className="text-xs text-warning font-medium mb-2">● {comparison.competitor} leads in:</p>
+                    <div className="space-y-1">
+                        {comparison.theyLeadIn.slice(0, 5).map((item) => (
+                            <div key={item.topic} className="flex justify-between text-xs">
+                                <span className="text-muted">{item.topic}</span>
+                                <span>{item.percentage}%</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+// Heatmap matrix
+function CompetitorTopicsHeatmap({
+    matrix,
+    topics,
+    competitors,
+    brandName,
+    visibilityScore,
+}: {
+    matrix: MatrixCell[]
+    topics: Topic[]
+    competitors: { name: string; visibility: number }[]
+    brandName: string
+    visibilityScore: number
+}): JSX.Element {
+    const [showRank, setShowRank] = useState(false)
+
+    const getCell = (topicName: string, competitorName: string): MatrixCell | undefined => {
+        return matrix.find((c) => c.topic === topicName && c.competitor === competitorName)
+    }
+
+    const getCellColor = (visibility: number): string => {
+        if (visibility >= 70) {
+            return 'bg-[#1e40af] text-white'
+        }
+        if (visibility >= 50) {
+            return 'bg-[#3b82f6] text-white'
+        }
+        if (visibility >= 30) {
+            return 'bg-[#93c5fd] text-gray-900'
+        }
+        if (visibility >= 10) {
+            return 'bg-[#dbeafe] text-gray-700'
+        }
+        return 'bg-[#f1f5f9] text-gray-500'
+    }
+
+    const allCompetitors = [{ name: brandName, visibility: visibilityScore }, ...competitors]
+
+    return (
+        <div className="border rounded-lg bg-bg-light overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+                <h3 className="text-sm font-semibold">Competitors vs topics matrix</h3>
+                <LemonSegmentedButton
+                    size="small"
+                    value={showRank ? 'rank' : 'visibility'}
+                    onChange={(val) => setShowRank(val === 'rank')}
+                    options={[
+                        { value: 'visibility', label: 'Visibility percentage' },
+                        { value: 'rank', label: 'Average rank' },
+                    ]}
+                />
+            </div>
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                    <thead>
+                        <tr className="border-b">
+                            <th className="p-3 text-left font-medium">Topic</th>
+                            {allCompetitors.map((comp) => (
+                                <th key={comp.name} className="p-3 text-center font-medium min-w-[80px]">
+                                    <div className="flex flex-col items-center gap-1">
+                                        <div className="w-6 h-6 rounded-full bg-border flex items-center justify-center text-xs">
+                                            {comp.name.charAt(0)}
+                                        </div>
+                                        <span className="text-xs truncate max-w-[70px]">{comp.name}</span>
+                                    </div>
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {topics.map((topic) => (
+                            <tr key={topic.name} className="border-b">
+                                <td className="p-3 font-medium">{topic.name}</td>
+                                {allCompetitors.map((comp) => {
+                                    const isBrand = comp.name === brandName
+                                    const cellValue = isBrand
+                                        ? topic.visibility
+                                        : (getCell(topic.name, comp.name)?.visibility ?? 0)
+
+                                    return (
+                                        <td key={comp.name} className="p-1">
+                                            <div
+                                                className={clsx(
+                                                    'p-2 text-center rounded text-xs font-medium',
+                                                    getCellColor(cellValue)
+                                                )}
+                                            >
+                                                {showRank
+                                                    ? isBrand
+                                                        ? topic.avgRank > 0
+                                                            ? `#${topic.avgRank.toFixed(1)}`
+                                                            : '-'
+                                                        : '-'
+                                                    : `${cellValue}%`}
+                                            </div>
+                                        </td>
+                                    )
+                                })}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    )
+}
+
+// Overview tab content
+function OverviewTab({ brand }: { brand: string }): JSX.Element {
+    const logic = vizLogic({ brand })
+    const { brandDisplayName, visibilityScore, brandRanking, topCompetitors, topics, topCitedSources } =
+        useValues(logic)
+
+    const rankingCompetitors = [{ name: brandDisplayName, visibility: visibilityScore }, ...topCompetitors].sort(
+        (a, b) => b.visibility - a.visibility
+    )
+
+    return (
+        <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <RankingCard rank={brandRanking} brandName={brandDisplayName} topCompetitors={rankingCompetitors} />
+                <CompetitorMentionsBar
+                    brandName={brandDisplayName}
+                    visibilityScore={visibilityScore}
+                    competitors={topCompetitors}
+                />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <TopTopicsList topics={topics} />
+                <TopCitedSourcesList sources={topCitedSources} />
+            </div>
+        </div>
+    )
+}
+
+// Prompts tab content
+function PromptsTab({ brand }: { brand: string }): JSX.Element {
+    const logic = vizLogic({ brand })
+    const { topics, mentionStats } = useValues(logic)
+
+    return (
+        <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+                <div className="border rounded-lg p-4 bg-bg-light">
+                    <p className="text-muted text-xs uppercase font-semibold">Topics</p>
+                    <p className="text-2xl font-bold">{topics.length}</p>
+                    <p className="text-xs text-muted">Topics related to your brand</p>
+                </div>
+                <div className="border rounded-lg p-4 bg-bg-light">
+                    <p className="text-muted text-xs uppercase font-semibold">Prompts</p>
+                    <p className="text-2xl font-bold">{mentionStats.total}</p>
+                    <p className="text-xs text-muted">LLM prompts in all topics</p>
+                </div>
+                <div className="border rounded-lg p-4 bg-bg-light">
+                    <p className="text-muted text-xs uppercase font-semibold">Responses</p>
+                    <p className="text-2xl font-bold">{mentionStats.mentioned}</p>
+                    <p className="text-xs text-muted">Responses from running prompts on LLMs</p>
+                </div>
+            </div>
+            <TopicsTable topics={topics} />
+        </div>
+    )
+}
+
+// Competitors tab content
+function CompetitorsTab({ brand }: { brand: string }): JSX.Element {
+    const logic = vizLogic({ brand })
+    const { brandDisplayName, visibilityScore, topCompetitors, topics, competitorComparisons, competitorTopicsMatrix } =
+        useValues(logic)
+
+    return (
+        <div className="space-y-6">
+            <CompetitorTopicsHeatmap
+                matrix={competitorTopicsMatrix}
+                topics={topics}
+                competitors={topCompetitors}
+                brandName={brandDisplayName}
+                visibilityScore={visibilityScore}
+            />
+            <div>
+                <h3 className="text-lg font-semibold mb-4">Competitor comparisons</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {competitorComparisons.map((comparison) => (
+                        <ComparisonCard
+                            key={comparison.competitor}
+                            comparison={comparison}
+                            brandName={brandDisplayName}
+                        />
+                    ))}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function DashboardView({ brand }: { brand: string }): JSX.Element {
+    const logic = vizLogic({ brand })
+    const { brandDisplayName, activeTab } = useValues(logic)
+    const { setActiveTab } = useActions(logic)
+
+    return (
+        <div className="p-6 space-y-6 max-w-7xl mx-auto">
+            <div>
+                <h1 className="text-2xl font-bold mb-1">AI visibility for {brandDisplayName}</h1>
+                <p className="text-muted">Track how AI assistants mention your brand across prompts</p>
+            </div>
+
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={(key) => setActiveTab(key as DashboardTab)}
+                tabs={[
+                    { key: 'overview', label: 'Overview' },
+                    { key: 'prompts', label: 'Prompts' },
+                    { key: 'competitors', label: 'Competitors' },
+                ]}
+            />
+
+            {activeTab === 'overview' && <OverviewTab brand={brand} />}
+            {activeTab === 'prompts' && <PromptsTab brand={brand} />}
+            {activeTab === 'competitors' && <CompetitorsTab brand={brand} />}
+        </div>
+    )
+}
+
+export function Viz({ brand }: VizProps): JSX.Element {
+    const logic = vizLogic({ brand: brand || 'posthog' })
+    const { isReady, isPolling, triggerResultLoading, lastError, results, workflowId, brandDisplayName } =
+        useValues(logic)
+    const { loadTriggerResult } = useActions(logic)
+
+    // Show dashboard when we have results
+    if (isReady && results) {
+        return <DashboardView brand={brand} />
+    }
 
     return (
         <div className="flex flex-col gap-3 p-4 max-w-2xl mx-auto">
             <div>
                 <h2 className="text-lg font-semibold">AI Visibility</h2>
                 <p className="text-sm text-muted">
-                    Starting workflow for: <span className="font-mono">{brandDisplayName}</span>
+                    Analyzing: <span className="font-mono">{brandDisplayName}</span>
                 </p>
             </div>
 
@@ -63,20 +625,11 @@ function WorkflowTriggerView({ brand }: { brand: string }): JSX.Element {
                         </LemonButton>
                     </div>
                 </div>
-            ) : isReady && results ? (
-                <DashboardView brand={brand} />
-            ) : isInitialLoading ? (
+            ) : triggerResultLoading || isPolling ? (
                 <div className="rounded border border-border bg-bg-300 p-3">
                     <div className="flex items-center gap-2">
                         <Spinner />
-                        <span>Starting workflow...</span>
-                    </div>
-                </div>
-            ) : isPolling ? (
-                <div className="rounded border border-border bg-bg-300 p-3">
-                    <div className="flex items-center gap-2">
-                        <Spinner />
-                        <span>Processing... checking again in 5 seconds</span>
+                        <span>{isPolling ? 'Processing... checking again in 5 seconds' : 'Starting analysis...'}</span>
                     </div>
                     {workflowId && (
                         <div className="mt-2 text-xs text-muted">
@@ -87,330 +640,4 @@ function WorkflowTriggerView({ brand }: { brand: string }): JSX.Element {
             ) : null}
         </div>
     )
-}
-
-function ScoreCard({
-    title,
-    value,
-    subtitle,
-    trend,
-    trendValue,
-}: {
-    title: string
-    value: string | number
-    subtitle?: string
-    trend?: 'up' | 'down' | 'flat'
-    trendValue?: string
-}): JSX.Element {
-    const TrendIcon = trend === 'up' ? IconTrending : trend === 'down' ? IconTrendingDown : IconTrendingFlat
-    const trendColor = trend === 'up' ? 'text-success' : trend === 'down' ? 'text-danger' : 'text-muted'
-
-    return (
-        <div className="border rounded-lg p-4 bg-bg-light flex flex-col">
-            <span className="text-muted text-xs uppercase font-semibold tracking-wide">{title}</span>
-            <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-3xl font-bold">{value}</span>
-                {trend && trendValue && (
-                    <span className={clsx('flex items-center gap-1 text-sm', trendColor)}>
-                        <TrendIcon className="w-4 h-4" />
-                        {trendValue}
-                    </span>
-                )}
-            </div>
-            {subtitle && <span className="text-muted text-xs mt-1">{subtitle}</span>}
-        </div>
-    )
-}
-
-function ShareOfVoiceBar({ data }: { data: { name: string; value: number }[] }): JSX.Element {
-    const total = data.reduce((sum, d) => sum + d.value, 0)
-
-    return (
-        <div className="border rounded-lg p-4 bg-bg-light">
-            <h3 className="text-sm font-semibold mb-3">Share of voice</h3>
-            <div className="flex h-8 rounded overflow-hidden mb-3">
-                {data.map((item, i) => (
-                    <Tooltip key={item.name} title={`${item.name}: ${(item.value * 100).toFixed(0)}%`}>
-                        <div
-                            className="h-full transition-all"
-                            style={{
-                                width: `${(item.value / total) * 100}%`,
-                                backgroundColor: getSeriesColor(i),
-                            }}
-                        />
-                    </Tooltip>
-                ))}
-            </div>
-            <div className="flex flex-wrap gap-3">
-                {data.map((item, i) => (
-                    <div key={item.name} className="flex items-center gap-1.5 text-xs">
-                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getSeriesColor(i) }} />
-                        <span className="font-medium">{item.name}</span>
-                        <span className="text-muted">{(item.value * 100).toFixed(0)}%</span>
-                    </div>
-                ))}
-            </div>
-        </div>
-    )
-}
-
-function MentionRateChart({
-    dates,
-    series,
-}: {
-    dates: string[]
-    series: { id: number; label: string; data: number[]; dates: string[] }[]
-}): JSX.Element {
-    const { canvasRef } = useChart<'line'>({
-        getConfig: () => {
-            const datasets: ChartDataset<'line'>[] = series.map((s) => ({
-                label: s.label,
-                data: s.data,
-                borderColor: getSeriesColor(s.id),
-                backgroundColor: getSeriesColor(s.id),
-                borderWidth: s.id === 0 ? 3 : 2,
-                tension: 0.3,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-            }))
-
-            const options: ChartOptions<'line'> = {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                interaction: { mode: 'index', intersect: false },
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: { unit: 'day', displayFormats: { day: 'MMM DD' } },
-                        grid: { display: false },
-                    },
-                    y: {
-                        beginAtZero: true,
-                        max: 50,
-                        ticks: { callback: (v) => `${v}%` },
-                    },
-                },
-                plugins: {
-                    legend: { display: true, position: 'bottom', labels: { usePointStyle: true, boxWidth: 6 } },
-                    // @ts-expect-error Types out of date
-                    crosshair: false,
-                },
-            }
-
-            return { type: 'line' as const, data: { labels: dates, datasets }, options }
-        },
-        deps: [dates, series],
-    })
-
-    return (
-        <div className="border rounded-lg p-4 bg-bg-light">
-            <h3 className="text-sm font-semibold mb-3">Mention rate over time</h3>
-            <div className="h-64">
-                <canvas ref={canvasRef} />
-            </div>
-        </div>
-    )
-}
-
-function PlatformCell({ platform }: { platform: PlatformMention | undefined }): JSX.Element {
-    if (!platform?.mentioned) {
-        return (
-            <span className="text-muted">
-                <IconX className="w-4 h-4" />
-            </span>
-        )
-    }
-
-    return (
-        <div className="flex items-center gap-1">
-            <LemonBadge status="success" size="small" content={String(platform.position || '?')} />
-            {platform.cited && (
-                <Tooltip title="Cited with link">
-                    <span className="text-success">
-                        <IconCheck className="w-3 h-3" />
-                    </span>
-                </Tooltip>
-            )}
-        </div>
-    )
-}
-
-function CategoryTag({ category }: { category: string }): JSX.Element {
-    const colors: Record<string, 'primary' | 'highlight' | 'caution'> = {
-        commercial: 'primary',
-        informational: 'highlight',
-        navigational: 'caution',
-    }
-    return <LemonTag type={colors[category] || 'default'}>{category}</LemonTag>
-}
-
-function PromptsTable({
-    prompts,
-    filterCategory,
-    onFilterChange,
-}: {
-    prompts: Prompt[]
-    filterCategory: 'all' | 'commercial' | 'informational' | 'navigational'
-    onFilterChange: (cat: 'all' | 'commercial' | 'informational' | 'navigational') => void
-}): JSX.Element {
-    const columns: LemonTableColumns<Prompt> = [
-        {
-            title: 'Prompt',
-            dataIndex: 'text' as const,
-            key: 'text',
-            render: (_: unknown, prompt: Prompt) => (
-                <div className="flex flex-col gap-1">
-                    <span className="font-medium">{prompt.text}</span>
-                    <div className="flex items-center gap-2">
-                        <CategoryTag category={prompt.category} />
-                        {prompt.you_mentioned ? (
-                            <LemonTag type="success">Mentioned</LemonTag>
-                        ) : (
-                            <LemonTag type="muted">Not mentioned</LemonTag>
-                        )}
-                    </div>
-                </div>
-            ),
-        },
-        {
-            title: 'ChatGPT',
-            key: 'chatgpt',
-            render: (_: unknown, prompt: Prompt) => <PlatformCell platform={prompt.platforms.chatgpt} />,
-            align: 'center' as const,
-        },
-        {
-            title: 'Perplexity',
-            key: 'perplexity',
-            render: (_: unknown, prompt: Prompt) => <PlatformCell platform={prompt.platforms.perplexity} />,
-            align: 'center' as const,
-        },
-        {
-            title: 'Gemini',
-            key: 'gemini',
-            render: (_: unknown, prompt: Prompt) => <PlatformCell platform={prompt.platforms.gemini} />,
-            align: 'center' as const,
-        },
-        {
-            title: 'Claude',
-            key: 'claude',
-            render: (_: unknown, prompt: Prompt) => <PlatformCell platform={prompt.platforms.claude} />,
-            align: 'center' as const,
-        },
-        {
-            title: 'Competitors',
-            key: 'competitors',
-            render: (_: unknown, prompt: Prompt) => (
-                <div className="flex flex-wrap gap-1 max-w-48">
-                    {prompt.competitors_mentioned.slice(0, 3).map((c) => (
-                        <LemonTag key={c} type="muted" size="small">
-                            {c}
-                        </LemonTag>
-                    ))}
-                    {prompt.competitors_mentioned.length > 3 && (
-                        <span className="text-muted text-xs">+{prompt.competitors_mentioned.length - 3}</span>
-                    )}
-                </div>
-            ),
-        },
-    ]
-
-    return (
-        <div className="border rounded-lg bg-bg-light">
-            <div className="flex items-center justify-between p-4 border-b">
-                <h3 className="text-sm font-semibold">Tracked prompts</h3>
-                <LemonSegmentedButton
-                    size="small"
-                    value={filterCategory}
-                    onChange={onFilterChange}
-                    options={[
-                        { value: 'all', label: 'All' },
-                        { value: 'commercial', label: 'Commercial' },
-                        { value: 'informational', label: 'Informational' },
-                    ]}
-                />
-            </div>
-            <LemonTable dataSource={prompts} columns={columns} rowKey="id" size="small" />
-        </div>
-    )
-}
-
-function DashboardView({ brand }: { brand: string }): JSX.Element {
-    const logic = vizLogic({ brand })
-    const {
-        brandDisplayName,
-        visibilityScore,
-        scoreChange,
-        scoreChangePeriod,
-        shareOfVoiceChartData,
-        chartData,
-        filteredPrompts,
-        filterCategory,
-        mentionStats,
-        availableBrands,
-    } = useValues(logic)
-    const { setFilterCategory } = useActions(logic)
-
-    return (
-        <div className="p-6 space-y-6 max-w-7xl mx-auto">
-            <div className="flex items-start justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold mb-1">AI visibility for {brandDisplayName}</h1>
-                    <p className="text-muted">Track how AI assistants mention your brand across prompts</p>
-                </div>
-                <div className="flex gap-2">
-                    {availableBrands.map((b: string) => (
-                        <Link
-                            key={b}
-                            to={`/viz/${b}`}
-                            className={clsx(
-                                'px-3 py-1.5 rounded text-sm font-medium transition-colors',
-                                b === brand
-                                    ? 'bg-primary text-primary-inverse'
-                                    : 'bg-bg-light hover:bg-border text-default'
-                            )}
-                        >
-                            {b.charAt(0).toUpperCase() + b.slice(1)}
-                        </Link>
-                    ))}
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <ScoreCard
-                    title="Visibility score"
-                    value={visibilityScore}
-                    subtitle="Overall AI visibility rating"
-                    trend={scoreChange > 0 ? 'up' : scoreChange < 0 ? 'down' : 'flat'}
-                    trendValue={`${scoreChange > 0 ? '+' : ''}${scoreChange} this ${scoreChangePeriod}`}
-                />
-                <ScoreCard
-                    title="Prompts tracked"
-                    value={mentionStats.total}
-                    subtitle={`${mentionStats.mentioned} with mentions`}
-                />
-                <ScoreCard title="Top position" value={mentionStats.topPosition} subtitle="Prompts where you rank #1" />
-                <ScoreCard title="Citations" value={mentionStats.cited} subtitle="Prompts with source links" />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <ShareOfVoiceBar data={shareOfVoiceChartData} />
-                <MentionRateChart dates={chartData.dates} series={chartData.series} />
-            </div>
-
-            <PromptsTable
-                prompts={filteredPrompts}
-                filterCategory={filterCategory}
-                onFilterChange={setFilterCategory}
-            />
-        </div>
-    )
-}
-
-export function Viz({ brand }: VizProps): JSX.Element {
-    const logic = vizLogic({ brand: brand || 'posthog' })
-    const { hasMockData } = useValues(logic)
-
-    // Mock data brands get the full dashboard, others get the workflow trigger view
-    return hasMockData ? <DashboardView brand={brand} /> : <WorkflowTriggerView brand={brand} />
 }

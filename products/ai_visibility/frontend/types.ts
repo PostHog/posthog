@@ -1,7 +1,7 @@
 export interface PlatformMention {
     mentioned: boolean
-    position?: number
-    cited?: boolean
+    position?: number | null
+    cited?: boolean | null
 }
 
 export interface Prompt {
@@ -10,6 +10,7 @@ export interface Prompt {
     category: 'commercial' | 'informational' | 'navigational'
     you_mentioned: boolean
     platforms: {
+        openai?: PlatformMention
         chatgpt?: PlatformMention
         perplexity?: PlatformMention
         gemini?: PlatformMention
@@ -32,9 +33,41 @@ export interface ShareOfVoice {
 
 export interface DashboardData {
     visibility_score: number
-    score_change: number
-    score_change_period: 'day' | 'week' | 'month'
+    score_change?: number
+    score_change_period?: 'day' | 'week' | 'month'
     share_of_voice: ShareOfVoice
-    mention_rate_over_time: MentionRateDataPoint[]
+    mention_rate_over_time?: MentionRateDataPoint[]
     prompts: Prompt[]
+}
+
+// Derived types for dashboard views
+export interface Topic {
+    name: string
+    promptCount: number
+    visibility: number
+    relevancy: number
+    avgRank: number
+    citations: number
+    topCompetitors: { name: string; icon?: string }[]
+    prompts: Prompt[]
+}
+
+export interface CompetitorComparison {
+    competitor: string
+    sharedPrompts: number
+    youLeadPercentage: number
+    youLeadsIn: { topic: string; percentage: number }[]
+    theyLeadIn: { topic: string; percentage: number }[]
+}
+
+export interface MatrixCell {
+    topic: string
+    competitor: string
+    visibility: number
+    avgRank: number | null
+}
+
+export interface TopCitedSource {
+    domain: string
+    responseCount: number
 }
