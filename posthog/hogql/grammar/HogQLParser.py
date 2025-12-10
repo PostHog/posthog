@@ -703,7 +703,7 @@ class HogQLParser ( Parser ):
     RULE_expr = 58
     RULE_columnTypeExpr = 59
     RULE_columnExprList = 60
-    RULE_columnExprNoLogical = 61
+    RULE_betweenOperand = 61
     RULE_columnExpr = 62
     RULE_columnLambdaExpr = 63
     RULE_hogqlxChildElement = 64
@@ -751,15 +751,15 @@ class HogQLParser ( Parser ):
                    "settingExpr", "windowExpr", "winPartitionByClause", 
                    "winOrderByClause", "winFrameClause", "winFrameExtend", 
                    "winFrameBound", "expr", "columnTypeExpr", "columnExprList", 
-                   "columnExprNoLogical", "columnExpr", "columnLambdaExpr", 
-                   "hogqlxChildElement", "hogqlxText", "hogqlxTagElement", 
-                   "hogqlxTagAttribute", "withExprList", "withExpr", "columnIdentifier", 
-                   "nestedIdentifier", "tableExpr", "tableFunctionExpr", 
-                   "tableIdentifier", "tableArgList", "databaseIdentifier", 
-                   "floatingLiteral", "numberLiteral", "literal", "interval", 
-                   "keyword", "keywordForAlias", "alias", "identifier", 
-                   "enumValue", "placeholder", "string", "templateString", 
-                   "stringContents", "fullTemplateString", "stringContentsFull" ]
+                   "betweenOperand", "columnExpr", "columnLambdaExpr", "hogqlxChildElement", 
+                   "hogqlxText", "hogqlxTagElement", "hogqlxTagAttribute", 
+                   "withExprList", "withExpr", "columnIdentifier", "nestedIdentifier", 
+                   "tableExpr", "tableFunctionExpr", "tableIdentifier", 
+                   "tableArgList", "databaseIdentifier", "floatingLiteral", 
+                   "numberLiteral", "literal", "interval", "keyword", "keywordForAlias", 
+                   "alias", "identifier", "enumValue", "placeholder", "string", 
+                   "templateString", "stringContents", "fullTemplateString", 
+                   "stringContentsFull" ]
 
     EOF = Token.EOF
     ALL=1
@@ -5945,7 +5945,7 @@ class HogQLParser ( Parser ):
         return localctx
 
 
-    class ColumnExprNoLogicalContext(ParserRuleContext):
+    class BetweenOperandContext(ParserRuleContext):
         __slots__ = 'parser'
 
         def __init__(self, parser, parent:ParserRuleContext=None, invokingState:int=-1):
@@ -5954,7 +5954,7 @@ class HogQLParser ( Parser ):
 
 
         def getRuleIndex(self):
-            return HogQLParser.RULE_columnExprNoLogical
+            return HogQLParser.RULE_betweenOperand
 
      
         def copyFrom(self, ctx:ParserRuleContext):
@@ -5962,26 +5962,26 @@ class HogQLParser ( Parser ):
 
 
 
-    class ColumnExprNoLogicalLiteralContext(ColumnExprNoLogicalContext):
+    class BetweenOperandIdentifierContext(BetweenOperandContext):
 
-        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnExprNoLogicalContext
+        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.BetweenOperandContext
             super().__init__(parser)
             self.copyFrom(ctx)
 
-        def literal(self):
-            return self.getTypedRuleContext(HogQLParser.LiteralContext,0)
+        def columnIdentifier(self):
+            return self.getTypedRuleContext(HogQLParser.ColumnIdentifierContext,0)
 
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitColumnExprNoLogicalLiteral" ):
-                return visitor.visitColumnExprNoLogicalLiteral(self)
+            if hasattr( visitor, "visitBetweenOperandIdentifier" ):
+                return visitor.visitBetweenOperandIdentifier(self)
             else:
                 return visitor.visitChildren(self)
 
 
-    class ColumnExprNoLogicalSubqueryContext(ColumnExprNoLogicalContext):
+    class BetweenOperandSubqueryContext(BetweenOperandContext):
 
-        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnExprNoLogicalContext
+        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.BetweenOperandContext
             super().__init__(parser)
             self.copyFrom(ctx)
 
@@ -5994,51 +5994,34 @@ class HogQLParser ( Parser ):
             return self.getToken(HogQLParser.RPAREN, 0)
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitColumnExprNoLogicalSubquery" ):
-                return visitor.visitColumnExprNoLogicalSubquery(self)
+            if hasattr( visitor, "visitBetweenOperandSubquery" ):
+                return visitor.visitBetweenOperandSubquery(self)
             else:
                 return visitor.visitChildren(self)
 
 
-    class ColumnExprNoLogicalIdentifierContext(ColumnExprNoLogicalContext):
+    class BetweenOperandNegateContext(BetweenOperandContext):
 
-        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnExprNoLogicalContext
-            super().__init__(parser)
-            self.copyFrom(ctx)
-
-        def columnIdentifier(self):
-            return self.getTypedRuleContext(HogQLParser.ColumnIdentifierContext,0)
-
-
-        def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitColumnExprNoLogicalIdentifier" ):
-                return visitor.visitColumnExprNoLogicalIdentifier(self)
-            else:
-                return visitor.visitChildren(self)
-
-
-    class ColumnExprNoLogicalNegateContext(ColumnExprNoLogicalContext):
-
-        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnExprNoLogicalContext
+        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.BetweenOperandContext
             super().__init__(parser)
             self.copyFrom(ctx)
 
         def DASH(self):
             return self.getToken(HogQLParser.DASH, 0)
-        def columnExprNoLogical(self):
-            return self.getTypedRuleContext(HogQLParser.ColumnExprNoLogicalContext,0)
+        def betweenOperand(self):
+            return self.getTypedRuleContext(HogQLParser.BetweenOperandContext,0)
 
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitColumnExprNoLogicalNegate" ):
-                return visitor.visitColumnExprNoLogicalNegate(self)
+            if hasattr( visitor, "visitBetweenOperandNegate" ):
+                return visitor.visitBetweenOperandNegate(self)
             else:
                 return visitor.visitChildren(self)
 
 
-    class ColumnExprNoLogicalParensContext(ColumnExprNoLogicalContext):
+    class BetweenOperandParensContext(BetweenOperandContext):
 
-        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.ColumnExprNoLogicalContext
+        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.BetweenOperandContext
             super().__init__(parser)
             self.copyFrom(ctx)
 
@@ -6051,46 +6034,63 @@ class HogQLParser ( Parser ):
             return self.getToken(HogQLParser.RPAREN, 0)
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitColumnExprNoLogicalParens" ):
-                return visitor.visitColumnExprNoLogicalParens(self)
+            if hasattr( visitor, "visitBetweenOperandParens" ):
+                return visitor.visitBetweenOperandParens(self)
+            else:
+                return visitor.visitChildren(self)
+
+
+    class BetweenOperandLiteralContext(BetweenOperandContext):
+
+        def __init__(self, parser, ctx:ParserRuleContext): # actually a HogQLParser.BetweenOperandContext
+            super().__init__(parser)
+            self.copyFrom(ctx)
+
+        def literal(self):
+            return self.getTypedRuleContext(HogQLParser.LiteralContext,0)
+
+
+        def accept(self, visitor:ParseTreeVisitor):
+            if hasattr( visitor, "visitBetweenOperandLiteral" ):
+                return visitor.visitBetweenOperandLiteral(self)
             else:
                 return visitor.visitChildren(self)
 
 
 
-    def columnExprNoLogical(self):
+    def betweenOperand(self):
 
-        localctx = HogQLParser.ColumnExprNoLogicalContext(self, self._ctx, self.state)
-        self.enterRule(localctx, 122, self.RULE_columnExprNoLogical)
+        localctx = HogQLParser.BetweenOperandContext(self, self._ctx, self.state)
+        self.enterRule(localctx, 122, self.RULE_betweenOperand)
         try:
             self.state = 822
             self._errHandler.sync(self)
             la_ = self._interp.adaptivePredict(self._input,102,self._ctx)
             if la_ == 1:
-                localctx = HogQLParser.ColumnExprNoLogicalLiteralContext(self, localctx)
+                localctx = HogQLParser.BetweenOperandLiteralContext(self, localctx)
                 self.enterOuterAlt(localctx, 1)
                 self.state = 810
                 self.literal()
                 pass
 
             elif la_ == 2:
-                localctx = HogQLParser.ColumnExprNoLogicalIdentifierContext(self, localctx)
+                localctx = HogQLParser.BetweenOperandIdentifierContext(self, localctx)
                 self.enterOuterAlt(localctx, 2)
                 self.state = 811
                 self.columnIdentifier()
                 pass
 
             elif la_ == 3:
-                localctx = HogQLParser.ColumnExprNoLogicalNegateContext(self, localctx)
+                localctx = HogQLParser.BetweenOperandNegateContext(self, localctx)
                 self.enterOuterAlt(localctx, 3)
                 self.state = 812
                 self.match(HogQLParser.DASH)
                 self.state = 813
-                self.columnExprNoLogical()
+                self.betweenOperand()
                 pass
 
             elif la_ == 4:
-                localctx = HogQLParser.ColumnExprNoLogicalParensContext(self, localctx)
+                localctx = HogQLParser.BetweenOperandParensContext(self, localctx)
                 self.enterOuterAlt(localctx, 4)
                 self.state = 814
                 self.match(HogQLParser.LPAREN)
@@ -6101,7 +6101,7 @@ class HogQLParser ( Parser ):
                 pass
 
             elif la_ == 5:
-                localctx = HogQLParser.ColumnExprNoLogicalSubqueryContext(self, localctx)
+                localctx = HogQLParser.BetweenOperandSubqueryContext(self, localctx)
                 self.enterOuterAlt(localctx, 5)
                 self.state = 818
                 self.match(HogQLParser.LPAREN)
@@ -6796,11 +6796,11 @@ class HogQLParser ( Parser ):
             super().__init__(parser)
             self.copyFrom(ctx)
 
-        def columnExprNoLogical(self, i:int=None):
+        def betweenOperand(self, i:int=None):
             if i is None:
-                return self.getTypedRuleContexts(HogQLParser.ColumnExprNoLogicalContext)
+                return self.getTypedRuleContexts(HogQLParser.BetweenOperandContext)
             else:
-                return self.getTypedRuleContext(HogQLParser.ColumnExprNoLogicalContext,i)
+                return self.getTypedRuleContext(HogQLParser.BetweenOperandContext,i)
 
         def BETWEEN(self):
             return self.getToken(HogQLParser.BETWEEN, 0)
@@ -7554,7 +7554,7 @@ class HogQLParser ( Parser ):
                 self._ctx = localctx
                 _prevctx = localctx
                 self.state = 946
-                self.columnExprNoLogical()
+                self.betweenOperand()
                 self.state = 948
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
@@ -7566,11 +7566,11 @@ class HogQLParser ( Parser ):
                 self.state = 950
                 self.match(HogQLParser.BETWEEN)
                 self.state = 951
-                self.columnExprNoLogical()
+                self.betweenOperand()
                 self.state = 952
                 self.match(HogQLParser.AND)
                 self.state = 953
-                self.columnExprNoLogical()
+                self.betweenOperand()
                 pass
 
             elif la_ == 18:

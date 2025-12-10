@@ -65,7 +65,7 @@ void hogqlparserParserInitialize() {
       "orderExprList", "orderExpr", "ratioExpr", "settingExprList", "settingExpr", 
       "windowExpr", "winPartitionByClause", "winOrderByClause", "winFrameClause", 
       "winFrameExtend", "winFrameBound", "expr", "columnTypeExpr", "columnExprList", 
-      "columnExprNoLogical", "columnExpr", "columnLambdaExpr", "hogqlxChildElement", 
+      "betweenOperand", "columnExpr", "columnLambdaExpr", "hogqlxChildElement", 
       "hogqlxText", "hogqlxTagElement", "hogqlxTagAttribute", "withExprList", 
       "withExpr", "columnIdentifier", "nestedIdentifier", "tableExpr", "tableFunctionExpr", 
       "tableIdentifier", "tableArgList", "databaseIdentifier", "floatingLiteral", 
@@ -6900,119 +6900,119 @@ HogQLParser::ColumnExprListContext* HogQLParser::columnExprList() {
   return _localctx;
 }
 
-//----------------- ColumnExprNoLogicalContext ------------------------------------------------------------------
+//----------------- BetweenOperandContext ------------------------------------------------------------------
 
-HogQLParser::ColumnExprNoLogicalContext::ColumnExprNoLogicalContext(ParserRuleContext *parent, size_t invokingState)
+HogQLParser::BetweenOperandContext::BetweenOperandContext(ParserRuleContext *parent, size_t invokingState)
   : ParserRuleContext(parent, invokingState) {
 }
 
 
-size_t HogQLParser::ColumnExprNoLogicalContext::getRuleIndex() const {
-  return HogQLParser::RuleColumnExprNoLogical;
+size_t HogQLParser::BetweenOperandContext::getRuleIndex() const {
+  return HogQLParser::RuleBetweenOperand;
 }
 
-void HogQLParser::ColumnExprNoLogicalContext::copyFrom(ColumnExprNoLogicalContext *ctx) {
+void HogQLParser::BetweenOperandContext::copyFrom(BetweenOperandContext *ctx) {
   ParserRuleContext::copyFrom(ctx);
 }
 
-//----------------- ColumnExprNoLogicalLiteralContext ------------------------------------------------------------------
+//----------------- BetweenOperandIdentifierContext ------------------------------------------------------------------
 
-HogQLParser::LiteralContext* HogQLParser::ColumnExprNoLogicalLiteralContext::literal() {
-  return getRuleContext<HogQLParser::LiteralContext>(0);
-}
-
-HogQLParser::ColumnExprNoLogicalLiteralContext::ColumnExprNoLogicalLiteralContext(ColumnExprNoLogicalContext *ctx) { copyFrom(ctx); }
-
-
-std::any HogQLParser::ColumnExprNoLogicalLiteralContext::accept(tree::ParseTreeVisitor *visitor) {
-  if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitColumnExprNoLogicalLiteral(this);
-  else
-    return visitor->visitChildren(this);
-}
-//----------------- ColumnExprNoLogicalSubqueryContext ------------------------------------------------------------------
-
-tree::TerminalNode* HogQLParser::ColumnExprNoLogicalSubqueryContext::LPAREN() {
-  return getToken(HogQLParser::LPAREN, 0);
-}
-
-HogQLParser::SelectSetStmtContext* HogQLParser::ColumnExprNoLogicalSubqueryContext::selectSetStmt() {
-  return getRuleContext<HogQLParser::SelectSetStmtContext>(0);
-}
-
-tree::TerminalNode* HogQLParser::ColumnExprNoLogicalSubqueryContext::RPAREN() {
-  return getToken(HogQLParser::RPAREN, 0);
-}
-
-HogQLParser::ColumnExprNoLogicalSubqueryContext::ColumnExprNoLogicalSubqueryContext(ColumnExprNoLogicalContext *ctx) { copyFrom(ctx); }
-
-
-std::any HogQLParser::ColumnExprNoLogicalSubqueryContext::accept(tree::ParseTreeVisitor *visitor) {
-  if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitColumnExprNoLogicalSubquery(this);
-  else
-    return visitor->visitChildren(this);
-}
-//----------------- ColumnExprNoLogicalIdentifierContext ------------------------------------------------------------------
-
-HogQLParser::ColumnIdentifierContext* HogQLParser::ColumnExprNoLogicalIdentifierContext::columnIdentifier() {
+HogQLParser::ColumnIdentifierContext* HogQLParser::BetweenOperandIdentifierContext::columnIdentifier() {
   return getRuleContext<HogQLParser::ColumnIdentifierContext>(0);
 }
 
-HogQLParser::ColumnExprNoLogicalIdentifierContext::ColumnExprNoLogicalIdentifierContext(ColumnExprNoLogicalContext *ctx) { copyFrom(ctx); }
+HogQLParser::BetweenOperandIdentifierContext::BetweenOperandIdentifierContext(BetweenOperandContext *ctx) { copyFrom(ctx); }
 
 
-std::any HogQLParser::ColumnExprNoLogicalIdentifierContext::accept(tree::ParseTreeVisitor *visitor) {
+std::any HogQLParser::BetweenOperandIdentifierContext::accept(tree::ParseTreeVisitor *visitor) {
   if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitColumnExprNoLogicalIdentifier(this);
+    return parserVisitor->visitBetweenOperandIdentifier(this);
   else
     return visitor->visitChildren(this);
 }
-//----------------- ColumnExprNoLogicalNegateContext ------------------------------------------------------------------
+//----------------- BetweenOperandSubqueryContext ------------------------------------------------------------------
 
-tree::TerminalNode* HogQLParser::ColumnExprNoLogicalNegateContext::DASH() {
-  return getToken(HogQLParser::DASH, 0);
-}
-
-HogQLParser::ColumnExprNoLogicalContext* HogQLParser::ColumnExprNoLogicalNegateContext::columnExprNoLogical() {
-  return getRuleContext<HogQLParser::ColumnExprNoLogicalContext>(0);
-}
-
-HogQLParser::ColumnExprNoLogicalNegateContext::ColumnExprNoLogicalNegateContext(ColumnExprNoLogicalContext *ctx) { copyFrom(ctx); }
-
-
-std::any HogQLParser::ColumnExprNoLogicalNegateContext::accept(tree::ParseTreeVisitor *visitor) {
-  if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitColumnExprNoLogicalNegate(this);
-  else
-    return visitor->visitChildren(this);
-}
-//----------------- ColumnExprNoLogicalParensContext ------------------------------------------------------------------
-
-tree::TerminalNode* HogQLParser::ColumnExprNoLogicalParensContext::LPAREN() {
+tree::TerminalNode* HogQLParser::BetweenOperandSubqueryContext::LPAREN() {
   return getToken(HogQLParser::LPAREN, 0);
 }
 
-HogQLParser::ColumnExprContext* HogQLParser::ColumnExprNoLogicalParensContext::columnExpr() {
-  return getRuleContext<HogQLParser::ColumnExprContext>(0);
+HogQLParser::SelectSetStmtContext* HogQLParser::BetweenOperandSubqueryContext::selectSetStmt() {
+  return getRuleContext<HogQLParser::SelectSetStmtContext>(0);
 }
 
-tree::TerminalNode* HogQLParser::ColumnExprNoLogicalParensContext::RPAREN() {
+tree::TerminalNode* HogQLParser::BetweenOperandSubqueryContext::RPAREN() {
   return getToken(HogQLParser::RPAREN, 0);
 }
 
-HogQLParser::ColumnExprNoLogicalParensContext::ColumnExprNoLogicalParensContext(ColumnExprNoLogicalContext *ctx) { copyFrom(ctx); }
+HogQLParser::BetweenOperandSubqueryContext::BetweenOperandSubqueryContext(BetweenOperandContext *ctx) { copyFrom(ctx); }
 
 
-std::any HogQLParser::ColumnExprNoLogicalParensContext::accept(tree::ParseTreeVisitor *visitor) {
+std::any HogQLParser::BetweenOperandSubqueryContext::accept(tree::ParseTreeVisitor *visitor) {
   if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitColumnExprNoLogicalParens(this);
+    return parserVisitor->visitBetweenOperandSubquery(this);
   else
     return visitor->visitChildren(this);
 }
-HogQLParser::ColumnExprNoLogicalContext* HogQLParser::columnExprNoLogical() {
-  ColumnExprNoLogicalContext *_localctx = _tracker.createInstance<ColumnExprNoLogicalContext>(_ctx, getState());
-  enterRule(_localctx, 122, HogQLParser::RuleColumnExprNoLogical);
+//----------------- BetweenOperandNegateContext ------------------------------------------------------------------
+
+tree::TerminalNode* HogQLParser::BetweenOperandNegateContext::DASH() {
+  return getToken(HogQLParser::DASH, 0);
+}
+
+HogQLParser::BetweenOperandContext* HogQLParser::BetweenOperandNegateContext::betweenOperand() {
+  return getRuleContext<HogQLParser::BetweenOperandContext>(0);
+}
+
+HogQLParser::BetweenOperandNegateContext::BetweenOperandNegateContext(BetweenOperandContext *ctx) { copyFrom(ctx); }
+
+
+std::any HogQLParser::BetweenOperandNegateContext::accept(tree::ParseTreeVisitor *visitor) {
+  if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
+    return parserVisitor->visitBetweenOperandNegate(this);
+  else
+    return visitor->visitChildren(this);
+}
+//----------------- BetweenOperandParensContext ------------------------------------------------------------------
+
+tree::TerminalNode* HogQLParser::BetweenOperandParensContext::LPAREN() {
+  return getToken(HogQLParser::LPAREN, 0);
+}
+
+HogQLParser::ColumnExprContext* HogQLParser::BetweenOperandParensContext::columnExpr() {
+  return getRuleContext<HogQLParser::ColumnExprContext>(0);
+}
+
+tree::TerminalNode* HogQLParser::BetweenOperandParensContext::RPAREN() {
+  return getToken(HogQLParser::RPAREN, 0);
+}
+
+HogQLParser::BetweenOperandParensContext::BetweenOperandParensContext(BetweenOperandContext *ctx) { copyFrom(ctx); }
+
+
+std::any HogQLParser::BetweenOperandParensContext::accept(tree::ParseTreeVisitor *visitor) {
+  if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
+    return parserVisitor->visitBetweenOperandParens(this);
+  else
+    return visitor->visitChildren(this);
+}
+//----------------- BetweenOperandLiteralContext ------------------------------------------------------------------
+
+HogQLParser::LiteralContext* HogQLParser::BetweenOperandLiteralContext::literal() {
+  return getRuleContext<HogQLParser::LiteralContext>(0);
+}
+
+HogQLParser::BetweenOperandLiteralContext::BetweenOperandLiteralContext(BetweenOperandContext *ctx) { copyFrom(ctx); }
+
+
+std::any HogQLParser::BetweenOperandLiteralContext::accept(tree::ParseTreeVisitor *visitor) {
+  if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
+    return parserVisitor->visitBetweenOperandLiteral(this);
+  else
+    return visitor->visitChildren(this);
+}
+HogQLParser::BetweenOperandContext* HogQLParser::betweenOperand() {
+  BetweenOperandContext *_localctx = _tracker.createInstance<BetweenOperandContext>(_ctx, getState());
+  enterRule(_localctx, 122, HogQLParser::RuleBetweenOperand);
 
 #if __cplusplus > 201703L
   auto onExit = finally([=, this] {
@@ -7026,7 +7026,7 @@ HogQLParser::ColumnExprNoLogicalContext* HogQLParser::columnExprNoLogical() {
     _errHandler->sync(this);
     switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 102, _ctx)) {
     case 1: {
-      _localctx = _tracker.createInstance<HogQLParser::ColumnExprNoLogicalLiteralContext>(_localctx);
+      _localctx = _tracker.createInstance<HogQLParser::BetweenOperandLiteralContext>(_localctx);
       enterOuterAlt(_localctx, 1);
       setState(810);
       literal();
@@ -7034,7 +7034,7 @@ HogQLParser::ColumnExprNoLogicalContext* HogQLParser::columnExprNoLogical() {
     }
 
     case 2: {
-      _localctx = _tracker.createInstance<HogQLParser::ColumnExprNoLogicalIdentifierContext>(_localctx);
+      _localctx = _tracker.createInstance<HogQLParser::BetweenOperandIdentifierContext>(_localctx);
       enterOuterAlt(_localctx, 2);
       setState(811);
       columnIdentifier();
@@ -7042,17 +7042,17 @@ HogQLParser::ColumnExprNoLogicalContext* HogQLParser::columnExprNoLogical() {
     }
 
     case 3: {
-      _localctx = _tracker.createInstance<HogQLParser::ColumnExprNoLogicalNegateContext>(_localctx);
+      _localctx = _tracker.createInstance<HogQLParser::BetweenOperandNegateContext>(_localctx);
       enterOuterAlt(_localctx, 3);
       setState(812);
       match(HogQLParser::DASH);
       setState(813);
-      columnExprNoLogical();
+      betweenOperand();
       break;
     }
 
     case 4: {
-      _localctx = _tracker.createInstance<HogQLParser::ColumnExprNoLogicalParensContext>(_localctx);
+      _localctx = _tracker.createInstance<HogQLParser::BetweenOperandParensContext>(_localctx);
       enterOuterAlt(_localctx, 4);
       setState(814);
       match(HogQLParser::LPAREN);
@@ -7064,7 +7064,7 @@ HogQLParser::ColumnExprNoLogicalContext* HogQLParser::columnExprNoLogical() {
     }
 
     case 5: {
-      _localctx = _tracker.createInstance<HogQLParser::ColumnExprNoLogicalSubqueryContext>(_localctx);
+      _localctx = _tracker.createInstance<HogQLParser::BetweenOperandSubqueryContext>(_localctx);
       enterOuterAlt(_localctx, 5);
       setState(818);
       match(HogQLParser::LPAREN);
@@ -7860,12 +7860,12 @@ std::any HogQLParser::ColumnExprArrayAccessContext::accept(tree::ParseTreeVisito
 }
 //----------------- ColumnExprBetweenContext ------------------------------------------------------------------
 
-std::vector<HogQLParser::ColumnExprNoLogicalContext *> HogQLParser::ColumnExprBetweenContext::columnExprNoLogical() {
-  return getRuleContexts<HogQLParser::ColumnExprNoLogicalContext>();
+std::vector<HogQLParser::BetweenOperandContext *> HogQLParser::ColumnExprBetweenContext::betweenOperand() {
+  return getRuleContexts<HogQLParser::BetweenOperandContext>();
 }
 
-HogQLParser::ColumnExprNoLogicalContext* HogQLParser::ColumnExprBetweenContext::columnExprNoLogical(size_t i) {
-  return getRuleContext<HogQLParser::ColumnExprNoLogicalContext>(i);
+HogQLParser::BetweenOperandContext* HogQLParser::ColumnExprBetweenContext::betweenOperand(size_t i) {
+  return getRuleContext<HogQLParser::BetweenOperandContext>(i);
 }
 
 tree::TerminalNode* HogQLParser::ColumnExprBetweenContext::BETWEEN() {
@@ -8737,7 +8737,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
       _ctx = _localctx;
       previousContext = _localctx;
       setState(946);
-      columnExprNoLogical();
+      betweenOperand();
       setState(948);
       _errHandler->sync(this);
 
@@ -8749,11 +8749,11 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
       setState(950);
       match(HogQLParser::BETWEEN);
       setState(951);
-      columnExprNoLogical();
+      betweenOperand();
       setState(952);
       match(HogQLParser::AND);
       setState(953);
-      columnExprNoLogical();
+      betweenOperand();
       break;
     }
 

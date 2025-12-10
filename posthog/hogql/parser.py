@@ -914,7 +914,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
-        # Updated to use columnExprNoLogical children to prevent greedy AND/OR consumption
+        # Updated to use betweenOperand children to prevent greedy AND/OR consumption
         expr_children = [child for child in ctx.getChildren() if hasattr(child, 'getRuleIndex')]
         expr = self.visit(expr_children[0])
         low = self.visit(expr_children[1])
@@ -1278,22 +1278,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return self.visit(ctx.columnExpr())
         return ast.Constant(value="")
 
-    # Delegation methods for columnExprNoLogical alternatives
+    # Delegation methods for betweenOperand alternatives
     # These delegate to existing visitor methods since AST nodes are identical
-    # Minimal columnExprNoLogical visitor methods
+    # Minimal betweenOperand visitor methods
     # Only 5 alternatives needed for BETWEEN fix
 
-    def visitColumnExprNoLogicalLiteral(self, ctx):
+    def visitBetweenOperandLiteral(self, ctx):
         return self.visitColumnExprLiteral(ctx)
 
-    def visitColumnExprNoLogicalIdentifier(self, ctx):
+    def visitBetweenOperandIdentifier(self, ctx):
         return self.visitColumnExprIdentifier(ctx)
 
-    def visitColumnExprNoLogicalNegate(self, ctx):
+    def visitBetweenOperandNegate(self, ctx):
         return self.visitColumnExprNegate(ctx)
 
-    def visitColumnExprNoLogicalParens(self, ctx):
+    def visitBetweenOperandParens(self, ctx):
         return self.visitColumnExprParens(ctx)
 
-    def visitColumnExprNoLogicalSubquery(self, ctx):
+    def visitBetweenOperandSubquery(self, ctx):
         return self.visitColumnExprSubquery(ctx)

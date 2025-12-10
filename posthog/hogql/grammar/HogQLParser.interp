@@ -402,7 +402,7 @@ winFrameBound
 expr
 columnTypeExpr
 columnExprList
-columnExprNoLogical
+betweenOperand
 columnExpr
 columnLambdaExpr
 hogqlxChildElement

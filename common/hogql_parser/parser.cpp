@@ -2125,17 +2125,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnExprBetween) {
-    PyObject* expr = visitAsPyObject(ctx->columnExprNoLogical(0));
+    PyObject* expr = visitAsPyObject(ctx->betweenOperand(0));
     PyObject* low;
     try {
-      low = visitAsPyObject(ctx->columnExprNoLogical(1));
+      low = visitAsPyObject(ctx->betweenOperand(1));
     } catch (...) {
       Py_DECREF(expr);
       throw;
     }
     PyObject* high;
     try {
-      high = visitAsPyObject(ctx->columnExprNoLogical(2));
+      high = visitAsPyObject(ctx->betweenOperand(2));
     } catch (...) {
       Py_DECREF(low);
       Py_DECREF(expr);
@@ -2988,24 +2988,24 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
   }
 
-  // Delegation methods for columnExprNoLogical alternatives
+  // Delegation methods for betweenOperand alternatives
   // These contexts have the same structure as their columnExpr counterparts
   // We visit child nodes directly to produce the same AST
-  // Minimal columnExprNoLogical visitor methods
+  // Minimal betweenOperand visitor methods
   // Only 5 alternatives needed for BETWEEN fix
 
-  VISIT(ColumnExprNoLogicalLiteral) { return visit(ctx->literal()); }
+  VISIT(BetweenOperandLiteral) { return visit(ctx->literal()); }
 
-  VISIT(ColumnExprNoLogicalIdentifier) { return visit(ctx->columnIdentifier()); }
+  VISIT(BetweenOperandIdentifier) { return visit(ctx->columnIdentifier()); }
 
-  VISIT(ColumnExprNoLogicalNegate) {
-    PyObject* expr = visitAsPyObject(ctx->columnExprNoLogical());
+  VISIT(BetweenOperandNegate) {
+    PyObject* expr = visitAsPyObject(ctx->betweenOperand());
     RETURN_NEW_AST_NODE("ArithmeticOperation", "{s:s,s:N}", "op", "Neg", "right", expr);
   }
 
-  VISIT(ColumnExprNoLogicalParens) { return visit(ctx->columnExpr()); }
+  VISIT(BetweenOperandParens) { return visit(ctx->columnExpr()); }
 
-  VISIT(ColumnExprNoLogicalSubquery) { return visit(ctx->selectSetStmt()); }
+  VISIT(BetweenOperandSubquery) { return visit(ctx->selectSetStmt()); }
 };
 
 class HogQLErrorListener : public antlr4::BaseErrorListener {

@@ -65,7 +65,7 @@ public:
     RuleRatioExpr = 49, RuleSettingExprList = 50, RuleSettingExpr = 51, 
     RuleWindowExpr = 52, RuleWinPartitionByClause = 53, RuleWinOrderByClause = 54, 
     RuleWinFrameClause = 55, RuleWinFrameExtend = 56, RuleWinFrameBound = 57, 
-    RuleExpr = 58, RuleColumnTypeExpr = 59, RuleColumnExprList = 60, RuleColumnExprNoLogical = 61, 
+    RuleExpr = 58, RuleColumnTypeExpr = 59, RuleColumnExprList = 60, RuleBetweenOperand = 61, 
     RuleColumnExpr = 62, RuleColumnLambdaExpr = 63, RuleHogqlxChildElement = 64, 
     RuleHogqlxText = 65, RuleHogqlxTagElement = 66, RuleHogqlxTagAttribute = 67, 
     RuleWithExprList = 68, RuleWithExpr = 69, RuleColumnIdentifier = 70, 
@@ -156,7 +156,7 @@ public:
   class ExprContext;
   class ColumnTypeExprContext;
   class ColumnExprListContext;
-  class ColumnExprNoLogicalContext;
+  class BetweenOperandContext;
   class ColumnExprContext;
   class ColumnLambdaExprContext;
   class HogqlxChildElementContext;
@@ -1394,12 +1394,12 @@ public:
 
   ColumnExprListContext* columnExprList();
 
-  class  ColumnExprNoLogicalContext : public antlr4::ParserRuleContext {
+  class  BetweenOperandContext : public antlr4::ParserRuleContext {
   public:
-    ColumnExprNoLogicalContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    BetweenOperandContext(antlr4::ParserRuleContext *parent, size_t invokingState);
    
-    ColumnExprNoLogicalContext() = default;
-    void copyFrom(ColumnExprNoLogicalContext *context);
+    BetweenOperandContext() = default;
+    void copyFrom(BetweenOperandContext *context);
     using antlr4::ParserRuleContext::copyFrom;
 
     virtual size_t getRuleIndex() const override;
@@ -1407,18 +1407,18 @@ public:
    
   };
 
-  class  ColumnExprNoLogicalLiteralContext : public ColumnExprNoLogicalContext {
+  class  BetweenOperandIdentifierContext : public BetweenOperandContext {
   public:
-    ColumnExprNoLogicalLiteralContext(ColumnExprNoLogicalContext *ctx);
+    BetweenOperandIdentifierContext(BetweenOperandContext *ctx);
 
-    LiteralContext *literal();
+    ColumnIdentifierContext *columnIdentifier();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
-  class  ColumnExprNoLogicalSubqueryContext : public ColumnExprNoLogicalContext {
+  class  BetweenOperandSubqueryContext : public BetweenOperandContext {
   public:
-    ColumnExprNoLogicalSubqueryContext(ColumnExprNoLogicalContext *ctx);
+    BetweenOperandSubqueryContext(BetweenOperandContext *ctx);
 
     antlr4::tree::TerminalNode *LPAREN();
     SelectSetStmtContext *selectSetStmt();
@@ -1427,28 +1427,19 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
-  class  ColumnExprNoLogicalIdentifierContext : public ColumnExprNoLogicalContext {
+  class  BetweenOperandNegateContext : public BetweenOperandContext {
   public:
-    ColumnExprNoLogicalIdentifierContext(ColumnExprNoLogicalContext *ctx);
-
-    ColumnIdentifierContext *columnIdentifier();
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-  };
-
-  class  ColumnExprNoLogicalNegateContext : public ColumnExprNoLogicalContext {
-  public:
-    ColumnExprNoLogicalNegateContext(ColumnExprNoLogicalContext *ctx);
+    BetweenOperandNegateContext(BetweenOperandContext *ctx);
 
     antlr4::tree::TerminalNode *DASH();
-    ColumnExprNoLogicalContext *columnExprNoLogical();
+    BetweenOperandContext *betweenOperand();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
-  class  ColumnExprNoLogicalParensContext : public ColumnExprNoLogicalContext {
+  class  BetweenOperandParensContext : public BetweenOperandContext {
   public:
-    ColumnExprNoLogicalParensContext(ColumnExprNoLogicalContext *ctx);
+    BetweenOperandParensContext(BetweenOperandContext *ctx);
 
     antlr4::tree::TerminalNode *LPAREN();
     ColumnExprContext *columnExpr();
@@ -1457,7 +1448,16 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
-  ColumnExprNoLogicalContext* columnExprNoLogical();
+  class  BetweenOperandLiteralContext : public BetweenOperandContext {
+  public:
+    BetweenOperandLiteralContext(BetweenOperandContext *ctx);
+
+    LiteralContext *literal();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  BetweenOperandContext* betweenOperand();
 
   class  ColumnExprContext : public antlr4::ParserRuleContext {
   public:
@@ -1812,8 +1812,8 @@ public:
   public:
     ColumnExprBetweenContext(ColumnExprContext *ctx);
 
-    std::vector<ColumnExprNoLogicalContext *> columnExprNoLogical();
-    ColumnExprNoLogicalContext* columnExprNoLogical(size_t i);
+    std::vector<BetweenOperandContext *> betweenOperand();
+    BetweenOperandContext* betweenOperand(size_t i);
     antlr4::tree::TerminalNode *BETWEEN();
     antlr4::tree::TerminalNode *AND();
     antlr4::tree::TerminalNode *NOT();

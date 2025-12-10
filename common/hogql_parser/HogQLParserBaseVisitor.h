@@ -299,23 +299,23 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitColumnExprNoLogicalLiteral(HogQLParser::ColumnExprNoLogicalLiteralContext *ctx) override {
+  virtual std::any visitBetweenOperandLiteral(HogQLParser::BetweenOperandLiteralContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitColumnExprNoLogicalIdentifier(HogQLParser::ColumnExprNoLogicalIdentifierContext *ctx) override {
+  virtual std::any visitBetweenOperandIdentifier(HogQLParser::BetweenOperandIdentifierContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitColumnExprNoLogicalNegate(HogQLParser::ColumnExprNoLogicalNegateContext *ctx) override {
+  virtual std::any visitBetweenOperandNegate(HogQLParser::BetweenOperandNegateContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitColumnExprNoLogicalParens(HogQLParser::ColumnExprNoLogicalParensContext *ctx) override {
+  virtual std::any visitBetweenOperandParens(HogQLParser::BetweenOperandParensContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitColumnExprNoLogicalSubquery(HogQLParser::ColumnExprNoLogicalSubqueryContext *ctx) override {
+  virtual std::any visitBetweenOperandSubquery(HogQLParser::BetweenOperandSubqueryContext *ctx) override {
     return visitChildren(ctx);
   }
 

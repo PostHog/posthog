@@ -147,15 +147,15 @@ columnTypeExpr
     ;
 columnExprList: columnExpr (COMMA columnExpr)* COMMA?;
 
-// columnExprNoLogical: Minimal subset of columnExpr excluding logical operators (AND, OR, NOT, BETWEEN).
-// This prevents greedy consumption in BETWEEN operands while allowing complex expressions via parentheses.
+// betweenOperand: Minimal subset of expressions allowed as BETWEEN operands.
+// This prevents greedy consumption of AND/OR operators while allowing complex expressions via parentheses.
 // For expressions requiring arithmetic/comparison operators, use parentheses: x BETWEEN (y * 2) AND (z + 3)
-columnExprNoLogical
-    : literal                                    # ColumnExprNoLogicalLiteral
-    | columnIdentifier                           # ColumnExprNoLogicalIdentifier
-    | DASH columnExprNoLogical                   # ColumnExprNoLogicalNegate
-    | LPAREN columnExpr RPAREN                   # ColumnExprNoLogicalParens
-    | LPAREN selectSetStmt RPAREN                # ColumnExprNoLogicalSubquery
+betweenOperand
+    : literal                                    # BetweenOperandLiteral
+    | columnIdentifier                           # BetweenOperandIdentifier
+    | DASH betweenOperand                        # BetweenOperandNegate
+    | LPAREN columnExpr RPAREN                   # BetweenOperandParens
+    | LPAREN selectSetStmt RPAREN                # BetweenOperandSubquery
     ;
 
 columnExpr
@@ -214,8 +214,8 @@ columnExpr
     | NOT columnExpr                                                                      # ColumnExprNot
     | columnExpr AND columnExpr                                                           # ColumnExprAnd
     | columnExpr OR columnExpr                                                            # ColumnExprOr
-    // Fixed: Use columnExprNoLogical to prevent greedy AND/OR consumption in BETWEEN operands
-    | columnExprNoLogical NOT? BETWEEN columnExprNoLogical AND columnExprNoLogical        # ColumnExprBetween
+    // Fixed: Use betweenOperand to prevent greedy AND/OR consumption in BETWEEN operands
+    | betweenOperand NOT? BETWEEN betweenOperand AND betweenOperand                       # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
     | columnExpr (AS identifier | AS STRING_LITERAL)                                      # ColumnExprAlias
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only

@@ -364,28 +364,28 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalLiteral.
-    def visitColumnExprNoLogicalLiteral(self, ctx:HogQLParser.ColumnExprNoLogicalLiteralContext):
+    # Visit a parse tree produced by HogQLParser#BetweenOperandLiteral.
+    def visitBetweenOperandLiteral(self, ctx:HogQLParser.BetweenOperandLiteralContext):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalIdentifier.
-    def visitColumnExprNoLogicalIdentifier(self, ctx:HogQLParser.ColumnExprNoLogicalIdentifierContext):
+    # Visit a parse tree produced by HogQLParser#BetweenOperandIdentifier.
+    def visitBetweenOperandIdentifier(self, ctx:HogQLParser.BetweenOperandIdentifierContext):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalNegate.
-    def visitColumnExprNoLogicalNegate(self, ctx:HogQLParser.ColumnExprNoLogicalNegateContext):
+    # Visit a parse tree produced by HogQLParser#BetweenOperandNegate.
+    def visitBetweenOperandNegate(self, ctx:HogQLParser.BetweenOperandNegateContext):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalParens.
-    def visitColumnExprNoLogicalParens(self, ctx:HogQLParser.ColumnExprNoLogicalParensContext):
+    # Visit a parse tree produced by HogQLParser#BetweenOperandParens.
+    def visitBetweenOperandParens(self, ctx:HogQLParser.BetweenOperandParensContext):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalSubquery.
-    def visitColumnExprNoLogicalSubquery(self, ctx:HogQLParser.ColumnExprNoLogicalSubqueryContext):
+    # Visit a parse tree produced by HogQLParser#BetweenOperandSubquery.
+    def visitBetweenOperandSubquery(self, ctx:HogQLParser.BetweenOperandSubqueryContext):
         return self.visitChildren(ctx)
 
 

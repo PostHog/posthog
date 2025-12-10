@@ -161,15 +161,15 @@ public:
 
     virtual std::any visitColumnExprList(HogQLParser::ColumnExprListContext *context) = 0;
 
-    virtual std::any visitColumnExprNoLogicalLiteral(HogQLParser::ColumnExprNoLogicalLiteralContext *context) = 0;
+    virtual std::any visitBetweenOperandLiteral(HogQLParser::BetweenOperandLiteralContext *context) = 0;
 
-    virtual std::any visitColumnExprNoLogicalIdentifier(HogQLParser::ColumnExprNoLogicalIdentifierContext *context) = 0;
+    virtual std::any visitBetweenOperandIdentifier(HogQLParser::BetweenOperandIdentifierContext *context) = 0;
 
-    virtual std::any visitColumnExprNoLogicalNegate(HogQLParser::ColumnExprNoLogicalNegateContext *context) = 0;
+    virtual std::any visitBetweenOperandNegate(HogQLParser::BetweenOperandNegateContext *context) = 0;
 
-    virtual std::any visitColumnExprNoLogicalParens(HogQLParser::ColumnExprNoLogicalParensContext *context) = 0;
+    virtual std::any visitBetweenOperandParens(HogQLParser::BetweenOperandParensContext *context) = 0;
 
-    virtual std::any visitColumnExprNoLogicalSubquery(HogQLParser::ColumnExprNoLogicalSubqueryContext *context) = 0;
+    virtual std::any visitBetweenOperandSubquery(HogQLParser::BetweenOperandSubqueryContext *context) = 0;
 
     virtual std::any visitColumnExprTernaryOp(HogQLParser::ColumnExprTernaryOpContext *context) = 0;
 
