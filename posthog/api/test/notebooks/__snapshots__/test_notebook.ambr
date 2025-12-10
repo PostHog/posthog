@@ -456,6 +456,7 @@
          T5."theme_mode",
          T5."partial_notification_settings",
          T5."anonymize_data",
+         T5."allow_impersonation",
          T5."toolbar_mode",
          T5."hedgehog_config",
          T5."allow_sidebar_suggestions",
