@@ -637,11 +637,17 @@ class AutoLogoutImpersonateMiddleware:
 
         session_is_expired = impersonated_session_expires_at < datetime.now()
 
+        # Handle logout for impersonated sessions (expired or not)
+        # Redirect back to the impersonated user's admin page
+        if request.path.startswith("/logout"):
+            impersonated_user_pk = request.user.pk
+            restore_original_login(request)
+            return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
+
         if session_is_expired:
             # TRICKY: We need to handle different cases here:
             # 1. For /api requests we want to respond with a code that will force the UI to redirect to the logout page (401)
             # 2. For any other endpoint we want to redirect to the logout page
-            # 3. BUT we wan't to intercept the /logout endpoint so that we can restore the original login
 
             if request.path.startswith("/static/"):
                 # Skip static files
@@ -651,11 +657,8 @@ class AutoLogoutImpersonateMiddleware:
                     "Impersonation session has expired. Please log in again.",
                     status=401,
                 )
-            elif not request.path.startswith("/logout"):
-                return redirect("/logout/")
             else:
-                restore_original_login(request)
-                return redirect("/admin/")
+                return redirect("/logout/")
 
         return self.get_response(request)
 
@@ -804,3 +807,16 @@ class SocialAuthExceptionMiddleware:
 
         # Handle other exceptions with existing middleware
         return None
+
+
+def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
+    """
+    Log out of an impersonated session and redirect back to the
+    impersonated user's admin change page.
+    """
+    if not is_impersonated_session(request):
+        return redirect("/admin/")
+
+    impersonated_user_pk = request.user.pk
+    restore_original_login(request)
+    return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")

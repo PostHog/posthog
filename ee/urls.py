@@ -9,6 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_values_view
 
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
@@ -120,6 +121,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
+        ),
+        path(
+            "admin/logout/",
+            admin.site.admin_view(impersonated_session_logout),
+            name="loginas-logout",
         ),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
