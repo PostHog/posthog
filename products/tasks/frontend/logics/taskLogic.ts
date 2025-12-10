@@ -32,7 +32,7 @@ export const taskLogic = kea<taskLogicType>([
                 },
                 deleteTask: async () => {
                     await api.tasks.delete(props.taskId)
-                    lemonToast.success('Task deleted')
+                    lemonToast.success('Task archived')
                     tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
                     router.actions.push('/tasks')
                     return null

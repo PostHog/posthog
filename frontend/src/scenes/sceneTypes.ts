@@ -102,6 +102,8 @@ export enum Scene {
     PipelineNode = 'PipelineNode',
     PipelineNodeNew = 'PipelineNodeNew',
     PreflightCheck = 'PreflightCheck',
+    ProductTour = 'ProductTour',
+    ProductTours = 'ProductTours',
     Products = 'Products',
     UseCaseSelection = 'UseCaseSelection',
     ProjectCreateFirst = 'ProjectCreate',
@@ -304,6 +306,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
     [Scene.SurveyTemplates]: AccessControlResourceType.Survey,
+
+    // Product Tours
+    [Scene.ProductTour]: AccessControlResourceType.ProductTour,
+    [Scene.ProductTours]: AccessControlResourceType.ProductTour,
 
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,

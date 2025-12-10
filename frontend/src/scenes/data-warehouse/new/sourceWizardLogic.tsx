@@ -160,7 +160,7 @@ export const buildKeaFormDefaultFromSourceDetails = (
 
             return defaults
         },
-        { prefix: '', payload: {} } as Record<string, any>
+        { prefix: '', payload: {}, is_direct_query: false } as Record<string, any>
     )
 }
 
@@ -298,7 +298,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         currentStep: [
             1,
             {
-                onNext: (state) => state + 1,
+                onNext: (state) => Math.min(state + 1, 4),
                 onBack: (state) => state - 1,
                 onClear: () => 1,
                 setStep: (_, { step }) => step,
@@ -327,21 +327,23 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         source: [
-            { payload: {}, prefix: '' } as {
+            { payload: {}, prefix: '', is_direct_query: false } as {
                 prefix: string
                 payload: Record<string, any>
+                is_direct_query: boolean
             },
             {
                 updateSource: (state, { source }) => {
                     return {
                         prefix: source.prefix ?? state.prefix,
+                        is_direct_query: source.is_direct_query ?? state.is_direct_query,
                         payload: {
                             ...state.payload,
                             ...source.payload,
                         },
                     }
                 },
-                clearSource: () => ({ payload: {}, prefix: '' }),
+                clearSource: () => ({ payload: {}, prefix: '', is_direct_query: false }),
             },
         ],
         isLoading: [
@@ -517,8 +519,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         modalTitle: [
-            (s) => [s.currentStep],
-            (currentStep) => {
+            (s) => [s.currentStep, s.source],
+            (currentStep: number, source: { is_direct_query?: boolean }) => {
                 if (currentStep === 1) {
                     return ''
                 }
@@ -531,7 +533,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4) {
-                    return 'Importing your data...'
+                    return source.is_direct_query ? 'Data source connected' : 'Importing your data...'
                 }
 
                 return ''
@@ -723,10 +725,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setIsLoading(true)
 
             try {
-                const schemas = await api.externalDataSources.database_schema(
-                    values.selectedConnector.name,
-                    values.source.payload ?? {}
-                )
+                const schemas = await api.externalDataSources.database_schema(values.selectedConnector.name, {
+                    ...values.source.payload,
+                    is_direct_query: values.source.is_direct_query,
+                })
 
                 let showToast = false
 
@@ -752,13 +754,42 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }
                 }
 
-                if (showToast) {
+                if (showToast && !values.source.is_direct_query) {
                     lemonToast.info(
                         "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
                     )
                 }
 
                 actions.setDatabaseSchemas(schemas)
+
+                // For direct query sources, skip the schema selection step and create source directly
+                if (values.source.is_direct_query) {
+                    actions.updateSource({
+                        payload: {
+                            schemas: schemas.map((schema) => ({
+                                name: schema.table,
+                                should_sync: false,
+                                sync_type: null,
+                                incremental_field: null,
+                                incremental_field_type: null,
+                                // Include schema metadata for direct query sources
+                                primary_key: schema.primary_key,
+                                foreign_keys: schema.foreign_keys,
+                                columns: schema.columns,
+                            })),
+                        },
+                    })
+                    // Skip step 3 (schema selection) and go directly to step 4 (success)
+                    actions.setStep(4)
+                    actions.createSource()
+                    if (values.selectedConnector) {
+                        posthog.capture('source created', {
+                            sourceType: values.selectedConnector.name,
+                            isDirectQuery: true,
+                        })
+                    }
+                    return // Don't call setIsLoading(false) here, createSource will handle it
+                }
                 actions.onNext()
             } catch (e: any) {
                 const errorMessage = e.data?.message ?? e.message

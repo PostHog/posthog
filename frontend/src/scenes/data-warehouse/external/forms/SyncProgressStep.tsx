@@ -16,8 +16,17 @@ export const SyncProgressStep = (): JSX.Element => {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
     const source = dataWarehouseSources?.results.find((n) => n.id === sourceId)
     const schemas = source?.schemas ?? []
+    const isDirectQuery = source?.is_direct_query ?? false
 
     const getSyncStatus = (schema: ExternalDataSourceSchema): { status: string; tagType: LemonTagType } => {
+        // Direct query sources show "Available" instead of sync status
+        if (isDirectQuery) {
+            return {
+                status: 'Available',
+                tagType: 'success',
+            }
+        }
+
         if (!schema.should_sync) {
             return {
                 status: 'Not synced',
@@ -88,8 +97,12 @@ export const SyncProgressStep = (): JSX.Element => {
         })
     }
 
+    const title = isDirectQuery
+        ? "You're all set! You can now query this data source directly from PostHog."
+        : "You're all set! We'll import the data in the background, and after it's done, you will be able to query it in PostHog."
+
     return (
-        <SceneSection title="You're all set! We'll import the data in the background, and after it's done, you will be able to query it in PostHog.">
+        <SceneSection title={title}>
             <LemonTable
                 emptyState="No schemas selected"
                 dataSource={schemas}

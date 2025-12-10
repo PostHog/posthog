@@ -20,7 +20,9 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     filter_postgres_incremental_fields,
+    get_foreign_keys as get_postgres_foreign_keys,
     get_postgres_row_count,
+    get_primary_keys as get_postgres_primary_keys,
     get_schemas as get_postgres_schemas,
     postgres_source,
 )
@@ -138,7 +140,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "connection timeout expired": None,
         }
 
-    def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, with_keys: bool = False
+    ) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):
@@ -163,6 +167,27 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             else:
                 row_counts = {}
 
+            if with_keys:
+                primary_keys = get_postgres_primary_keys(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                )
+                foreign_keys = get_postgres_foreign_keys(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                )
+            else:
+                primary_keys = {}
+                foreign_keys = {}
+
         for table_name, columns in db_schemas.items():
             column_info = [(col_name, col_type) for col_name, col_type in columns]
 
@@ -177,6 +202,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 for field_name, field_type in incremental_field_tuples
             ]
 
+            # Build column metadata
+            columns_metadata = [{"name": col_name, "data_type": col_type} for col_name, col_type in columns]
+
             schemas.append(
                 SourceSchema(
                     name=table_name,
@@ -184,6 +212,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     supports_append=len(incremental_fields) > 0,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
+                    primary_key=primary_keys.get(table_name) if with_keys else None,
+                    foreign_keys=foreign_keys.get(table_name) if with_keys else None,
+                    columns=columns_metadata if with_keys else None,
                 )
             )
 

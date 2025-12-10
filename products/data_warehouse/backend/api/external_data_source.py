@@ -129,6 +129,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schemas",
             "job_inputs",
             "revenue_analytics_config",
+            "is_direct_query",
         ]
         read_only_fields = [
             "id",
@@ -141,6 +142,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schemas",
             "prefix",
             "revenue_analytics_config",
+            "is_direct_query",
         ]
 
     """
@@ -235,6 +237,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         return instance.created_by.email if instance.created_by else None
 
     def get_status(self, instance: ExternalDataSource) -> str:
+        if instance.is_direct_query:
+            return "Direct query"
+
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
         any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in active_schemas)
         any_billing_limits_reached = any(
@@ -361,6 +366,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
+        is_direct_query = request.data.get("is_direct_query", False)
 
         # Validate prefix characters
         is_valid, error_message = validate_source_prefix(prefix)
@@ -376,7 +382,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
-        if is_any_external_data_schema_paused(self.team_id):
+        # Skip billing check for direct query sources (they don't sync data)
+        if not is_direct_query and is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
@@ -405,10 +412,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             destination_id=str(uuid.uuid4()),
             created_by=request.user if isinstance(request.user, User) else None,
             team=self.team,
-            status="Running",
+            status="Completed" if is_direct_query else "Running",
             source_type=source_type_model,
             job_inputs=source_config.to_dict(),
             prefix=prefix,
+            is_direct_query=is_direct_query,
         )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
@@ -434,12 +442,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:
-            sync_type = schema.get("sync_type")
+            sync_type = schema.get("sync_type") if not is_direct_query else None
             requires_incremental_fields = sync_type == "incremental" or sync_type == "append"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
             sync_time_of_day = schema.get("sync_time_of_day")
-            should_sync = schema.get("should_sync", False)
+            # Direct query sources never sync - they only store schema metadata
+            should_sync = False if is_direct_query else schema.get("should_sync", False)
 
             if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
@@ -455,6 +464,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": "Incremental schemas given do not have an incremental field type set"},
                 )
 
+            # Build sync_type_config
+            sync_type_config: dict = {}
+            if requires_incremental_fields:
+                sync_type_config["incremental_field"] = incremental_field
+                sync_type_config["incremental_field_type"] = incremental_field_type
+
+            # Store schema metadata for direct query sources
+            if is_direct_query:
+                schema_metadata = {}
+                if schema.get("primary_key"):
+                    schema_metadata["primary_key"] = schema.get("primary_key")
+                if schema.get("foreign_keys"):
+                    schema_metadata["foreign_keys"] = schema.get("foreign_keys")
+                if schema.get("columns"):
+                    schema_metadata["columns"] = schema.get("columns")
+                if schema_metadata:
+                    sync_type_config["schema_metadata"] = schema_metadata
+
             schema_model = ExternalDataSchema.objects.create(
                 name=schema.get("name"),
                 team=self.team,
@@ -462,25 +489,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 should_sync=should_sync,
                 sync_type=sync_type,
                 sync_time_of_day=sync_time_of_day,
-                sync_type_config=(
-                    {
-                        "incremental_field": incremental_field,
-                        "incremental_field_type": incremental_field_type,
-                    }
-                    if requires_incremental_fields
-                    else {}
-                ),
+                sync_type_config=sync_type_config,
             )
 
             if should_sync:
                 active_schemas.append(schema_model)
 
-        try:
-            for active_schema in active_schemas:
-                sync_external_data_job_workflow(active_schema, create=True, should_sync=active_schema.should_sync)
-        except Exception as e:
-            # Log error but don't fail because the source model was already created
-            logger.exception("Could not trigger external data job", exc_info=e)
+        # Skip workflow creation for direct query sources - no batch ingestion needed
+        if not is_direct_query:
+            try:
+                for active_schema in active_schemas:
+                    sync_external_data_job_workflow(active_schema, create=True, should_sync=active_schema.should_sync)
+            except Exception as e:
+                # Log error but don't fail because the source model was already created
+                logger.exception("Could not trigger external data job", exc_info=e)
 
         if new_source_model.revenue_analytics_config_safe.enabled:
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
@@ -544,6 +566,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
 
+        if instance.is_direct_query:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Cannot reload a direct query source. Direct query sources do not sync data."},
+            )
+
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -568,6 +596,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
         source_type = request.data.get("source_type", None)
+        is_direct_query = request.data.get("is_direct_query", False)
 
         if source_type is None:
             return Response(
@@ -593,7 +622,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            schemas = source.get_schemas(source_config, self.team_id, True)
+            # Fetch PK/FK data for direct query sources
+            schemas = source.get_schemas(source_config, self.team_id, with_counts=True, with_keys=is_direct_query)
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
@@ -613,6 +643,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 else None,
                 "sync_type": None,
                 "rows": schema.row_count,
+                # Include schema metadata for direct query sources
+                "primary_key": schema.primary_key,
+                "foreign_keys": schema.foreign_keys,
+                "columns": schema.columns,
             }
             for schema in schemas
         ]

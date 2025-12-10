@@ -170,7 +170,9 @@ jobs:
                   version: 0.9.9
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.88.0
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1

@@ -253,11 +253,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         # Add conversion goal columns using the aggregator
         if conversion_aggregator:
-            # For FULL OUTER JOIN: use COALESCE to show conversion goal UTM values when campaign costs are empty
-            if self.query.includeAllConversions:
-                coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns()
-                all_columns.update(coalesce_columns)
-
             # Add conversion goal columns
             conversion_columns = conversion_aggregator.get_conversion_goal_columns()
             all_columns.update(conversion_columns)
@@ -274,12 +269,10 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         # Add single unified conversion goals join if we have conversion goals
         if conversion_aggregator:
-            join_type = "FULL OUTER JOIN" if self.query.includeAllConversions else "LEFT JOIN"
-
             # Join on match_key - each adapter decides whether to use campaign or id based on team preferences
             # UCG's match_key is the utm_campaign value from events
             unified_join = ast.JoinExpr(
-                join_type=join_type,
+                join_type="LEFT JOIN",
                 table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
                 alias=self.config.unified_conversion_goals_cte_alias,
                 constraint=ast.JoinConstraint(

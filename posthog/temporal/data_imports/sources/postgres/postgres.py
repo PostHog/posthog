@@ -152,6 +152,105 @@ def get_schemas(
     return schema_list
 
 
+def get_primary_keys(
+    host: str, database: str, user: str, password: str, schema: str, port: int
+) -> dict[str, list[str]]:
+    """Get primary keys for all tables in a schema."""
+
+    connection = psycopg.connect(
+        host=host,
+        port=port,
+        dbname=database,
+        user=user,
+        password=password,
+        sslmode="prefer",
+        connect_timeout=15,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
+    )
+
+    primary_keys: dict[str, list[str]] = collections.defaultdict(list)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                tc.table_name,
+                kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+            WHERE tc.table_schema = %(schema)s
+                AND tc.constraint_type = 'PRIMARY KEY'
+            ORDER BY tc.table_name, kcu.ordinal_position
+            """,
+            {"schema": schema},
+        )
+        for table_name, column_name in cursor.fetchall():
+            primary_keys[table_name].append(column_name)
+
+    connection.close()
+
+    return dict(primary_keys)
+
+
+def get_foreign_keys(
+    host: str, database: str, user: str, password: str, schema: str, port: int
+) -> dict[str, list[dict[str, str]]]:
+    """Get foreign keys for all tables in a schema."""
+
+    connection = psycopg.connect(
+        host=host,
+        port=port,
+        dbname=database,
+        user=user,
+        password=password,
+        sslmode="prefer",
+        connect_timeout=15,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
+    )
+
+    foreign_keys: dict[str, list[dict[str, str]]] = collections.defaultdict(list)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                tc.table_name,
+                kcu.column_name,
+                ccu.table_name AS target_table,
+                ccu.column_name AS target_column
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage ccu
+                ON tc.constraint_name = ccu.constraint_name
+                AND tc.table_schema = ccu.table_schema
+            WHERE tc.table_schema = %(schema)s
+                AND tc.constraint_type = 'FOREIGN KEY'
+            ORDER BY tc.table_name, kcu.ordinal_position
+            """,
+            {"schema": schema},
+        )
+        for table_name, column_name, target_table, target_column in cursor.fetchall():
+            foreign_keys[table_name].append(
+                {
+                    "column": column_name,
+                    "target_table": target_table,
+                    "target_column": target_column,
+                }
+            )
+
+    connection.close()
+
+    return dict(foreign_keys)
+
+
 class JsonAsStringLoader(Loader):
     def load(self, data):
         if data is None:
