@@ -493,8 +493,8 @@ ON counts.breakdown_value = bounce.breakdown_value
                 select=selects,
                 select_from=ast.JoinExpr(table=self._frustration_metrics_inner_query()),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
+                having=self._frustration_metrics_having(),
                 order_by=self._frustration_metrics_order_by(),
-                where=parse_expr("or(rage_clicks_count > 0, dead_clicks_count > 0, errors_count > 0)"),
             )
 
         return query
@@ -529,6 +529,28 @@ ON counts.breakdown_value = bounce.breakdown_value
 
         assert isinstance(query, ast.SelectQuery)
         return query
+
+    def _frustration_metrics_having(self) -> ast.Expr:
+        zero_tuple = ast.Tuple(exprs=[ast.Constant(value=0), ast.Constant(value=0)])
+        return ast.Or(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["context.columns.rage_clicks"]),
+                    right=zero_tuple,
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["context.columns.dead_clicks"]),
+                    right=zero_tuple,
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["context.columns.errors"]),
+                    right=zero_tuple,
+                ),
+            ]
+        )
 
     def _frustration_metrics_order_by(self) -> list[ast.OrderExpr] | None:
         return [
