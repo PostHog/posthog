@@ -5,7 +5,7 @@ export function RankingCard({
 }: {
     rank: number
     brandName: string
-    topCompetitors: { name: string; visibility: number }[]
+    topCompetitors: { name: string; visibility: number; logo_url: string }[]
 }): JSX.Element {
     return (
         <div className="relative overflow-hidden rounded-lg bg-gradient-to-r from-[#1d4ed8] to-[#7c3aed] p-6 text-white">
@@ -26,6 +26,7 @@ export function RankingCard({
                         <div key={comp.name} className="flex items-center justify-between py-2">
                             <div className="flex items-center gap-2">
                                 <span className="text-lg">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</span>
+                                <img src={comp.logo_url} alt="" className="w-5 h-5 rounded" />
                                 <span className={comp.name === brandName ? 'font-bold' : ''}>{comp.name}</span>
                             </div>
                             <div className="flex items-center gap-3">

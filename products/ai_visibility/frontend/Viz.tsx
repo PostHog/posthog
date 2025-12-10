@@ -27,9 +27,11 @@ function OverviewTab({ brand }: { brand: string }): JSX.Element {
         useValues(logic)
     const { setActiveTab } = useActions(logic)
 
-    const rankingCompetitors = [{ name: brandDisplayName, visibility: visibilityScore }, ...topCompetitors].sort(
-        (a, b) => b.visibility - a.visibility
-    )
+    const brandLogoUrl = `https://www.google.com/s2/favicons?domain=${brand}&sz=128`
+    const rankingCompetitors = [
+        { name: brandDisplayName, visibility: visibilityScore, logo_url: brandLogoUrl },
+        ...topCompetitors,
+    ].sort((a, b) => b.visibility - a.visibility)
 
     return (
         <div className="space-y-6">
@@ -83,7 +85,9 @@ function PromptsTab({ brand }: { brand: string }): JSX.Element {
 function CompetitorsTab({ brand }: { brand: string }): JSX.Element {
     const logic = vizLogic({ brand })
     const { brandDisplayName, visibilityScore, topCompetitors, topics, competitorComparisons, competitorTopicsMatrix } =
-        useValues(logic)
+        useValues(logic) as ReturnType<typeof useValues<typeof logic>> & {
+            topCompetitors: { name: string; visibility: number; logo_url: string }[]
+        }
 
     return (
         <div className="space-y-6">
@@ -157,6 +161,7 @@ export function Viz({ brand }: VizProps): JSX.Element {
         isReady,
         isPolling,
         triggerResultLoading,
+        triggerResult,
         lastError,
         results,
         brandDisplayName,
@@ -182,6 +187,9 @@ export function Viz({ brand }: VizProps): JSX.Element {
         return <DashboardView brand={brand} lastUpdated={lastUpdated} />
     }
 
+    // Initial loading state - checking database for existing report
+    const isInitialLoad = triggerResultLoading && triggerResult === null && !isPolling
+
     const currentStepIndex = PROGRESS_STEPS.findIndex((s) => s.step === progressStep)
 
     return (
@@ -194,66 +202,78 @@ export function Viz({ brand }: VizProps): JSX.Element {
             </div>
             <div className="flex-1 overflow-auto">
                 <div className="p-6 max-w-2xl mx-auto space-y-4">
-                    <div>
-                        <h1 className="text-2xl font-bold mb-1">Generating report for {brandDisplayName}...</h1>
-                    </div>
-
-                    {lastError ? (
-                        <div className="rounded border border-border bg-bg-light p-4">
-                            <div className="flex flex-col gap-2">
-                                <span className="text-danger font-semibold">Failed to load results</span>
-                                <code className="text-xs break-all">{lastError}</code>
-                                <LemonButton type="primary" onClick={() => loadTriggerResult()}>
-                                    Retry
-                                </LemonButton>
+                    {isInitialLoad ? (
+                        <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                            <Spinner className="text-4xl" />
+                            <div className="text-center">
+                                <h2 className="text-lg font-semibold">Checking for existing report...</h2>
+                                <p className="text-muted text-sm">Looking up {brandDisplayName} in our database</p>
                             </div>
                         </div>
-                    ) : triggerResultLoading || isPolling ? (
-                        <div className="rounded border border-border bg-bg-light p-4 space-y-4">
-                            {/* Progress bar */}
+                    ) : (
+                        <>
                             <div>
-                                <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-2">
-                                        <Spinner className="text-sm" />
-                                        <span className="font-medium">{progressLabel}</span>
-                                    </div>
-                                    <span className="text-sm text-muted">{progressPercent}%</span>
-                                </div>
-                                <div className="h-2 bg-border rounded-full overflow-hidden">
-                                    <div
-                                        className="h-full bg-primary transition-all duration-500 ease-out rounded-full"
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={{ width: `${progressPercent}%` }}
-                                    />
-                                </div>
+                                <h1 className="text-2xl font-bold mb-1">Generating report for {brandDisplayName}...</h1>
                             </div>
 
-                            {/* Step indicators */}
-                            <div className="space-y-1">
-                                {PROGRESS_STEPS.filter((s) => s.step !== 'complete').map((step, idx) => {
-                                    const isComplete = idx < currentStepIndex
-                                    const isCurrent = idx === currentStepIndex
-                                    return (
-                                        <div
-                                            key={step.step}
-                                            className={`flex items-center gap-2 text-sm ${
-                                                isComplete
-                                                    ? 'text-success'
-                                                    : isCurrent
-                                                      ? 'text-default font-medium'
-                                                      : 'text-muted'
-                                            }`}
-                                        >
-                                            <span className="w-4 text-center">
-                                                {isComplete ? '✓' : isCurrent ? '→' : '○'}
-                                            </span>
-                                            <span>{step.label}</span>
+                            {lastError ? (
+                                <div className="rounded border border-border bg-bg-light p-4">
+                                    <div className="flex flex-col gap-2">
+                                        <span className="text-danger font-semibold">Failed to load results</span>
+                                        <code className="text-xs break-all">{lastError}</code>
+                                        <LemonButton type="primary" onClick={() => loadTriggerResult()}>
+                                            Retry
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                            ) : triggerResultLoading || isPolling ? (
+                                <div className="rounded border border-border bg-bg-light p-4 space-y-4">
+                                    {/* Progress bar */}
+                                    <div>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <Spinner className="text-sm" />
+                                                <span className="font-medium">{progressLabel}</span>
+                                            </div>
+                                            <span className="text-sm text-muted">{progressPercent}%</span>
                                         </div>
-                                    )
-                                })}
-                            </div>
-                        </div>
-                    ) : null}
+                                        <div className="h-2 bg-border rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-primary transition-all duration-500 ease-out rounded-full"
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={{ width: `${progressPercent}%` }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Step indicators */}
+                                    <div className="space-y-1">
+                                        {PROGRESS_STEPS.filter((s) => s.step !== 'complete').map((step, idx) => {
+                                            const isComplete = idx < currentStepIndex
+                                            const isCurrent = idx === currentStepIndex
+                                            return (
+                                                <div
+                                                    key={step.step}
+                                                    className={`flex items-center gap-2 text-sm ${
+                                                        isComplete
+                                                            ? 'text-success'
+                                                            : isCurrent
+                                                              ? 'text-default font-medium'
+                                                              : 'text-muted'
+                                                    }`}
+                                                >
+                                                    <span className="w-4 text-center">
+                                                        {isComplete ? '✓' : isCurrent ? '→' : '○'}
+                                                    </span>
+                                                    <span>{step.label}</span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </>
+                    )}
                 </div>
             </div>
         </div>

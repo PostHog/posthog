@@ -8,13 +8,20 @@ export function CompetitorMentionsBar({
 }: {
     brandName: string
     visibilityScore: number
-    competitors: { name: string; visibility: number }[]
+    competitors: { name: string; visibility: number; logo_url?: string }[]
     onViewAll?: () => void
 }): JSX.Element {
     // Build full sorted list to get accurate rankings
+    const brandLogoUrl = `https://www.google.com/s2/favicons?domain=${brandName}&sz=128`
     const fullList = [
-        { name: brandName, visibility: visibilityScore, isOurBrand: true },
-        ...competitors.map((c) => ({ ...c, isOurBrand: false })),
+        { name: brandName, visibility: visibilityScore, isOurBrand: true, logo_url: brandLogoUrl },
+        ...competitors.map((c) => ({
+            ...c,
+            isOurBrand: false,
+            logo_url:
+                c.logo_url ||
+                `https://www.google.com/s2/favicons?domain=${c.name.toLowerCase().replace(/\s+/g, '')}.com&sz=128`,
+        })),
     ].sort((a, b) => b.visibility - a.visibility)
 
     // Add rank to each entry
@@ -48,7 +55,8 @@ export function CompetitorMentionsBar({
                         >
                             {brand.rank}
                         </span>
-                        <span className={clsx('w-28 text-sm truncate', brand.isOurBrand && 'font-semibold')}>
+                        <img src={brand.logo_url} alt="" className="w-5 h-5 rounded" />
+                        <span className={clsx('w-24 text-sm truncate', brand.isOurBrand && 'font-semibold')}>
                             {brand.name}
                         </span>
                         <div className="flex-1 h-4 bg-border rounded overflow-hidden">

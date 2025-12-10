@@ -424,19 +424,28 @@ export const vizLogic = kea<vizLogicType>([
         // Competitor visibility percentages across all prompts
         competitorVisibility: [
             (s) => [s.prompts],
-            (prompts: Prompt[]): Record<string, number> => {
-                const compMentions = new Map<string, number>()
-                const total = prompts.length
+            (prompts: Prompt[]): Record<string, { count: number; logo_url: string }> => {
+                const compData = new Map<string, { count: number; logo_url: string }>()
 
                 for (const p of prompts) {
-                    for (const comp of p.competitors_mentioned) {
-                        compMentions.set(comp, (compMentions.get(comp) || 0) + 1)
+                    // Track mentions from competitors_mentioned
+                    for (const compName of p.competitors_mentioned) {
+                        const existing = compData.get(compName) || { count: 0, logo_url: '' }
+                        existing.count++
+                        compData.set(compName, existing)
+                    }
+                    // Extract logo URLs from full competitor objects
+                    for (const comp of p.competitors || []) {
+                        const existing = compData.get(comp.name)
+                        if (existing && comp.logo_url && !existing.logo_url) {
+                            existing.logo_url = comp.logo_url
+                        }
                     }
                 }
 
-                const result: Record<string, number> = {}
-                for (const [name, count] of compMentions) {
-                    result[name] = Math.round((count / total) * 100)
+                const result: Record<string, { count: number; logo_url: string }> = {}
+                for (const [name, data] of compData) {
+                    result[name] = data
                 }
                 return result
             },
@@ -444,10 +453,20 @@ export const vizLogic = kea<vizLogicType>([
 
         // Top competitors sorted by visibility
         topCompetitors: [
-            (s) => [s.competitorVisibility],
-            (visibility: Record<string, number>): { name: string; visibility: number }[] => {
-                return Object.entries(visibility)
-                    .map(([name, vis]) => ({ name, visibility: vis }))
+            (s) => [s.competitorVisibility, s.prompts],
+            (
+                compData: Record<string, { count: number; logo_url: string }>,
+                prompts: Prompt[]
+            ): { name: string; visibility: number; logo_url: string }[] => {
+                const total = prompts.length
+                return Object.entries(compData)
+                    .map(([name, data]) => ({
+                        name,
+                        visibility: Math.round((data.count / total) * 100),
+                        logo_url:
+                            data.logo_url ||
+                            `https://www.google.com/s2/favicons?domain=${name.toLowerCase().replace(/\s+/g, '')}.com&sz=128`,
+                    }))
                     .sort((a, b) => b.visibility - a.visibility)
                     .slice(0, 10)
             },
@@ -623,16 +642,27 @@ export const vizLogic = kea<vizLogicType>([
         topCitedSources: [
             (s) => [s.prompts],
             (prompts: Prompt[]): TopCitedSource[] => {
-                // In real data we'd have actual cited URLs. For now derive from competitors
                 const sourceCounts = new Map<string, number>()
+
+                // Build a map of competitor names to their domains
+                const competitorDomains = new Map<string, string>()
+                for (const p of prompts) {
+                    for (const comp of p.competitors || []) {
+                        if (comp.domain && !competitorDomains.has(comp.name)) {
+                            competitorDomains.set(comp.name, comp.domain)
+                        }
+                    }
+                }
 
                 for (const p of prompts) {
                     // Count prompts where citations exist
                     for (const plat of Object.values(p.platforms) as (PlatformMention | undefined)[]) {
                         if (plat?.cited) {
-                            // Use the brand name as proxy for source
-                            for (const comp of p.competitors_mentioned.slice(0, 2)) {
-                                const domain = `${comp.toLowerCase().replace(/\s+/g, '')}.com`
+                            for (const compName of p.competitors_mentioned.slice(0, 2)) {
+                                // Use actual domain if available, otherwise generate from name
+                                const domain =
+                                    competitorDomains.get(compName) ||
+                                    `${compName.toLowerCase().replace(/\s+/g, '')}.com`
                                 sourceCounts.set(domain, (sourceCounts.get(domain) || 0) + 1)
                             }
                         }

@@ -14,7 +14,7 @@ export function CompetitorTopicsHeatmap({
 }: {
     matrix: MatrixCell[]
     topics: Topic[]
-    competitors: { name: string; visibility: number }[]
+    competitors: { name: string; visibility: number; logo_url: string }[]
     brandName: string
     visibilityScore: number
 }): JSX.Element {
@@ -40,7 +40,14 @@ export function CompetitorTopicsHeatmap({
         return 'bg-[#f1f5f9] text-gray-500'
     }
 
-    const allCompetitors = [{ name: brandName, visibility: visibilityScore }, ...competitors]
+    const allCompetitors = [
+        {
+            name: brandName,
+            visibility: visibilityScore,
+            logo_url: `https://www.google.com/s2/favicons?domain=${brandName}&sz=128`,
+        },
+        ...competitors,
+    ]
 
     return (
         <div className="border rounded-lg bg-bg-light overflow-hidden">
@@ -65,7 +72,7 @@ export function CompetitorTopicsHeatmap({
                                 <th key={comp.name} className="p-3 text-center font-medium min-w-[80px]">
                                     <div className="flex flex-col items-center gap-1">
                                         <div className="w-6 h-6 rounded-full bg-border flex items-center justify-center text-xs">
-                                            {comp.name.charAt(0)}
+                                            <img src={comp.logo_url} alt="" className="w-5 h-5 rounded" />
                                         </div>
                                         <span className="text-xs truncate max-w-[70px]">{comp.name}</span>
                                     </div>
