@@ -83,7 +83,7 @@ class ProbeResult(BaseModel):
     prompt: str = Field(..., description="The exact prompt that was probed")
     category: str = Field(..., description="Category this prompt belongs to")
     mentions_target: bool
-    competitors: conlist(CompetitorInfo, min_length=0, max_length=5) = Field(
+    competitors: conlist(CompetitorInfo, min_length=0, max_length=10) = Field(
         default_factory=list, description="Competitor brand details"
     )
     confidence: float
@@ -344,15 +344,13 @@ async def generate_prompts(payload: PromptsInput) -> list[dict]:
 
 async def _probe_prompt(domain: str, info: BusinessInfo, search_prompt: str, category: str) -> dict:
     llm_prompt = (
-        "You are evaluating how well a business appears in AI responses.\n"
-        "Given a search prompt, determine if the target business would be prominently mentioned in an AI response.\n"
-        "Return mentions_target=true if the business would be a clear top result for this query.\n"
-        "List up to 5 competitor brands that would likely appear (brand names only, not generic categories). "
-        "For each competitor, include the primary domain (no protocol) and a logo URL; "
-        "use https://www.google.com/s2/favicons?domain=<domain>&sz=128 when the domain is known, else leave logo_url null. "
-        "Exclude the target brand from competitors.\n"
-        "Provide one-sentence reasoning grounded in the deciding signals.\n\n"
-        f"Target business: {info.name}\nIndustry: {info.category}\nSearch prompt: {search_prompt}\nCategory: {category}"
+        f"This is a search prompt: {search_prompt}\n"
+        "Respond to it, and then analyze your response.\n"
+        "For every company you mentioned in your response (brand names only, not generic categories), include it in the output."
+        "Include the primary domain (no protocol) and a logo URL; "
+        "use https://www.google.com/s2/favicons?domain=<domain>&sz=128 when the domain is known, else leave logo_url null."
+        f"Exclude {info.name} from competitors.\n"
+        "Provide one-sentence explaining why they were mentioned in the response.\n\n"
     )
     data = await _call_structured_llm(llm_prompt, ProbeResult)
     # Ensure prompt and category are set correctly
