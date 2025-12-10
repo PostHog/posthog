@@ -60,6 +60,11 @@ class TeamAdmin(admin.ModelAdmin):
 
     exclude = DEPRECATED_ATTRS
     inlines = [TeamMarketingAnalyticsConfigInline, UserProductListInline]
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        self._current_request = request
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
     fieldsets = [
         (
             None,
@@ -204,6 +209,7 @@ class TeamAdmin(admin.ModelAdmin):
             render_to_string(
                 "admin/posthog/team/export_individual_replay.html",
                 {"team": team},
+                request=getattr(self, "_current_request", None),
             )
         )
 
@@ -215,6 +221,7 @@ class TeamAdmin(admin.ModelAdmin):
             render_to_string(
                 "admin/posthog/team/import_individual_replay.html",
                 {"team": team},
+                request=getattr(self, "_current_request", None),
             )
         )
 

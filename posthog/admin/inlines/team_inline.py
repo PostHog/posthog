@@ -39,7 +39,13 @@ class TeamInline(TabularInlinePaginated):
     readonly_fields = [
         f
         for f in TeamAdmin.readonly_fields
-        if f not in ("internal_properties", "export_individual_replay", "remote_config_cache_actions")
+        if f
+        not in (
+            "internal_properties",
+            "export_individual_replay",
+            "import_individual_replay",
+            "remote_config_cache_actions",
+        )
     ] + ["displayed_name"]
 
     def displayed_name(self, team: Team):
