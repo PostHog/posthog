@@ -49,7 +49,7 @@ def DOCUMENT_EMBEDDINGS_TABLE_SQL():
     PARTITION BY toMonday(timestamp)
     ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
     TTL timestamp + INTERVAL 3 MONTH
-    SETTINGS index_granularity = 512
+    SETTINGS index_granularity = 512, ttl_only_drop_parts = 1
     """
     ).format(
         table_name=PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS,
