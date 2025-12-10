@@ -9,7 +9,7 @@ from django.test import override_settings
 from asgiref.sync import sync_to_async
 from flaky import flaky
 
-from posthog.batch_exports.service import disable_and_delete_export, sync_batch_export
+from posthog.batch_exports.service import delete_batch_export, sync_batch_export
 from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, Organization, Team
 
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -76,7 +76,7 @@ def batch_export(destination, team):
 
     yield batch_export
 
-    disable_and_delete_export(batch_export)
+    delete_batch_export(batch_export)
     batch_export.delete()
 
 
