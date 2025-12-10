@@ -20,7 +20,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.helpers import uses_postgres_dialect
+from posthog.hogql.helpers import parse_postgres_directive, uses_postgres_dialect
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -139,6 +139,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         from posthog.hogql.errors import ExposedHogQLError
         from posthog.hogql.metadata import get_hogql_metadata
 
+        # Parse the directive to check for external source
+        query_str = self.query.query if isinstance(self.query, HogQLQuery) else None
+        directive = parse_postgres_directive(query_str)
+
         executor = HogQLQueryExecutor(
             query=self.to_query(),
             team=self.team,
@@ -191,11 +195,16 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         columns: list[str] = []
         if executor.error is None:
             with executor.timings.measure("postgres_execute"):
-                with connection.cursor() as cursor:
-                    print(postgres_sql)  # noqa: T201
-                    cursor.execute(postgres_sql)
-                    columns = [col[0] for col in cursor.description] if cursor.description else []
-                    results = cursor.fetchall()
+                if directive.source_id:
+                    # Direct query to external Postgres source
+                    results, columns = self._execute_external_postgres(directive.source_id, postgres_sql)
+                else:
+                    # Regular Django DB connection
+                    with connection.cursor() as cursor:
+                        print(postgres_sql)  # noqa: T201
+                        cursor.execute(postgres_sql)
+                        columns = [col[0] for col in cursor.description] if cursor.description else []
+                        results = cursor.fetchall()
 
         if executor.debug and executor.error is None:
             metadata = get_hogql_metadata(
@@ -225,6 +234,40 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             modifiers=self.query.modifiers or self.modifiers,
             metadata=metadata,
         )
+
+    def _execute_external_postgres(self, source_id: str, sql: str) -> tuple[list[Any], list[str]]:
+        """Execute a query against an external Postgres database."""
+        import psycopg2
+
+        from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+
+        source = ExternalDataSource.objects.get(id=source_id, team_id=self.team.pk)
+        job_inputs = source.job_inputs or {}
+
+        host = job_inputs.get("host")
+        port = job_inputs.get("port", 5432)
+        database = job_inputs.get("database")
+        user = job_inputs.get("user")
+        password = job_inputs.get("password")
+
+        print(f"Connecting to external Postgres: {host}:{port}/{database}")  # noqa: T201
+        print(sql)  # noqa: T201
+
+        conn = psycopg2.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+        )
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(sql)
+                columns = [col.name for col in cursor.description] if cursor.description else []
+                results = cursor.fetchall()
+                return results, columns
+        finally:
+            conn.close()
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()

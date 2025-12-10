@@ -988,6 +988,45 @@ class DatabaseSchemaSource(BaseModel):
     prefix: str
     source_type: str
     status: str
+    is_direct_query: bool | None = None
+
+
+class DatabaseSchemaForeignKey(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str
+    target_table: str
+    target_column: str
+
+
+class DatabaseSchemaColumnInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    data_type: str
+    is_nullable: bool
+
+
+class DatabaseSchemaIndexInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    columns: list[str]
+    is_unique: bool
+    is_primary: bool
+
+
+class DatabaseSchemaMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    primary_key: list[str] | None = None
+    foreign_keys: list[DatabaseSchemaForeignKey] | None = None
+    columns: list[DatabaseSchemaColumnInfo] | None = None
+    indexes: list[DatabaseSchemaIndexInfo] | None = None
 
 
 class DatabaseSchemaTableType(StrEnum):
@@ -9208,6 +9247,7 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     name: str
     row_count: float | None = None
     schema_: DatabaseSchemaSchema | None = Field(default=None, alias="schema")
+    schema_metadata: DatabaseSchemaMetadata | None = None
     source: DatabaseSchemaSource | None = None
     type: Literal["data_warehouse"] = "data_warehouse"
     url_pattern: str

@@ -282,6 +282,10 @@ export const biLogic = kea<biLogicType>([
                     return ''
                 }
                 if (table && getTableDialect(table) === 'postgres') {
+                    const sourceId = getTableSourceId(table)
+                    if (sourceId && isDirectQueryTable(table)) {
+                        return `--pg:${sourceId}\n` + queryString
+                    }
                     return '--pg\n' + queryString
                 }
                 return queryString
@@ -923,4 +927,12 @@ function wrapTimeAggregation(value: string, interval: BITimeAggregation, table: 
 
 function getTableDialect(table: DatabaseSchemaTable): 'postgres' | 'clickhouse' {
     return (table as any)?.source?.source_type === 'Postgres' ? 'postgres' : 'clickhouse'
+}
+
+function getTableSourceId(table: DatabaseSchemaTable): string | null {
+    return (table as any)?.source?.id || null
+}
+
+function isDirectQueryTable(table: DatabaseSchemaTable): boolean {
+    return (table as any)?.source?.is_direct_query === true
 }
