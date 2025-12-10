@@ -85,20 +85,25 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
     }
 
     return (
-        <div className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center">
+        <div className="flex justify-between mt-2 gap-2 border rounded bg-card items-center">
             <div className="flex items-center justify-between flex-auto p-2">
                 <div>
                     <span className="text-link font-medium block">{asset.filename}</span>
                     {asset.created_at && <span className="text-xs mt-1">{dayjs(asset.created_at).fromNow()}</span>}
                     {asset.expires_after && (
-                        <span className="text-xs text-secondary mt-1">
+                        <span className="text-xs text-muted-foreground mt-1">
                             {' '}
                             · expires {dayjs(asset.expires_after).fromNow()}
                         </span>
                     )}
-                    {isNotDownloaded && <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>}
+                    {isNotDownloaded && (
+                        <span className="text-xs text-muted-foreground mt-1"> · not downloaded yet</span>
+                    )}
                     {asset.export_format === ExporterFormat.CSV && (
-                        <span className="text-xs text-secondary mt-1"> · {ROW_LIMIT_IN_THOUSANDS}k row limit</span>
+                        <span className="text-xs text-muted-foreground mt-1">
+                            {' '}
+                            · {ROW_LIMIT_IN_THOUSANDS}k row limit
+                        </span>
                     )}
                 </div>
             </div>
@@ -171,9 +176,9 @@ const ExportsEmpty = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-2 items-center justify-center mt-4">
-            <div className="border rounded bg-fill-primary p-4 text-center">
+            <div className="border rounded bg-card p-4 text-center">
                 <p className="mb-2">No exports matching current filters</p>
-                {ttlMessage && <p className="text-xs text-secondary">{ttlMessage}</p>}
+                {ttlMessage && <p className="text-xs text-muted-foreground">{ttlMessage}</p>}
             </div>
         </div>
     )

@@ -169,7 +169,7 @@ function Chip({
 }): JSX.Element {
     return (
         <Tooltip title={title}>
-            <LemonTag size="medium" className="bg-surface-primary" icon={icon}>
+            <LemonTag size="medium" className="bg-card" icon={icon}>
                 <span className="sr-only">{title}</span>
                 {children}
             </LemonTag>
@@ -336,7 +336,7 @@ function TraceSidebar({
 
     return (
         <aside
-            className="sticky bottom-[var(--scene-padding)] border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col w-full md:w-80"
+            className="sticky bottom-[var(--scene-padding)] border-border max-h-fit bg-card border rounded overflow-hidden flex flex-col w-full md:w-80"
             ref={ref}
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -351,7 +351,7 @@ function TraceSidebar({
                     data-attr="trace-search-input"
                 />
                 {searchValue.trim() && (
-                    <div className="text-xs text-muted ml-1 mt-1">
+                    <div className="text-xs text-muted-foreground ml-1 mt-1">
                         {searchOccurrences.length > 0 ? (
                             <>
                                 {searchOccurrences.length}{' '}
@@ -401,9 +401,9 @@ function NestingGroup({
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted')}>
+        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted-foreground')}>
             <div
-                className={clsx('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted')}
+                className={clsx('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted-foreground')}
                 onClick={onToggle}
             >
                 <div
@@ -506,7 +506,7 @@ const TreeNode = React.memo(function TraceNode({
                 </div>
                 {!isCollapsedDueToFilter && renderModelRow(item, searchQuery)}
                 {!isCollapsedDueToFilter && hasChildren && (
-                    <div className="flex flex-row flex-wrap text-secondary items-center gap-1.5">{children}</div>
+                    <div className="flex flex-row flex-wrap text-muted-foreground items-center gap-1.5">{children}</div>
                 )}
             </Link>
         </li>
@@ -574,7 +574,7 @@ function TreeNodeChildren({
                 ))
             ) : (
                 <div
-                    className="text-secondary hover:text-default text-xxs cursor-pointer p-1"
+                    className="text-muted-foreground hover:text-default text-xxs cursor-pointer p-1"
                     onClick={() => setIsCollapsed(false)}
                 >
                     Show {pluralize(tree.length, 'collapsed child', 'collapsed children')}
@@ -700,7 +700,7 @@ const EventContent = React.memo(
         }
 
         return (
-            <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
+            <div className="flex-1 bg-card max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
                 {!event ? (
                     <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
                 ) : (
@@ -974,7 +974,7 @@ function EventTypeFilters(): JSX.Element {
 
     return (
         <fieldset className="border border-border rounded p-1.5">
-            <legend className="text-xs font-medium text-muted px-1">Expand</legend>
+            <legend className="text-xs font-medium text-muted-foreground px-1">Expand</legend>
             <div className="flex flex-wrap gap-x-3 gap-y-1">
                 {availableEventTypes.map((eventType: string) => (
                     <LemonCheckbox

@@ -123,7 +123,7 @@ export function ConfigureSCIMModal(): JSX.Element {
                                     </>
                                 ) : (
                                     <>
-                                        <p className="text-muted">
+                                        <p className="text-muted-foreground">
                                             The bearer token is only displayed once when generated.
                                         </p>
                                         <LemonButton

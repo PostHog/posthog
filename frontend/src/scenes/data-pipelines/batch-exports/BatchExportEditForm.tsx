@@ -71,7 +71,7 @@ export function BatchExportGeneralEditFields({
                                             "If selected, the Batch Exporter will be created but will be 'paused' allowing you to resumed it at a later date."
                                         }
                                     >
-                                        <IconInfo className="text-lg text-secondary" />
+                                        <IconInfo className="text-lg text-muted-foreground" />
                                     </Tooltip>
                                 </span>
                             }
@@ -415,7 +415,7 @@ export function BatchExportsEditFields({
                                         <span className="flex gap-2 items-center">
                                             Does your Postgres instance have a self-signed SSL certificate?
                                             <Tooltip title="In most cases, Heroku and RDS users should check this.">
-                                                <IconInfo className="text-lg text-secondary" />
+                                                <IconInfo className="text-lg text-muted-foreground" />
                                             </Tooltip>
                                         </span>
                                     }
@@ -498,7 +498,7 @@ export function BatchExportsEditFields({
 
                         {batchExportConfigForm.mode === 'COPY' && (
                             <>
-                                <p className="text-xs text-muted mt-1">
+                                <p className="text-xs text-muted-foreground mt-1">
                                     In order to execute a COPY SQL command, the batch export will first export files to
                                     an S3 bucket, which requires credentials to access it. After the files are available
                                     in the bucket, we will instruct Redshift to copy them into the configured table. As
@@ -655,7 +655,7 @@ export function BatchExportsEditFields({
                                         <span className="flex gap-2 items-center">
                                             Export 'properties', 'set', and 'set_once' fields as BigQuery JSON type
                                             <Tooltip title="If left unchecked, these fields will be sent as STRING type. This setting cannot be changed after batch export is created.">
-                                                <IconInfo className="text-lg text-secondary" />
+                                                <IconInfo className="text-lg text-muted-foreground" />
                                             </Tooltip>
                                         </span>
                                     }
@@ -722,7 +722,7 @@ export function BatchExportsEditFields({
                                                         </>
                                                     }
                                                 >
-                                                    <IconInfo className="text-lg text-secondary" />
+                                                    <IconInfo className="text-lg text-muted-foreground" />
                                                 </Tooltip>
                                             </span>
                                         }

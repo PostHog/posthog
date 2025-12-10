@@ -88,7 +88,7 @@ export default function Header(): JSX.Element {
 
                 {/* Logo */}
                 <Link href="/" className="btn btn-ghost text-xl hover:bg-primary/10 transition-all duration-300 group">
-                    <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <div className="w-7 h-7 bg-card rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform">
                         <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                         </svg>
@@ -148,7 +148,7 @@ export default function Header(): JSX.Element {
                                 className="dropdown-content z-[1] menu p-3 shadow-xl bg-base-100 rounded-box w-64 border border-base-200 mt-2"
                             >
                                 <li className="mb-2">
-                                    <div className="flex items-center space-x-3 p-2 rounded-lg bg-primary/5">
+                                    <div className="flex items-center space-x-3 p-2 rounded-lg bg-card/5">
                                         <div className="avatar">
                                             <div className="w-10 h-10 rounded-full">
                                                 <img src={getAvatarUrl()} alt={user.name} />

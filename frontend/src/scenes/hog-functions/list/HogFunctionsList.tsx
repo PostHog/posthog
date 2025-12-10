@@ -101,7 +101,7 @@ export function HogFunctionList({
                 width: 0,
                 render: (_, hogFunction) => {
                     if (!hogFunction.created_by) {
-                        return <span className="text-muted">Unknown</span>
+                        return <span className="text-muted-foreground">Unknown</span>
                     }
                     return (
                         <div className="flex items-center gap-2">
@@ -277,7 +277,7 @@ export function HogFunctionList({
                     }
                     footer={
                         hiddenHogFunctions.length > 0 && (
-                            <div className="p-3 text-secondary">
+                            <div className="p-3 text-muted-foreground">
                                 {hiddenHogFunctions.length} hidden.{' '}
                                 <Link
                                     onClick={() => {

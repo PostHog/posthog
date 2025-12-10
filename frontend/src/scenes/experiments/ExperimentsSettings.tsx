@@ -11,7 +11,7 @@ export function ExperimentsSettings(): JSX.Element {
         <div className="space-y-8">
             <div>
                 <LemonLabel className="text-base">Default statistical method</LemonLabel>
-                <p className="text-secondary mt-2">
+                <p className="text-muted-foreground mt-2">
                     Choose the default statistical method for experiment analysis. This setting applies to all new
                     experiments in your organization and can be overridden per experiment.
                 </p>

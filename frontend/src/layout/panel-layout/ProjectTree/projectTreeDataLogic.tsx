@@ -78,7 +78,7 @@ const DeleteFolderDialogContent = ({
             </p>
             {relativeEntries.length ? (
                 <>
-                    <div className="max-h-64 overflow-y-auto rounded border border-border bg-bg-light">
+                    <div className="max-h-64 overflow-y-auto rounded border border-border bg-card">
                         <ul>
                             {relativeEntries.map(({ entry, relativePath }) => {
                                 const IconComponent = entry.type === 'folder' ? IconFolder : IconDocument
@@ -87,13 +87,13 @@ const DeleteFolderDialogContent = ({
                                         key={entry.id}
                                         className="flex items-center gap-3 px-3 py-2 text-sm border-b border-border last:border-b-0"
                                     >
-                                        <IconComponent className="size-4 text-muted-alt" />
+                                        <IconComponent className="size-4 text-muted-foreground" />
                                         <div className="flex-1">
                                             <div className="font-medium leading-tight">
                                                 {relativePath || entry.path}
                                             </div>
                                             {entry.type ? (
-                                                <div className="text-xs text-muted-alt">
+                                                <div className="text-xs text-muted-foreground">
                                                     {identifierToHuman(entry.type)}
                                                 </div>
                                             ) : null}
@@ -104,13 +104,13 @@ const DeleteFolderDialogContent = ({
                         </ul>
                     </div>
                     {hasMore && remainingCount > 0 ? (
-                        <p className="text-xs text-muted-alt">
+                        <p className="text-xs text-muted-foreground">
                             Plus {pluralize(remainingCount, 'additional item')} not shown here.
                         </p>
                     ) : null}
                 </>
             ) : (
-                <p className="text-sm text-muted-alt">This folder does not contain any additional items.</p>
+                <p className="text-sm text-muted-foreground">This folder does not contain any additional items.</p>
             )}
         </div>
     )

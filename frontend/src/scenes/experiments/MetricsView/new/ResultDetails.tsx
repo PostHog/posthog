@@ -133,7 +133,7 @@ function SqlCollapsible({
                                             {hogql}
                                         </CodeSnippet>
                                     ) : (
-                                        <div className="text-muted">No HogQL available</div>
+                                        <div className="text-muted-foreground">No HogQL available</div>
                                     ),
                                 },
                                 {
@@ -144,7 +144,7 @@ function SqlCollapsible({
                                             {clickhouseSql}
                                         </CodeSnippet>
                                     ) : (
-                                        <div className="text-muted">No SQL available</div>
+                                        <div className="text-muted-foreground">No SQL available</div>
                                     ),
                                 },
                             ]}
@@ -154,7 +154,7 @@ function SqlCollapsible({
                             {hogql}
                         </CodeSnippet>
                     ) : (
-                        <div className="text-muted">No SQL available</div>
+                        <div className="text-muted-foreground">No SQL available</div>
                     ),
                 },
             ]}

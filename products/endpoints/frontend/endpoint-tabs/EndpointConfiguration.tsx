@@ -120,7 +120,7 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                             </div>
 
                             {lastMaterializedAt && (
-                                <div className="flex items-center gap-2 text-xs text-secondary">
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                     <IconRefresh className="text-base" />
                                     <span>Last materialized: {new Date(lastMaterializedAt).toLocaleString()}</span>
                                 </div>

@@ -105,7 +105,7 @@ function ConversationPanel(): JSX.Element {
                         <MessageDisplay key={index} index={index} message={message} expandTextAreas={expandTextAreas} />
                     ))}
                     {messages.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-12 text-muted">
+                        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                             <IconMessage className="text-3xl mb-2" />
                             <p>Add messages to start the conversation.</p>
                         </div>
@@ -147,7 +147,7 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
 
     return (
         <>
-            <div className="border rounded p-3 relative group bg-white dark:bg-[var(--bg-surface-primary)] border-l-4 border-l-[var(--color-orange-500)]">
+            <div className="border rounded p-3 relative group bg-white dark:bg-[var(--bg-card)] border-l-4 border-l-[var(--color-orange-500)]">
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                     <LemonButton
                         size="small"
@@ -216,7 +216,7 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
 
     return (
         <>
-            <div className="border rounded p-3 relative group bg-white dark:bg-[var(--color-bg-surface-primary)] border-l-4 border-l-[var(--color-purple-500)]">
+            <div className="border rounded p-3 relative group bg-white dark:bg-[var(--color-card)] border-l-4 border-l-[var(--color-purple-500)]">
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <LemonButton
                         size="small"
@@ -315,7 +315,7 @@ function MessageDisplay({
     return (
         <>
             <div
-                className={`border rounded p-3 relative group bg-white dark:bg-[var(--color-bg-surface-primary)] hover:shadow-sm transition-shadow ${getRoleBorderClass(
+                className={`border rounded p-3 relative group bg-white dark:bg-[var(--color-card)] hover:shadow-sm transition-shadow ${getRoleBorderClass(
                     message.role
                 )}`}
             >
@@ -431,7 +431,7 @@ function OutputSection(): JSX.Element {
                 className={`border rounded p-4 min-h-32 ${
                     responseHasError
                         ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800'
-                        : 'bg-bg-light dark:bg-[var(--color-bg-surface-primary)]'
+                        : 'bg-card dark:bg-[var(--color-card)]'
                 }`}
             >
                 {submitting && (currentResponse === null || currentResponse === '') && (
@@ -444,10 +444,10 @@ function OutputSection(): JSX.Element {
                         }`}
                     >
                         {currentResponse}
-                        {submitting && <span className="text-muted italic"> (streaming...)</span>}
+                        {submitting && <span className="text-muted-foreground italic"> (streaming...)</span>}
                     </pre>
                 ) : (
-                    <div className="flex items-center justify-center h-24 text-muted">
+                    <div className="flex items-center justify-center h-24 text-muted-foreground">
                         <p>AI response will appear here after running your prompt</p>
                     </div>
                 )}
@@ -490,7 +490,7 @@ function ConfigurationPanel(): JSX.Element {
                     />
                 )}
                 {options.length === 0 && !modelOptionsLoading && (
-                    <p className="text-xs text-danger mt-1">No models available. Check proxy status.</p>
+                    <p className="text-xs text-destructive-foreground mt-1">No models available. Check proxy status.</p>
                 )}
             </div>
 
@@ -505,14 +505,14 @@ function ConfigurationPanel(): JSX.Element {
                     step={64}
                     placeholder="Leave empty for model default"
                 />
-                <div className="text-xs text-muted mt-1">Leave empty to use model's default max tokens</div>
+                <div className="text-xs text-muted-foreground mt-1">Leave empty to use model's default max tokens</div>
             </div>
 
             <div className="flex items-center space-x-2">
                 <input
                     id="thinkingToggle"
                     type="checkbox"
-                    className="rounded text-primary focus:ring-primary"
+                    className="rounded text-foreground focus:ring-primary"
                     checked={thinking}
                     onChange={handleThinkingToggle}
                 />
@@ -537,7 +537,7 @@ function ConfigurationPanel(): JSX.Element {
                     ]}
                     dropdownMatchSelectWidth={false}
                 />
-                <div className="text-xs text-muted mt-1">
+                <div className="text-xs text-muted-foreground mt-1">
                     If set and supported by the model, enables enhanced reasoning.
                 </div>
             </div>
@@ -560,7 +560,7 @@ function ComparisonTablePanel(): JSX.Element {
             title: 'Response',
             dataIndex: 'response',
             render: (response) => (
-                <div className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs break-words p-1 border rounded bg-bg-light dark:bg-[var(--color-bg-surface-primary)]">
+                <div className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs break-words p-1 border rounded bg-card dark:bg-[var(--color-card)]">
                     {typeof response === 'string' ? response : '-'}
                 </div>
             ),
@@ -632,7 +632,7 @@ function StickyActionBar(): JSX.Element {
 
     return (
         <>
-            <div className="sticky bottom-0 bg-bg-light dark:bg-[var(--color-bg-surface-primary)] border-t border-border z-10 ml-[calc(var(--scene-padding)*-1)] mr-[calc(var(--scene-padding)*-1)] mb-[calc(var(--scene-padding-bottom)*-1)]">
+            <div className="sticky bottom-0 bg-card dark:bg-[var(--color-card)] border-t border-border z-10 ml-[calc(var(--scene-padding)*-1)] mr-[calc(var(--scene-padding)*-1)] mb-[calc(var(--scene-padding-bottom)*-1)]">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
                     <div className="flex gap-2 items-center">
                         <LemonButton
@@ -679,7 +679,7 @@ function StickyActionBar(): JSX.Element {
 
                     <div className="flex items-center gap-3">
                         {/* Model and params summary */}
-                        <div className="flex items-center gap-2 text-xs text-muted bg-bg-dark dark:bg-bg-light px-2 py-1 rounded">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-bg-dark dark:bg-card px-2 py-1 rounded">
                             <span className="font-medium">{model || 'No model'}</span>
                             {maxTokens && (
                                 <>

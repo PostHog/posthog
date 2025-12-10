@@ -51,7 +51,7 @@ export const SideBar = (): JSX.Element => {
     )
 
     return (
-        <div className="bg-surface-primary w-[18rem] flex flex-col">
+        <div className="bg-card w-[18rem] flex flex-col">
             <LemonTabs
                 size="small"
                 activeKey={activeSideBarTab}

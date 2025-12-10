@@ -151,7 +151,7 @@ export function ProjectTree({
                 type: 'category',
                 displayName: (
                     <div
-                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
+                        className={cn('border border-border text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
                             'mt-2': fullFileSystemFiltered.length === 0,
                         })}
                     >
@@ -185,7 +185,7 @@ export function ProjectTree({
                     type: 'category',
                     displayName: (
                         <div
-                            className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
+                            className={cn('border border-border text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
                                 'mt-6': fullFileSystemFiltered.length === 0,
                             })}
                         >
@@ -407,13 +407,13 @@ export function ProjectTree({
                     if (item.name === 'Product analytics') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
-                                <IconPlusSmall className="text-tertiary" />
+                                <IconPlusSmall className="text-muted-foreground" />
                             </ButtonPrimitive>
                         )
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
-                                <IconChevronRight className="size-3 text-tertiary rotate-90" />
+                                <IconChevronRight className="size-3 text-muted-foreground rotate-90" />
                             </ButtonPrimitive>
                         )
                     }
@@ -459,7 +459,7 @@ export function ProjectTree({
                                 <ButtonPrimitive
                                     key={header.key}
                                     fullWidth
-                                    className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
+                                    className="pointer-events-none rounded-none text-muted-foreground font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
                                     style={{
                                         paddingLeft: index === 0 ? '35px' : undefined,
                                     }}
@@ -689,7 +689,7 @@ export function ProjectTree({
                         </span>
 
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
-                            <span className="text-tertiary text-xxs pt-[3px] ml-1">
+                            <span className="text-muted-foreground text-xxs pt-[3px] ml-1">
                                 {dayjs(item.record?.created_at).fromNow()}
                             </span>
                         )}
@@ -742,7 +742,7 @@ export function ProjectTree({
                             onClick: () => createFolder(''),
                             children: (
                                 <>
-                                    <IconFolderPlus className="text-tertiary size-3" />
+                                    <IconFolderPlus className="text-muted-foreground size-3" />
                                     New root folder
                                 </>
                             ),
@@ -760,8 +760,8 @@ export function ProjectTree({
                                 <>
                                     <IconCheckbox
                                         className={cn('size-3', {
-                                            'text-tertiary': selectMode === 'default',
-                                            'text-primary': selectMode === 'multi',
+                                            'text-muted-foreground': selectMode === 'default',
+                                            'text-foreground': selectMode === 'multi',
                                         })}
                                     />
                                     {selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
@@ -778,8 +778,8 @@ export function ProjectTree({
                                 <>
                                     <IconPlusSmall
                                         className={cn('size-3', {
-                                            'text-tertiary': selectMode === 'default',
-                                            'text-primary': selectMode === 'multi',
+                                            'text-muted-foreground': selectMode === 'default',
+                                            'text-foreground': selectMode === 'multi',
                                         })}
                                     />
                                     Add shortcut
@@ -793,7 +793,7 @@ export function ProjectTree({
                 <ButtonPrimitive
                     tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
                     onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2  bg-surface-primary border border-primary z-[var(--z-resizer)]"
+                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2  bg-card border border-border z-[var(--z-resizer)]"
                     data-attr="tree-panel-switch-view-button"
                     iconOnly
                 >

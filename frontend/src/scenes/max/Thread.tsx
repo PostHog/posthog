@@ -150,7 +150,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     {conversationId && isPromptVisible && !streamingActive && (
                         <MessageTemplate type="ai">
                             <div className="flex flex-col gap-2">
-                                <span className="text-xs text-muted">How is PostHog AI doing? (optional)</span>
+                                <span className="text-xs text-muted-foreground">
+                                    How is PostHog AI doing? (optional)
+                                </span>
                                 <FeedbackDisplay conversationId={conversationId} />
                             </div>
                         </MessageTemplate>
@@ -160,7 +162,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     )}
                     {conversationId && isThankYouVisible && !streamingActive && (
                         <MessageTemplate type="ai">
-                            <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
+                            <p className="m-0 text-sm text-muted-foreground">
+                                Thanks for your feedback and using PostHog AI!
+                            </p>
                         </MessageTemplate>
                     )}
                 </>
@@ -450,7 +454,7 @@ function Message({
                 {isLastInGroup && message.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
-                            <IconWarning className="text-xl text-warning" />
+                            <IconWarning className="text-xl text-warning-foreground" />
                             <i>
                                 PostHog AI is generating this answer one more time because the previous attempt has
                                 failed.
@@ -601,14 +605,14 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
     if (isReportCompletion && message.conversation_notebooks) {
         return (
             <MessageTemplate type="ai">
-                <div className="bg-bg-light border border-border rounded-lg p-4 space-y-3">
+                <div className="bg-card border border-border rounded-lg p-4 space-y-3">
                     <div className="flex items-center gap-2">
                         <IconCheck className="text-success size-4" />
                         <h4 className="text-sm font-semibold m-0">Deep Research Complete</h4>
                     </div>
 
                     <div className="space-y-2">
-                        <p className="text-xs text-muted mb-3">
+                        <p className="text-xs text-muted-foreground mb-3">
                             Your research has been completed. Each notebook contains detailed analysis:
                         </p>
 
@@ -621,17 +625,17 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                             return (
                                 <div
                                     key={notebook.notebook_id}
-                                    className="flex items-center justify-between p-3 bg-bg-3000 rounded border border-border-light"
+                                    className="flex items-center justify-between p-3 bg-card rounded border border-border-light"
                                 >
                                     <div className="flex items-start gap-3">
-                                        <IconNotebook className="size-4 text-primary-alt mt-0.5" />
+                                        <IconNotebook className="size-4 text-foreground-alt mt-0.5" />
                                         <div>
                                             <div className="flex items-center gap-2">
                                                 <span className="font-medium text-sm">
                                                     {notebook.title || `${displayName} Notebook`}
                                                 </span>
                                             </div>
-                                            <div className="text-xs text-muted">{description}</div>
+                                            <div className="text-xs text-muted-foreground">{description}</div>
                                         </div>
                                     </div>
                                     <LemonButton
@@ -705,7 +709,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 </div>
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                     <span>Planning</span>
-                    <span className="text-muted">
+                    <span className="text-muted-foreground">
                         ({completedCount}/{totalCount})
                     </span>
                     {hasMultipleSteps && (
@@ -718,7 +722,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 </div>
             </div>
             {isExpanded && (
-                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-[calc(0.775rem)]">
+                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-strong pl-3.5 ml-[calc(0.775rem)]">
                     {steps.map((step, index) => {
                         const isCompleted = step.status === 'completed'
                         const isInProgress = step.status === 'in_progress'
@@ -731,12 +735,12 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                                 <span
                                     className={clsx(
                                         'leading-relaxed',
-                                        isCompleted && 'text-muted line-through',
+                                        isCompleted && 'text-muted-foreground line-through',
                                         isInProgress && 'font-medium'
                                     )}
                                 >
                                     {step.description}
-                                    {isInProgress && <span className="text-muted ml-1">(in progress)</span>}
+                                    {isInProgress && <span className="text-muted-foreground ml-1">(in progress)</span>}
                                 </span>
                             </div>
                         )
@@ -756,7 +760,7 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
                 className="bg-clip-text text-transparent"
                 style={{
                     backgroundImage:
-                        'linear-gradient(in oklch 90deg, var(--text-3000), var(--muted-3000), var(--trace-3000), var(--muted-3000), var(--text-3000))',
+                        'linear-gradient(in oklch 90deg, var(--color-foreground), var(--muted-3000), var(--trace-3000), var(--muted-3000), var(--color-foreground))',
                     backgroundSize: '200% 100%',
                     animation: 'shimmer 3s linear infinite',
                 }}
@@ -825,7 +829,7 @@ function AssistantActionComponent({
             <div
                 className={clsx(
                     'transition-all duration-500 flex',
-                    (isPending || isFailed) && 'text-muted',
+                    (isPending || isFailed) && 'text-muted-foreground',
                     !isInProgress && !isPending && !isFailed && 'text-default',
                     !showChevron ? 'cursor-default' : 'cursor-pointer'
                 )}
@@ -837,7 +841,7 @@ function AssistantActionComponent({
                         {isInProgress && animate ? (
                             <ShimmeringContent>{icon}</ShimmeringContent>
                         ) : (
-                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{icon}</span>
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted-foreground')}>{icon}</span>
                         )}
                     </div>
                 )}
@@ -846,11 +850,13 @@ function AssistantActionComponent({
                         {isInProgress && animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
-                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted-foreground')}>
+                                {markdownContent}
+                            </span>
                         )}
                     </div>
                     {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
-                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
+                    {isFailed && showCompletionIcon && <IconX className="text-destructive-foreground size-3" />}
                     {showChevron && (
                         <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
                             <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
@@ -864,10 +870,7 @@ function AssistantActionComponent({
             </div>
             {isExpanded && substeps && substeps.length > 0 && (
                 <div
-                    className={clsx(
-                        'space-y-1 border-l-2 border-border-secondary',
-                        icon && 'pl-3.5 ml-[calc(0.775rem)]'
-                    )}
+                    className={clsx('space-y-1 border-l-2 border-border-strong', icon && 'pl-3.5 ml-[calc(0.775rem)]')}
                 >
                     {substeps.map((substep, substepIndex) => {
                         const isCurrentSubstep = substepIndex === substeps.length - 1
@@ -885,9 +888,9 @@ function AssistantActionComponent({
                                     id={id}
                                     className={clsx(
                                         'leading-relaxed',
-                                        isFailed && 'text-danger',
-                                        !isFailed && isCompletedSubstep && 'text-muted',
-                                        !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
+                                        isFailed && 'text-destructive-foreground',
+                                        !isFailed && isCompletedSubstep && 'text-muted-foreground',
+                                        !isFailed && isCurrentSubstep && !isCompleted && 'text-muted-foreground'
                                     )}
                                     content={handleThreeDots(substep ?? '', true)}
                                 />
@@ -1165,10 +1168,10 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
     return (
         <div className={clsx('flex flex-col gap-px w-full break-words', className)}>
             {/* Everything wrapped in a message bubble */}
-            <div className="max-w-full border py-3 px-4 rounded-lg bg-surface-primary">
+            <div className="max-w-full border py-3 px-4 rounded-lg bg-card">
                 <div className="space-y-2">
                     <div className="w-full flex justify-between items-center">
-                        <h2 className="text-sm font-semibold text-secondary">
+                        <h2 className="text-sm font-semibold text-muted-foreground">
                             {pluralize(visualizations.length, 'insight')} analyzed
                         </h2>
 
@@ -1206,7 +1209,7 @@ function MultiVisualizationModal({ insights: messages }: MultiVisualizationModal
         <div className="flex">
             {/* Sidebar with visualization list */}
             <div className="w-64 border-r pr-4 overflow-y-auto">
-                <h5 className="text-xs font-semibold text-muted mb-3">VISUALIZATIONS</h5>
+                <h5 className="text-xs font-semibold text-muted-foreground mb-3">VISUALIZATIONS</h5>
                 <div className="space-y-1">
                     {messages.map((item, index) => (
                         <button
@@ -1215,8 +1218,8 @@ function MultiVisualizationModal({ insights: messages }: MultiVisualizationModal
                             className={clsx(
                                 'w-full text-left p-2 rounded transition-colors text-sm',
                                 selectedIndex === index
-                                    ? 'bg-primary text-primary-inverted font-semibold'
-                                    : 'hover:bg-surface-secondary'
+                                    ? 'bg-card text-foreground-inverted font-semibold'
+                                    : 'hover:bg-muted'
                             )}
                         >
                             {item.title}

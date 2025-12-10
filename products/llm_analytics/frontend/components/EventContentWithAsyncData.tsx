@@ -92,7 +92,7 @@ export function EventContentDisplayAsync({
                 <h3 className="font-semibold mb-2">Output</h3>
                 <div
                     className={`p-2 rounded text-xs overflow-auto ${
-                        raisedError ? 'bg-danger-highlight' : 'bg-surface-secondary'
+                        raisedError ? 'bg-destructive' : 'bg-surface-secondary'
                     }`}
                 >
                     {isObject(output) ? (

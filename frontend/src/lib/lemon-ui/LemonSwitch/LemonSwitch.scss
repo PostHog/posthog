@@ -53,8 +53,8 @@
         min-height: calc(2.125rem + 3px); // Medium size button height + button shadow height
         padding: 0 0.75rem;
         line-height: 1.4;
-        background: var(--color-bg-surface-primary);
-        border: 1px solid var(--color-border-primary);
+        background: var(--color-card);
+        border: 1px solid var(--color-border);
         border-radius: var(--radius);
 
         &.LemonSwitch--small {
@@ -72,7 +72,7 @@
 
     > .LemonIcon {
         font-size: 1.5rem;
-        color: var(--color-text-secondary);
+        color: var(--color-text-muted-foreground);
     }
 
     &.LemonSwitch--disabled {
@@ -102,14 +102,14 @@
     height: var(--lemon-switch-height);
     padding: var(--lemon-switch-handle-gutter);
     cursor: pointer;
-    background-color: var(--color-bg-fill-switch);
+    background-color: var(--color-border-strong);
     border: none;
     border-radius: var(--lemon-switch-height);
-    outline: 1px solid var(--color-border-primary);
+    outline: 1px solid var(--color-border);
     transition: background-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: var(--color-accent);
+        background-color: var(--color-primary);
     }
 
     .LemonSwitch--disabled & {
@@ -139,8 +139,8 @@
         border-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: var(--color-bg-surface-primary);
-        border-color: var(--color-accent);
+        background-color: var(--color-card);
+        border-color: var(--color-primary);
         transform: var(--lemon-switch-active-translate);
     }
 

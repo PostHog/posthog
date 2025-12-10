@@ -96,10 +96,10 @@ export function OverviewGridItem({
                                 className={clsx(
                                     'transition-colors',
                                     filterDisabledReason
-                                        ? 'text-muted cursor-not-allowed'
+                                        ? 'text-muted-foreground cursor-not-allowed'
                                         : filterState === 'active'
                                           ? 'cursor-pointer text-link'
-                                          : 'cursor-pointer text-secondary hover:text-primary'
+                                          : 'cursor-pointer text-muted-foreground hover:text-foreground'
                                 )}
                                 onClick={(e) => {
                                     e.stopPropagation()

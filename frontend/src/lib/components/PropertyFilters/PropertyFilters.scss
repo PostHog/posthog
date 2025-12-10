@@ -12,7 +12,7 @@
     .PropertyFilters__prefix {
         padding: 0 5px;
         font-size: 18px;
-        color: var(--border-bold-3000);
+        color: var(--color-border-strong);
         user-select: none;
     }
 
@@ -26,7 +26,7 @@
 
         &::before,
         &::after {
-            border-top: 1px solid var(--color-border-primary);
+            border-top: 1px solid var(--color-border);
         }
 
         &::before {

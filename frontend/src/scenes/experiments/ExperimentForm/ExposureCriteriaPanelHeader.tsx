@@ -25,8 +25,8 @@ export const ExposureCriteriaPanelHeader = ({ experiment }: { experiment: Experi
             <div className="flex items-center gap-2 w-full min-w-0">
                 <IconCheckCircle className="text-success w-4 h-4 shrink-0" />
                 <span className="font-semibold shrink-0">Exposure criteria</span>
-                <span className="text-muted shrink-0">•</span>
-                <span className="text-sm text-muted truncate">{summaryText}</span>
+                <span className="text-muted-foreground shrink-0">•</span>
+                <span className="text-sm text-muted-foreground truncate">{summaryText}</span>
             </div>
         </Tooltip>
     )

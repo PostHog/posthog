@@ -52,7 +52,7 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                         onClick={onChange ? () => setVisible(!visible) : undefined}
                         onClose={onRemove}
                         title={`${filter.regex} is mapped to ${filter.alias}`}
-                        className={clsx({ 'border border-accent': isInvalidRegex })}
+                        className={clsx({ 'border border-primary': isInvalidRegex })}
                     >
                         <span className="inline-flex items-center">
                             <span className="font-mono text-accent text-xs">{filter.regex ?? '(Empty)'}</span>

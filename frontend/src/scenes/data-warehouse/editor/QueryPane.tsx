@@ -38,7 +38,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     return (
         <>
             <div
-                className="relative flex flex-row w-full bg-primary"
+                className="relative flex flex-row w-full bg-card"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     height: `${queryPaneHeight}px`,
@@ -102,14 +102,14 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                     </div>
                     {props.originalValue && (
                         <div
-                            className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"
+                            className="absolute flex gap-1 bg-card rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
                         >
                             {!!diffShowRunButton && (
                                 <LemonButton
                                     type="primary"
-                                    icon={<IconCheck color="var(--success)" />}
+                                    icon={<IconCheck color="var(--color-success-foreground)" />}
                                     onClick={() => {
                                         onAcceptSuggestedQueryInput(true)
                                     }}
@@ -121,7 +121,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             )}
                             <LemonButton
                                 type="tertiary"
-                                icon={<IconCheck color="var(--success)" />}
+                                icon={<IconCheck color="var(--color-success-foreground)" />}
                                 onClick={() => {
                                     onAcceptSuggestedQueryInput()
                                 }}

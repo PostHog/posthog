@@ -127,7 +127,7 @@ export const ExperimentDuration = (): JSX.Element => {
                                 {!recommendedSampleSize || !recommendedRunningTime ? (
                                     <div className="flex justify-center items-center h-full">
                                         <div className="text-center">
-                                            <IconCalculator className="text-3xl mb-2 text-tertiary" />
+                                            <IconCalculator className="text-3xl mb-2 text-muted-foreground" />
                                             <div className="text-md font-semibold leading-tight mb-3">
                                                 No running time yet
                                             </div>
@@ -152,7 +152,7 @@ export const ExperimentDuration = (): JSX.Element => {
                                             size="medium"
                                             percent={(actualRunningTime / recommendedRunningTime) * 100}
                                         />
-                                        <div className="text-center mt-2 mb-4 text-xs text-muted">
+                                        <div className="text-center mt-2 mb-4 text-xs text-muted-foreground">
                                             {actualRunningTime} of {humanFriendlyNumber(recommendedRunningTime, 0)} days
                                             completed ({Math.round((actualRunningTime / recommendedRunningTime) * 100)}
                                             %)
@@ -192,7 +192,7 @@ export const ExperimentDuration = (): JSX.Element => {
                         <div
                             onMouseEnter={showPopover}
                             onMouseLeave={hidePopover}
-                            style={{ color: 'var(--brand-blue)' }}
+                            style={{ color: 'var(--color-brand-blue)' }}
                         >
                             <LemonProgressCircle
                                 progress={

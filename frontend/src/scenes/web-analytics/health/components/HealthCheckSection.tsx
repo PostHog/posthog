@@ -54,17 +54,17 @@ export function HealthCheckSection({
                     header: (
                         <div className="flex items-center justify-between w-full pr-2">
                             <div className="flex items-center gap-3">
-                                <div className="text-secondary">{config.icon}</div>
+                                <div className="text-muted-foreground">{config.icon}</div>
                                 <div>
                                     <div className="font-medium">{config.title}</div>
-                                    <div className="text-xs text-muted">{config.description}</div>
+                                    <div className="text-xs text-muted-foreground">{config.description}</div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
                                 <LemonTag type={hasIssues ? 'warning' : 'success'} size="small">
                                     {passedCount}/{totalCount} passed
                                 </LemonTag>
-                                <IconChevronDown className="w-4 h-4 text-muted transition-transform ui-open:rotate-180" />
+                                <IconChevronDown className="w-4 h-4 text-muted-foreground transition-transform ui-open:rotate-180" />
                             </div>
                         </div>
                     ),

@@ -94,12 +94,12 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
                         </span>
                     }
                 >
-                    <IconInfo className="text-muted-alt" />
+                    <IconInfo className="text-muted-foreground" />
                 </Tooltip>
                 {availableProjectsToShow.length > 0 && (
                     <LemonSelect
                         icon={<IconPlus />}
-                        className="bg-bg-light"
+                        className="bg-card"
                         placeholder="Add project"
                         options={availableProjectsToShow.map((project: any) => ({
                             value: project.id,
@@ -135,7 +135,7 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
 
                         return (
                             <div key={access.id} className="space-y-2">
-                                <div className="p-2 bg-bg-light rounded border">
+                                <div className="p-2 bg-card rounded border">
                                     {isLowerThanDefault && (
                                         <div className="mb-2">
                                             <LemonBanner type="warning" className="text-xs">
@@ -153,7 +153,7 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
                                             {defaultLevel && <span>(default: {defaultLevel})</span>}
                                         </div>
                                         <LemonSelect
-                                            className="bg-bg-light"
+                                            className="bg-card"
                                             size="small"
                                             options={[
                                                 {
@@ -220,7 +220,7 @@ export function InviteRow({
     }))
 
     return (
-        <div className="space-y-4 bg-surface-secondary py-4 px-4 rounded-md">
+        <div className="space-y-4 bg-muted py-4 px-4 rounded-md">
             <div className="flex gap-2">
                 <div className="flex-2">
                     <LemonInput
@@ -264,7 +264,7 @@ export function InviteRow({
                 {allowedLevelsOptions.length > 1 && (
                     <div className="flex-1 flex gap-1 items-center justify-between">
                         <LemonSelect
-                            className="bg-bg-light"
+                            className="bg-card"
                             fullWidth
                             data-attr="invite-row-org-member-level"
                             options={allowedLevelsOptions}

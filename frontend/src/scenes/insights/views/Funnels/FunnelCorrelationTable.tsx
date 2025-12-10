@@ -89,7 +89,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     {is_success ? (
                         <IconTrending className="text-success" />
                     ) : (
-                        <IconTrendingDown className="text-danger" />
+                        <IconTrendingDown className="text-destructive-foreground" />
                     )}{' '}
                     <PropertyKeyInfo value={first_value} />
                     {second_value !== undefined && (
@@ -146,7 +146,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 <div className="flex flex-col items-center py-2">
                     <Spinner className="text-2xl mb-2" />
                     <h3 className="mb-1 font-semibold">Loading correlation results…</h3>
-                    <p className="m-0 text-xs text-secondary">This process can take up to 20 seconds.</p>
+                    <p className="m-0 text-xs text-muted-foreground">This process can take up to 20 seconds.</p>
                 </div>
             )
         }
@@ -215,7 +215,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         CORRELATED EVENTS
                     </span>
                     <span className="table-options flex grow items-center justify-end">
-                        <p className="flex items-center m-1 font-sans text-xs text-secondary font-semibold">
+                        <p className="flex items-center m-1 font-sans text-xs text-muted-foreground font-semibold">
                             CORRELATION
                         </p>
                         <div className="flex">
@@ -279,7 +279,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                             <div className="flex flex-col items-center justify-self-center text-center">
                                 {loadedEventCorrelationsTableOnce ? (
                                     <div className="flex flex-col items-center justify-center deprecated-space-y-1 min-h-24">
-                                        <IconArchive className="text-tertiary-hover text-2xl" />
+                                        <IconArchive className="text-muted-foreground-hover text-2xl" />
                                         <div>No correlated events found.</div>
                                     </div>
                                 ) : (

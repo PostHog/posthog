@@ -33,7 +33,7 @@ export const PizzaSurveyOverlayComponent = ({ closeOverlay }: PizzaSurveyOverlay
     }, [])
 
     return (
-        <div className="flex flex-col h-full bg-primary p-8">
+        <div className="flex flex-col h-full bg-card p-8">
             <div className="flex-1 flex items-start justify-center">
                 <LemonButton id="hogtok-pineapple-pizza-poll-button" type="secondary">
                     Take survey

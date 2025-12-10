@@ -148,7 +148,7 @@ function InterviewMetadata({ interview }: { interview: UserInterviewType }): JSX
     return (
         <header className="flex gap-x-2 gap-y-1 flex-wrap items-center">
             {interview.created_at && (
-                <LemonTag className="bg-bg-light">
+                <LemonTag className="bg-card">
                     Created: {dayjs(interview.created_at).format('YYYY-MM-DD HH:mm')}
                 </LemonTag>
             )}

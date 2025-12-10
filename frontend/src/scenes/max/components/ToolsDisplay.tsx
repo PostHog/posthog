@@ -60,14 +60,14 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
                     )}
                 >
                     <TruncatedHorizontalCollection>
-                        <span className="shrink-0 text-secondary">Tools:</span>
+                        <span className="shrink-0 text-muted-foreground">Tools:</span>
                         {toolsInReverse.map((tool) => {
                             const toolDef = getToolDefinition(tool.identifier)
                             return (
                                 // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
                                 // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
                                 <em
-                                    className="relative inline-flex items-center gap-1 text-secondary"
+                                    className="relative inline-flex items-center gap-1 text-muted-foreground"
                                     key={tool.identifier}
                                 >
                                     <span className="flex text-sm">{toolDef?.icon || <IconWrench />}</span>
@@ -160,7 +160,7 @@ function TruncatedHorizontalCollection<Children extends React.ReactElement>({
                         {index === visibleElementsCount && (
                             <span
                                 ref={overflowIndicatorRef}
-                                className="absolute left-0 top-0 bottom-0 text-xs text-muted flex items-center"
+                                className="absolute left-0 top-0 bottom-0 text-xs text-muted-foreground flex items-center"
                             >
                                 + {childrenFlattened.length - visibleElementsCount} more
                             </span>
@@ -250,7 +250,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
         () =>
             Object.entries(capabilitiesByProduct).map(([product, tools]) => (
                 <>
-                    <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
+                    <IconArrowRight className="text-base text-muted-foreground shrink-0 ml-1 mr-2 h-[1.25em]" />
                     <span>
                         <em>In {sceneConfigurations[product]?.name || identifierToHuman(product)}: </em>
                         {tools.map((tool, index) => (
@@ -291,7 +291,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                 <ul className="space-y-0.5 text-sm *:flex *:items-start">
                     {AI_GENERALLY_CANNOT.map((item, index) => (
                         <li key={index}>
-                            <IconX className="text-base text-danger shrink-0 ml-1 mr-2 h-[1.25em]" />
+                            <IconX className="text-base text-destructive-foreground shrink-0 ml-1 mr-2 h-[1.25em]" />
                             <span>{item}</span>
                         </li>
                     ))}

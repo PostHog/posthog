@@ -63,9 +63,9 @@ export function InsightEmptyState({
             data-attr="insight-empty-state"
             className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center text-center text-balance"
         >
-            <IconArchive className="text-5xl mb-2 text-tertiary" />
+            <IconArchive className="text-5xl mb-2 text-muted-foreground" />
             <h2 className="text-xl leading-tight">{heading}</h2>
-            <p className="text-sm text-tertiary">{detail}</p>
+            <p className="text-sm text-muted-foreground">{detail}</p>
         </div>
     )
 }
@@ -100,7 +100,7 @@ function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element |
     }
 
     return (
-        <div className="text-muted text-xs">
+        <div className="text-muted-foreground text-xs">
             Query ID: <span className="font-mono">{queryId}</span>
         </div>
     )
@@ -350,7 +350,7 @@ export function StatelessInsightLoadingState({
 }
 
 const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
-    <code className="border border-1 border-primary rounded-xs text-xs px-1 py-0.5">{props.children}</code>
+    <code className="border border-1 border-border rounded-xs text-xs px-1 py-0.5">{props.children}</code>
 )
 
 const SLOW_LOADING_TIME = 15
@@ -411,7 +411,7 @@ export function SlowQuerySuggestions({
     }
 
     return (
-        <div className="flex items-center p-4 rounded bg-primary gap-x-3">
+        <div className="flex items-center p-4 rounded bg-card gap-x-3">
             <IconInfo className="text-xl shrink-0" />
             <div className="text-xs">
                 <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">
@@ -504,21 +504,21 @@ export function InsightValidationError({
             data-attr="insight-empty-state"
             className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full text-center text-balance"
         >
-            <IconWarning className="text-4xl shrink-0 text-muted" />
+            <IconWarning className="text-4xl shrink-0 text-muted-foreground" />
 
             <h2
                 data-attr="insight-loading-too-long"
                 className="text-xl font-bold leading-tight"
-                // TODO: Use an actual `text-warning` color once @adamleithp changes are live
+                // TODO: Use an actual `text-warning-foreground` color once @adamleithp changes are live
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ color: 'var(--warning)' }}
+                style={{ color: 'var(--color-warning-foreground)' }}
             >
                 There is a problem with this query
                 {/* Note that this phrasing above signals the issue is not intermittent, */}
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-muted max-w-120">{detail}</p>
+            <p className="text-sm text-muted-foreground max-w-120">{detail}</p>
             <QueryDebuggerButton query={query} />
 
             {detail.includes('Exclusion') && (
@@ -570,7 +570,7 @@ export function InsightErrorState({
         >
             <IconErrorOutline className="text-5xl shrink-0" />
 
-            <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
+            <h2 className="text-xl text-destructive-foreground leading-tight mb-6" data-attr="insight-loading-too-long">
                 {/* Note that this default phrasing signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
                 {title || <span>There was a problem completing this query</span>}
@@ -629,11 +629,11 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
             data-attr="insight-empty-state"
             className="flex flex-col flex-1 items-center justify-center text-center text-balance"
         >
-            <div className="text-5xl text-muted mb-2">
+            <div className="text-5xl text-muted-foreground mb-2">
                 <IconPlusSquare />
             </div>
             <h2 className="text-xl leading-tight font-medium">Add another step!</h2>
-            <p className="mb-0 text-sm text-muted">
+            <p className="mb-0 text-sm text-muted-foreground">
                 <span>You're almost there! Funnels require at least two steps before calculating.</span>
                 {actionable && (
                     <>

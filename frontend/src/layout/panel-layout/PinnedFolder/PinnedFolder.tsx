@@ -51,7 +51,7 @@ export function PinnedFolder(): JSX.Element {
                         size: 'xs',
                         tooltip: 'Add shortcut',
                         tooltipPlacement: 'top',
-                        children: <IconPlusSmall className="size-4 text-tertiary" />,
+                        children: <IconPlusSmall className="size-4 text-muted-foreground" />,
                     }}
                 />
             ) : null}
@@ -63,7 +63,7 @@ export function PinnedFolder(): JSX.Element {
                     onClick={openEditCustomProductsModal}
                     size="xs"
                 >
-                    <CustomProductsIcon className="size-3 text-secondary" />
+                    <CustomProductsIcon className="size-3 text-muted-foreground" />
                 </ButtonPrimitive>
             ) : null}
 
@@ -77,7 +77,7 @@ export function PinnedFolder(): JSX.Element {
                             tooltipPlacement="top"
                             size="xs"
                         >
-                            <IconGear className="size-3 text-secondary" />
+                            <IconGear className="size-3 text-muted-foreground" />
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
@@ -123,7 +123,9 @@ export function PinnedFolder(): JSX.Element {
                 (showDefaultHeader ? (
                     <div className="flex justify-between items-center pl-3 pr-1 -mt-[3px] relative">
                         <div className="flex items-center gap-1">
-                            <span className="text-xs font-semibold text-tertiary">{formatUrlAsName(pinnedFolder)}</span>
+                            <span className="text-xs font-semibold text-muted-foreground">
+                                {formatUrlAsName(pinnedFolder)}
+                            </span>
                         </div>
                         <div className="flex items-center gap-px">{configMenu}</div>
                     </div>

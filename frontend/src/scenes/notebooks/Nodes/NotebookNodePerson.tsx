@@ -91,7 +91,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                                 </div>
                             }
                         >
-                            <PropertyIcon className="text-secondary" property={property} value={value} />
+                            <PropertyIcon className="text-muted-foreground" property={property} value={value} />
                         </Tooltip>
                     )
                 })
@@ -123,11 +123,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                         {person ? (
                             <div className="flex flex-col">
                                 <div className="flex items-center gap-1">
-                                    <span className="text-secondary">First seen:</span>{' '}
+                                    <span className="text-muted-foreground">First seen:</span>{' '}
                                     {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
                                 </div>
                                 <div className="flex items-center gap-1">
-                                    <span className="text-secondary">Last seen:</span>{' '}
+                                    <span className="text-muted-foreground">Last seen:</span>{' '}
                                     {infoLoading ? (
                                         <LemonSkeleton className="h-4 w-24" />
                                     ) : info?.lastSeen ? (
@@ -137,7 +137,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                                     )}
                                 </div>
                                 <div className="flex items-center gap-1">
-                                    <span className="text-secondary">Session count (30d):</span>{' '}
+                                    <span className="text-muted-foreground">Session count (30d):</span>{' '}
                                     {infoLoading ? (
                                         <LemonSkeleton className="h-4 w-24" />
                                     ) : info?.sessionCount ? (
@@ -147,7 +147,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                                     )}
                                 </div>
                                 <div className="flex items-center gap-1">
-                                    <span className="text-secondary">Event count (30d):</span>{' '}
+                                    <span className="text-muted-foreground">Event count (30d):</span>{' '}
                                     {infoLoading ? (
                                         <LemonSkeleton className="h-4 w-24" />
                                     ) : info?.eventCount ? (

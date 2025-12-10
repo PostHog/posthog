@@ -83,7 +83,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                         {({ value, onChange, error }) => (
                             <div className="flex gap-2 items-center">
                                 <LemonLabel
-                                    className={error ? 'text-danger' : ''}
+                                    className={error ? 'text-destructive-foreground' : ''}
                                     info={field.helpText}
                                     showOptional={field.optional}
                                 >
@@ -121,7 +121,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                         {({ value }) => (
                             <>
                                 <div className="flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100">
-                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                                    <div className="absolute inset-0 opacity-50 bg-card" />
                                     <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                                         Click to modify content
                                     </LemonButton>
@@ -164,7 +164,7 @@ function NativeEmailIntegrationChoice({
     if (!integrationsLoading && integrationsOfKind?.length === 0) {
         return (
             <div className="flex gap-2 justify-end items-center">
-                <span className="text-muted">No email senders configured yet</span>
+                <span className="text-muted-foreground">No email senders configured yet</span>
                 <LemonButton
                     size="small"
                     type="tertiary"
@@ -288,7 +288,7 @@ function NativeEmailTemplaterForm({
                         {({ value, onChange, error }) => (
                             <div className="flex gap-2 items-center">
                                 <LemonLabel
-                                    className={error ? 'text-danger' : ''}
+                                    className={error ? 'text-destructive-foreground' : ''}
                                     info={field.helpText}
                                     showOptional={field.optional}
                                 >
@@ -337,7 +337,7 @@ function NativeEmailTemplaterForm({
                                                     <div className="flex items-center justify-between w-full gap-2">
                                                         <span className="flex-1">{template.name}</span>
                                                         <span
-                                                            className="cursor-pointer text-muted hover:text-default"
+                                                            className="cursor-pointer text-muted-foreground hover:text-default"
                                                             onClick={() => {
                                                                 isPreviewClick.current = true
                                                                 setPreviewTemplate(template)
@@ -438,7 +438,7 @@ function NativeEmailTemplaterForm({
                                         value ? 'opacity-0' : 'opacity-100' // Hide if there is content
                                     )}
                                 >
-                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                                    <div className="absolute inset-0 opacity-50 bg-card" />
                                     <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                                         Click to modify content
                                     </LemonButton>

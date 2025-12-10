@@ -31,7 +31,7 @@ interface PanelLayoutPanelProps {
 }
 
 const panelLayoutPanelVariants = cva({
-    base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
+    base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-border transition-[width] duration-100 prefers-reduced-motion:transition-none',
     variants: {
         isLayoutPanelPinned: {
             true: 'relative',
@@ -113,12 +113,7 @@ export function PanelLayoutPanel({
             )}
             ref={containerRef}
         >
-            <div
-                className={cn(
-                    'z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true',
-                    'bg-surface-tertiary'
-                )}
-            >
+            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-muted group/colorful-product-icons colorful-product-icons-true">
                 {searchField || filterDropdown || sortDropdown ? (
                     <>
                         <div className="flex gap-1 p-1 items-center justify-between">
@@ -135,7 +130,7 @@ export function PanelLayoutPanel({
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <ButtonPrimitive iconOnly>
-                                            <IconEllipsis className="text-tertiary size-3" />
+                                            <IconEllipsis className="text-muted-foreground size-3" />
                                         </ButtonPrimitive>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent side="bottom" align="start">
@@ -146,7 +141,7 @@ export function PanelLayoutPanel({
                                                     active={isLayoutPanelPinned}
                                                     onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
                                                 >
-                                                    <IconPin className="text-tertiary size-3" />{' '}
+                                                    <IconPin className="text-muted-foreground size-3" />{' '}
                                                     {isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
                                                 </ButtonPrimitive>
                                             </DropdownMenuItem>
@@ -174,7 +169,7 @@ export function PanelLayoutPanel({
                                     data-attr="tree-panel-close-panel-button"
                                     size="sm"
                                 >
-                                    <IconX className="text-tertiary size-3" />
+                                    <IconX className="text-muted-foreground size-3" />
                                 </ButtonPrimitive>
                             </div>
                         </div>

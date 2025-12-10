@@ -149,7 +149,7 @@ export function ContextSummary({
 
     return (
         <Tooltip title={tooltipContent} placement="bottom">
-            <div className="flex items-center gap-1 text-xs text-muted hover:text-default w-fit select-none mb-1.5">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground hover:text-default w-fit select-none mb-1.5">
                 <IconPageChart className="text-sm" />
                 <span className="italic">With {contextSummaryText}</span>
             </div>
@@ -222,7 +222,7 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
                                 closable
                                 closeOnClick
                                 className={clsx(
-                                    'flex items-center text-secondary',
+                                    'flex items-center text-muted-foreground',
                                     size === 'small' ? 'max-w-20' : 'max-w-48'
                                 )}
                             >
@@ -282,7 +282,7 @@ export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'de
             <LemonTag
                 icon={toolContextItems[0].icon}
                 className={clsx(
-                    'flex items-center cursor-default border-dashed text-secondary',
+                    'flex items-center cursor-default border-dashed text-muted-foreground',
                     size === 'small' ? 'max-w-20' : 'max-w-48'
                 )}
             >
@@ -335,9 +335,9 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                             groupType={mainTaxonomicGroupType}
                             groupTypes={taxonomicGroupTypes}
                             onChange={handleTaxonomicFilterChange}
-                            icon={<IconAtSign className="text-secondary" />}
+                            icon={<IconAtSign className="text-muted-foreground" />}
                             placeholder={!hasData && !hasToolContext ? 'Add context' : null}
-                            placeholderClass="text-secondary"
+                            placeholderClass="text-muted-foreground"
                             maxContextOptions={contextOptions}
                             width={450}
                             disabledReason={submissionDisabledReason}

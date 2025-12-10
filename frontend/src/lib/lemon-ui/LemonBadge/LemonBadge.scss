@@ -1,5 +1,5 @@
 .LemonBadge {
-    --lemon-badge-color: var(--color-accent);
+    --lemon-badge-color: var(--color-primary);
     --lemon-badge-size: 1.5rem;
     --lemon-badge-font-size: 0.75rem;
     --lemon-badge-position-offset: 0.5rem;
@@ -20,11 +20,11 @@
     font-size: var(--lemon-badge-font-size);
     font-weight: 700;
     line-height: var(--lemon-badge-size);
-    color: var(--color-bg-surface-primary);
+    color: var(--color-card);
     pointer-events: none;
     user-select: none;
     background: var(--lemon-badge-color);
-    border: var(--lemon-badge-border-width) solid var(--color-bg-surface-primary);
+    border: var(--lemon-badge-border-width) solid var(--color-card);
     border-radius: calc(var(--lemon-badge-size) / 2);
 
     > * {
@@ -35,19 +35,19 @@
     }
 
     &.LemonBadge--success {
-        --lemon-badge-color: var(--success);
+        --lemon-badge-color: var(--color-success-foreground);
     }
 
     &.LemonBadge--warning {
-        --lemon-badge-color: var(--warning);
+        --lemon-badge-color: var(--color-warning-foreground);
     }
 
     &.LemonBadge--danger {
-        --lemon-badge-color: var(--danger);
+        --lemon-badge-color: var(--color-destructive-foreground);
     }
 
     &.LemonBadge--muted {
-        --lemon-badge-color: var(--color-text-secondary);
+        --lemon-badge-color: var(--color-text-muted-foreground);
     }
 
     &.LemonBadge--data {

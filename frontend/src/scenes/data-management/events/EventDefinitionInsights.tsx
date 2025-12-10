@@ -25,7 +25,7 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
             key: 'id',
             width: 32,
             render: function renderType(_, insight) {
-                return <InsightIcon insight={insight} className="text-secondary text-2xl" />
+                return <InsightIcon insight={insight} className="text-muted-foreground text-2xl" />
             },
         },
         {

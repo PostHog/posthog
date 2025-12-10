@@ -265,7 +265,9 @@ export function TeamBusinessModel({ bare }: { bare?: boolean }): JSX.Element {
             <div className="deprecated-space-y-2">
                 {!bare && <LemonLabel id="business-model">Business model</LemonLabel>}
                 <BusinessModelConfig />
-                {!bare && <p className="text-muted text-xs">Whether this project serves B2B or B2C customers.</p>}
+                {!bare && (
+                    <p className="text-muted-foreground text-xs">Whether this project serves B2B or B2C customers.</p>
+                )}
             </div>
         </>
     )

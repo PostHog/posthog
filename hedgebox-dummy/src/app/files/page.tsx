@@ -120,11 +120,11 @@ export default function FilesPage(): React.JSX.Element {
                         <div className="stats shadow">
                             <div className="stat">
                                 <div className="stat-title">Total files</div>
-                                <div className="stat-value text-primary">{files.length}</div>
+                                <div className="stat-value text-foreground">{files.length}</div>
                             </div>
                             <div className="stat">
                                 <div className="stat-title">Storage used</div>
-                                <div className="stat-value text-secondary">{formatFileSize(usedStorage)}</div>
+                                <div className="stat-value text-muted-foreground">{formatFileSize(usedStorage)}</div>
                                 <div className="stat-desc">{storagePercentage.toFixed(1)}% of 1GB</div>
                             </div>
                         </div>
@@ -339,7 +339,7 @@ export default function FilesPage(): React.JSX.Element {
                                             >
                                                 <div className="text-2xl">{getFileIcon(file.type)}</div>
                                                 <div>
-                                                    <div className="font-bold hover:text-primary">{file.name}</div>
+                                                    <div className="font-bold hover:text-foreground">{file.name}</div>
                                                     <div className="text-sm text-base-content/70">{file.type}</div>
                                                 </div>
                                             </Link>

@@ -30,11 +30,11 @@ function ExceptionTitlePill({ event }: { event: RecordingEventType }): JSX.Eleme
     const value = errorProps.value
 
     if (!type && !value) {
-        return <span className="text-muted-alt text-xs">Exception</span>
+        return <span className="text-muted-foreground text-xs">Exception</span>
     }
 
     return (
-        <div className="flex gap-1 px-2 py-0.5 rounded border border-danger-dark bg-danger-highlight text-xs font-mono truncate max-w-md">
+        <div className="flex gap-1 px-2 py-0.5 rounded border border-danger-dark bg-destructive text-xs font-mono truncate max-w-md">
             {type && <span className="font-semibold">{type}</span>}
             {type && value && <span>:</span>}
             {value && <span className="truncate">{value}</span>}
@@ -124,12 +124,12 @@ export function SessionEventItem({
     return (
         <div
             className={clsx(
-                'border border-border rounded overflow-hidden transition-all bg-surface-primary',
+                'border border-border rounded overflow-hidden transition-all bg-card',
                 !isExpanded && 'hover:bg-secondary-3000-hover-light',
-                isExpanded && 'border-accent',
+                isExpanded && 'border-primary',
                 isExpanded && highlightColor === 'danger' && 'border-danger-dark',
                 isExpanded && highlightColor === 'warning' && 'border-warning-dark',
-                isExpanded && highlightColor === 'primary' && 'border-primary-dark'
+                isExpanded && highlightColor === 'primary' && 'border-border-dark'
             )}
             style={{
                 zIndex: isExpanded ? 1 : 0,
@@ -153,7 +153,7 @@ export function SessionEventItem({
                         formatDate="MMMM DD, YYYY"
                         formatTime="h:mm:ss A"
                         showPopover={false}
-                        className="text-xs text-muted-alt min-w-32"
+                        className="text-xs text-muted-foreground min-w-32"
                     />
                     <PropertyKeyInfo
                         value={event.event}
@@ -166,7 +166,7 @@ export function SessionEventItem({
                     ) : (
                         event.properties?.$pathname &&
                         event.properties?.$host && (
-                            <span className="text-muted-alt truncate text-xs">
+                            <span className="text-muted-foreground truncate text-xs">
                                 - {event.properties.$host}
                                 {event.properties.$pathname}
                             </span>

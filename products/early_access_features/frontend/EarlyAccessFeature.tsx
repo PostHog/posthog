@@ -470,7 +470,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                     {earlyAccessFeature.documentation_url}
                                 </Link>
                             ) : (
-                                <span className="text-secondary">No documentation URL</span>
+                                <span className="text-muted-foreground">No documentation URL</span>
                             )}
                         </div>
                     </div>
@@ -500,7 +500,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             {earlyAccessFeature.payload && Object.keys(earlyAccessFeature.payload).length > 0 ? (
                                 <JSONEditorInput readOnly value={earlyAccessFeature.payload} />
                             ) : (
-                                <span className="text-secondary">No payload configured</span>
+                                <span className="text-muted-foreground">No payload configured</span>
                             )}
                         </div>
                     </div>

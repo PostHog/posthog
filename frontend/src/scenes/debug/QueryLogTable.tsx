@@ -57,7 +57,7 @@ export function QueryLogTable({ queryKey, onLoadQuery }: QueryLogTableProps): JS
     return (
         <div className="space-y-2">
             <div className="flex justify-between items-center">
-                <span className="text-sm text-muted">
+                <span className="text-sm text-muted-foreground">
                     Showing queries from the past 7 days for the current user (100 per page)
                 </span>
                 <LemonButton type="primary" size="small" onClick={loadQueryLogs} loading={queryLogsLoading}>

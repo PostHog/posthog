@@ -11,7 +11,7 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
     const { clearAllFilters, exportLogs } = useActions(advancedActivityLogsLogic)
 
     return (
-        <div className="border rounded-md p-4 bg-bg-light">
+        <div className="border rounded-md p-4 bg-card">
             <div className="flex items-center justify-end">
                 <div className="flex gap-2">
                     <LemonDropdown

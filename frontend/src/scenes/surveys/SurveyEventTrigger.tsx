@@ -146,8 +146,8 @@ function SurveyEventSelector({
             <>
                 {events.length === 0 ? (
                     <LemonCard className="border-dashed" hoverEffect={false}>
-                        <div className="text-muted-alt text-sm mb-1">{emptyTitle}</div>
-                        <div className="text-xs text-muted">{emptyDescription}</div>
+                        <div className="text-muted-foreground text-sm mb-1">{emptyTitle}</div>
+                        <div className="text-xs text-muted-foreground">{emptyDescription}</div>
                     </LemonCard>
                 ) : (
                     <div className="space-y-2">
@@ -167,7 +167,7 @@ function SurveyEventSelector({
                                                         <div className="flex items-center gap-2">
                                                             <span className="font-semibold text-sm">{event.name}</span>
                                                             {hasPropertyFilters && (
-                                                                <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded">
+                                                                <span className="text-xs text-muted-foreground bg-border px-1.5 py-0.5 rounded">
                                                                     {Object.keys(event.propertyFilters!).length} filter
                                                                     {Object.keys(event.propertyFilters!).length !== 1
                                                                         ? 's'
@@ -190,7 +190,7 @@ function SurveyEventSelector({
                                             },
                                             content: (
                                                 <div>
-                                                    <div className="text-xs font-medium text-muted-alt mb-2 uppercase tracking-wide">
+                                                    <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
                                                         Property Filters
                                                     </div>
                                                     <PropertyFilters
@@ -212,7 +212,7 @@ function SurveyEventSelector({
                                                         buttonSize="small"
                                                         operatorAllowlist={SUPPORTED_OPERATORS}
                                                     />
-                                                    <span className="text-xs text-muted">
+                                                    <span className="text-xs text-muted-foreground">
                                                         Only primitive types (strings, numbers, booleans) are supported
                                                         for property filters. Array and object properties are not
                                                         supported and will not be shown.

@@ -34,7 +34,7 @@ export const exceptionRenderer: ItemRenderer<ExceptionItem> = {
                 name={name}
                 description={
                     <Link
-                        className="text-secondary hover:text-accent"
+                        className="text-muted-foreground hover:text-accent"
                         subtle
                         to={urls.errorTrackingIssue(eventIssueId, {
                             fingerprint: item.payload.fingerprint,

@@ -203,7 +203,7 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                         </LemonField>
                                     </div>
                                 ) : (
-                                    <Link to={link.redirect_url} className="text-muted" target="_blank">
+                                    <Link to={link.redirect_url} className="text-muted-foreground" target="_blank">
                                         {link.redirect_url}
                                     </Link>
                                 )}
@@ -216,10 +216,10 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                         <LemonField name="short_link_domain">
                                             <LemonSelect<AvailableDomain>
                                                 options={DOMAIN_OPTIONS}
-                                                className="text-muted"
+                                                className="text-muted-foreground"
                                             />
                                         </LemonField>
-                                        <span className="text-muted">/</span>
+                                        <span className="text-muted-foreground">/</span>
                                         <LemonField name="short_code" className="w-full">
                                             <LemonInput
                                                 fullWidth
@@ -248,7 +248,11 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                         </LemonField>
                                     </div>
                                 ) : (
-                                    <div>{link.description || <span className="text-muted">No description</span>}</div>
+                                    <div>
+                                        {link.description || (
+                                            <span className="text-muted-foreground">No description</span>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -277,7 +281,7 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                     </div>
                                 </div>
 
-                                <div className="border rounded-md p-4 mt-2 bg-bg-light flex items-center justify-center">
+                                <div className="border rounded-md p-4 mt-2 bg-card flex items-center justify-center">
                                     <div className="text-center">
                                         <QRCodeSVG
                                             size={128}

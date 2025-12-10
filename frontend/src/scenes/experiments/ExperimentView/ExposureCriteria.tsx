@@ -57,7 +57,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                 </div>
             }
         >
-            <div className="text-secondary text-sm mb-4">
+            <div className="text-muted-foreground text-sm mb-4">
                 Exposure determines when a user enters your experiment. Only events that occur after exposure are
                 counted in your metrics.
             </div>
@@ -148,7 +148,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                         placeholder="Select handling method"
                         fullWidth
                     />
-                    <div className="text-xs text-muted mt-1">
+                    <div className="text-xs text-muted-foreground mt-1">
                         {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
                             'Users exposed to multiple variants will be analyzed using their first seen variant.'}
                         {(!experiment.exposure_criteria?.multiple_variant_handling ||

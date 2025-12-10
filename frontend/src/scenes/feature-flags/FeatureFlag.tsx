@@ -389,7 +389,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     label="Key"
                                     help={
                                         hasKeyChanged && id !== 'new' ? (
-                                            <span className="text-warning">
+                                            <span className="text-warning-foreground">
                                                 <b>Warning! </b>Changing this key will
                                                 <Link
                                                     to={`https://posthog.com/docs/feature-flags${UTM_TAGS}#feature-flag-persistence`}
@@ -422,7 +422,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 autoCorrect="off"
                                                 spellCheck={false}
                                             />
-                                            <span className="text-secondary text-sm">
+                                            <span className="text-muted-foreground text-sm">
                                                 Feature flag keys must be unique
                                             </span>
                                         </>
@@ -461,7 +461,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             checked={value}
                                             data-attr="feature-flag-enabled-checkbox"
                                         />
-                                        <div className="text-secondary text-sm pl-7">
+                                        <div className="text-muted-foreground text-sm pl-7">
                                             When enabled, this flag evaluates according to your release conditions. When
                                             disabled, this flag will not be evaluated and PostHog SDKs default to
                                             returning <code>false</code>.
@@ -480,7 +480,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 checked={value}
                                                 data-attr="create-usage-dashboard-checkbox"
                                             />
-                                            <div className="text-secondary text-sm pl-7">
+                                            <div className="text-muted-foreground text-sm pl-7">
                                                 Automatically track how often this flag is called and what values are
                                                 returned. Creates a dashboard with call volume trends and variant
                                                 distribution insights.
@@ -500,7 +500,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 fullWidth
                                                 checked={value}
                                             />
-                                            <div className="text-secondary text-sm pl-7">
+                                            <div className="text-muted-foreground text-sm pl-7">
                                                 If your feature flag is applied before identifying the user, use this to
                                                 ensure that the flag value remains consistent for the same user.
                                                 Depending on your setup, this option might not always be suitable. This
@@ -520,7 +520,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <>
                                     <SceneDivider />
                                     <SceneSection title="Evaluation runtime">
-                                        <div className="text-secondary text-sm mb-2">
+                                        <div className="text-muted-foreground text-sm mb-2">
                                             This setting controls where your feature flag can be evaluated. If you try
                                             to use a flag in a runtime where it's not allowed (e.g., using a server-only
                                             flag in client-side code), it won't evaluate.{' '}
@@ -557,20 +557,22 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     ].map((option) => (
                                                         <div
                                                             key={option.value}
-                                                            className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
+                                                            className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-border-light ${
                                                                 value === option.value
-                                                                    ? 'border-primary bg-primary-highlight'
+                                                                    ? 'border-border bg-card-highlight'
                                                                     : 'border-border'
                                                             }`}
                                                             onClick={() => onChange(option.value)}
                                                         >
                                                             <div className="flex items-start gap-3">
-                                                                <div className="text-lg text-muted">{option.icon}</div>
+                                                                <div className="text-lg text-muted-foreground">
+                                                                    {option.icon}
+                                                                </div>
                                                                 <div className="flex-1">
                                                                     <div className="font-medium text-sm">
                                                                         {option.title}
                                                                     </div>
-                                                                    <div className="text-xs text-muted mt-1">
+                                                                    <div className="text-xs text-muted-foreground mt-1">
                                                                         {option.description}
                                                                     </div>
                                                                 </div>
@@ -595,7 +597,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <SceneDivider />
                                     <SceneSection title="Tags">
                                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
-                                            <div className="text-secondary text-sm mb-2">
+                                            <div className="text-muted-foreground text-sm mb-2">
                                                 Tags provide fine-grained control over where and when your feature flags
                                                 evaluate.{' '}
                                                 <Link
@@ -659,7 +661,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         >
                                             <div>
                                                 <h3 className="l4 mt-2">Advanced settings</h3>
-                                                <div className="text-secondary mb-2 font-medium">
+                                                <div className="text-muted-foreground mb-2 font-medium">
                                                     Define who can modify this flag.
                                                 </div>
                                             </div>
@@ -670,7 +672,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                                 <FeatureFlagAutoRollback />
                                             )}
-                                            <div className="border rounded bg-surface-primary">
+                                            <div className="border rounded bg-card">
                                                 <h3 className="p-2 mb-0">Permissions</h3>
                                                 <LemonDivider className="my-0" />
                                                 <div className="p-3">
@@ -964,7 +966,7 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
             ) : (
                 <div>
                     <b>Dashboard</b>
-                    <div className="text-secondary mb-2">
+                    <div className="text-muted-foreground mb-2">
                         There is currently no connected dashboard to this feature flag. If there was previously a
                         connected dashboard, it may have been deleted.
                     </div>
@@ -979,7 +981,7 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
             )}
             <div className="mt-4 mb-4">
                 <b>Log</b>
-                <div className="text-secondary">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
+                <div className="text-muted-foreground">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
             </div>
             <Query
                 query={{
@@ -1186,7 +1188,7 @@ function FeatureFlagRollout({
                                     <div className="flex items-center gap-2">
                                         {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL ? (
                                             <>
-                                                <IconGlobe className="text-lg text-muted" />
+                                                <IconGlobe className="text-lg text-muted-foreground" />
                                                 <span className="font-medium">Both client and server</span>
                                                 <LemonTag type="primary" size="small">
                                                     Single + multi-user
@@ -1194,7 +1196,7 @@ function FeatureFlagRollout({
                                             </>
                                         ) : featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.CLIENT ? (
                                             <>
-                                                <IconLaptop className="text-lg text-muted" />
+                                                <IconLaptop className="text-lg text-muted-foreground" />
                                                 <span className="font-medium">Client-side only</span>
                                                 <LemonTag type="completion" size="small">
                                                     Single-user apps
@@ -1202,7 +1204,7 @@ function FeatureFlagRollout({
                                             </>
                                         ) : (
                                             <>
-                                                <IconServer className="text-lg text-muted" />
+                                                <IconServer className="text-lg text-muted-foreground" />
                                                 <span className="font-medium">Server-side only</span>
                                                 <LemonTag type="caution" size="small">
                                                     Multi-user systems
@@ -1247,7 +1249,7 @@ function FeatureFlagRollout({
                             </SceneSection>
 
                             <SceneSection title="Evaluation environments">
-                                <div className="text-secondary text-sm mb-2">
+                                <div className="text-muted-foreground text-sm mb-2">
                                     Evaluation environments provide fine-grained control over where and when your
                                     feature flags evaluate. Combine evaluation runtime and tags to control where and
                                     when your feature flags evaluate.{' '}
@@ -1266,7 +1268,7 @@ function FeatureFlagRollout({
                                             <div className="flex items-center gap-2">
                                                 {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL ? (
                                                     <>
-                                                        <IconGlobe className="text-lg text-muted" />
+                                                        <IconGlobe className="text-lg text-muted-foreground" />
                                                         <span className="font-medium">Both client and server</span>
                                                         <LemonTag type="primary" size="small">
                                                             Single + multi-user
@@ -1275,7 +1277,7 @@ function FeatureFlagRollout({
                                                 ) : featureFlag.evaluation_runtime ===
                                                   FeatureFlagEvaluationRuntime.CLIENT ? (
                                                     <>
-                                                        <IconLaptop className="text-lg text-muted" />
+                                                        <IconLaptop className="text-lg text-muted-foreground" />
                                                         <span className="font-medium">Client-side only</span>
                                                         <LemonTag type="completion" size="small">
                                                             Single-user apps
@@ -1283,7 +1285,7 @@ function FeatureFlagRollout({
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <IconServer className="text-lg text-muted" />
+                                                        <IconServer className="text-lg text-muted-foreground" />
                                                         <span className="font-medium">Server-side only</span>
                                                         <LemonTag type="caution" size="small">
                                                             Multi-user systems
@@ -1358,7 +1360,7 @@ function FeatureFlagRollout({
                                 value={flagType}
                             />
                         </div>
-                        <div className="text-secondary">
+                        <div className="text-muted-foreground">
                             {featureFlag.is_remote_configuration ? (
                                 <span>
                                     Remote config flags provide runtime configuration values in your app. Read more in
@@ -1396,11 +1398,13 @@ function FeatureFlagRollout({
                                             value={featureFlag.filters.payloads?.['true']}
                                         />
                                     ) : (
-                                        <span className="text-secondary">No payload associated with this flag</span>
+                                        <span className="text-muted-foreground">
+                                            No payload associated with this flag
+                                        </span>
                                     )
                                 ) : (
                                     <div className="w-1/2">
-                                        <div className="text-secondary mb-4">
+                                        <div className="text-muted-foreground mb-4">
                                             {featureFlag.is_remote_configuration ? (
                                                 <>
                                                     Specify a valid JSON payload to be returned for the config flag.
@@ -1471,7 +1475,7 @@ function FeatureFlagRollout({
                                             )}
                                         </div>
                                         {featureFlag.is_remote_configuration && (
-                                            <div className="text-sm text-secondary mt-4">
+                                            <div className="text-sm text-muted-foreground mt-4">
                                                 Note: remote config flags must be accessed through payloads, e.g.{' '}
                                                 <span className="font-mono font-bold">
                                                     {featureFlag.has_encrypted_payloads
@@ -1594,11 +1598,11 @@ function FeatureFlagRollout({
                             featureFlag.filters.payloads?.['true'] ? (
                                 <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
                             ) : (
-                                <span className="text-secondary">No payload associated with this flag</span>
+                                <span className="text-muted-foreground">No payload associated with this flag</span>
                             )
                         ) : (
                             <div className="w-1/2">
-                                <div className="text-secondary mb-4">
+                                <div className="text-muted-foreground mb-4">
                                     {featureFlag.is_remote_configuration ? (
                                         <>
                                             Specify a valid JSON payload to be returned for the config flag. Read more
@@ -1669,7 +1673,7 @@ function FeatureFlagRollout({
                                     )}
                                 </div>
                                 {featureFlag.is_remote_configuration && (
-                                    <div className="text-sm text-secondary mt-4">
+                                    <div className="text-sm text-muted-foreground mt-4">
                                         Note: remote config flags must be accessed through payloads, e.g.{' '}
                                         <span className="font-mono font-bold">
                                             {featureFlag.has_encrypted_payloads

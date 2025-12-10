@@ -25,18 +25,18 @@
     }
 
     &.BillingGaugeItem--free_tier {
-        background-color: var(--color-border-primary-opaque);
+        background-color: var(--border-opaque);
     }
 
     &.BillingGaugeItem--billing_limit {
-        background-color: var(--color-border-primary-opaque);
+        background-color: var(--border-opaque);
     }
 
     &.BillingGaugeItem--current_usage {
-        background: var(--danger);
+        background: var(--color-destructive-foreground);
 
         &.BillingGaugeItem--within-usage-limit {
-            background: var(--brand-blue);
+            background: var(--color-brand-blue);
         }
     }
 

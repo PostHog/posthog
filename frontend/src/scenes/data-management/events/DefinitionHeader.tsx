@@ -26,9 +26,9 @@ function IconWithBadge({ icon, verified, hidden, tooltipTitle, className }: Icon
         <div className="relative inline-flex">
             {React.cloneElement(icon, { className: className || icon.props.className })}
             {(verified || hidden) && (
-                <div className="absolute -bottom-1 -left-2 flex items-center justify-center rounded-full bg-primary-light shadow-md p-[1px]">
+                <div className="absolute -bottom-1 -left-2 flex items-center justify-center rounded-full bg-card-light shadow-md p-[1px]">
                     {hidden ? (
-                        <IconEyeHidden className="text-danger text-xs" />
+                        <IconEyeHidden className="text-destructive-foreground text-xs" />
                     ) : (
                         <IconBadge className="text-success text-xs" />
                     )}

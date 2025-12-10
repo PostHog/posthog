@@ -127,7 +127,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 breakdownFilter &&
                 hasBreakdownMore && (
                     <div className="p-4">
-                        <div className="text-secondary">
+                        <div className="text-muted-foreground">
                             Breakdown limited to {breakdownFilter.breakdown_limit || 25} - more available
                             <LemonButton
                                 onClick={() =>

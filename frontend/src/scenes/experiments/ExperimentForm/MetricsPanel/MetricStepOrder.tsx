@@ -23,7 +23,8 @@ export const MetricStepOrder = ({ metric }: MetricStepOrderProps): JSX.Element |
 
     return (
         <div className="text-xs">
-            <span className="text-muted">Step order:</span> <span className="font-semibold">{orderLabel}</span>
+            <span className="text-muted-foreground">Step order:</span>{' '}
+            <span className="font-semibold">{orderLabel}</span>
         </div>
     )
 }

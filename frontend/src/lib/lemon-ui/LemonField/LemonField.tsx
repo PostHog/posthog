@@ -36,7 +36,7 @@ export type LemonPureFieldProps = {
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     return (
-        <div className="text-danger flex items-center gap-1 text-sm">
+        <div className="text-destructive-foreground flex items-center gap-1 text-sm">
             <IconErrorOutline className="text-xl shrink-0" /> {error}
         </div>
     )
@@ -84,7 +84,7 @@ const LemonPureField = ({
                 </LemonLabel>
             ) : null}
             {children}
-            {help ? <div className="text-secondary text-xs">{help}</div> : null}
+            {help ? <div className="text-muted-foreground text-xs">{help}</div> : null}
             {typeof error === 'string' ? renderError ? renderError(error) : <LemonFieldError error={error} /> : null}
         </div>
     )

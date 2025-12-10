@@ -118,7 +118,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
                             <span
                                 className={clsx(
                                     'text-white rounded px-1',
-                                    featureFlag.active ? 'bg-success' : 'bg-muted-alt'
+                                    featureFlag.active ? 'bg-success' : 'bg-muted'
                                 )}
                             >
                                 {featureFlag.active ? 'Enabled' : 'Disabled'}

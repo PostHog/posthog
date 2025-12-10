@@ -21,7 +21,7 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
     }
 
     return (
-        <div className="flex items-start gap-3 p-3 rounded border border-primary/10 bg-surface-primary">
+        <div className="flex items-start gap-3 p-3 rounded border border-primary/10 bg-card">
             <StatusIcon status={check.status} urgent={check.urgent} />
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -31,12 +31,12 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
                         <span className="font-medium">{check.title}</span>
                     )}
                     {check.docsUrl && (
-                        <Link to={check.docsUrl} className="text-xs text-muted">
+                        <Link to={check.docsUrl} className="text-xs text-muted-foreground">
                             Docs
                         </Link>
                     )}
                 </div>
-                <div className="text-sm text-secondary mt-0.5">
+                <div className="text-sm text-muted-foreground mt-0.5">
                     {check.status === 'loading' ? <LemonSkeleton className="w-32 h-4" /> : check.description}
                 </div>
             </div>
@@ -83,13 +83,13 @@ function StatusIcon({ status, urgent }: { status: HealthCheckStatus; urgent?: bo
             )
         case 'error':
             return (
-                <div className="w-6 h-6 rounded-full bg-danger-highlight flex items-center justify-center flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-destructive flex items-center justify-center flex-shrink-0">
                     <IconX className="text-danger w-4 h-4" />
                 </div>
             )
         case 'loading':
             return (
-                <div className="w-6 h-6 rounded-full bg-muted-alt flex items-center justify-center flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
                     <LemonSkeleton className="w-4 h-4 rounded-full" />
                 </div>
             )

@@ -123,7 +123,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.ErrorTrackingProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
-            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
+            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted-foreground')}>
                 {icon}
                 <PropertyKeyInfo
                     value={item.name ?? ''}
@@ -276,7 +276,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     fullWidth
                     className={clsx(
                         'taxonomic-list-row',
-                        'border border-dashed border-secondary rounded min-h-9 justify-center'
+                        'border border-dashed border-border-strong rounded min-h-9 justify-center'
                     )}
                     outlined={false}
                     onKeyDown={(e) => {
@@ -286,11 +286,11 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     }}
                     onClick={selectNonCapturedEvent}
                     onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
-                    icon={<IconPlus className="text-muted size-4" />}
+                    icon={<IconPlus className="text-muted-foreground size-4" />}
                     data-attr="prop-filter-event-option-custom"
                 >
                     <div className="flex items-center gap-2">
-                        <span className="text-muted">Select event:</span>
+                        <span className="text-muted-foreground">Select event:</span>
                         <span className="font-medium">{trimmedSearchQuery}</span>
                         <LemonTag type="caution" size="small">
                             Not seen yet
@@ -391,7 +391,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    <IconArchive className="text-5xl text-tertiary" />
+                    <IconArchive className="text-5xl text-muted-foreground" />
                     <span>
                         {searchQuery ? (
                             <>

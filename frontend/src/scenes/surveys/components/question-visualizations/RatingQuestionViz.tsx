@@ -116,13 +116,13 @@ function NPSStackedBar({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.El
 export function NPSBreakdownSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
-            <div className="font-semibold text-secondary">
+            <div className="font-semibold text-muted-foreground">
                 <LemonSkeleton className="h-10 w-20" />
                 <Tooltip
                     placement="bottom"
                     title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can go from -100 to 100."
                 >
-                    <IconInfo className="text-muted mr-1" />
+                    <IconInfo className="text-muted-foreground mr-1" />
                     Latest NPS Score
                 </Tooltip>
             </div>
@@ -134,13 +134,13 @@ export function NPSBreakdownSkeleton(): JSX.Element {
 function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
-            <div className="font-semibold text-secondary">
-                <div className="text-4xl font-bold text-primary">{npsBreakdown.score}</div>
+            <div className="font-semibold text-muted-foreground">
+                <div className="text-4xl font-bold text-foreground">{npsBreakdown.score}</div>
                 <Tooltip
                     placement="bottom"
                     title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can go from -100 to 100."
                 >
-                    <IconInfo className="text-muted mr-1" />
+                    <IconInfo className="text-muted-foreground mr-1" />
                     Latest NPS Score
                 </Tooltip>
             </div>
@@ -154,7 +154,7 @@ function NPSRatingOverTime({ questionIndex, questionId }: { questionIndex: numbe
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
     return (
-        <div className="bg-surface-primary rounded">
+        <div className="bg-card rounded">
             <LemonCollapse
                 panels={[
                     {
@@ -310,7 +310,7 @@ function RatingScoreOverTime({
     const formula = `(${formulaNumeratorParts.join('+')}) / (${formulaDenominatorParts.join('+')})`
 
     return (
-        <div className="bg-surface-primary rounded">
+        <div className="bg-card rounded">
             <LemonCollapse
                 panels={[
                     {
@@ -429,8 +429,8 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                     </div>
                 </div>
                 <div className="flex flex-row justify-between">
-                    <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
-                    <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
+                    <div className="text-muted-foreground pl-10">{question.lowerBoundLabel}</div>
+                    <div className="text-muted-foreground pr-10">{question.upperBoundLabel}</div>
                 </div>
             </div>
             {question.isNpsQuestion !== false && (

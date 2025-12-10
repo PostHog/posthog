@@ -50,8 +50,8 @@ export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVital
     // Show no data message when not loading and value is undefined
     if (value === undefined || band === 'none') {
         return (
-            <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border items-center justify-center">
-                <span className="text-sm text-text-tertiary">No data for the selected date range</span>
+            <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-card rounded border items-center justify-center">
+                <span className="text-sm text-text-muted-foreground">No data for the selected date range</span>
             </div>
         )
     }
@@ -69,7 +69,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVital
     const unit = webVitalsTab === 'CLS' ? '' : 'ms'
 
     return (
-        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border">
+        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-card rounded border">
             <span className="text-lg">
                 <strong>{LONG_METRIC_NAME[webVitalsTab]}</strong>
             </span>
@@ -98,7 +98,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVital
                 </span>
             </div>
 
-            <div className="text-xs text-secondary-foreground">
+            <div className="text-xs text-muted-foreground-foreground">
                 {quantifier} {experience}
             </div>
 

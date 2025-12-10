@@ -60,7 +60,13 @@ export default function PasswordStrength({
             <span className="w-20">
                 <LemonProgress
                     percent={score * 20}
-                    strokeColor={score <= 2 ? 'var(--danger)' : score <= 3 ? 'var(--warning)' : 'var(--success)'}
+                    strokeColor={
+                        score <= 2
+                            ? 'var(--color-destructive-foreground)'
+                            : score <= 3
+                              ? 'var(--color-warning-foreground)'
+                              : 'var(--color-success-foreground)'
+                    }
                 />
             </span>
         </Tooltip>

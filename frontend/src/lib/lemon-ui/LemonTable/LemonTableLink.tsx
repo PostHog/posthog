@@ -31,7 +31,7 @@ function LemonTableLinkContent({ title, description }: LemonTableLinkContentProp
             <div className="flex flex-row items-center font-semibold text-sm gap-1">{title}</div>
 
             {description ? (
-                <div className="text-xs text-tertiary mt-1">
+                <div className="text-xs text-muted-foreground mt-1">
                     {typeof description === 'string' ? (
                         <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
                             {description}

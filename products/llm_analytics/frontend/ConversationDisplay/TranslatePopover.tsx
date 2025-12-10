@@ -53,7 +53,7 @@ export function TranslatePopover({ content, title = 'Translate' }: TranslatePopo
                             </div>
                         ) : null}
                         <div className="flex items-center gap-2 mb-3">
-                            <span className="text-sm text-muted">To:</span>
+                            <span className="text-sm text-muted-foreground">To:</span>
                             <LemonSelect
                                 size="small"
                                 value={targetLanguage}
@@ -77,18 +77,18 @@ export function TranslatePopover({ content, title = 'Translate' }: TranslatePopo
                         {translationLoading ? (
                             <div className="flex items-center justify-center py-4 gap-2">
                                 <Spinner className="text-lg" />
-                                <span className="text-muted">Translating to {currentLanguageLabel}...</span>
+                                <span className="text-muted-foreground">Translating to {currentLanguageLabel}...</span>
                             </div>
                         ) : translationError ? (
                             <div className="text-center py-2">
                                 <p className="text-danger mb-2">Translation failed. Please try again.</p>
                             </div>
                         ) : translationText ? (
-                            <div className="whitespace-pre-wrap text-sm bg-bg-light rounded p-2 max-h-80 overflow-y-auto">
+                            <div className="whitespace-pre-wrap text-sm bg-card rounded p-2 max-h-80 overflow-y-auto">
                                 {translationText}
                             </div>
                         ) : (
-                            <div className="text-center py-4 text-muted text-sm">
+                            <div className="text-center py-4 text-muted-foreground text-sm">
                                 Select a language and click Translate
                             </div>
                         )}

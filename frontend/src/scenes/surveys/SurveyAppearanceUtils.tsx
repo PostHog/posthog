@@ -73,7 +73,7 @@ function HighlightedTextArea({
         >
             {showPlaceholder ? (
                 <div
-                    className="absolute inset-0 p-[10px_12px] text-muted pointer-events-none"
+                    className="absolute inset-0 p-[10px_12px] text-muted-foreground pointer-events-none"
                     style={{ fontFamily: CODE_FONT_FAMILY, lineHeight: '1.5' }}
                 >
                     {placeholder}
@@ -150,7 +150,7 @@ export function PresentationTypeCard({
         <div
             className={clsx(
                 'border rounded relative px-4 py-2 overflow-hidden h-[180px] w-full',
-                active ? 'border-accent' : 'border-primary',
+                active ? 'border-primary' : 'border-border',
                 disabled && 'opacity-50'
             )}
         >

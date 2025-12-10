@@ -72,7 +72,7 @@ export function NavPanelAdvertisementContent({
         <div className="w-full">
             <Link
                 to={productInfo.href}
-                className="text-primary"
+                className="text-foreground"
                 onClick={() => {
                     posthog.capture('nav panel advertisement clicked', {
                         product_path: recommendedProduct.product_path,
@@ -90,7 +90,7 @@ export function NavPanelAdvertisementContent({
                     }
                 }}
             >
-                <div className="border rounded-sm bg-primary text-xs *:flex *:gap-2 *:px-2 *:py-1">
+                <div className="border rounded-sm bg-card text-xs *:flex *:gap-2 *:px-2 *:py-1">
                     <div className="flex justify-between mt-1">
                         <div className="flex items-center gap-2">
                             <strong>
@@ -101,7 +101,7 @@ export function NavPanelAdvertisementContent({
                             </strong>
                         </div>
                         <LemonButton
-                            icon={<IconX className="text-muted m-1" />}
+                            icon={<IconX className="text-muted-foreground m-1" />}
                             tooltip="Dismiss"
                             tooltipPlacement="right"
                             size="xxsmall"

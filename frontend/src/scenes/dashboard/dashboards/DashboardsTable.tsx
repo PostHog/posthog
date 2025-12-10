@@ -110,13 +110,13 @@ export function DashboardsTable({
                                 )}
                                 {!canEditDashboard && (
                                     <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
-                                        <IconLock className="ml-1 text-base text-secondary" />
+                                        <IconLock className="ml-1 text-base text-muted-foreground" />
                                     </Tooltip>
                                 )}
                                 {isPrimary && (
                                     <Tooltip title="The primary dashboard is shown on the project home page.">
                                         <span>
-                                            <IconHome className="ml-1 text-base text-warning" />
+                                            <IconHome className="ml-1 text-base text-warning-foreground" />
                                         </span>
                                     </Tooltip>
                                 )}
@@ -199,8 +199,12 @@ export function DashboardsTable({
 
                                       <LemonDivider />
 
-                                      <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
-                                          <span className="text-secondary">
+                                      <LemonRow
+                                          icon={<IconHome className="text-warning-foreground" />}
+                                          fullWidth
+                                          status="warning"
+                                      >
+                                          <span className="text-muted-foreground">
                                               Change the default dashboard
                                               <br />
                                               from the <Link to={urls.projectHomepage()}>project home page</Link>.

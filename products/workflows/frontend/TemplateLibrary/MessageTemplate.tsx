@@ -96,7 +96,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                 />
 
                 <div className="flex flex-wrap gap-4 items-start">
-                    <div className="flex-1 self-start p-3 space-y-2 rounded border min-w-100 bg-surface-primary">
+                    <div className="flex-1 self-start p-3 space-y-2 rounded border min-w-100 bg-card">
                         <LemonField name="name" label="Name">
                             <LemonInput disabled={messageLoading} />
                         </LemonField>
@@ -110,7 +110,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                         </LemonField>
                     </div>
 
-                    <div className="p-3 space-y-2 rounded border flex-2 min-w-100 bg-surface-primary">
+                    <div className="p-3 space-y-2 rounded border flex-2 min-w-100 bg-card">
                         <div className="flex justify-between items-center">
                             <h3>Email template</h3>
                             <Tooltip

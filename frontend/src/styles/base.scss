@@ -361,179 +361,6 @@
     --color-brand-secondary-saturation: var(--color-posthog-brand-blue-saturation);
     --color-brand-secondary-lightness: var(--color-posthog-brand-blue-lightness);
 
-    // Accent colors (accents can be changed to change the brand colors)
-    // Used for interactive elements and highlights, inputs, toggles, charts, etc.
-    // //////////////////////////////////////////////////////////
-    --color-accent: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness)
-    );
-    --color-accent-inverted: hsl(
-        var(--color-posthog-brand-yellow-hue),
-        var(--color-posthog-brand-yellow-saturation),
-        var(--color-posthog-brand-yellow-lightness)
-    );
-    --color-accent-hover: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        calc(var(--color-brand-primary-lightness) + 10%)
-    );
-    --color-accent-hover-inverted: hsl(
-        var(--color-posthog-brand-yellow-hue),
-        var(--color-posthog-brand-yellow-saturation),
-        calc(var(--color-posthog-brand-yellow-lightness) + 10%)
-    );
-    --color-accent-active: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        calc(var(--color-brand-primary-lightness) + 15%)
-    );
-    --color-accent-active-inverted: hsl(
-        var(--color-posthog-brand-yellow-hue),
-        var(--color-posthog-brand-yellow-saturation),
-        calc(var(--color-posthog-brand-yellow-lightness) + 15%)
-    );
-    --color-accent-highlight-primary: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        20%
-    );
-    --color-accent-highlight-secondary: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        10%
-    );
-    --color-accent-highlight-secondary-border: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        14%
-    );
-    --color-accent-highlight-secondary-hover-border: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        35%
-    );
-
-    // Backgrounds
-    // Behind surfaces, large areas: app scenes, etc.
-    // //////////////////////////////////////////////////////////
-    --color-bg-primary: var(--color-posthog-3000-50);
-
-    /* Most prominent/used background (replaces --color-bg-3000) */
-    --color-bg-surface-primary: var(--color-white);
-
-    /* Most prominent surface (Cards, tables, etc.) */
-    --color-bg-surface-secondary: var(--color-posthog-3000-100);
-
-    /* Second most prominent surface (Toolbars) */
-    --color-bg-surface-tertiary: var(--color-posthog-3000-150);
-
-    /* Most prominent surface (Cards, tables, etc.) */
-    --color-bg-surface-tooltip: var(--color-neutral-cool-850);
-    --color-bg-surface-tooltip-inverse: var(--color-neutral-cool-250);
-    --color-bg-surface-popover: var(--color-white);
-    --color-bg-surface-popover-inverse: var(--color-neutral-cool-950);
-
-    // Fills
-    // Small colourful areas: banners, pills, buttons, etc.
-    // //////////////////////////////////////////////////////////
-    --color-bg-fill-primary: var(--color-white);
-    --color-bg-fill-secondary: var(--color-posthog-3000-25);
-    --color-bg-fill-tertiary: var(--color-posthog-3000-50);
-    --color-bg-fill-highlight-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
-    --color-bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
-    --color-bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
-    --color-bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
-    --color-bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
-    --color-bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
-    --color-bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
-    --color-bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
-    --color-bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
-    --color-bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
-    --color-bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
-    --color-bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
-
-    // Highlights
-    --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
-
-    // Info fills
-    --color-bg-fill-info-secondary: var(--color-blue-100);
-    --color-bg-fill-info-tertiary: var(--color-blue-50);
-    --color-bg-fill-warning-secondary: var(--color-yellow-100);
-    --color-bg-fill-warning-tertiary: var(--color-yellow-50);
-    --color-bg-fill-warning-highlight: color-mix(in oklab, var(--color-yellow-500) 15%, transparent);
-    --color-bg-fill-error-secondary: var(--color-red-100);
-    --color-bg-fill-error-tertiary: var(--color-red-50);
-    --color-bg-fill-error-highlight: color-mix(in oklab, var(--color-red-500) 10%, transparent);
-    --color-bg-fill-success-secondary: var(--color-green-100);
-    --color-bg-fill-success-tertiary: var(--color-green-50);
-    --color-bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
-
-    // Buttons
-    --color-bg-fill-button-group-tertiary-hover: var(--color-bg-fill-highlight-25);
-    --color-bg-fill-button-tertiary-hover: var(--color-bg-fill-highlight-75);
-    --color-bg-fill-button-tertiary-hover-inverse: var(--color-bg-fill-highlight-inverse-75);
-    --color-bg-fill-button-tertiary-active: var(--color-bg-fill-highlight-50);
-    --color-bg-fill-button-tertiary-active-inverse: var(--color-bg-fill-highlight-inverse-50);
-    --color-bg-fill-button-panel: var(--color-bg-fill-highlight-50);
-    --color-bg-fill-button-panel-hover: var(--color-bg-fill-highlight-100);
-    --color-bg-fill-button-panel-active: var(--color-bg-fill-highlight-75);
-    --color-bg-fill-button-danger-hover: var(--danger-highlight);
-    --color-bg-fill-button-danger-active: var(--danger-highlight);
-
-    // Inputs
-    --color-bg-fill-input: var(--color-white);
-    --color-bg-fill-switch: var(--color-neutral-cool-250);
-    --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
-    --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-black) 20%, transparent);
-
-    // Borders (Useful for single pixel backgrounds to mimic borders)
-    // //////////////////////////////////////////////////////////
-    --color-bg-border-primary: var(--color-posthog-3000-200);
-    --color-bg-border-secondary: var(--color-posthog-3000-400);
-
-    // Content (text, icons)
-    // //////////////////////////////////////////////////////////
-    --color-text-primary: var(--color-neutral-950);
-    --color-text-primary-inverse: var(--color-neutral-100);
-    --color-text-secondary-inverse: var(--color-neutral-400);
-    --color-text-secondary: var(--color-neutral-750);
-    --color-text-tertiary: var(--color-neutral-600);
-    --color-text-success: var(--color-green-600);
-    --color-text-warning: var(--color-yellow-700);
-    --color-text-error: var(--color-red-600);
-
-    // Borders
-    // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
-    // //////////////////////////////////////////////////////////
-    --color-border-primary: var(--color-posthog-3000-200);
-    --color-border-secondary: var(--color-posthog-3000-400);
-    --color-border-info: var(--color-blue-400);
-    --color-border-warning: var(--color-yellow-400);
-    --color-border-error: var(--color-red-400);
-    --color-border-success: var(--color-green-400);
-
-    // Graph colors
-    // //////////////////////////////////////////////////////////
-    --color-graph-axis-label: var(--color-text-secondary);
-
-    /* Labels around graph */
-    --color-graph-axis-line: var(--color-neutral-cool-100);
-
-    /* Background lines in a graph, horizontal and vertical */
-
-    --color-graph-axis: var(--color-text-secondary);
-
-    /* Line around a graph */
-    --color-graph-crosshair: var(--color-neutral-cool-450);
-
-    /* Crosshair line, horizontal or vertical */
-
     // Skeleton colors
     // //////////////////////////////////////////////////////////
     --color-skeleton-light: rgb(
@@ -544,71 +371,11 @@
         129 129 129 / 24%
     ); // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
 
-    // Breakpoint variables
-    // //////////////////////////////////////////////////////////
-    --breakpoint-sm: 576px;
-    --breakpoint-md: 768px;
-    --breakpoint-lg: 992px;
-    --breakpoint-xl: 1200px;
-    --breakpoint-xxl: 1600px;
-
-    // Brand colors
-    // //////////////////////////////////////////////////////////
-    --brand-blue: #1d4aff;
-    --brand-red: #f54e00;
-    --brand-yellow: #f9bd2b;
-    --brand-key: #000;
-
-    // Shadows
-    // //////////////////////////////////////////////////////////
-    --shadow-elevation-3000: 0 3px 0 var(--border-3000-light);
-
-    // Non-color vars
-    --radius: 0.375rem; // Increased from Tailwind's default of 0.25rem
-    --radius-sm: 0.25rem; // Increased from Tailwind's default of 0.125rem
-    --radius-base: var(--radius); // Increased from Tailwind's default of 0.25rem
-    --radius-lg: 0.625rem; // Increased from Tailwind's default of 0.5rem
-    --radius-full: 9999px;
-    --modal-shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
-    --opacity-disabled: 0.65;
-    --font-medium: 500;
-    --font-semibold: 600;
-    --font-sans:
-        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-title:
-        'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
-        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-button:
-        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-mono:
-        'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono',
-        monospace;
-
     // Dashboard item colors
-    --blue: #597dce;
-    --purple: #c278cf;
-    --green: var(--success);
-    --black: var(--text-3000);
-
-    // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
-    --data-color-1: #1d4aff;
-    --data-color-1-hover: #1a3cf6;
-    --data-color-2: #621da6;
-    --data-color-3: #42827e;
-    --data-color-4: #ce0e74;
-    --data-color-5: #f14f58;
-    --data-color-6: #7c440e;
-    --data-color-7: #529a0a;
-    --data-color-8: #0476fb;
-    --data-color-9: #fe729e;
-    --data-color-10: #35416b;
-    --data-color-11: #41cbc4;
-    --data-color-12: #b64b02;
-    --data-color-13: #e4a604;
-    --data-color-14: #a56eff;
-    --data-color-15: #30d5c8;
+    --splotch-blue: #597dce;
+    --splotch-purple: #c278cf;
+    --splotch-green: var(--color-success-foreground);
+    --splotch-black: var(--color-foreground);
 
     // Lifecycle series (compiled)
     --color-lifecycle-new: #1d4aff;
@@ -678,44 +445,14 @@
     // The space the panel is from the left edge of the screen on mobile
     --panel-layout-mobile-offset: 40px;
 
-    // Toasts
+    // Toasts sizes
     // Update and override from react-toastify
     // which attaches these variables to :root
     // which means they aren't available in the toolbar
-    --toastify-color-dark: var(--color-accent-3000-dark);
-    --toastify-color-light: var(--color-bg-surface-primary);
-    --toastify-color-info: var(--color-blue-500);
-    --toastify-color-success: var(--success);
-    --toastify-color-warning: var(--warning);
-    --toastify-color-error: var(--danger);
-    --toastify-color-progress-info: var(--toastify-color-info);
-    --toastify-color-progress-success: var(--toastify-color-success);
-    --toastify-color-progress-warning: var(--toastify-color-warning);
-    --toastify-color-progress-error: var(--toastify-color-error);
-    --toastify-toast-background: var(--color-bg-surface-primary);
+    // More toast styles can be found in tailwind.css
     --toastify-toast-width: 26rem;
     --toastify-toast-min-height: 3.5rem;
     --toastify-toast-max-height: 16rem;
-    --toastify-text-color-light: #757575;
-
-    // In-app prompts
-    --in-app-prompts-width: 26rem;
-    --lettermark-1-bg: #dcb1e3;
-    --lettermark-1-text: #572e5e;
-    --lettermark-2-bg: #ffc4b2;
-    --lettermark-2-text: #3e5891;
-    --lettermark-3-bg: #b1985d;
-    --lettermark-3-text: #3e5891;
-    --lettermark-4-bg: #3e5891;
-    --lettermark-4-text: #ffc4b2;
-    --lettermark-5-bg: #8da9e7;
-    --lettermark-5-text: #572e5e;
-    --lettermark-6-bg: #572e5e;
-    --lettermark-6-text: #dcb1e3;
-    --lettermark-7-bg: #ffc035;
-    --lettermark-7-text: #35416b;
-    --lettermark-8-bg: #ff906e;
-    --lettermark-8-text: #2a3d65;
 
     // Modals
     --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
@@ -728,125 +465,348 @@
     --notebook-column-right-width: 20rem;
 
     // Deprecated colors
-    // Vars
-    --danger-highlight: rgb(219 55 7 / 10%);
-    --danger-lighter: #ffa599;
-    --danger-light: #df4b20;
-    --danger: #db3707;
-    --danger-dark: #992705;
-    --warning-highlight: rgb(247 165 1 / 10%);
-    --warning: #f7a501;
-    --warning-dark: #e09423;
-    --highlight: #e49f2c;
-    --success-highlight: rgb(56 134 0 / 10%);
-    --success-light: #5f9d32;
-    --success: #388600;
-    --success-dark: #245700;
-    --muted: #5f5f5f;
-    --muted-alt: #747ea1;
+    --danger-lighter: red;
+
+    // --danger-lighter: #ffa599;
+    --danger-light: red;
+
+    // --danger-light: #df4b20;
+    --danger: red;
+
+    // --danger: #db3707;
+    --danger-dark: red;
+
+    // --danger-dark: #992705;
+    --warning-highlight: red;
+
+    // --warning-highlight: rgb(247 165 1 / 10%);
+    --warning: red;
+
+    // --warning: #f7a501;
+    --warning-dark: red;
+
+    // --warning-dark: #e09423;
+    --highlight: red;
+
+    // --highlight: #e49f2c;
+    --success-highlight: red;
+
+    // --success-highlight: rgb(56 134 0 / 10%);
+    --success-light: red;
+
+    // --success-light: #5f9d32;
+    --success: red;
+
+    // --success: #388600;
+    --success-dark: red;
+
+    // --success-dark: #245700;
+
+    // --muted: #5f5f5f;
+    --muted: red;
+
+    // --muted-alt: #747ea1;
+    --muted-alt: red;
     --mark: hsl(42deg 93% 86% / 80%);
-    --white: #fff;
-    --side: #fafaf9;
-    --mid: #f2f2f2;
-    --border: rgb(0 0 0 / 15%);
-    --border-light: rgb(0 0 0 / 8%);
-    --border-bold: rgb(0 0 0 / 24%);
+
+    // --mark: hsl(42deg 93% 86% / 80%);
+    // --white: red;
+    // --white: #fff;
+    --side: red;
+
+    // --side: #fafaf9;
+    --mid: red;
+
+    // --mid: #f2f2f2;
+    // --border: red;
+    // --border: rgb(0 0 0 / 15%);
+    --border-light: red;
+
+    // --border-light: rgb(0 0 0 / 8%);
+    --border-bold: red;
+
+    // --border-bold: rgb(0 0 0 / 24%);
     --transparent: transparent;
-    --text-3000-light: #111;
-    --color-text-secondary-3000-light: rgb(17 17 17 / 70%);
-    --muted-3000-light: rgb(17 17 17 / 60%);
-    --trace-3000-light: rgb(17 17 17 / 25%);
-    --primary-3000-light: #f54e01;
-    --primary-highlight-light: rgb(245 78 1 / 10%);
-    --primary-3000-hover-light: #f54e01;
-    --primary-3000-active-light: #f54e01;
-    --secondary-3000-light: rgb(207 209 194 / 60%);
-    --secondary-3000-hover-light: #cfd1c2;
-    --color-accent-3000-light: #eeefe9;
-    --color-bg-3000-light: #f3f4ef;
-    --border-3000-light: #dadbd2;
-    --border-bold-3000-light: #c1c2b9;
-    --glass-bg-3000-light: #e4e5deb3;
-    --glass-border-3000-light: #e4e5de;
-    --link-3000-light: #f54e00;
-    --primary-3000-frame-bg-light: #eb9d2a;
-    --primary-3000-button-bg-light: #fff;
-    --primary-3000-button-border-light: #b17816;
-    --primary-3000-button-border-hover-light: #8e5b03;
-    --secondary-3000-frame-bg-light: #e1dddd;
-    --secondary-3000-button-bg-light: #f3f4ef;
-    --secondary-3000-button-border-light: #ccc;
-    --secondary-3000-button-border-hover-light: #aaa;
-    --danger-3000-frame-bg-light: #f54e0080;
-    --danger-3000-button-border-light: #e96b30;
-    --danger-3000-button-border-hover-light: #f54e00;
-    --shadow-elevation-3000-light: 0 3px 0 var(--border-3000-light);
-    --shadow-elevation-3000-dark: 0 3px 0 var(--border-3000-dark);
-    --text-3000-dark: #fff;
-    --color-text-secondary-3000-dark: rgb(255 255 255 / 70%);
-    --muted-3000-dark: rgb(255 255 255 / 50%);
-    --trace-3000-dark: rgb(255 255 255 / 25%);
-    --primary-3000-dark: #f7a503;
-    --primary-highlight-dark: rgb(247 165 3 / 10%);
-    --primary-3000-hover-dark: #f7a503;
-    --primary-3000-active-dark: #f7a503;
-    --primary-alt-highlight-light: #e5e7e0;
-    --secondary-3000-dark: #1d1f27;
-    --secondary-3000-hover-dark: #575d77;
-    --color-accent-3000-dark: #21242b;
-    --color-bg-3000-dark: #1d1f27;
-    --border-3000-dark: #35373e;
-    --border-bold-3000-dark: #3f4046;
-    --glass-bg-3000-dark: #24262a99;
-    --glass-border-3000-dark: var(--border-3000-dark);
-    --link-3000-dark: #f1a82c;
-    --primary-3000-frame-bg-dark: #926826;
-    --primary-3000-button-bg-dark: var(--color-accent);
-    --primary-3000-button-border-dark: #b17816;
-    --primary-3000-button-border-hover-dark: #8e5b03;
-    --primary-alt-highlight-dark: #232429;
-    --secondary-3000-frame-bg-dark: #323232;
-    --secondary-3000-button-bg-dark: #1d1f27;
-    --secondary-3000-button-border-dark: #4a4c52;
-    --secondary-3000-button-border-hover-dark: #5e6064;
-    --danger-3000-frame-bg-dark: #f54e0080;
-    --danger-3000-button-border-dark: #c44003;
-    --danger-3000-button-border-hover-dark: #f54e00;
+
+    // --transparent: transparent;
+    --color-text-muted-foreground-3000-light: red;
+
+    // --color-text-muted-foreground-3000-light: rgb(17 17 17 / 70%);
+
+    // --muted-3000-light: rgb(17 17 17 / 60%);
+    --muted-3000-light: red;
+    --trace-3000-light: red;
+
+    // --trace-3000-light: rgb(17 17 17 / 25%);
+    --primary-3000-light: red;
+
+    // --primary-3000-light: #f54e01;
+    --primary-highlight-light: red;
+
+    // --primary-highlight-light: rgb(245 78 1 / 10%);
+    --primary-3000-hover-light: red;
+
+    // --primary-3000-hover-light: #f54e01;
+    --primary-3000-active-light: red;
+
+    // --primary-3000-active-light: #f54e01;
+    --secondary-3000-light: red;
+
+    // --secondary-3000-light: rgb(207 209 194 / 60%);
+    --secondary-3000-hover-light: red;
+
+    // --secondary-3000-hover-light: #cfd1c2;
+    --color-accent-3000-light: red;
+
+    // --color-accent-3000-light: #eeefe9;
+    --color-bg-3000-light: red;
+
+    // --color-bg-3000-light: #f3f4ef;
+    --border-3000-light: red;
+
+    // --border-3000-light: #dadbd2;
+    --border-bold-3000-light: red;
+
+    // --border-bold-3000-light: #c1c2b9;
+    --glass-bg-3000-light: red;
+
+    // --glass-bg-3000-light: #e4e5deb3;
+    --glass-border-3000-light: red;
+
+    // --glass-border-3000-light: #e4e5de;
+    --link-3000-light: red;
+
+    // --link-3000-light: #f54e00;
+    --primary-3000-frame-bg-light: red;
+
+    // --primary-3000-frame-bg-light: #eb9d2a;
+    --primary-3000-button-bg-light: red;
+
+    // --primary-3000-button-bg-light: #fff;
+    --primary-3000-button-border-light: red;
+
+    // --primary-3000-button-border-light: #b17816;
+    --primary-3000-button-border-hover-light: red;
+
+    // --primary-3000-button-border-hover-light: #8e5b03;
+    --secondary-3000-frame-bg-light: red;
+
+    // --secondary-3000-frame-bg-light: #e1dddd;
+    --secondary-3000-button-bg-light: red;
+
+    // --secondary-3000-button-bg-light: #f3f4ef;
+    --secondary-3000-button-border-light: red;
+
+    // --secondary-3000-button-border-light: #ccc;
+    --secondary-3000-button-border-hover-light: red;
+
+    // --secondary-3000-button-border-hover-light: #aaa;
+    --danger-3000-frame-bg-light: red;
+
+    // --danger-3000-frame-bg-light: #f54e0080;
+    --danger-3000-button-border-light: red;
+
+    // --danger-3000-button-border-light: #e96b30;
+    --danger-3000-button-border-hover-light: red;
+
+    // --danger-3000-button-border-hover-light: #f54e00;
+    --shadow-elevation-3000-light: 0 3px 0 red;
+
+    // --shadow-elevation-3000-light: 0 3px 0 var(--border-3000-light);
+    --shadow-elevation-3000-dark: 0 3px 0 red;
+
+    // --shadow-elevation-3000-dark: 0 3px 0 var(--border-3000-dark);
+    --text-3000-dark: red;
+
+    // --text-3000-dark: #fff;
+    --color-text-muted-foreground-3000-dark: red;
+
+    // --color-text-muted-foreground-3000-dark: rgb(255 255 255 / 70%);
+    --muted-3000-dark: red;
+
+    // --muted-3000-dark: rgb(255 255 255 / 50%);
+    --trace-3000-dark: red;
+
+    // --trace-3000-dark: rgb(255 255 255 / 25%);
+    --primary-3000-dark: red;
+
+    // --primary-3000-dark: #f7a503;
+    --primary-highlight-dark: red;
+
+    // --primary-highlight-dark: rgb(247 165 3 / 10%);
+    --primary-3000-hover-dark: red;
+
+    // --primary-3000-hover-dark: #f7a503;
+    --primary-3000-active-dark: red;
+
+    // --primary-3000-active-dark: #f7a503;
+    --primary-alt-highlight-light: red;
+
+    // --primary-alt-highlight-light: #e5e7e0;
+    --secondary-3000-dark: red;
+
+    // --secondary-3000-dark: #1d1f27;
+    --secondary-3000-hover-dark: red;
+
+    // --secondary-3000-hover-dark: #575d77;
+    --color-accent-3000-dark: red;
+
+    // --color-accent-3000-dark: #21242b;
+    --color-bg-3000-dark: red;
+
+    // --color-bg-3000-dark: #1d1f27;
+    --border-3000-dark: red;
+
+    // --border-3000-dark: #35373e;
+    --border-bold-3000-dark: red;
+
+    // --border-bold-3000-dark: #3f4046;
+    --glass-bg-3000-dark: red;
+
+    // --glass-bg-3000-dark: #24262a99;
+    --glass-border-3000-dark: red;
+
+    // --glass-border-3000-dark: var(--border-3000-dark);
+    --link-3000-dark: red;
+
+    // --link-3000-dark: #f1a82c;
+    --primary-3000-frame-bg-dark: red;
+
+    // --primary-3000-frame-bg-dark: #926826;
+    --primary-3000-button-bg-dark: red;
+
+    // --primary-3000-button-bg-dark: var(--color-primary);
+    --primary-3000-button-border-dark: red;
+
+    // --primary-3000-button-border-dark: #b17816;
+    --primary-3000-button-border-hover-dark: red;
+
+    // --primary-3000-button-border-hover-dark: #8e5b03;
+    --primary-alt-highlight-dark: red;
+
+    // --primary-alt-highlight-dark: #232429;
+    --secondary-3000-frame-bg-dark: red;
+
+    // --secondary-3000-frame-bg-dark: #323232;
+    --secondary-3000-button-bg-dark: red;
+
+    // --secondary-3000-button-bg-dark: #1d1f27;
+    --secondary-3000-button-border-dark: red;
+
+    // --secondary-3000-button-border-dark: #4a4c52;
+    --secondary-3000-button-border-hover-dark: red;
+
+    // --secondary-3000-button-border-hover-dark: #5e6064;
+    --danger-3000-frame-bg-dark: red;
+
+    // --danger-3000-frame-bg-dark: #f54e0080;
+    --danger-3000-button-border-dark: red;
+
+    // --danger-3000-button-border-dark: #c44003;
+    --danger-3000-button-border-hover-dark: red;
+
+    // --danger-3000-button-border-hover-dark: #f54e00;
 
     // Light mode
-    --text-3000: var(--text-3000-light);
-    --color-text-secondary-3000: var(--color-text-secondary-3000-light);
-    --muted-3000: var(--muted-3000-light);
-    --trace-3000: var(--trace-3000-light);
-    --primary-3000: var(--primary-3000-light);
-    --primary-highlight: var(--primary-highlight-light);
-    --primary-3000-hover: var(--primary-3000-hover-light);
-    --primary-3000-active: var(--primary-3000-active-light);
-    --secondary-3000: var(--secondary-3000-light);
-    --secondary-3000-hover: var(--secondary-3000-hover-light);
-    --color-accent-3000: var(--color-accent-3000-light);
-    --color-bg-3000: var(--color-bg-3000-light);
-    --border-3000: var(--border-3000-light);
+    --text-3000: red;
+
+    // --text-3000: var(--text-card-foreground);
+    --color-text-muted-foreground-3000: red;
+
+    // --color-text-muted-foreground-3000: var(--color-text-muted-foreground-3000-light);
+    --muted-3000: red;
+
+    // --muted-3000: var(--muted-3000-light);
+    --trace-3000: red;
+
+    // --trace-3000: var(--trace-3000-light);
+    --primary-3000: red;
+
+    // --primary-3000: var(--primary-3000-light);
+    --primary-highlight: red;
+
+    // --primary-highlight: var(--primary-highlight-light);
+    --primary-3000-hover: red;
+
+    // --primary-3000-hover: var(--primary-3000-hover-light);
+    --primary-3000-active: red;
+
+    // --primary-3000-active: var(--primary-3000-active-light);
+    --secondary-3000: red;
+
+    // --secondary-3000: var(--secondary-3000-light);
+    --secondary-3000-hover: red;
+
+    // --secondary-3000-hover: var(--secondary-3000-hover-light);
+    --color-accent-3000: red;
+
+    // --color-accent-3000: var(--color-accent-3000-light);
+    --color-bg-3000: red;
+
+    // --color-bg-3000: var(--color-bg-3000-light);
+    --border-3000: red;
+
+    // --border-3000: var(--border-3000-light);
     --border-light-opaque: #eee;
-    --border-bold-3000: var(--border-bold-3000-light);
-    --glass-bg-3000: var(--glass-bg-3000-light);
-    --glass-border-3000: var(--glass-border-3000-light);
-    --color-bg-light: #fff;
-    --color-bg-table: #f9faf7;
-    --link: var(--link-3000-light);
-    --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
-    --primary-3000-button-bg: var(--color-white);
-    --primary-3000-button-border: var(--primary-3000-button-border-light);
-    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
-    --primary-alt-highlight: var(--primary-alt-highlight-light);
-    --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
-    --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
-    --secondary-3000-button-border: var(--secondary-3000-button-border-light);
-    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
-    --danger-3000-frame-bg: var(--danger-3000-frame-bg-light);
-    --danger-3000-button-border: var(--danger-3000-button-border-light);
-    --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-light);
-    --tooltip-bg: #2d2d2d;
+
+    // --border-light-opaque: #eee;
+    --border-bold-3000: red;
+
+    // --border-bold-3000: var(--border-bold-3000-light);
+    --glass-bg-3000: red;
+
+    // --glass-bg-3000: var(--glass-bg-3000-light);
+    --glass-border-3000: red;
+
+    // --glass-border-3000: var(--glass-border-3000-light);
+    --color-bg-light: red;
+
+    // --color-bg-light: #fff;
+    --color-bg-table: red;
+
+    // --color-bg-table: #f9faf7;
+    --link: red;
+
+    // --link: var(--link-3000-light);
+    --primary-3000-frame-bg: red;
+
+    // --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
+    --primary-3000-button-bg: red;
+
+    // --primary-3000-button-bg: var(--color-white);
+    --primary-3000-button-border: red;
+
+    // --primary-3000-button-border: var(--primary-3000-button-border-light);
+    --primary-3000-button-border-hover: red;
+
+    // --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
+    --primary-alt-highlight: red;
+
+    // --primary-alt-highlight: var(--primary-alt-highlight-light);
+    --secondary-3000-frame-bg: red;
+
+    // --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
+    --secondary-3000-button-bg: red;
+
+    // --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
+    --secondary-3000-button-border: red;
+
+    // --secondary-3000-button-border: var(--secondary-3000-button-border-light);
+    --secondary-3000-button-border-hover: red;
+
+    // --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
+    --danger-3000-frame-bg: red;
+
+    // --danger-3000-frame-bg: var(--danger-3000-frame-bg-light);
+    --danger-3000-button-border: red;
+
+    // --danger-3000-button-border: var(--danger-3000-button-border-light);
+    --danger-3000-button-border-hover: red;
+
+    // --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-light);
+    --tooltip-bg: red;
+
+    // --tooltip-bg: #2d2d2d;
 }
 
 // We specifically override the brand colors for dark mode here
@@ -860,71 +820,71 @@
 
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
-    --color-accent: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness)
-    );
-    --color-accent-inverted: hsl(
-        var(--color-posthog-brand-orange-hue),
-        var(--color-posthog-brand-orange-saturation),
-        var(--color-posthog-brand-orange-lightness)
-    );
-    --color-accent-hover: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        calc(var(--color-brand-primary-lightness) + 10%)
-    );
-    --color-accent-hover-inverted: hsl(
-        var(--color-posthog-brand-orange-hue),
-        var(--color-posthog-brand-orange-saturation),
-        calc(var(--color-posthog-brand-orange-lightness) + 10%)
-    );
-    --color-accent-active: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        calc(var(--color-brand-primary-lightness) + 15%)
-    );
-    --color-accent-active-inverted: hsl(
-        var(--color-posthog-brand-orange-hue),
-        var(--color-posthog-brand-orange-saturation),
-        calc(var(--color-posthog-brand-orange-lightness) + 15%)
-    );
+    // --color-accent: hsl(
+    //     var(--color-brand-primary-hue),
+    //     var(--color-brand-primary-saturation),
+    //     var(--color-brand-primary-lightness)
+    // );
+    // --color-accent-inverted: hsl(
+    //     var(--color-posthog-brand-orange-hue),
+    //     var(--color-posthog-brand-orange-saturation),
+    //     var(--color-posthog-brand-orange-lightness)
+    // );
+    // --color-accent-hover: hsl(
+    //     var(--color-brand-primary-hue),
+    //     var(--color-brand-primary-saturation),-
+    //     calc(var(--color-brand-primary-lightness) + 10%)
+    // );
+    // --color-accent-hover-inverted: hsl(
+    //     var(--color-posthog-brand-orange-hue),
+    //     var(--color-posthog-brand-orange-saturation),
+    //     calc(var(--color-posthog-brand-orange-lightness) + 10%)
+    // );
+    // --color-accent-active: hsl(
+    //     var(--color-brand-primary-hue),
+    //     var(--color-brand-primary-saturation),
+    //     calc(var(--color-brand-primary-lightness) + 15%)
+    // );
+    // --color-accent-active-inverted: hsl(
+    //     var(--color-posthog-brand-orange-hue),
+    //     var(--color-posthog-brand-orange-saturation),
+    //     calc(var(--color-posthog-brand-orange-lightness) + 15%)
+    // );
 
-    // Used for highlighting search results, and other subtle accent sitations
-    // Most prominent
-    --color-accent-highlight-primary: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        20%
-    );
+    // // Used for highlighting search results, and other subtle accent sitations
+    // // Most prominent
+    // --color-accent-highlight-primary: hsla(
+    //     var(--color-brand-primary-hue),
+    //     var(--color-brand-primary-saturation),
+    //     var(--color-brand-primary-lightness),
+    //     20%
+    // );
 
-    // Less prominent
-    --color-accent-highlight-secondary: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        10%
-    );
-    --color-accent-highlight-secondary-border: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        14%
-    );
-    --color-accent-highlight-secondary-hover-border: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        35%
-    );
+    // // Less prominent
+    // --color-accent-highlight-secondary: hsla(
+    //     var(--color-brand-primary-hue),
+    //     var(--color-brand-primary-saturation),
+    //     var(--color-brand-primary-lightness),
+    //     10%
+    // );
+    // --color-accent-highlight-secondary-border: hsla(
+    //     var(--color-brand-primary-hue),
+    //     var(--color-brand-primary-saturation),
+    //     var(--color-brand-primary-lightness),
+    //     14%
+    // );
+    // --color-accent-highlight-secondary-hover-border: hsla(
+    //     var(--color-brand-primary-hue),
+    //     var(--color-brand-primary-saturation),
+    //     var(--color-brand-primary-lightness),
+    //     35%
+    // );
 
     // Backgrounds (dark mode)
     // //////////////////////////////////////////////////////////
-    --color-bg-primary: var(--color-neutral-cool-950);
-    --color-bg-surface-primary: var(--color-neutral-cool-850);
-    --color-bg-surface-secondary: var(--color-neutral-cool-900);
+    // --background: var(--color-neutral-cool-950);
+    // --card: var(--color-neutral-cool-850);
+    --color-bg-muted: var(--color-neutral-cool-900);
     --color-bg-surface-tertiary: var(--color-neutral-cool-950);
     --color-bg-surface-tooltip: var(--color-neutral-100);
     --color-bg-surface-tooltip-inverse: var(--color-neutral-950);
@@ -934,7 +894,7 @@
     // Fills (dark mode)
     // Small colourful areas: banners, pills, buttons, etc.
     // //////////////////////////////////////////////////////////
-    --color-bg-fill-primary: var(--color-neutral-cool-900);
+    --color-bg-card: var(--color-neutral-cool-900);
     --color-bg-fill-secondary: var(--color-neutral-cool-850);
     --color-bg-fill-tertiary: var(--color-neutral-cool-800);
     --color-bg-fill-highlight-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
@@ -960,59 +920,48 @@
     --color-bg-fill-success-secondary: var(--color-green-950);
     --color-bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --color-bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
-    --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
+    --color-bg-card-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
     --color-bg-fill-button-group-tertiary-hover: var(--color-bg-fill-highlight-25);
     --color-bg-fill-button-tertiary-hover: var(--color-bg-fill-highlight-75);
     --color-bg-fill-button-tertiary-hover-inverse: var(--color-bg-fill-highlight-inverse-75);
-    --color-bg-fill-button-tertiary-active: var(--color-bg-fill-highlight-50);
-    --color-bg-fill-button-tertiary-active-inverse: var(--color-bg-fill-highlight-inverse-50);
-    --color-bg-fill-button-panel: var(--color-bg-fill-highlight-100);
-    --color-bg-fill-button-panel-hover: var(--color-bg-fill-highlight-150);
-    --color-bg-fill-button-panel-active: var(--color-bg-fill-highlight-100);
-    --color-bg-fill-input: var(--color-neutral-cool-850);
-    --color-bg-fill-switch: var(--color-neutral-cool-600);
-    --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
-    --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
-    --color-bg-border-primary: var(--color-neutral-cool-800);
-    --color-bg-border-secondary: var(--color-neutral-cool-600);
 
     // Content (text, icons) (dark mode)
     // //////////////////////////////////////////////////////////
     --color-text-primary: var(--color-neutral-100);
     --color-text-primary-inverse: var(--color-neutral-950);
-    --color-text-secondary-inverse: var(--color-neutral-650);
-    --color-text-secondary: var(--color-neutral-350);
-    --color-text-tertiary: var(--color-neutral-400);
+    --color-text-muted-foreground-inverse: var(--color-neutral-650);
+    --color-text-muted-foreground: var(--color-neutral-400);
     --color-text-success: var(--color-green-400);
-    --color-text-warning: var(--color-yellow-400);
+    --color-text-warning-foreground: var(--color-yellow-400);
     --color-text-error: var(--color-red-400);
 
     // Borders (dark mode)
     // Borders for surfaces/fills
     // //////////////////////////////////////////////////////////
-    --color-border-primary: var(--color-neutral-cool-800);
-    --color-border-secondary: var(--color-neutral-cool-600);
-    --color-border-info: var(--color-blue-900);
-    --color-border-warning: var(--color-yellow-900);
+    // --border: var(--color-neutral-cool-800);
+    --color-border-border-strong: var(--color-neutral-cool-600);
+
+    // --color-border-info: var(--color-blue-900);
+    // --color-border-warning: var(--color-yellow-900);
 
     /* Border for warning */
-    --color-border-error: var(--color-red-900);
+    // --color-border-error: var(--color-red-900);
 
     /* Border for error */
-    --color-border-success: var(--color-green-900);
+    // --color-border-success: var(--color-green-900);
 
     /* Border for success */
 
     // Graph colors (dark mode)
     // //////////////////////////////////////////////////////////
-    --color-graph-axis-label: var(--color-text-secondary);
+    --color-graph-axis-label: var(--color-text-muted-foreground);
     --color-graph-axis-line: var(--color-neutral-cool-750);
-    --color-graph-axis: var(--color-text-secondary);
+    --color-graph-axis: var(--color-text-muted-foreground);
     --color-graph-crosshair: var(--color-neutral-cool-650);
 
     // Deprecated colors (Dark mode)
     --text-3000: var(--text-3000-dark);
-    --color-text-secondary-3000: var(--color-text-secondary-3000-dark);
+    --color-text-muted-foreground-3000: var(--color-text-muted-foreground-3000-dark);
     --muted-3000: var(--muted-3000-dark);
     --trace-3000: var(--trace-3000-dark);
     --primary-3000: var(--primary-3000-dark);
@@ -1031,10 +980,11 @@
     --color-bg-light: var(--color-accent-3000);
     --color-bg-table: #232429;
     --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
-    --link: var(--link-3000-dark);
-    --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
+    // --link: var(--link-3000-dark);
+
+    // --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
     --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
-    --primary-3000-button-bg: var(--color-accent);
+    --primary-3000-button-bg: var(--color-primary);
     --primary-3000-button-border: var(--primary-3000-button-border-dark);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
     --primary-alt-highlight: var(--primary-alt-highlight-dark);
@@ -1064,7 +1014,7 @@
     ::before,
     ::backdrop,
     ::file-selector-button {
-        border-color: var(--color-border-primary, currentColor);
+        border-color: var(--color-border, currentColor);
     }
 
     .rendering-pixelated {
@@ -1076,7 +1026,7 @@
     }
 
     input[type='radio'] {
-        accent-color: var(--color-accent);
+        accent-color: var(--color-primary);
     }
 
     input[type='search'] {
@@ -1092,17 +1042,17 @@
     button:focus-visible,
     a[data-focused='true'],
     button[data-focused='true'] {
-        outline: 2px solid var(--color-accent);
+        outline: 2px solid var(--color-primary);
     }
 
     body {
         font-size: 14px;
         font-weight: 400;
         line-height: 1.5715;
-        color: var(--text-3000);
+        color: var(--color-foreground);
         color-scheme: light dark;
         touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
-        background: var(--color-bg-primary);
+        background: var(--color-background);
 
         &[theme='light'] {
             color-scheme: light;
@@ -1127,16 +1077,12 @@
                 height: 0.5rem;
             }
 
-            ::-webkit-scrollbar-track {
-                background: var(--color-bg-surface-primary);
-            }
-
             ::-webkit-scrollbar-thumb {
-                background: var(--trace-3000);
+                background: var(--color-scrollbar-thumb);
                 border-radius: var(--radius);
 
                 &:hover {
-                    background: var(--muted-3000);
+                    background: var(--color-scrollbar-thumb-hover);
                 }
             }
         }
@@ -1155,10 +1101,10 @@
             }
 
             &:hover {
-                scrollbar-color: var(--color-bg-fill-scroll-thumb) transparent;
+                scrollbar-color: var(--color-card) transparent;
 
                 &::-webkit-scrollbar-thumb {
-                    background: var(--color-bg-fill-scroll-thumb);
+                    background: var(--color-card);
                     border-radius: 8px;
                 }
             }
@@ -1186,7 +1132,7 @@
         h2,
         h3,
         h4 {
-            color: var(--text-3000);
+            color: var(--color-foreground);
         }
 
         h1 {
@@ -1206,7 +1152,7 @@
             font-size: 0.6875rem;
             font-weight: 600;
             line-height: 1.5rem;
-            color: var(--color-text-secondary);
+            color: var(--color-text-muted-foreground);
             text-transform: uppercase;
             letter-spacing: 0.075em;
         }
@@ -1218,18 +1164,18 @@
         }
 
         dialog {
-            background-color: var(--color-bg-primary);
+            background-color: var(--color-background);
         }
 
         .LemonButton,
         .Link {
             .text-link {
-                color: var(--text-3000) !important;
+                color: var(--color-foreground) !important;
             }
 
             &:hover {
                 .text-link {
-                    color: var(--color-accent) !important;
+                    color: var(--color-primary) !important;
                 }
             }
         }
@@ -1263,7 +1209,7 @@
     .card-secondary {
         font-size: 11px;
         font-weight: 600;
-        color: var(--color-text-secondary);
+        color: var(--color-text-muted-foreground);
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
@@ -1275,7 +1221,7 @@
 
     hr {
         margin: 1em 0;
-        border-top: 1px solid var(--border);
+        border-top: 1px solid var(--color-border);
     }
 
     dfn {
@@ -1299,7 +1245,7 @@
         font-family: var(--font-sans);
         font-size: 1rem;
         cursor: unset;
-        border: 1px solid var(--secondary-3000-button-border);
+        border: 1px solid var(--color-border);
         border-radius: var(--radius);
         box-shadow: var(--shadow-elevation-3000);
         opacity: 1 !important;
@@ -1314,7 +1260,7 @@
         font-size: 0.875rem;
         font-weight: 500;
         line-height: 1.25rem;
-        color: var(--text-3000);
+        color: var(--color-foreground);
 
         b,
         strong {
@@ -1331,7 +1277,7 @@
         height: 1.5rem;
         margin-right: 0.75rem;
         font-size: 1.5rem;
-        color: var(--color-text-secondary);
+        color: var(--color-text-muted-foreground);
 
         .Toastify__toast--success & {
             color: var(--toastify-color-success);
@@ -1354,7 +1300,7 @@
 
     .error-on-blur {
         &.errored:not(:focus) {
-            border-color: var(--danger) !important;
+            border-color: var(--color-destructive-foreground) !important;
         }
     }
 
@@ -1384,7 +1330,7 @@
         font-weight: bold;
         line-height: 1rem;
         pointer-events: none;
-        border: 2px solid var(--text-3000);
+        border: 2px solid var(--color-foreground);
         border-radius: 50%;
 
         // variants
@@ -1393,8 +1339,8 @@
             height: 23px;
             font-size: unset;
             color: var(--primary-alt);
-            background-color: var(--color-bg-surface-primary);
-            border-color: var(--border);
+            background-color: var(--color-card);
+            border-color: var(--color-border);
         }
     }
 
@@ -1420,22 +1366,22 @@
 
         &.warning div {
             height: auto;
-            background: var(--danger);
+            background: var(--color-destructive-foreground);
         }
 
         &.tricolor {
             cursor: pointer;
 
             div:nth-child(1) {
-                background: var(--brand-blue);
+                background: var(--color-brand-blue);
             }
 
             div:nth-child(2) {
-                background: var(--brand-red);
+                background: var(--color-brand-red);
             }
 
             div:nth-child(3) {
-                background: var(--brand-yellow);
+                background: var(--color-brand-yellow);
             }
 
             span {
@@ -1493,11 +1439,11 @@
     input::placeholder,
     textarea::placeholder {
         // Overrides Tailwind's default
-        color: var(--color-text-tertiary);
+        color: var(--color-muted-foreground);
     }
 
     a {
-        color: var(--link);
+        color: var(--color-primary);
         text-decoration: none;
     }
 
@@ -1628,9 +1574,9 @@
         min-width: 8rem;
         max-width: 200px;
         overflow: hidden;
-        color: var(--color-text-primary);
-        background-color: var(--color-bg-surface-primary);
-        border: 1px solid var(--color-border-primary);
+        color: var(--color-foreground);
+        background-color: var(--color-card);
+        border: 1px solid var(--color-border-strong);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-elevation-3000);
     }
@@ -1764,7 +1710,7 @@
         display: inline-block;
         color: transparent; /* hide glyphs under the cover */
         cursor: pointer;
-        background: var(--color-bg-primary); /* the “black bar” */
+        background: var(--color-background); /* the “black bar” */
         border-radius: var(--radius);
     }
 

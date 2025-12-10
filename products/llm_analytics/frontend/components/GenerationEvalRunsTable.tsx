@@ -32,7 +32,7 @@ function GenerationEvalRunsTableContent(): JSX.Element {
             title: 'Evaluation',
             key: 'evaluation',
             render: (_, run) => (
-                <Link to={urls.llmAnalyticsEvaluation(run.evaluation_id)} className="text-primary font-medium">
+                <Link to={urls.llmAnalyticsEvaluation(run.evaluation_id)} className="text-foreground font-medium">
                     {run.evaluation_name}
                 </Link>
             ),
@@ -90,8 +90,8 @@ function GenerationEvalRunsTableContent(): JSX.Element {
                 }}
                 emptyState={
                     <div className="text-center py-8">
-                        <div className="text-muted mb-2">No evaluations run yet</div>
-                        <div className="text-sm text-muted">
+                        <div className="text-muted-foreground mb-2">No evaluations run yet</div>
+                        <div className="text-sm text-muted-foreground">
                             Click "Run Evaluation" above to run an evaluation on this generation.
                         </div>
                     </div>

@@ -159,7 +159,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                                 }}
                                             />
                                             Taking screenshots of your page...
-                                            <div className="text-muted text-xs mt-2">
+                                            <div className="text-muted-foreground text-xs mt-2">
                                                 This usually takes a few minutes
                                             </div>
                                             <LoadingBar />

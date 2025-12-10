@@ -179,9 +179,9 @@ export const VariantsPanelCreateFeatureFlag = ({
                         status={featureFlagKeyValidation?.error ? 'danger' : 'default'}
                     />
                     {featureFlagKeyValidation?.error && (
-                        <div className="text-xs text-danger">{featureFlagKeyValidation.error}</div>
+                        <div className="text-xs text-destructive-foreground">{featureFlagKeyValidation.error}</div>
                     )}
-                    <div className="text-sm text-secondary">
+                    <div className="text-sm text-muted-foreground">
                         Each experiment is backed by a feature flag. This key will be used to control the experiment in
                         your code.
                     </div>
@@ -192,7 +192,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                 label="Variant keys"
                 help="The rollout percentage of experiment variants must add up to 100%"
             >
-                <div className="text-sm border border-primary rounded p-4">
+                <div className="text-sm border border-border rounded p-4">
                     <div className="grid grid-cols-24 gap-2 font-bold mb-2 items-center">
                         <div />
                         <div className="col-span-4">Variant key</div>
@@ -214,7 +214,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                             key={index}
                             className={`grid grid-cols-24 gap-2 mb-2 p-2 rounded ${
                                 hasVariantError(index)
-                                    ? 'bg-danger-highlight border border-danger'
+                                    ? 'bg-destructive border border-danger'
                                     : 'bg-transparent border border-transparent'
                             }`}
                         >
@@ -292,15 +292,15 @@ export const VariantsPanelCreateFeatureFlag = ({
                         </div>
                     ))}
                     {variants.length > 0 && !areVariantRolloutsValid && (
-                        <p className="text-danger">
+                        <p className="text-destructive-foreground">
                             Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}).
                         </p>
                     )}
                     {variants.length > 0 && !areVariantKeysValid && (
-                        <p className="text-danger">All variants must have a key.</p>
+                        <p className="text-destructive-foreground">All variants must have a key.</p>
                     )}
                     {variants.length > 0 && hasDuplicateKeys && (
-                        <p className="text-danger">Variant keys must be unique.</p>
+                        <p className="text-destructive-foreground">Variant keys must be unique.</p>
                     )}
                     {!disabled && variants.length < MAX_EXPERIMENT_VARIANTS && (
                         <LemonButton type="secondary" onClick={addVariant} icon={<IconPlus />} center>
@@ -329,7 +329,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                             : undefined
                     }
                 />
-                <div className="text-secondary text-sm pl-6 mt-2">
+                <div className="text-muted-foreground text-sm pl-6 mt-2">
                     If your feature flag is evaluated for anonymous users, use this option to ensure the flag value
                     remains consistent after the user logs in. Note that this feature requires creating profiles for
                     anonymous users.

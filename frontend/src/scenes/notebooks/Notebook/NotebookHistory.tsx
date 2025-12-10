@@ -66,10 +66,10 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                     <b className="ph-no-capture">{name}</b>{' '}
                                     {changedContent ? 'made changes' : 'created this'}
                                 </span>
-                                <span className="text-secondary">
+                                <span className="text-muted-foreground">
                                     <TZLabel time={logItem.created_at} />
                                 </span>
-                                {isCurrent ? <span className="text-secondary">(Current)</span> : null}
+                                {isCurrent ? <span className="text-muted-foreground">(Current)</span> : null}
                             </span>
                         )
 

@@ -58,7 +58,9 @@ export function LegacyMetricModal({ isSecondary }: { isSecondary?: boolean }): J
                         onClick={() => {
                             LemonDialog.open({
                                 title: 'Delete this metric?',
-                                content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
+                                content: (
+                                    <div className="text-sm text-muted-foreground">This action cannot be undone.</div>
+                                ),
                                 primaryButton: {
                                     children: 'Delete',
                                     type: 'primary',

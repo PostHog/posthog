@@ -150,7 +150,7 @@ const OnboardingWrapper = ({
     if (!currentOnboardingStep) {
         return (
             <div className="flex items-center justify-center my-20">
-                <Spinner className="text-2xl text-secondary w-10 h-10" />
+                <Spinner className="text-2xl text-muted-foreground w-10 h-10" />
             </div>
         )
     }

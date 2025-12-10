@@ -132,8 +132,8 @@ describe('VariantsPanel', () => {
             const createCard = cards[0]
             const linkCard = cards[1]
 
-            expect(createCard).toHaveClass('border-accent')
-            expect(linkCard).not.toHaveClass('border-accent')
+            expect(createCard).toHaveClass('border-primary')
+            expect(linkCard).not.toHaveClass('border-primary')
         })
 
         it('renders create feature flag panel in create mode', () => {
@@ -211,16 +211,16 @@ describe('VariantsPanel', () => {
             const linkCard = cards[1]
 
             // Initially create mode is selected
-            expect(createCard).toHaveClass('border-accent')
-            expect(linkCard).not.toHaveClass('border-accent')
+            expect(createCard).toHaveClass('border-primary')
+            expect(linkCard).not.toHaveClass('border-primary')
 
             // Click link mode
             await userEvent.click(linkCard)
 
             // Link mode should be selected
             const updatedCards = container.querySelectorAll('[role="button"]')
-            expect(updatedCards[1]).toHaveClass('border-accent')
-            expect(updatedCards[0]).not.toHaveClass('border-accent')
+            expect(updatedCards[1]).toHaveClass('border-primary')
+            expect(updatedCards[0]).not.toHaveClass('border-primary')
         })
     })
 
@@ -656,10 +656,10 @@ describe('VariantsPanel', () => {
             const variantRows = container.querySelectorAll('.grid.grid-cols-24')
 
             // First variant (control) should not have error highlighting
-            expect(variantRows[1]).not.toHaveClass('bg-danger-highlight')
+            expect(variantRows[1]).not.toHaveClass('bg-destructive')
 
             // Second variant (empty key) should have error highlighting
-            expect(variantRows[2]).toHaveClass('bg-danger-highlight')
+            expect(variantRows[2]).toHaveClass('bg-destructive')
             expect(variantRows[2]).toHaveClass('border-danger')
         })
     })

@@ -150,7 +150,7 @@ function DemoDataTable(): JSX.Element {
         <div className="survey-table-results">
             <LemonBanner type="info" className="mb-4">
                 <div className="flex items-center gap-2">
-                    <IconInfo className="text-muted" />
+                    <IconInfo className="text-muted-foreground" />
                     <span>This table shows example data structure. Launch your survey to see real responses here.</span>
                 </div>
             </LemonBanner>
@@ -164,7 +164,7 @@ export function SurveyResultDemo(): JSX.Element {
         <div className="deprecated-space-y-4">
             <LemonBanner type="info">
                 <div className="flex items-center gap-2">
-                    <IconInfo className="text-muted" />
+                    <IconInfo className="text-muted-foreground" />
                     <div>
                         <strong>Demo Results</strong> - This shows how your survey results will look with sample data.
                         Launch your survey to start collecting real responses.

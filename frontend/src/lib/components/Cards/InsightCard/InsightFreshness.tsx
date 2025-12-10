@@ -21,7 +21,7 @@ export function InsightFreshness({ lastRefresh }: { lastRefresh: string }): JSX.
         color = 'text-inherit'
     } else {
         icon = <IconWarning />
-        color = 'text-danger'
+        color = 'text-destructive-foreground'
     }
 
     return (

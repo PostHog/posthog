@@ -154,11 +154,6 @@ function createEntry(entry) {
                         },
                     ],
                 },
-                // probably only need this because we're using webpack v4
-                {
-                    test: /monaco-editor\/.*\.m?js/,
-                    loader: 'babel-loader',
-                },
                 {
                     // Apply rule for .sql files
                     test: /\.sql$/,

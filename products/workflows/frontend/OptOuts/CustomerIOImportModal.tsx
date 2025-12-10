@@ -40,7 +40,7 @@ export function CustomerIOImportModal(): JSX.Element {
                     <div className="text-center py-8">
                         <Spinner className="text-3xl mb-4" />
                         <div className="text-lg font-semibold mb-2">Importing from Customer.io...</div>
-                        <div className="text-sm text-muted-alt">
+                        <div className="text-sm text-muted-foreground">
                             This may take a moment. Processing categories and unsubscribed users.
                         </div>
                     </div>
@@ -95,7 +95,7 @@ export function CustomerIOImportModal(): JSX.Element {
                         </span>
                     </LemonBanner>
                     <div>
-                        <p className="text-sm text-muted mb-4">
+                        <p className="text-sm text-muted-foreground mb-4">
                             Step 1: Import categories and globally unsubscribed users from Customer.io API.
                         </p>
                     </div>
@@ -115,7 +115,7 @@ export function CustomerIOImportModal(): JSX.Element {
                         </LemonBanner>
                     )}
 
-                    <div className="text-xs text-muted-alt">
+                    <div className="text-xs text-muted-foreground">
                         You can generate an App API key in Customer.io under Settings → Account Settings → API
                         Credentials.
                     </div>
@@ -138,14 +138,16 @@ export function CustomerIOImportModal(): JSX.Element {
                             key: 'failed-imports',
                             header: <div className="font-semibold text-sm">Failed imports ({failed.length})</div>,
                             content: (
-                                <div className="max-h-32 overflow-y-auto bg-bg-light rounded p-2 text-xs font-mono">
+                                <div className="max-h-32 overflow-y-auto bg-card rounded p-2 text-xs font-mono">
                                     {failed.slice(0, 100).map((item, idx) => (
                                         <div key={idx} className="py-0.5">
                                             {item.email}: {item.error}
                                         </div>
                                     ))}
                                     {failed.length > 100 && (
-                                        <div className="text-muted-alt mt-2">... and {failed.length - 100} more</div>
+                                        <div className="text-muted-foreground mt-2">
+                                            ... and {failed.length - 100} more
+                                        </div>
                                     )}
                                 </div>
                             ),
@@ -164,10 +166,10 @@ export function CustomerIOImportModal(): JSX.Element {
                     <div className="text-center py-8">
                         <Spinner className="text-3xl mb-4" />
                         <div className="text-lg font-semibold mb-2">Processing CSV...</div>
-                        <div className="text-sm text-muted-alt">
+                        <div className="text-sm text-muted-foreground">
                             This may take a moment for large files. Please don't close this window.
                         </div>
-                        <div className="text-xs text-muted-alt mt-2">
+                        <div className="text-xs text-muted-foreground mt-2">
                             Processing thousands of rows and updating the database...
                         </div>
                     </div>
@@ -197,7 +199,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 <LemonTag>{csvProgress.users_skipped.toLocaleString()}</LemonTag>
                             </div>
                             {csvProgress.parse_errors > 0 && (
-                                <div className="flex items-center justify-between text-warning">
+                                <div className="flex items-center justify-between text-warning-foreground">
                                     <span>Parse errors:</span>
                                     <LemonTag type="warning">{csvProgress.parse_errors}</LemonTag>
                                 </div>
@@ -226,12 +228,12 @@ export function CustomerIOImportModal(): JSX.Element {
                 <LemonDivider />
                 <div>
                     <h3 className="font-semibold mb-2">Step 2: Import User Preferences (Optional)</h3>
-                    <p className="text-sm text-muted mb-3">
+                    <p className="text-sm text-muted-foreground mb-3">
                         Export a CSV from Customer.io with users who have subscription preferences set.{' '}
                         <Link
                             to="https://posthog.com/docs/workflows/import-customerio-optouts"
                             target="_blank"
-                            className="text-primary"
+                            className="text-foreground"
                         >
                             View instructions
                         </Link>
@@ -246,11 +248,13 @@ export function CustomerIOImportModal(): JSX.Element {
                                 onChange={(files) => setCSVFile(files[0] || null)}
                                 showUploadedFiles={false}
                                 callToAction={
-                                    <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-primary-light transition-colors cursor-pointer w-full">
-                                        <div className="text-sm text-muted">
+                                    <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-border-light transition-colors cursor-pointer w-full">
+                                        <div className="text-sm text-muted-foreground">
                                             Drop your CSV file here or click to browse
                                         </div>
-                                        <div className="text-xs text-muted-alt mt-1">Accepts .csv files only</div>
+                                        <div className="text-xs text-muted-foreground mt-1">
+                                            Accepts .csv files only
+                                        </div>
                                     </div>
                                 }
                             />
@@ -259,7 +263,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <div className="font-medium text-sm">{csvFile.name}</div>
-                                        <div className="text-xs text-muted mt-1">
+                                        <div className="text-xs text-muted-foreground mt-1">
                                             Size: {(csvFile.size / (1024 * 1024)).toFixed(2)}MB
                                         </div>
                                     </div>

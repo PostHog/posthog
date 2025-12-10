@@ -286,7 +286,7 @@ export function ChannelTypeEditor({
                                 placeholder="Enter a value"
                             />
                         ) : (
-                            <div className="text-muted">
+                            <div className="text-muted-foreground">
                                 {Array.isArray(rule.value) ? rule.value.join(', ') : rule.value}
                             </div>
                         )}

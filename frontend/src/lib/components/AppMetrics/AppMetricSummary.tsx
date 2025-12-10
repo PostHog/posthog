@@ -48,7 +48,7 @@ export function AppMetricSummary({
     const diff = (total - totalPreviousPeriod) / totalPreviousPeriod
 
     return (
-        <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
+        <div className="flex flex-1 flex-col relative border rounded p-3 bg-card min-w-[16rem]">
             <div className="flex flex-row justify-between items-start">
                 <LemonLabel info={description}>{name}</LemonLabel>
                 {loading ? (
@@ -57,7 +57,7 @@ export function AppMetricSummary({
                     <div className="text-right text-2xl text-muted-foreground">{humanFriendlyNumber(total)}</div>
                 )}
             </div>
-            <div className="flex flex-row justify-end items-center gap-2 text-xs text-muted">
+            <div className="flex flex-row justify-end items-center gap-2 text-xs text-muted-foreground">
                 {loading ? (
                     <LemonSkeleton className="w-10 h-4" />
                 ) : (

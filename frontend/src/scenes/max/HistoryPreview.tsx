@@ -24,7 +24,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
     return (
         <div className="max-w-120 w-full self-center flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2 -mr-2">
-                <h3 className="text-sm font-medium text-secondary mb-0">Recent chats</h3>
+                <h3 className="text-sm font-medium text-muted-foreground mb-0">Recent chats</h3>
                 <LemonButton
                     size="small"
                     onClick={() => toggleConversationHistory()}
@@ -44,7 +44,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                 conversationHistory.slice(0, 3).map((conversation) => (
                     <Link
                         key={conversation.id}
-                        className="text-sm flex items-center gap-2 text-primary hover:text-accent-hover active:text-accent-active justify-between"
+                        className="text-sm flex items-center gap-2 text-foreground hover:text-accent-hover active:text-accent-active justify-between"
                         to={urls.ai(conversation.id)}
                         onClick={(e) => {
                             if (sidePanel) {
@@ -60,7 +60,9 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                         {conversation.status === ConversationStatus.InProgress ? (
                             <Spinner className="h-4 w-4" />
                         ) : (
-                            <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
+                            <span className="text-muted-foreground">
+                                {formatConversationDate(conversation.updated_at)}
+                            </span>
                         )}
                     </Link>
                 ))

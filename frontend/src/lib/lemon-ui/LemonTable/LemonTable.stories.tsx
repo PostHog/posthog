@@ -238,11 +238,11 @@ export const WithColorCodedRows: Story = BasicTemplate.bind({})
 WithColorCodedRows.args = {
     rowRibbonColor: ({ occupation }) =>
         occupation === 'Engineer'
-            ? 'var(--success)'
+            ? 'var(--color-success-foreground)'
             : occupation === 'Retired'
-              ? 'var(--warning)'
+              ? 'var(--color-warning-foreground)'
               : occupation === 'Body-builder'
-                ? 'var(--danger)'
+                ? 'var(--color-destructive-foreground)'
                 : null,
 }
 

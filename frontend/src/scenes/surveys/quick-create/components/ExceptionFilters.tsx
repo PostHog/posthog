@@ -39,7 +39,7 @@ export function ExceptionFilters(): JSX.Element {
     return (
         <div>
             <LemonLabel className="mb-2">Exception filters</LemonLabel>
-            <div className="border rounded p-3 bg-bg-light">
+            <div className="border rounded p-3 bg-card">
                 <div className="text-xs font-medium text-muted-alt mb-2">
                     Survey will trigger when an exception matches these filters:
                 </div>

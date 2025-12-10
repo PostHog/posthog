@@ -18,7 +18,7 @@ export function SceneFavorite({ dataAttrKey, onClick, isFavorited }: SceneFavori
             tooltip={isFavorited ? 'Unfavorite' : 'Favorite'}
             active={isFavorited}
         >
-            {isFavorited ? <IconStarFilled className="text-warning" /> : <IconStar />}
+            {isFavorited ? <IconStarFilled className="text-warning-foreground" /> : <IconStar />}
             Favorite
         </ButtonPrimitive>
     )

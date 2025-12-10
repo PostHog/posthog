@@ -176,10 +176,12 @@ export function ConversionGoalsConfiguration({
                                 }
                                 return (
                                     <div className={isInvalid ? 'flex items-center gap-1.5' : ''}>
-                                        <span className={isInvalid ? 'text-warning' : ''}>
+                                        <span className={isInvalid ? 'text-warning-foreground' : ''}>
                                             {goal.conversion_goal_name}
                                         </span>
-                                        {isInvalid && <IconWarning className="text-warning w-4 h-4 shrink-0" />}
+                                        {isInvalid && (
+                                            <IconWarning className="text-warning-foreground w-4 h-4 shrink-0" />
+                                        )}
                                     </div>
                                 )
                             },
@@ -210,7 +212,7 @@ export function ConversionGoalsConfiguration({
                             title: 'Schema mapping',
                             render: (_, goal: ConversionGoalFilter) =>
                                 goal.schema_map ? (
-                                    <div className="text-xs text-muted">
+                                    <div className="text-xs text-muted-foreground">
                                         <div>Campaign: {goal.schema_map.utm_campaign_name}</div>
                                         <div>Source: {goal.schema_map.utm_source_name}</div>
                                         {goal.kind === 'DataWarehouseNode' && goal.schema_map.timestamp_field && (

@@ -84,9 +84,9 @@ export function OrganizationDangerZone(): JSX.Element {
 
     return (
         <>
-            <div className="text-danger">
+            <div className="text-destructive-foreground">
                 {!restrictionReason && (
-                    <p className="text-danger">
+                    <p className="text-destructive-foreground">
                         This is <b>irreversible</b>. Please be certain.
                     </p>
                 )}

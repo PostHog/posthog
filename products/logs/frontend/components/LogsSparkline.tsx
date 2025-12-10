@@ -134,7 +134,9 @@ export function LogsSparkline(): JSX.Element {
                     renderLabel={renderLabel}
                 />
             ) : !sparklineLoading ? (
-                <div className="flex-1 text-muted flex items-center justify-center">No results matching filters</div>
+                <div className="flex-1 text-muted-foreground flex items-center justify-center">
+                    No results matching filters
+                </div>
             ) : null}
             {sparklineLoading && <SpinnerOverlay />}
         </div>

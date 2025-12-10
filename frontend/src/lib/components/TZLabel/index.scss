@@ -23,7 +23,7 @@
         > :nth-child(3) {
             flex-grow: 1;
             margin-right: 16px;
-            color: var(--color-text-secondary);
+            color: var(--color-text-muted-foreground);
         }
 
         > :nth-child(4) {
@@ -40,16 +40,16 @@
         }
 
         &:hover {
-            background-color: var(--color-bg-primary);
+            background-color: var(--color-background);
         }
     }
 
     .TZLabelPopover__row--muted {
-        color: var(--color-text-secondary);
+        color: var(--color-text-muted-foreground);
 
         > :nth-child(1),
         > :nth-child(2):not(:empty) {
-            color: var(--color-text-secondary);
+            color: var(--color-text-muted-foreground);
         }
     }
 

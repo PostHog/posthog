@@ -7,30 +7,15 @@
         border 200ms ease;
 
     &.SelectableElement--selected {
-        color: var(--color-text-primary);
         text-decoration: underline;
-        background: var(--color-accent);
-
-        [theme='dark'] & {
-            color: var(--color-text-primary-inverse);
-        }
+        background: var(--color-primary);
     }
 
     &:hover {
-        color: var(--color-text-primary);
-        background: var(--color-accent-hover);
-
-        [theme='dark'] & {
-            color: var(--color-text-primary-inverse);
-        }
+        background: var(--color-primary);
     }
 
     &:active {
-        color: var(--color-text-primary);
-        background: var(--color-accent-active);
-
-        [theme='dark'] & {
-            color: var(--color-text-primary-inverse);
-        }
+        background: var(--color-primary);
     }
 }

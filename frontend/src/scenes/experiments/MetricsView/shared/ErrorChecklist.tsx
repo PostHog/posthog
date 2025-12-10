@@ -92,11 +92,11 @@ export function ErrorChecklist({ error, metric }: { error: any; metric: any }): 
                 {value === false ? (
                     <span className="flex items-center deprecated-space-x-2">
                         <IconCheck className="text-success" fontSize={16} />
-                        <span className="text-secondary">{successText[errorCode]}</span>
+                        <span className="text-muted-foreground">{successText[errorCode]}</span>
                     </span>
                 ) : (
                     <span className="flex items-center deprecated-space-x-2">
-                        <IconX className="text-danger" fontSize={16} />
+                        <IconX className="text-destructive-foreground" fontSize={16} />
                         <span>{failureText[errorCode]}</span>
                         <Tooltip title="Verify missing events in the Activity tab">
                             <Link

@@ -72,8 +72,8 @@ export const MarketingAnalyticsTable = ({
     }
 
     return (
-        <div className="bg-surface-primary">
-            <div className="p-4 border-b border-border bg-bg-light">
+        <div className="bg-card">
+            <div className="p-4 border-b border-border bg-card">
                 <div className="flex gap-4 justify-end">
                     <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
                         Configure columns

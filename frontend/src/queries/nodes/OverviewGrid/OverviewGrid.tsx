@@ -19,10 +19,10 @@ const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_COMPACT = 6
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_DEFAULT = 10
 
 // Default classes for non-compact mode
-const OVERVIEW_ITEM_CELL_CLASSES_DEFAULT = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
+const OVERVIEW_ITEM_CELL_CLASSES_DEFAULT = `flex-1 border p-2 bg-card rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
 
 // Compact classes for marketing analytics
-const OVERVIEW_ITEM_CELL_CLASSES_COMPACT = `flex-1 border p-1 bg-surface-primary rounded min-w-[6rem] h-24 flex flex-col items-center text-center justify-between`
+const OVERVIEW_ITEM_CELL_CLASSES_COMPACT = `flex-1 border p-1 bg-card rounded min-w-[6rem] h-24 flex flex-col items-center text-center justify-between`
 
 export interface OverviewItem {
     key: string
@@ -221,7 +221,7 @@ const OverviewItemCell = ({
                         {formatPercentage(item.changeFromPreviousPct)}
                     </div>
                 ) : isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) >= 999999 ? (
-                    <div className="text-muted">-</div>
+                    <div className="text-muted-foreground">-</div>
                 ) : (
                     <div />
                 )}

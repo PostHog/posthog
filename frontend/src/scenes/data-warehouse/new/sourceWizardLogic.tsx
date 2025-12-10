@@ -584,9 +584,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const confirmation = (
                     <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 mt-2">
                         {/* Incremental - Good */}
-                        <div className="font-bold text-success">Incremental</div>
+                        <div className="font-bold text-success-foreground">Incremental</div>
                         <div>
-                            <span className="text-muted">
+                            <span className="text-muted-foreground">
                                 {tableCountFormatter(incrementalTables.length)}
                                 {incrementalTables.length === 69 ? ' (nice)' : ''}
                                 {incrementalTables.length === 67 ? ' (nice but only for genz)' : ''}
@@ -596,27 +596,29 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         </div>
 
                         {/* Append-only - Caution */}
-                        <div className="font-bold text-warning">Append-only</div>
+                        <div className="font-bold text-warning-foreground">Append-only</div>
                         <div>
-                            <span className="text-muted">{tableCountFormatter(appendOnlyTables.length)}</span> — Use a
-                            field that doesn't change on updates, like{' '}
+                            <span className="text-muted-foreground">
+                                {tableCountFormatter(appendOnlyTables.length)}
+                            </span>{' '}
+                            — Use a field that doesn't change on updates, like{' '}
                             <span className="font-mono text-xs">created_at</span>.
                         </div>
 
                         {/* Full refresh - Danger */}
-                        <div className="font-bold text-danger">Full refresh</div>
+                        <div className="font-bold text-destructive-foreground">Full refresh</div>
                         <div>
-                            <span className="text-muted">
+                            <span className="text-muted-foreground">
                                 {tableCountFormatter(fullRefreshTables.length, { none: 'None ✓' })}
                             </span>{' '}
                             — Re-syncs all rows every time. Can significantly increase costs.
                         </div>
 
                         {/* Ignored - Muted */}
-                        <div className="font-bold text-muted">Ignored</div>
+                        <div className="font-bold text-muted-foreground">Ignored</div>
                         <div>
-                            <span className="text-muted">{tableCountFormatter(ignoredTables.length)}</span> — Tables
-                            without sync configured will be skipped.
+                            <span className="text-muted-foreground">{tableCountFormatter(ignoredTables.length)}</span> —
+                            Tables without sync configured will be skipped.
                         </div>
                     </div>
                 )

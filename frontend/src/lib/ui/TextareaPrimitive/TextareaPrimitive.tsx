@@ -45,7 +45,7 @@ export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimiti
                         iconOnly
                         aria-hidden
                     >
-                        <IconMarkdownFilled className="text-tertiary size-4" />
+                        <IconMarkdownFilled className="text-muted-foreground size-4" />
                     </ButtonPrimitive>
                 )}
             </div>

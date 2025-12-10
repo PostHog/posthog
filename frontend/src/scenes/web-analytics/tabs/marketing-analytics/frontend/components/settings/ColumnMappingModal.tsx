@@ -103,9 +103,9 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
             case FieldStatus.Complete:
                 return <IconCheck className="text-success text-sm" />
             case FieldStatus.Partial:
-                return <IconWarning className="text-warning text-sm" />
+                return <IconWarning className="text-warning-foreground text-sm" />
             case FieldStatus.Empty:
-                return <IconX className="text-muted text-sm" />
+                return <IconX className="text-muted-foreground text-sm" />
         }
     }
 
@@ -128,7 +128,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
             width={600}
             footer={
                 <div className="flex justify-between items-center w-full">
-                    <span className="text-sm text-muted">
+                    <span className="text-sm text-muted-foreground">
                         {requiredFieldsConfigured}/{requiredFields.length} required fields configured
                     </span>
                     <div className="flex items-center gap-2">

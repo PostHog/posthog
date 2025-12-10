@@ -53,10 +53,10 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                     </div>
                     <div className="flex-1">
                         <div className="flex items-center gap-2 mb-3">
-                            <IconSparkles className="text-2xl text-warning" />
+                            <IconSparkles className="text-2xl text-warning-foreground" />
                             <span className="font-semibold text-lg">Your AI-powered product analyst</span>
                         </div>
-                        <p className="text-muted mb-4">
+                        <p className="text-muted-foreground mb-4">
                             <Link to="https://posthog.com/docs/posthog-ai" target="_blank" disableDocsPanel>
                                 PostHog AI
                             </Link>{' '}
@@ -64,14 +64,14 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                             "what's a funnel?" for the third time.
                         </p>
                         <div>
-                            <p className="text-muted text-sm mb-2">
+                            <p className="text-muted-foreground text-sm mb-2">
                                 Ask it things you'd be too embarrassed to ask a coworker:
                             </p>
                             <div className="flex flex-wrap gap-2">
                                 {EXAMPLE_PROMPTS.map((prompt) => (
                                     <div
                                         key={prompt}
-                                        className="bg-bg-light border rounded-full px-3 py-1.5 text-sm italic"
+                                        className="bg-card border rounded-full px-3 py-1.5 text-sm italic"
                                     >
                                         "{prompt}"
                                     </div>
@@ -81,11 +81,11 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                     </div>
                 </div>
 
-                <div className="border-2 border-accent-primary rounded-lg p-4 bg-accent-primary-highlight">
+                <div className="border-2 border-primary-primary rounded-lg p-4 bg-accent-primary-highlight">
                     <div className="flex items-center justify-between gap-4">
                         <div>
                             <h4 className="font-semibold mb-1">Enable PostHog AI</h4>
-                            <p className="text-muted text-sm mb-0">
+                            <p className="text-muted-foreground text-sm mb-0">
                                 PostHog AI uses third-party LLM providers (OpenAI and Anthropic) for data analysis. Your
                                 data will not be used for training models.{' '}
                                 <Link to="https://posthog.com/docs/posthog-ai/faq" target="_blank" disableDocsPanel>
@@ -106,7 +106,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                         />
                     </div>
                     {isNotAdmin && (
-                        <p className="text-warning text-sm mt-2 mb-0">
+                        <p className="text-warning-foreground text-sm mt-2 mb-0">
                             Only organization admins can enable AI features. Ask an admin to enable this setting.
                         </p>
                     )}

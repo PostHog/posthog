@@ -75,7 +75,7 @@ export function FeatureFlagVariantsForm({
 
     if (readOnly) {
         return (
-            <div className="border rounded p-4 bg-surface-primary">
+            <div className="border rounded p-4 bg-card">
                 <div className="grid grid-cols-10 gap-4 font-semibold">
                     <div className="col-span-2">Key</div>
                     <div className="col-span-2">Description</div>
@@ -95,13 +95,13 @@ export function FeatureFlagVariantsForm({
                                     style={{
                                         marginLeft: '0.5rem',
                                     }}
-                                    iconStyle={{ color: 'var(--color-text-secondary)' }}
+                                    iconStyle={{ color: 'var(--color-text-muted-foreground)' }}
                                 >
                                     {variant.key}
                                 </CopyToClipboardInline>
                             </div>
                             <div className="col-span-2">
-                                <span className={variant.name ? '' : 'text-muted'}>
+                                <span className={variant.name ? '' : 'text-muted-foreground'}>
                                     {variant.name || 'There is no description for this variant key'}
                                 </span>
                             </div>
@@ -109,7 +109,9 @@ export function FeatureFlagVariantsForm({
                                 {payloads[index] ? (
                                     <JSONEditorInput readOnly={true} value={payloads[index]} />
                                 ) : (
-                                    <span className="text-secondary">No payload associated with this variant</span>
+                                    <span className="text-muted-foreground">
+                                        No payload associated with this variant
+                                    </span>
                                 )}
                             </div>
                             <div>{variant.rollout_percentage}%</div>
@@ -154,7 +156,7 @@ export function FeatureFlagVariantsForm({
                 <div className="col-span-8">
                     <div className="flex flex-col">
                         <b>Payload</b>
-                        <span className="text-secondary font-normal">
+                        <span className="text-muted-foreground font-normal">
                             Specify return payload when the variant key matches
                         </span>
                     </div>
@@ -227,7 +229,7 @@ export function FeatureFlagVariantsForm({
                                 data-attr="feature-flag-variant-rollout-percentage-input"
                             />
                             {filterGroups.filter((group) => group.variant === variant.key).length > 0 && (
-                                <span className="text-secondary text-xs">
+                                <span className="text-muted-foreground text-xs">
                                     Overridden by{' '}
                                     <strong>
                                         {variantConcatWithPunctuation(
@@ -267,7 +269,7 @@ export function FeatureFlagVariantsForm({
                 </div>
             ))}
             {variants.length > 0 && !areVariantRolloutsValid && (
-                <p className="text-danger">
+                <p className="text-destructive-foreground">
                     Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}).
                 </p>
             )}

@@ -204,7 +204,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
             </div>
 
             {questionFiltersExpanded && questionWithFiltersAvailable.length > 0 && (
-                <div className="border rounded bg-bg-light overflow-hidden">
+                <div className="border rounded bg-card overflow-hidden">
                     {questionWithFiltersAvailable.map((question, index) => {
                         if (!question.id) {
                             return null

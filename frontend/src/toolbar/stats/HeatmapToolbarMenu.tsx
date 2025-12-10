@@ -30,7 +30,7 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
     }
 
     return (
-        <p className="my-2 bg-danger-highlight border border-danger rounded p-2">
+        <p className="my-2 bg-destructive border border-danger rounded p-2">
             {!posthog.heatmaps ? (
                 <>The version of posthog-js you are using does not support collecting heatmap data.</>
             ) : !posthog.heatmaps.isEnabled ? (
@@ -138,7 +138,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                             fullWidth
                                             bordered
                                         />
-                                        <div className="text-xs text-muted">
+                                        <div className="text-xs text-muted-foreground">
                                             When enabled, the URL will be automatically wildcarded whenever you navigate
                                             to a new page.
                                         </div>
@@ -290,7 +290,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             <div className="my-2">
                                 Found: {countedElements.length} elements / {clickCount} clicks
                                 {processingProgress ? (
-                                    <span className="text-muted">
+                                    <span className="text-muted-foreground">
                                         {' '}
                                         (Processing: {processingProgress.processed.toLocaleString()}/
                                         {processingProgress.total.toLocaleString()})

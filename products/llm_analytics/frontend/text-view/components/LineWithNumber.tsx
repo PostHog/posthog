@@ -131,7 +131,7 @@ export function LineWithNumber({
     return (
         <span ref={lineRef}>
             <LemonMenu items={menuItems} placement="bottom-start">
-                <button type="button" className="text-muted hover:text-link cursor-pointer">
+                <button type="button" className="text-muted-foreground hover:text-primary cursor-pointer">
                     L{paddedLineNumber}:
                 </button>
             </LemonMenu>

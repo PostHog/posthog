@@ -6,7 +6,7 @@
     font-size: 0.6875rem;
     font-weight: var(--font-medium);
     line-height: 1rem;
-    color: var(--text-3000);
+    color: var(--color-foreground);
     white-space: nowrap;
     border-width: 1px;
     border-radius: var(--radius);
@@ -22,59 +22,64 @@
     }
 
     &.LemonTag--primary {
-        color: var(--color-accent);
+        color: var(--color-primary);
         background: none;
-        border-color: var(--color-accent);
+        border-color: var(--color-primary);
     }
 
     &.LemonTag--option {
-        color: var(--color-accent);
-        background-color: var(--color-bg-surface-primary);
+        color: var(--color-primary);
+        background-color: var(--color-card);
     }
 
     &.LemonTag--highlight {
-        color: var(--color-accent);
+        color: var(--color-primary);
         background: none;
-        border-color: var(--color-accent);
+        border-color: var(--color-primary);
     }
 
     &.LemonTag--warning {
-        color: var(--warning);
+        color: var(--color-warning-foreground);
         background-color: none;
-        border-color: var(--warning);
+        border-color: var(--color-warning-foreground);
 
         [theme='dark'] & {
-            background-color: var(--color-bg-surface-primary);
+            background-color: var(--color-card);
         }
     }
 
     &.LemonTag--danger {
-        color: var(--danger);
+        color: var(--color-destructive-foreground);
         background: none;
-        border-color: var(--danger);
+        border-color: var(--color-destructive-foreground);
     }
 
     &.LemonTag--success {
-        color: var(--success);
+        color: var(--color-success-foreground);
         background: none;
-        border-color: var(--success);
+        border-color: var(--color-success-foreground);
     }
 
     &.LemonTag--completion {
-        color: var(--purple);
+        color: var(--color-fuchsia-700);
         background: none;
-        border-color: var(--purple);
+        border-color: var(--color-fuchsia-700);
     }
 
     &.LemonTag--caution {
-        color: var(--danger-lighter);
+        color: color-mix(in oklab, var(--color-destructive-foreground) 60%, transparent);
         background: none;
-        border-color: var(--danger-lighter);
+        border-color: color-mix(in oklab, var(--color-destructive-foreground) 60%, transparent);
+
+        [theme='dark'] & {
+            color: color-mix(in oklab, var(--color-destructive-foreground) 30%, white);
+            border-color: color-mix(in oklab, var(--color-destructive-foreground) 30%, white);
+        }
     }
 
     &.LemonTag--muted {
-        color: var(--color-text-secondary);
-        background-color: var(--color-bg-surface-primary);
+        color: var(--color-text-muted-foreground);
+        background-color: var(--color-card);
     }
 
     &.LemonTag--none {

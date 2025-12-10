@@ -108,12 +108,12 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center gap-3 mb-4">
-                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-primary-3000 font-bold text-lg">
+                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-card text-foreground-3000 font-bold text-lg">
                                 1
                             </div>
                             <div>
                                 <h3 className="text-lg font-semibold mb-1">Enable Revenue Analytics</h3>
-                                <p className="text-sm text-muted-alt">
+                                <p className="text-sm text-muted-foreground">
                                     First, enable revenue analytics to create optimized database views for your revenue
                                     data
                                 </p>
@@ -128,7 +128,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             displayConfigLink={false}
                         />
 
-                        <div className="text-sm text-muted-alt p-3 bg-bg-light rounded">
+                        <div className="text-sm text-muted-foreground p-3 bg-card rounded">
                             <strong>Note:</strong> Once enabled, you'll be able to configure your revenue sources and
                             events in the next step.
                         </div>
@@ -142,13 +142,13 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
                                     {managedViewsetsEnabled && (
-                                        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-primary-3000 font-bold text-lg">
+                                        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-card text-foreground-3000 font-bold text-lg">
                                             2
                                         </div>
                                     )}
                                     <div>
                                         <h3 className="text-lg font-semibold mb-1">Configure Revenue Sources</h3>
-                                        <p className="text-sm text-muted-alt">
+                                        <p className="text-sm text-muted-foreground">
                                             Set up your revenue tracking to get started
                                         </p>
                                     </div>
@@ -158,12 +158,12 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             {/* Current Status */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {/* Events Status */}
-                                <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
-                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
+                                <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
+                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-card border border-border">
                                         {hasEvents ? (
                                             <IconCheckCircle className="w-6 h-6" />
                                         ) : (
-                                            <IconPieChart className="w-6 h-6 text-muted" />
+                                            <IconPieChart className="w-6 h-6 text-muted-foreground" />
                                         )}
                                     </div>
                                     <div className="flex-1">
@@ -172,7 +172,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                                 ? `${events.length} Event${events.length !== 1 ? 's' : ''} Configured`
                                                 : 'No Events Configured'}
                                         </span>
-                                        <p className="text-xs text-muted-alt mt-0.5">
+                                        <p className="text-xs text-muted-foreground mt-0.5">
                                             {hasEvents
                                                 ? 'Revenue events are set up'
                                                 : 'Configure events to track revenue'}
@@ -181,19 +181,19 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                 </div>
 
                                 {/* Sources Status */}
-                                <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
-                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
+                                <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
+                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-card border border-border">
                                         {hasSources ? (
                                             <IconCheckCircle className="w-6 h-6" />
                                         ) : (
-                                            <IconDatabase className="w-6 h-6 text-muted" />
+                                            <IconDatabase className="w-6 h-6 text-muted-foreground" />
                                         )}
                                     </div>
                                     <div className="flex-1">
                                         <span className="font-medium text-sm">
                                             {hasSources ? 'Revenue source connected' : 'No revenue sources connected'}
                                         </span>
-                                        <p className="text-xs text-muted-alt mt-0.5">
+                                        <p className="text-xs text-muted-foreground mt-0.5">
                                             {hasSources ? (
                                                 'Revenue data source is set up'
                                             ) : hasConnectedButDisabledStripeSources ? (
@@ -213,7 +213,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             </div>
 
                             {/* Action Buttons */}
-                            <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-primary">
+                            <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border">
                                 <LemonButton
                                     type="primary"
                                     icon={<IconPlus />}
@@ -279,12 +279,14 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white border border-primary">
+                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white border border-border">
                                 <IconDatabase className="w-7 h-7" style={{ color: 'var(--primary-3000)' }} />
                             </div>
                             <div>
                                 <h4 className="text-lg font-semibold">Connect Revenue Source</h4>
-                                <p className="text-sm text-muted-alt">Choose a revenue platform to import data from</p>
+                                <p className="text-sm text-muted-foreground">
+                                    Choose a revenue platform to import data from
+                                </p>
                             </div>
                         </div>
 
@@ -296,9 +298,9 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                         'relative p-4 rounded-lg border-2',
                                         source.isAvailable
                                             ? source.isConnected
-                                                ? 'border-primary bg-primary-lightest'
-                                                : 'border-primary bg-bg-light'
-                                            : 'border-primary bg-bg-light opacity-60',
+                                                ? 'border-border bg-card-lightest'
+                                                : 'border-border bg-card'
+                                            : 'border-border bg-card opacity-60',
                                         source.isAvailable ? 'cursor-pointer' : 'cursor-not-allowed'
                                     )}
                                     onClick={source.isAvailable ? () => handleSourceSelect(source.id) : undefined}
@@ -308,7 +310,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                         <div>
                                             <h5 className="font-medium text-sm">{source.id}</h5>
                                             {!source.isAvailable && (
-                                                <span className="text-xs text-warning bg-warning-light p-1 rounded-full">
+                                                <span className="text-xs text-warning-foreground bg-warning-light p-1 rounded-full">
                                                     Coming Soon
                                                 </span>
                                             )}
@@ -323,7 +325,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                             )}
                                         </div>
                                     </div>
-                                    <p className="text-xs text-muted-alt">{source.description}</p>
+                                    <p className="text-xs text-muted-foreground">{source.description}</p>
                                 </div>
                             ))}
                         </div>
@@ -350,7 +352,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
 
             {/* Help Footer */}
             <div className="text-center">
-                <p className="text-xs text-muted-alt">
+                <p className="text-xs text-muted-foreground">
                     Need help? Check our{' '}
                     <Link to="https://posthog.com/docs/revenue-analytics" target="_blank">
                         documentation

@@ -98,7 +98,7 @@ export function CustomSourceMappingsConfiguration({
             {!sourceFilter && (
                 <div>
                     <h3 className="text-lg font-semibold mb-1">Custom UTM source mappings</h3>
-                    <p className="text-muted mb-4">
+                    <p className="text-muted-foreground mb-4">
                         Add custom <code className="text-xs">utm_source</code> values to attribute conversions to your
                         ad platforms. Default sources are shown but cannot be removed.
                     </p>
@@ -108,11 +108,13 @@ export function CustomSourceMappingsConfiguration({
             <div className="border rounded overflow-hidden">
                 <table className="w-full">
                     <thead>
-                        <tr className="bg-bg-light border-b">
+                        <tr className="bg-card border-b">
                             {!sourceFilter && (
-                                <th className="text-left text-xs font-semibold p-2 text-muted w-32">Integration</th>
+                                <th className="text-left text-xs font-semibold p-2 text-muted-foreground w-32">
+                                    Integration
+                                </th>
                             )}
-                            <th className="text-left text-xs font-semibold p-2 text-muted">UTM sources</th>
+                            <th className="text-left text-xs font-semibold p-2 text-muted-foreground">UTM sources</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -137,7 +139,7 @@ export function CustomSourceMappingsConfiguration({
                                                     key={source}
                                                     size="small"
                                                     type="muted"
-                                                    className="border border-border-bold px-2 py-1"
+                                                    className="border border-border-strong px-2 py-1"
                                                 >
                                                     {source}
                                                 </LemonTag>

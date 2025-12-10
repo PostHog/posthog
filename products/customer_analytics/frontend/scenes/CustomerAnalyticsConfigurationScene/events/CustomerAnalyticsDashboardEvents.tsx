@@ -23,13 +23,13 @@ export interface EventSelectorProps {
 
 function EventSelector({ filters, setFilters, title, caption }: EventSelectorProps): JSX.Element {
     const { eventsToHighlight } = useValues(customerAnalyticsDashboardEventsLogic)
-    const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
+    const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-border-destructive' : ''
 
     return (
         <div className={`py-2 ${highlight}`}>
             <div className="ml-1">
                 <LemonLabel>{title}</LemonLabel>
-                <p className="text-xs text-muted-alt">{caption}</p>
+                <p className="text-xs text-muted-foreground">{caption}</p>
             </div>
             {filters ? (
                 <ActionFilter

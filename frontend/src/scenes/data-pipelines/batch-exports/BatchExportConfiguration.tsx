@@ -61,7 +61,7 @@ export function BatchExportConfiguration(): JSX.Element {
                 >
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 min-w-100 deprecated-space-y-3">
-                            <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                            <div className="p-3 rounded border bg-card deprecated-space-y-2">
                                 <LemonField
                                     label="Status"
                                     name="paused"
@@ -104,7 +104,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                     </LemonField>
                                 </div>
                             </div>
-                            <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                            <div className="p-3 rounded border bg-card deprecated-space-y-2">
                                 <div className="flex gap-2 min-h-16">
                                     <LemonField
                                         name="model"
@@ -152,7 +152,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                             <div className="flex gap-2 justify-between w-full">
                                                 <LemonLabel>Include events</LemonLabel>
                                             </div>
-                                            <p className="mb-0 text-xs text-secondary">
+                                            <p className="mb-0 text-xs text-muted-foreground">
                                                 If set, the batch export will <b>only</b> export events matching any of
                                                 the below. If left unset, all events will be exported.
                                             </p>
@@ -182,7 +182,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                             <div className="flex gap-2 justify-between w-full">
                                                 <LemonLabel>Exclude events</LemonLabel>
                                             </div>
-                                            <p className="mb-0 text-xs text-secondary">
+                                            <p className="mb-0 text-xs text-muted-foreground">
                                                 If set, the batch export will <b>exclude</b> events matching any of the
                                                 below. If left unset, no events will be excluded from the export.
                                             </p>
@@ -242,7 +242,7 @@ export function BatchExportConfiguration(): JSX.Element {
                         </div>
 
                         <div className="gap-4 flex-2 deprecated-space-y-4 min-w-100">
-                            <div className="p-3 rounded border bg-surface-primary">
+                            <div className="p-3 rounded border bg-card">
                                 <BatchExportConfigurationFields
                                     isNew={isNew}
                                     formValues={configuration as BatchExportConfigurationForm}
@@ -250,7 +250,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                 />
                             </div>
                             {batchExportConfigTest && (
-                                <div className="p-3 rounded border bg-surface-primary">
+                                <div className="p-3 rounded border bg-card">
                                     <BatchExportConfigurationTests
                                         batchExportConfigTest={batchExportConfigTest}
                                         batchExportConfigTestLoading={batchExportConfigTestLoading}
@@ -333,7 +333,7 @@ export function BatchExportConfigurationTests({
     const header = (
         <div className="space-y-2">
             <h2 className="flex gap-2 items-center m-0 text-lg font-semibold">Test configuration</h2>
-            <p className="text-xs text-secondary">
+            <p className="text-xs text-muted-foreground">
                 Test the batch export's configuration to uncover errors before saving it
             </p>
         </div>

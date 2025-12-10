@@ -93,7 +93,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                 />
             </div>
             {display === ChartDisplayType.ActionsPie && (
-                <div className="text-secondary grow-0">
+                <div className="text-muted-foreground grow-0">
                     {formatAggregationAxisValue(trendsFilter, item.aggregated_value)}
                 </div>
             )}

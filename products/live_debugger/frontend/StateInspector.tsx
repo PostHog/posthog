@@ -16,9 +16,9 @@ function VariableDisplay({ variables }: { variables: Record<string, any> }): JSX
                 return (
                     <div key={key} className="p-2">
                         <div className="flex items-center gap-2 mb-1">
-                            <div className="text-muted text-xs font-semibold">{key}</div>
+                            <div className="text-muted-foreground text-xs font-semibold">{key}</div>
                             {parsed.typeName && (
-                                <div className="text-xs text-muted-alt bg-bg-3000 px-1.5 py-0.5 rounded font-mono">
+                                <div className="text-xs text-muted-foreground bg-card px-1.5 py-0.5 rounded font-mono">
                                     {parsed.typeName}
                                 </div>
                             )}
@@ -49,10 +49,10 @@ export function StateInspector({
     const { toggleBreakpointForFile } = useActions(liveDebuggerLogic)
 
     return (
-        <div className="flex-[2] border rounded bg-bg-light overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between p-2 border-b bg-bg-3000">
+        <div className="flex-[2] border rounded bg-card overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-2 border-b bg-card">
                 <span className="font-semibold">Debug Details</span>
-                <button onClick={() => selectInstance(null)} className="text-muted hover:text-default">
+                <button onClick={() => selectInstance(null)} className="text-muted-foreground hover:text-default">
                     <IconX />
                 </button>
             </div>
@@ -66,7 +66,7 @@ export function StateInspector({
                 {selectedInstance.stackTrace && (
                     <div>
                         <h4 className="font-semibold text-sm mb-2">Stack Trace</h4>
-                        <div className="text-xs font-mono bg-bg-3000 p-2 rounded max-h-96 overflow-auto space-y-1">
+                        <div className="text-xs font-mono bg-card p-2 rounded max-h-96 overflow-auto space-y-1">
                             {selectedInstance.stackTrace.map((frame: any, i: number) => {
                                 const functionName = frame[1]
                                 const fileName = frame[0]
@@ -96,11 +96,11 @@ export function StateInspector({
                                 return (
                                     <div
                                         key={i}
-                                        className="px-2 py-1 border border-border rounded hover:bg-bg-light flex items-center justify-between gap-2"
+                                        className="px-2 py-1 border border-border rounded hover:bg-card flex items-center justify-between gap-2"
                                     >
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-baseline gap-1.5">
-                                                <span className="text-muted font-normal">#{i}</span>
+                                                <span className="text-muted-foreground font-normal">#{i}</span>
                                                 <span className="font-semibold truncate">{functionName}</span>
                                                 {hitCount > 0 && (
                                                     <span className="text-xs bg-orange-500 text-white px-1 rounded">
@@ -108,7 +108,7 @@ export function StateInspector({
                                                     </span>
                                                 )}
                                             </div>
-                                            <div className="text-muted text-xs truncate">
+                                            <div className="text-muted-foreground text-xs truncate">
                                                 {fileName}
                                                 {lineNumber ? `:${lineNumber}` : ''}
                                             </div>

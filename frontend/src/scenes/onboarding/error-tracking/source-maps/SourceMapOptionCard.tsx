@@ -25,7 +25,7 @@ export function SourceMapOptionCard({
             onClick={onSelect}
         >
             <h4 className="font-semibold mb-2">{title}</h4>
-            <p className={`text-sm text-muted ${children ? 'mb-2' : 'mb-0'}`}>{description}</p>
+            <p className={`text-sm text-muted-foreground ${children ? 'mb-2' : 'mb-0'}`}>{description}</p>
             {isSelected && children}
         </LemonCard>
     )

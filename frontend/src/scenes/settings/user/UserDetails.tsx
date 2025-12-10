@@ -48,7 +48,7 @@ export function UserDetails(): JSX.Element {
             </LemonField>
             {user?.pending_email && (
                 <div className="flex flex-row gap-2">
-                    <div className="text-danger text-xs font-medium mt-1.25">
+                    <div className="text-destructive-foreground text-xs font-medium mt-1.25">
                         Pending verification for {user.pending_email}
                     </div>
                     <LemonButton

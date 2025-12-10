@@ -554,7 +554,7 @@ export function LemonInputSelect<T = string>({
             return null
         }
         return values.length === 0 ? (
-            <span className="-ml-2 text-muted">Select from {options.length} options</span>
+            <span className="-ml-2 text-muted-foreground">Select from {options.length} options</span>
         ) : (
             <span className="-ml-2">
                 {values.length === options.length
@@ -812,7 +812,7 @@ export function LemonInputSelect<T = string>({
                             {emptyStateComponent ? (
                                 emptyStateComponent
                             ) : (
-                                <p className="text-secondary italic p-1">
+                                <p className="text-muted-foreground italic p-1">
                                     {allowCustomValues
                                         ? 'Start typing and press Enter to add options'
                                         : `No options matching "${inputValue}"`}
@@ -914,13 +914,13 @@ function DraggableValueSnack<T = string>({
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
                 {...attributes}
-                className="inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5 bg-accent-highlight-secondary rounded"
+                className="inline-flex text-foreground-alt max-w-full overflow-hidden break-all items-center py-1 leading-5 bg-accent-highlight-secondary rounded"
             >
                 <span
                     className="shrink-0 flex items-center pl-1 pr-0.5 cursor-grab active:cursor-grabbing"
                     {...listeners}
                 >
-                    <SortableDragIcon className="text-muted-alt w-3.5" />
+                    <SortableDragIcon className="text-muted-foreground w-3.5" />
                 </span>
                 <span
                     className="overflow-hidden text-ellipsis px-1 cursor-text"

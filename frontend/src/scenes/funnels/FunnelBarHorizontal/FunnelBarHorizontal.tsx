@@ -100,7 +100,7 @@ export function FunnelBarHorizontal({
                                 <FunnelStepMore stepIndex={stepIndex} />
                             </div>
                             {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
-                                <div className="text-secondary">
+                                <div className="text-muted-foreground">
                                     Average time to convert:{' '}
                                     <b>{humanFriendlyDuration(step.average_conversion_time, { maxUnits: 2 })}</b>
                                 </div>
@@ -191,7 +191,7 @@ export function FunnelBarHorizontal({
                                     }
                                 >
                                     <IconTrendingFlat
-                                        style={{ color: 'var(--success)' }}
+                                        style={{ color: 'var(--color-success-foreground)' }}
                                         className="value-inspector-button-icon"
                                     />
                                     <b>
@@ -202,7 +202,7 @@ export function FunnelBarHorizontal({
                                         )}
                                     </b>
                                 </ValueInspectorButton>{' '}
-                                <span className="text-secondary grow">
+                                <span className="text-muted-foreground grow">
                                     {`(${percentage(step.conversionRates.fromPrevious, 2, true)}) completed step`}
                                 </span>
                             </div>
@@ -216,7 +216,7 @@ export function FunnelBarHorizontal({
                                         }
                                     >
                                         <IconTrendingFlatDown
-                                            style={{ color: 'var(--danger)' }}
+                                            style={{ color: 'var(--color-destructive-foreground)' }}
                                             className="value-inspector-button-icon"
                                         />
                                         <b>
@@ -227,7 +227,7 @@ export function FunnelBarHorizontal({
                                             )}
                                         </b>
                                     </ValueInspectorButton>{' '}
-                                    <span className="text-secondary">
+                                    <span className="text-muted-foreground">
                                         {`(${percentage(1 - step.conversionRates.fromPrevious, 2, true)}) dropped off`}
                                     </span>
                                 </div>

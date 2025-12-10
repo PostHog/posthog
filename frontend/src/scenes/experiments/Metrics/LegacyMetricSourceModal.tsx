@@ -35,7 +35,7 @@ export function LegacyMetricSourceModal({ isSecondary }: { isSecondary?: boolean
         <LemonModal isOpen={isOpen} onClose={closeCurrentModal} width={1000} title="Choose metric source">
             <div className="flex gap-4 mb-4">
                 <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-primary"
                     onClick={() => {
                         closeCurrentModal()
 
@@ -52,12 +52,12 @@ export function LegacyMetricSourceModal({ isSecondary }: { isSecondary?: boolean
                     <div className="font-semibold">
                         <span>Single-use</span>
                     </div>
-                    <div className="text-secondary text-sm leading-relaxed">
+                    <div className="text-muted-foreground text-sm leading-relaxed">
                         Create a new metric specific to this experiment.
                     </div>
                 </div>
                 <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-primary"
                     onClick={() => {
                         closeCurrentModal()
                         openSharedMetricModal(null)
@@ -66,7 +66,7 @@ export function LegacyMetricSourceModal({ isSecondary }: { isSecondary?: boolean
                     <div className="font-semibold">
                         <span>Shared</span>
                     </div>
-                    <div className="text-secondary text-sm leading-relaxed">
+                    <div className="text-muted-foreground text-sm leading-relaxed">
                         Use a pre-configured metric that can be reused across experiments.
                     </div>
                 </div>

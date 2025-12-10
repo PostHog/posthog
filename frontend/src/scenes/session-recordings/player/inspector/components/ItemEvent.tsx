@@ -64,7 +64,7 @@ function ExceptionTitlePill({ event }: { event: Record<string, any> }): JSX.Elem
         connector = ':'
     }
     return (
-        <div className="flex flex-row items-center gap-1 justify-between border px-1 truncate ellipsis border-x-danger-dark bg-danger-highlight">
+        <div className="flex flex-row items-center gap-1 justify-between border px-1 truncate ellipsis border-x-danger-dark bg-destructive">
             <span>{errorProps.type}</span>
             <span>{connector}</span>
             <span>{errorProps.value}</span>
@@ -102,10 +102,12 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
                         type={TaxonomicFilterGroupType.Events}
                     />
-                    {item.data.event === '$autocapture' ? <span className="text-secondary">(Autocapture)</span> : null}
+                    {item.data.event === '$autocapture' ? (
+                        <span className="text-muted-foreground">(Autocapture)</span>
+                    ) : null}
                 </div>
                 {subValue ? (
-                    <div className="text-secondary truncate" title={isString(subValue) ? subValue : undefined}>
+                    <div className="text-muted-foreground truncate" title={isString(subValue) ? subValue : undefined}>
                         {subValue}
                     </div>
                 ) : null}
@@ -178,7 +180,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                             switch (tabKey) {
                                 case 'raw':
                                     return (
-                                        <pre className="text-xs text-secondary whitespace-pre-wrap">
+                                        <pre className="text-xs text-muted-foreground whitespace-pre-wrap">
                                             {JSON.stringify(properties, null, 2)}
                                         </pre>
                                     )
@@ -231,7 +233,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                         }}
                     />
                 ) : (
-                    <div className="text-secondary flex gap-1 items-center">
+                    <div className="text-muted-foreground flex gap-1 items-center">
                         <Spinner textColored />
                         Loading...
                     </div>

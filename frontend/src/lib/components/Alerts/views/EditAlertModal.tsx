@@ -58,7 +58,7 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
     }
 
     return (
-        <div className="bg-primary p-4 mt-10 rounded-lg">
+        <div className="bg-card p-4 mt-10 rounded-lg">
             <div className="flex flex-row gap-2 items-center mb-2">
                 <h3 className="m-0">Current status: </h3>
                 <AlertStateIndicator alert={alert} />
@@ -410,7 +410,7 @@ export function EditAlertModal({
                                             <AlertDestinationSelector alertId={alertId} />
                                         </div>
                                     ) : (
-                                        <div className="text-muted-alt">
+                                        <div className="text-muted-foreground">
                                             Save alert first to add destinations (e.g. Slack, Webhooks)
                                         </div>
                                     )}

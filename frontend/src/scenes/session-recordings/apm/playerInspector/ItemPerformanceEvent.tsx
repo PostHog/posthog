@@ -71,8 +71,8 @@ function renderTimeBenchmark(milliseconds: number | null): JSX.Element | null {
     return milliseconds === null ? null : (
         <span
             className={clsx('font-semibold', {
-                'text-danger-dark': milliseconds >= 2000,
-                'text-warning-dark': milliseconds >= 500 && milliseconds < 2000,
+                'text-destructive-foreground-dark': milliseconds >= 2000,
+                'text-warning-foreground-dark': milliseconds >= 500 && milliseconds < 2000,
             })}
         >
             {humanFriendlyMilliseconds(milliseconds)}
@@ -141,7 +141,7 @@ function SizeDescription({ sizeInfo }: { sizeInfo: PerformanceEventSizeInfo }): 
             {sizeInfo.isFromLocalCache ? (
                 <>
                     {' '}
-                    <span className="text-secondary">(from local cache)</span>
+                    <span className="text-muted-foreground">(from local cache)</span>
                 </>
             ) : null}
             {sizeInfo.formattedCompressionPercentage &&
@@ -207,8 +207,8 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                                     'font-semibold',
                                     otherProps.response_status >= 400 &&
                                         otherProps.response_status < 500 &&
-                                        'text-warning-dark',
-                                    otherProps.response_status >= 500 && 'text-danger-dark'
+                                        'text-warning-foreground-dark',
+                                    otherProps.response_status >= 500 && 'text-destructive-foreground-dark'
                                 )}
                             >
                                 {otherProps.response_status}
@@ -472,7 +472,7 @@ export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed
             {detailed ? <div className="font-semibold">Status code</div> : null}
             <div>
                 <LemonTag type={statusType}>{statusDescription}</LemonTag>
-                {detailed && fromDiskCache ? <span className="text-secondary"> (from cache)</span> : null}
+                {detailed && fromDiskCache ? <span className="text-muted-foreground"> (from cache)</span> : null}
             </div>
         </div>
     )

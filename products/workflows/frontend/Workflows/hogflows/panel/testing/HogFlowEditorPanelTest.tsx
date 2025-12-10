@@ -31,8 +31,8 @@ import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 export function HogFlowTestPanelNonSelected(): JSX.Element {
     return (
         <div className="p-2">
-            <div className="p-8 text-center rounded border bg-surface-secondary">
-                <div className="text-muted">Please select a node...</div>
+            <div className="p-8 text-center rounded border bg-muted">
+                <div className="text-muted-foreground">Please select a node...</div>
             </div>
         </div>
     )
@@ -176,10 +176,10 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                         <>Test event: {sampleGlobals?.event?.event} </>
                                     ),
                                 },
-                                className: 'bg-surface-secondary',
+                                className: 'bg-muted',
                                 content: (
                                     <div>
-                                        <div className="bg-surface-secondary">
+                                        <div className="bg-muted">
                                             <div className="flex gap-2 items-center">
                                                 <ProfilePicture name={display} />
                                                 <div className="flex-1">
@@ -188,9 +188,9 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                                             <span className="font-semibold">{display}</span>
                                                         </Link>
                                                     ) : (
-                                                        <span className="text-muted">Loading...</span>
+                                                        <span className="text-muted-foreground">Loading...</span>
                                                     )}{' '}
-                                                    <span className="text-muted">performed</span>{' '}
+                                                    <span className="text-muted-foreground">performed</span>{' '}
                                                     <span className="space-y-1 font-semibold text-md">
                                                         {sampleGlobals?.event.event}
                                                     </span>{' '}
@@ -239,7 +239,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                 <div className="flex flex-col flex-1 gap-2 p-2">
                     <h3 className="mb-0">Test results</h3>
                     {!testResult ? (
-                        <div className="text-muted text-sm">No tests run yet</div>
+                        <div className="text-muted-foreground text-sm">No tests run yet</div>
                     ) : (
                         <>
                             <LemonBanner

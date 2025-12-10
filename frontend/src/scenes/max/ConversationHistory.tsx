@@ -82,7 +82,7 @@ interface ConversationCardProps {
 function ConversationCard({ conversation, openConversation, sidePanel }: ConversationCardProps): JSX.Element {
     return (
         <Link
-            className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
+            className="p-4 flex flex-row bg-card rounded-lg gap-2 w-full min-h-14 items-center justify-between"
             to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
             onClick={(e) => {
                 if (sidePanel) {
@@ -98,7 +98,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
             {conversation.status === ConversationStatus.InProgress ? (
                 <Spinner className="h-4 w-4" />
             ) : (
-                <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
+                <span className="text-muted-foreground">{formatConversationDate(conversation.updated_at)}</span>
             )}
         </Link>
     )

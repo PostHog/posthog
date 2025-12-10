@@ -95,7 +95,7 @@ PostHog issue: ${issueUrl}
         >
             <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                    <span className="text-muted">Mode:</span>
+                    <span className="text-muted-foreground">Mode:</span>
                     <LemonSegmentedButton
                         value={mode}
                         onChange={(newMode) => setMode(newMode)}
@@ -106,12 +106,12 @@ PostHog issue: ${issueUrl}
                         size="small"
                     />
                 </div>
-                <p className="text-muted">
+                <p className="text-muted-foreground">
                     {mode === 'explain'
                         ? 'Paste this prompt into your favourite coding assistant to get a detailed explanation of this error:'
                         : 'Paste this prompt into your favourite coding assistant to get help fixing this error:'}
                 </p>
-                <div className="bg-bg-light border rounded p-4 font-mono text-sm whitespace-pre-wrap max-h-96 overflow-auto">
+                <div className="bg-card border rounded p-4 font-mono text-sm whitespace-pre-wrap max-h-96 overflow-auto">
                     {generatePrompt()}
                 </div>
             </div>

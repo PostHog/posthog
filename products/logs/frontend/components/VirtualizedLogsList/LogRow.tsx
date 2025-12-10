@@ -19,12 +19,12 @@ const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
-    trace: 'bg-muted-alt',
+    trace: 'bg-muted',
     debug: 'bg-muted',
     info: 'bg-brand-blue',
     warn: 'bg-warning',
-    error: 'bg-danger',
-    fatal: 'bg-danger-dark',
+    error: 'bg-destructive',
+    fatal: 'bg-destructive-strong',
 }
 
 export interface LogColumnConfig {
@@ -197,7 +197,7 @@ export function LogRow({
             case 'timestamp':
                 return (
                     <div key={column.key} style={cellStyle} className="flex items-center shrink-0">
-                        <span className="text-xs text-muted font-mono">
+                        <span className="text-xs text-muted-foreground font-mono">
                             <TZLabel time={log.timestamp} {...tzLabelFormat} timestampStyle="absolute" />
                         </span>
                     </div>
@@ -305,7 +305,9 @@ export function LogRow({
                                 onTogglePin(log)
                             }}
                             tooltip={pinned ? 'Unpin log' : 'Pin log'}
-                            className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
+                            className={cn(
+                                pinned ? 'text-warning' : 'text-muted-foreground opacity-0 group-hover:opacity-100'
+                            )}
                         />
                         <div className="opacity-0 group-hover:opacity-100" onMouseDown={(e) => e.stopPropagation()}>
                             <LogsViewerRowActions log={log} />
@@ -340,7 +342,7 @@ export function LogRowHeader({ rowWidth }: { rowWidth: number }): JSX.Element {
 
     return (
         <div
-            className="flex items-center h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted sticky top-0 z-10"
+            className="flex items-center h-8 border-b border-border bg-card text-xs font-semibold text-muted-foreground sticky top-0 z-10"
             style={{ width: rowWidth }}
         >
             {LOG_COLUMNS.map((column) => (

@@ -36,7 +36,7 @@ const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }
             </div>
             <div className="flex-1 text-center">
                 <h2 className="text-lg font-semibold">{title}</h2>
-                <p className="mt-2 text-sm text-secondary">{description}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{description}</p>
                 <div className="flex gap-4 justify-center items-center mt-4">
                     <LemonButton
                         type="primary"

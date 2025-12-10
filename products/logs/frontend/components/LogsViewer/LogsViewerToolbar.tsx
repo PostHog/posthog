@@ -53,11 +53,11 @@ export const LogsViewerToolbar = ({
             </div>
             <div className="flex items-center gap-4 flex-wrap">
                 {totalLogsCount !== undefined && totalLogsCount > 0 && (
-                    <span className="text-muted text-xs">
+                    <span className="text-muted-foreground text-xs">
                         {humanFriendlyNumber(logsCount)} of {humanFriendlyNumber(totalLogsCount)} logs
                     </span>
                 )}
-                <span className="text-muted text-xs flex items-center gap-1">
+                <span className="text-muted-foreground text-xs flex items-center gap-1">
                     <KeyboardShortcut arrowup />
                     <KeyboardShortcut arrowdown />
                     or

@@ -22,7 +22,7 @@ export function SceneActivityIndicator({
                 {at && <TZLabel time={at} className="w-fit" />}
                 {by && (
                     <>
-                        <span className="text-secondary">by</span>
+                        <span className="text-muted-foreground">by</span>
                         <ProfilePicture user={by} showName size="md" />
                     </>
                 )}

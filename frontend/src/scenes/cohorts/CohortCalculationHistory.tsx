@@ -102,10 +102,10 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
             title: 'Status',
             render: (_, record) => {
                 if (record.error) {
-                    return <span className="text-danger">Error</span>
+                    return <span className="text-destructive-foreground">Error</span>
                 }
                 if (!record.finished_at) {
-                    return <span className="text-warning">In Progress</span>
+                    return <span className="text-warning-foreground">In Progress</span>
                 }
                 return <span className="text-success">Completed</span>
             },
@@ -150,11 +150,11 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                     }}
                     expandable={{
                         expandedRowRender: (record) => (
-                            <div className="p-4 bg-bg-light">
+                            <div className="p-4 bg-card">
                                 {record.error && (
                                     <div className="mb-4">
-                                        <h4 className="text-danger">Error</h4>
-                                        <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto">
+                                        <h4 className="text-destructive-foreground">Error</h4>
+                                        <pre className="text-xs bg-destructive p-2 rounded overflow-auto">
                                             {record.error}
                                         </pre>
                                     </div>
@@ -184,10 +184,10 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                                                     </div>
                                                     {query.query && (
                                                         <details className="mt-2">
-                                                            <summary className="cursor-pointer text-primary">
+                                                            <summary className="cursor-pointer text-foreground">
                                                                 Show Query
                                                             </summary>
-                                                            <pre className="mt-2 text-xs bg-bg-3000 p-2 rounded overflow-auto">
+                                                            <pre className="mt-2 text-xs bg-card p-2 rounded overflow-auto">
                                                                 {query.query}
                                                             </pre>
                                                         </details>
@@ -201,7 +201,7 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                                 {record.filters && (
                                     <div className="mt-4">
                                         <h4>Filters Used</h4>
-                                        <pre className="text-xs bg-bg-3000 p-2 rounded overflow-auto">
+                                        <pre className="text-xs bg-card p-2 rounded overflow-auto">
                                             {JSON.stringify(record.filters, null, 2)}
                                         </pre>
                                     </div>

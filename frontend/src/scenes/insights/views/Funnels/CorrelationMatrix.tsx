@@ -58,9 +58,9 @@ export function CorrelationMatrix(): JSX.Element {
         correlationScoreStrength === 'strong' ? (
             <IconCheckCircle className="text-success" />
         ) : correlationScoreStrength === 'moderate' ? (
-            <IconCancel className="text-warning" />
+            <IconCancel className="text-warning-foreground" />
         ) : (
-            <IconErrorOutline className="text-danger" />
+            <IconErrorOutline className="text-destructive-foreground" />
         )
 
     return (
@@ -77,7 +77,7 @@ export function CorrelationMatrix(): JSX.Element {
                     </div>
                 ) : correlationDetails ? (
                     <>
-                        <p className="text-secondary mb-4">
+                        <p className="text-muted-foreground mb-4">
                             The table below displays the correlation details for users who {action} <b>{displayName}</b>
                             .
                         </p>
@@ -196,7 +196,7 @@ export function CorrelationMatrix(): JSX.Element {
                                 <Tooltip
                                     title={`Negative correlation means this ${actor} is correlated with an unsuccessful conversion (user dropped off).`}
                                 >
-                                    <strong className="cursor-help text-danger">
+                                    <strong className="cursor-help text-destructive-foreground">
                                         <IconTrendingFlatDown /> negative correlation
                                     </strong>
                                 </Tooltip>
@@ -209,8 +209,8 @@ export function CorrelationMatrix(): JSX.Element {
                                         correlationScoreStrength === 'strong'
                                             ? 'text-success'
                                             : correlationScoreStrength === 'moderate'
-                                              ? 'text-warning'
-                                              : 'text-danger'
+                                              ? 'text-warning-foreground'
+                                              : 'text-destructive-foreground'
                                     )}
                                 >
                                     {scoreIcon} {correlationScore.toFixed(3)}

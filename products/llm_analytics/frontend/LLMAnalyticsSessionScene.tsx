@@ -89,19 +89,19 @@ function SessionSceneWrapper(): JSX.Element {
                     <SceneBreadcrumbBackButton />
                     <div className="flex items-start justify-between">
                         <header className="flex gap-1.5 flex-wrap">
-                            <LemonTag size="medium" className="bg-surface-primary">
+                            <LemonTag size="medium" className="bg-card">
                                 <span className="font-mono">{sessionId}</span>
                             </LemonTag>
-                            <LemonTag size="medium" className="bg-surface-primary">
+                            <LemonTag size="medium" className="bg-card">
                                 {sessionStats.traceCount} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
                             </LemonTag>
                             {sessionStats.totalCost > 0 && (
-                                <LemonTag size="medium" className="bg-surface-primary">
+                                <LemonTag size="medium" className="bg-card">
                                     Total: {formatLLMCost(sessionStats.totalCost)}
                                 </LemonTag>
                             )}
                             {sessionStats.totalLatency > 0 && (
-                                <LemonTag size="medium" className="bg-surface-primary">
+                                <LemonTag size="medium" className="bg-card">
                                     {sessionStats.totalLatency.toFixed(2)}s
                                 </LemonTag>
                             )}
@@ -144,7 +144,7 @@ function SessionSceneWrapper(): JSX.Element {
                             </div>
                         )}
                     </div>
-                    <div className="bg-surface-primary border rounded p-4">
+                    <div className="bg-card border rounded p-4">
                         <h3 className="font-semibold text-sm mb-3">Traces in this session</h3>
                         <div className="space-y-2">
                             {traces.map((trace) => {
@@ -202,13 +202,13 @@ function SessionSceneWrapper(): JSX.Element {
                                                 {showSessionSummarization && summary && (
                                                     <div className="flex items-center gap-2 mb-2">
                                                         {summary.loading ? (
-                                                            <div className="flex items-center gap-2 text-muted text-sm">
+                                                            <div className="flex items-center gap-2 text-muted-foreground text-sm">
                                                                 <Spinner className="text-lg" />
                                                                 <span>Generating summary...</span>
                                                             </div>
                                                         ) : summary.error ? (
                                                             <Tooltip title={summary.error}>
-                                                                <span className="text-danger text-sm">
+                                                                <span className="text-destructive-foreground text-sm">
                                                                     Failed to generate summary
                                                                 </span>
                                                             </Tooltip>
@@ -226,13 +226,13 @@ function SessionSceneWrapper(): JSX.Element {
                                                         )}
                                                     </div>
                                                 )}
-                                                <div className="text-xs text-muted">
+                                                <div className="text-xs text-muted-foreground">
                                                     <TZLabel time={trace.createdAt} />
                                                 </div>
                                             </div>
                                         </div>
                                         {isTraceExpanded && (
-                                            <div className="border-t bg-bg-light">
+                                            <div className="border-t bg-card">
                                                 <div className="p-3 space-y-2">
                                                     <LLMAnalyticsTraceEvents
                                                         trace={fullTraces[trace.id]}

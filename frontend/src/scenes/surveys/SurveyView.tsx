@@ -120,7 +120,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Delete this survey?',
                                             content: (
-                                                <div className="text-sm text-secondary">
+                                                <div className="text-sm text-muted-foreground">
                                                     This action cannot be undone. All survey data will be permanently
                                                     removed.
                                                 </div>
@@ -195,7 +195,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 LemonDialog.open({
                                                     title: 'Resume this survey?',
                                                     content: (
-                                                        <div className="text-sm text-secondary">
+                                                        <div className="text-sm text-muted-foreground">
                                                             Once resumed, the survey will be visible to your users
                                                             again.
                                                         </div>
@@ -233,7 +233,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     LemonDialog.open({
                                                         title: 'Stop this survey?',
                                                         content: (
-                                                            <div className="text-sm text-secondary">
+                                                            <div className="text-sm text-muted-foreground">
                                                                 The survey will no longer be displayed to users.
                                                             </div>
                                                         ),

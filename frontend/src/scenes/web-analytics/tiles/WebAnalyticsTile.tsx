@@ -363,8 +363,8 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
                 {name}
                 <IconChevronDown
                     fontSize="20px"
-                    className={clsx('-mr-1 ml-1 text-muted-alt opacity-0 group-hover:opacity-100', {
-                        'text-primary opacity-100': isSortedByMyField,
+                    className={clsx('-mr-1 ml-1 text-muted-foreground opacity-0 group-hover:opacity-100', {
+                        'text-foreground opacity-100': isSortedByMyField,
                         'rotate-180': isSortedByMyField && isAscending,
                     })}
                 />
@@ -541,7 +541,7 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick, insightProps, query])
 
     return (
-        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+        <div className="border rounded bg-card flex-1 flex flex-col">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
@@ -576,7 +576,7 @@ export const MarketingAnalyticsTrendTile = ({
         { value: 'roas', label: 'Reported ROAS' },
     ]
     return (
-        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+        <div className="border rounded bg-card flex-1 flex flex-col">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-between m-2 mr-4">
                     <LemonSelect
@@ -671,7 +671,7 @@ export const WebStatsTableTile = ({
     }, [onClick, insightProps, breakdownBy, key, type, query])
 
     return (
-        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+        <div className="border rounded bg-card flex-1 flex flex-col">
             {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
             <Query
                 uniqueKey="WebAnalytics.WebStatsTableTile"
@@ -758,7 +758,7 @@ export const WebGoalsTile = ({
     }
 
     return (
-        <div className="border rounded bg-surface-primary flex-1">
+        <div className="border rounded bg-card flex-1">
             <div className="flex flex-row-reverse p-2">
                 <LemonButton
                     to={urls.actions()}
@@ -797,7 +797,7 @@ export const WebExternalClicksTile = ({
     const isPageReportsPage = productTab === ProductTab.PAGE_REPORTS
 
     return (
-        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+        <div className="border rounded bg-card flex-1 flex flex-col">
             {!isPageReportsPage && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center deprecated-space-x-2">
@@ -877,7 +877,7 @@ export const WebQuery = ({
         // Handle Frustrating Pages tile specifically, which uses WebStatsTableQuery but is not wrapped by a WebAnalyticsTabTile
         if (query.source.breakdownBy === WebStatsBreakdown.FrustrationMetrics) {
             return (
-                <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+                <div className="border rounded bg-card flex-1 flex flex-col py-2 px-1">
                     <Query
                         attachTo={attachTo}
                         query={query}

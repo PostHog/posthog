@@ -46,7 +46,7 @@ export function SceneSection({
                         >
                             {title}
                         </Component>
-                        {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+                        {description && <p className="text-sm text-muted-foreground my-0 max-w-prose">{description}</p>}
                     </div>
                     {actions && <div className="flex gap-x-2 flex-none self-end">{actions}</div>}
                 </div>
@@ -71,11 +71,11 @@ export function SceneSection({
 
                             {titleHelper && (
                                 <ButtonPrimitive tooltip={titleHelper} size="sm">
-                                    <IconInfo className="size-4 text-sm text-secondary" />
+                                    <IconInfo className="size-4 text-sm text-muted-foreground" />
                                 </ButtonPrimitive>
                             )}
                         </Component>
-                        {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
+                        {description && <p className="text-sm text-muted-foreground my-0 max-w-prose">{description}</p>}
                     </div>
                     {actions && <div className="flex gap-x-2 flex-none self-end">{actions}</div>}
                 </div>

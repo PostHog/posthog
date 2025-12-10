@@ -28,8 +28,8 @@ export function WebVitalsTab({ value, metric, isActive, setTab, isLoading }: Web
         <div
             onClick={setTab}
             className={clsx(
-                'flex-1 gap-2 border p-2 bg-surface-primary rounded items-center sm:items-start flex flex-col justify-between cursor-pointer',
-                isActive && 'border-accent border-2'
+                'flex-1 gap-2 border p-2 bg-card rounded items-center sm:items-start flex flex-col justify-between cursor-pointer',
+                isActive && 'border-primary border-2'
             )}
         >
             <div className="text-sm hidden sm:flex w-full flex-row justify-between">
@@ -49,7 +49,7 @@ export function WebVitalsTab({ value, metric, isActive, setTab, isLoading }: Web
                 {isLoading ? (
                     <LemonSkeleton fade className="w-20 h-8" />
                 ) : showNoData ? (
-                    <span className="text-xs text-text-tertiary">No data for this range</span>
+                    <span className="text-xs text-text-muted-foreground">No data for this range</span>
                 ) : (
                     <>
                         <span

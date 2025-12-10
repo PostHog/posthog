@@ -46,7 +46,7 @@ export function FeaturedTemplateCard({
 }: TemplateCardProps): JSX.Element {
     return (
         <button
-            className="relative flex w-full items-center justify-center gap-4 bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors h-full group p-4 cursor-pointer overflow-hidden"
+            className="relative flex w-full items-center justify-center gap-4 bg-card border border-border rounded-lg hover:border-primary focus:border-primary focus:outline-none transition-colors h-full group p-4 cursor-pointer overflow-hidden"
             data-attr="survey-template"
             onClick={() => handleTemplateClick(template)}
         >
@@ -54,7 +54,7 @@ export function FeaturedTemplateCard({
 
             <div className="flex flex-col items-end">
                 <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1 mb-0">{template.templateType}</h3>
-                <p className="text-sm text-secondary leading-relaxed line-clamp-3">{template.description}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3">{template.description}</p>
             </div>
             <div>
                 <div className="transform scale-75 pointer-events-none">
@@ -84,7 +84,7 @@ export function FeaturedTemplateCard({
 export function TemplateCard({ template, idx, handleTemplateClick, surveyAppearance }: TemplateCardProps): JSX.Element {
     return (
         <button
-            className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
+            className="relative flex flex-col bg-card border border-border rounded-lg hover:border-primary focus:border-primary focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
             data-attr="survey-template"
             onClick={() => handleTemplateClick(template)}
         >
@@ -99,7 +99,7 @@ export function TemplateCard({ template, idx, handleTemplateClick, surveyAppeara
                         {template.category || 'General'}
                     </LemonTag>
                 </div>
-                <p className="text-sm text-secondary leading-relaxed line-clamp-3">{template.description}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3">{template.description}</p>
             </div>
 
             <div className="flex-1 flex items-center justify-center">
@@ -153,7 +153,7 @@ export function SurveyTemplates(): JSX.Element {
             <div className="space-y-4">
                 <p className="text-center text-base">
                     Choose a template based on your goal, or{' '}
-                    <Link to={urls.survey('new')} className="text-primary-3000" data-attr="new-blank-survey">
+                    <Link to={urls.survey('new')} className="text-foreground-3000" data-attr="new-blank-survey">
                         start from scratch with a blank survey
                     </Link>
                     .

@@ -213,7 +213,7 @@ const Empty = ({ children }: EmptyProps): JSX.Element | null => {
     }
 
     return context.getVisibleSearchableGroupCount() === 0 ? (
-        <ButtonPrimitive className="text-tertiary text-center" role="alert" menuItem inert>
+        <ButtonPrimitive className="text-muted-foreground text-center" role="alert" menuItem inert>
             {children}
         </ButtonPrimitive>
     ) : null

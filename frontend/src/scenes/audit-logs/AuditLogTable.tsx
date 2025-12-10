@@ -116,7 +116,7 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
     const unprocessed = logItem.unprocessed
 
     if (!unprocessed) {
-        return <div className="p-4 text-muted">No additional details available</div>
+        return <div className="p-4 text-muted-foreground">No additional details available</div>
     }
 
     return (
@@ -124,14 +124,14 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-3">
                     <div>
-                        <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                        <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
                             Description
                         </div>
                         <div className="text-[13px] text-default">{logItem.description}</div>
                     </div>
                     {logItem.extendedDescription && (
                         <div>
-                            <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
                                 Extended Description
                             </div>
                             <div className="text-[13px] text-default">{logItem.extendedDescription}</div>
@@ -139,7 +139,7 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
                     )}
                     {unprocessed.item_id && (
                         <div>
-                            <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
                                 Item ID
                             </div>
                             <div className="text-[13px] text-default">{unprocessed.item_id}</div>
@@ -184,7 +184,7 @@ const ActivityDetailsSection = ({ logItem }: { logItem: HumanizedActivityLogItem
                     label: 'Raw',
                     tooltip: 'Show the raw data of the activity item.',
                     content: (
-                        <div className="bg-surface-primary p-2 rounded border border-border text-sm">
+                        <div className="bg-card p-2 rounded border border-border text-sm">
                             <pre>{JSON.stringify(logItem.unprocessed, null, 2)}</pre>
                         </div>
                     ),
@@ -212,7 +212,7 @@ const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JS
                         )
                     })
                 ) : (
-                    <div className="text-muted">This item has no changes to compare</div>
+                    <div className="text-muted-foreground">This item has no changes to compare</div>
                 )}
             </div>
         </div>
@@ -231,15 +231,15 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
 
     if (beforeStr === afterStr) {
         return (
-            <div className="border rounded p-2 bg-surface-primary">
+            <div className="border rounded p-2 bg-card">
                 <div className="font-medium text-sm mb-1">{field}</div>
-                <div className="text-muted text-xs">No changes detected</div>
+                <div className="text-muted-foreground text-xs">No changes detected</div>
             </div>
         )
     }
 
     return (
-        <div className="border rounded bg-surface-primary">
+        <div className="border rounded bg-card">
             <div className="font-medium text-sm p-2">{field}</div>
             <MonacoDiffEditor
                 original={beforeStr}

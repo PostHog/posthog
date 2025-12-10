@@ -20,34 +20,34 @@
 
     &.LemonRow--status-highlighted {
         font-weight: 600;
-        color: var(--text-3000);
-        background: var(--color-accent-highlight-secondary);
+        color: var(--color-foreground);
+        background: var(--color-primary-muted);
 
         .LemonRow__icon {
-            color: var(--color-accent);
+            color: var(--color-primary);
         }
     }
 
     &.LemonRow--status-danger {
         .LemonRow__icon {
-            color: var(--danger);
+            color: var(--color-destructive-foreground);
         }
     }
 
     &.LemonRow--status-warning {
         .LemonRow__icon {
-            color: var(--warning);
+            color: var(--color-warning-foreground);
         }
     }
 
     &.LemonRow--status-success {
         .LemonRow__icon {
-            color: var(--success);
+            color: var(--color-success-foreground);
         }
     }
 
     &.LemonRow--status-muted {
-        background: var(--color-bg-primary);
+        background: var(--color-background);
     }
 
     &.LemonRow--disabled {
@@ -72,7 +72,7 @@
 }
 
 .LemonRow--outlined {
-    border: 1px solid var(--color-border-primary);
+    border: 1px solid var(--color-border);
 }
 
 .LemonRow--full-width {
@@ -149,7 +149,7 @@
     display: flex;
     flex-shrink: 0;
     font-size: 1.5rem;
-    color: var(--color-text-secondary);
+    color: var(--color-text-muted-foreground);
     transition:
         background-color 200ms ease,
         color 200ms ease;

@@ -46,8 +46,8 @@ test.describe('Use Case Selection Onboarding', () => {
         await expect(page).toHaveURL(/\/products\?useCase=see_user_behavior/)
 
         // Should show recommended products pre-selected
-        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toHaveClass(/border-accent/)
-        await expect(page.locator('[data-attr="session_replay-onboarding-card"]')).toHaveClass(/border-accent/)
+        await expect(page.locator('[data-attr="product_analytics-onboarding-card"]')).toHaveClass(/border-primary/)
+        await expect(page.locator('[data-attr="session_replay-onboarding-card"]')).toHaveClass(/border-primary/)
     })
 
     test('products page shows back button with use case selection', async ({ page }) => {

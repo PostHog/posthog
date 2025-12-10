@@ -4,7 +4,7 @@
 
     .edit-icon {
         font-size: 1rem;
-        color: var(--color-accent);
+        color: var(--color-primary);
         cursor: pointer;
     }
 
@@ -12,9 +12,9 @@
         &.editable {
             cursor: pointer;
 
-            .EntityFilterInfo:not(.text-muted) {
+            .EntityFilterInfo:not(.text-muted-foreground) {
                 font-weight: 500;
-                color: var(--color-accent);
+                color: var(--color-primary);
             }
         }
     }

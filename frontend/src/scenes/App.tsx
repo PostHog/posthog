@@ -76,7 +76,7 @@ function AppScene(): JSX.Element | null {
         return (
             <>
                 <div
-                    className="fixed inset-0 bg-surface-secondary flex flex-col overflow-auto"
+                    className="fixed inset-0 bg-muted flex flex-col overflow-auto"
                     ref={() => {
                         // HACK: Normally DebugNotice removes the HTML-level debug bar, but in this case we don't have the nav rendering DebugNotice
                         document.getElementById('bottom-notice')?.remove()

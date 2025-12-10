@@ -8,12 +8,12 @@
     left: 6px;
     padding: 0 5px;
     font-size: 10px;
-    background-color: var(--color-bg-primary);
+    background-color: var(--color-background);
 }
 
 .SurveyQuestionDragHandle {
     font-size: 1.2em;
-    color: var(--text-3000);
+    color: var(--color-foreground);
     cursor: move;
     transform: rotate(90deg);
 }

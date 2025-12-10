@@ -45,7 +45,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
     [BillingPlan.Free]: {
         title: 'Get the whole hog.',
         subtitle: 'Only pay for what you use.',
-        backgroundColor: 'bg-danger-highlight',
+        backgroundColor: 'bg-destructive',
         getDescription: () => (
             <>
                 <p>Add your credit card to remove usage limits and unlock all platform features.</p>
@@ -184,7 +184,9 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
                     className="float-right w-[33cqw] min-w-32 max-w-48 ml-6 mb-4"
                 />
                 {copyVariation.title && <h1 className="mb-0">{copyVariation.title}</h1>}
-                {copyVariation.subtitle && <h1 className="text-danger leading-tight">{copyVariation.subtitle}</h1>}
+                {copyVariation.subtitle && (
+                    <h1 className="text-destructive-foreground leading-tight">{copyVariation.subtitle}</h1>
+                )}
                 <div className="mt-2">{copyVariation.getDescription(billingPlan, scrollToProduct)}</div>
                 {showUpgradeOptions && (
                     <div className="flex items-center gap-2">

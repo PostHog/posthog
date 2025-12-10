@@ -110,7 +110,9 @@ export function EndpointModal({
 
                     {!isUpdateMode && endpointsFromThisInsight.length > 0 && (
                         <div>
-                            <div className="text-muted mb-2">Endpoints already created from this insight:</div>
+                            <div className="text-muted-foreground mb-2">
+                                Endpoints already created from this insight:
+                            </div>
                             <LemonTable
                                 dataSource={endpointsFromThisInsight}
                                 columns={[
@@ -127,7 +129,7 @@ export function EndpointModal({
                                         key: 'description',
                                         dataIndex: 'description',
                                         render: (_, record) =>
-                                            record.description || <span className="text-muted">—</span>,
+                                            record.description || <span className="text-muted-foreground">—</span>,
                                     },
                                 ]}
                                 size="small"

@@ -52,7 +52,7 @@ function PropertyItem({ name, value, isLast, isPinned = false, onPin, onUnpin }:
                 <PropertyKeyInfo value={name} />
                 <LemonButton noPadding size="small" icon={<Icon />} onClick={onClick} />
             </div>
-            <div className={`${!isLast && 'border-b border-primary pb-1'}`}>
+            <div className={`${!isLast && 'border-b border-border pb-1'}`}>
                 <PropertiesTable properties={value} rootKey={name} type={PropertyDefinitionType.Person} />
             </div>
         </div>

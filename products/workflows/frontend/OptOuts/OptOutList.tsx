@@ -96,7 +96,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
             </div>
             {optOutPersons.count > 20 && (
                 <div className="flex items-center justify-between mt-4 px-2">
-                    <div className="text-sm text-muted">
+                    <div className="text-sm text-muted-foreground">
                         {optOutPersons.count > 0 && (
                             <span>
                                 Showing {showingStart} - {showingEnd} of {optOutPersons.count.toLocaleString()} opt-outs

@@ -66,7 +66,7 @@ export function ProjectMenu({
                     className={cn('max-w-fit min-w-[40px]', iconOnly ? 'min-w-auto' : '', buttonProps.className)}
                 >
                     {iconOnly ? (
-                        <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 dark:text-tertiary">
+                        <div className="Lettermark bg-accent-strong w-5 h-5">
                             {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
                         </div>
                     ) : (
@@ -85,7 +85,7 @@ export function ProjectMenu({
                         <Label intent="menu" className="px-2">
                             Current project
                         </Label>
-                        <div className="my-1 h-px bg-border-primary shrink-0" />
+                        <div className="my-1 h-px bg-border shrink-0" />
 
                         <Combobox.Empty>No projects found</Combobox.Empty>
 
@@ -101,7 +101,7 @@ export function ProjectMenu({
                                         data-attr="tree-navbar-project-dropdown-current-project-button"
                                         className="pr-12"
                                     >
-                                        <IconCheck className="text-tertiary" />
+                                        <IconCheck className="text-muted-foreground" />
                                         <ProjectName team={currentTeam} />
                                     </ButtonPrimitive>
                                 </Combobox.Item>
@@ -117,7 +117,7 @@ export function ProjectMenu({
                                         to={urls.project(currentTeam.id, urls.settings('project'))}
                                         data-attr="tree-navbar-project-dropdown-current-project-settings-button"
                                     >
-                                        <IconGear className="text-tertiary" />
+                                        <IconGear className="text-muted-foreground" />
                                     </Link>
                                 </Combobox.Item>
                             </ButtonGroupPrimitive>
@@ -129,7 +129,7 @@ export function ProjectMenu({
                                     <Label intent="menu" className="px-2 mt-2">
                                         Other projects
                                     </Label>
-                                    <div className="my-1 h-px bg-border-primary shrink-0" />
+                                    <div className="my-1 h-px bg-border shrink-0" />
                                 </>
                             )}
 
@@ -182,7 +182,7 @@ export function ProjectMenu({
                                     </Combobox.Group>
                                 )
                             })}
-                        <div className="my-1 h-px bg-border-primary shrink-0" />
+                        <div className="my-1 h-px bg-border shrink-0" />
                         {preflight?.can_create_org && (
                             <Combobox.Item
                                 asChild
@@ -204,7 +204,7 @@ export function ProjectMenu({
                                     className="shrink-0"
                                     disabled={!!projectCreationForbiddenReason}
                                 >
-                                    <IconPlusSmall className="text-tertiary" />
+                                    <IconPlusSmall className="text-muted-foreground" />
                                     New project
                                 </ButtonPrimitive>
                             </Combobox.Item>

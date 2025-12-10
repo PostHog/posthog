@@ -11,7 +11,7 @@ export function TileOverridesWarning(): JSX.Element | null {
                 </div>
             }
         >
-            <div className="flex items-center gap-1 text-warning">
+            <div className="flex items-center gap-1 text-warning-foreground">
                 <IconWarning /> Tile filters applied
             </div>
         </Tooltip>

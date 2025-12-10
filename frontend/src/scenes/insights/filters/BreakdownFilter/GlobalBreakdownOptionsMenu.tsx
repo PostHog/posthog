@@ -38,7 +38,7 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
                                     </>
                                 }
                             >
-                                <IconInfo className="text-secondary text-xl shrink-0" />
+                                <IconInfo className="text-muted-foreground text-xl shrink-0" />
                             </Tooltip>
                         </div>
                     }

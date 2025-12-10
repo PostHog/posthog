@@ -317,7 +317,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         variant: 'default',
                         size: 'lg',
                     }),
-                    'flex flex-wrap gap-1 focus-within:border-secondary items-center rounded-lg py-1',
+                    'flex flex-wrap gap-1 focus-within:border-border-strong items-center rounded-lg py-1',
                     isFocused && 'animate-input-focus-pulse'
                 )}
             >
@@ -334,7 +334,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         >
                             <IconSearch className="size-4" />
                         </ButtonPrimitive>
-                        <IconChevronRight className="size-3 text-tertiary" />
+                        <IconChevronRight className="size-3 text-muted-foreground" />
                     </>
                 ) : (
                     <div className={cn('relative')}>
@@ -348,7 +348,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                 <DropdownMenuTrigger asChild>
                                     <ButtonPrimitive
                                         variant="outline"
-                                        className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary hover:border-secondary data-[state=open]:border-secondary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
+                                        className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-muted-foreground hover:border-border-strong data-[state=open]:border-border-strong ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
                                         iconOnly
                                         size="sm"
                                         tooltip={
@@ -367,7 +367,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
 
                                 {/* Mobile layout: show a small dot on the top right of the dropdown button if there are selected commands */}
                                 {isMobileLayout && (selectedCommands.length === 1 || expandedTags) && (
-                                    <div className="absolute -top-0.5 -right-0.5 size-2 bg-accent rounded-full pointer-events-none" />
+                                    <div className="absolute -top-0.5 -right-0.5 size-2 bg-primary rounded-full pointer-events-none" />
                                 )}
                             </div>
 
@@ -417,7 +417,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                                         />
                                                     </div>
 
-                                                    <div className="font-medium text-primary">
+                                                    <div className="font-medium text-foreground">
                                                         {command.displayName}
                                                     </div>
                                                 </ButtonPrimitive>
@@ -431,20 +431,20 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 )}
 
                 {explorerBreadcrumbs?.length ? (
-                    <div className="flex flex-wrap items-center gap-1 pr-1 text-xs font-medium text-primary">
+                    <div className="flex flex-wrap items-center gap-1 pr-1 text-xs font-medium text-foreground">
                         {explorerBreadcrumbs.map((crumb, index) => (
                             <React.Fragment key={`${crumb.path}-${index}`}>
                                 <ButtonPrimitive
                                     size="sm"
                                     variant="outline"
-                                    className="text-primary max-w-[150px] truncate"
+                                    className="text-foreground max-w-[150px] truncate"
                                     onClick={() => onExplorerBreadcrumbClick?.(crumb.path)}
                                     onMouseDown={(event) => event.preventDefault()}
                                 >
                                     {crumb.label || 'Untitled'}
                                 </ButtonPrimitive>
                                 {index < explorerBreadcrumbs.length - 1 && (
-                                    <IconChevronRight className="size-3 text-tertiary" />
+                                    <IconChevronRight className="size-3 text-muted-foreground" />
                                 )}
                             </React.Fragment>
                         ))}
@@ -458,7 +458,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     selectedCommands.map((command, index) => (
                         <ButtonPrimitive
                             key={command.value as string}
-                            className={`text-primary ${focusedTagIndex === index ? 'ring-2 ring-accent' : ''}`}
+                            className={`text-foreground ${focusedTagIndex === index ? 'ring-2 ring-accent' : ''}`}
                             size="sm"
                             variant="outline"
                             onClick={(e) => {
@@ -472,18 +472,18 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                             tabIndex={-1}
                         >
                             {command.displayName}
-                            <IconX className="size-3 ml-1 text-tertiary" />
+                            <IconX className="size-3 ml-1 text-muted-foreground" />
                         </ButtonPrimitive>
                     ))
                 ) : (
                     <ButtonPrimitive
-                        className="text-primary"
+                        className="text-foreground"
                         size="sm"
                         variant="outline"
                         onClick={() => setShowDropdown(true)}
                     >
                         {selectedCommands.length} filters
-                        <IconChevronRight className="ml-1 rotate-90 text-tertiary" />
+                        <IconChevronRight className="ml-1 rotate-90 text-muted-foreground" />
                     </ButtonPrimitive>
                 )}
 

@@ -171,7 +171,7 @@ export function Login(): JSX.Element {
                             </LemonButton>
                         </div>
                         <div className="text-center">
-                            <Link onClick={() => clearGeneralError()} className="text-muted">
+                            <Link onClick={() => clearGeneralError()} className="text-muted-foreground">
                                 Back to login
                             </Link>
                         </div>

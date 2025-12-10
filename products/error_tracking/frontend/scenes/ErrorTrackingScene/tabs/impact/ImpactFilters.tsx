@@ -16,7 +16,7 @@ const InitialState = (): JSX.Element => {
     return (
         <div className="flex flex-col items-center text-center py-12">
             <h2 className="text-xl font-bold">Understand the impact of issues</h2>
-            <div className="text-sm text-secondary mb-2">
+            <div className="text-sm text-muted-foreground mb-2">
                 See what issues are causing the most impact on your conversion, activation or any other event you're
                 tracking in PostHog.
             </div>
@@ -46,7 +46,9 @@ const EventSelector = ({ multiple }: { multiple: boolean }): JSX.Element => {
             renderValue={(value) => (
                 <div className="flex gap-x-1">
                     <PropertyKeyInfo value={value} disablePopover type={TaxonomicFilterGroupType.Events} />
-                    {events!.length > 1 ? <span className="text-muted">+ {events!.length - 1} more</span> : null}
+                    {events!.length > 1 ? (
+                        <span className="text-muted-foreground">+ {events!.length - 1} more</span>
+                    ) : null}
                 </div>
             )}
         />

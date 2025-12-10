@@ -225,7 +225,7 @@ export function MetricRowGroup({
                 <td
                     className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
                         !isLastMetric ? 'border-b' : ''
-                    } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                    } ${isAlternatingRow ? 'bg-bg-table' : 'bg-card'}`}
                     style={{
                         height: `${CELL_HEIGHT}px`,
                         maxHeight: `${CELL_HEIGHT}px`,
@@ -245,7 +245,7 @@ export function MetricRowGroup({
                 {/* Combined columns for loading/error state */}
                 <td
                     colSpan={5}
-                    className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                    className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-card'} ${
                         !isLastMetric ? 'border-b' : ''
                     }`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
@@ -271,7 +271,7 @@ export function MetricRowGroup({
 
     const ratioMetricLabel = (variant: ExperimentStatsBaseValidated, metric: ExperimentMetric): JSX.Element => {
         return (
-            <div className="text-xs text-muted">
+            <div className="text-xs text-muted-foreground">
                 {(() => {
                     const { numerator, denominator } = getMetricSubtitleValues(variant, metric)
                     return (
@@ -292,7 +292,7 @@ export function MetricRowGroup({
                 createPortal(
                     <div
                         ref={tooltipRef}
-                        className="fixed bg-bg-light border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px]"
+                        className="fixed bg-card border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px]"
                         style={{
                             left: tooltipState.position.x,
                             top: tooltipState.position.y,
@@ -311,7 +311,7 @@ export function MetricRowGroup({
             >
                 {/* Metric column - with rowspan */}
                 <td
-                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-card'}`}
                     rowSpan={totalRows}
                     style={{
                         height: `${CELL_HEIGHT * totalRows}px`,
@@ -332,7 +332,7 @@ export function MetricRowGroup({
                 {/* Variant name */}
                 <td
                     className={`w-20 pt-1 pl-3 pr-3 pb-1 whitespace-nowrap overflow-hidden ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
@@ -342,7 +342,7 @@ export function MetricRowGroup({
                 {/* Value */}
                 <td
                     className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
@@ -355,7 +355,7 @@ export function MetricRowGroup({
                 {/* Change (empty for baseline) */}
                 <td
                     className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
@@ -365,7 +365,7 @@ export function MetricRowGroup({
                 {/* Details column - with rowspan */}
                 <td
                     className={`pt-3 align-top relative overflow-hidden border-b ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                        isAlternatingRow ? 'bg-muted' : 'bg-card'
                     }`}
                     rowSpan={totalRows}
                     style={{
@@ -392,7 +392,7 @@ export function MetricRowGroup({
                 {/* Chart (grid lines only for baseline) */}
                 <td
                     className={`p-0 align-top text-center relative overflow-hidden ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
@@ -417,7 +417,7 @@ export function MetricRowGroup({
                             </svg>
                         </div>
                     ) : (
-                        <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-xs">—</div>
                     )}
                 </td>
             </tr>
@@ -442,7 +442,7 @@ export function MetricRowGroup({
                         {/* Variant name */}
                         <td
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
@@ -452,7 +452,7 @@ export function MetricRowGroup({
                         {/* Value */}
                         <td
                             className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
@@ -465,7 +465,7 @@ export function MetricRowGroup({
                         {/* Delta */}
                         <td
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
@@ -475,14 +475,16 @@ export function MetricRowGroup({
                                         significant
                                             ? winning
                                                 ? 'metric-cell text-success font-bold'
-                                                : 'metric-cell text-danger font-bold'
+                                                : 'metric-cell text-destructive-foreground font-bold'
                                             : 'metric-cell'
                                     }`}
                                 >
                                     {deltaText}
                                 </span>
                                 {significant && deltaPositive !== undefined && (
-                                    <span className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}>
+                                    <span
+                                        className={`flex-shrink-0 ${winning ? 'text-success' : 'text-destructive-foreground'}`}
+                                    >
                                         {deltaPositive ? (
                                             <IconTrending className="w-4 h-4" />
                                         ) : (
@@ -511,7 +513,7 @@ export function MetricRowGroup({
             {/* Breakdown tags */}
             {(metric.breakdownFilter?.breakdowns || []).length > 0 && (
                 <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0 border-l-5 border-r-5">
-                    <td colSpan={6} className={`border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
+                    <td colSpan={6} className={`border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-card'}`}>
                         <div className="flex items-center h-full text-xs p-3 gap-2">
                             {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
                                 <BreakdownTag
@@ -542,7 +544,7 @@ export function MetricRowGroup({
                         >
                             {/* Metric column - always visible */}
                             <td
-                                className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${isAlternatingRow ? 'bg-muted' : 'bg-card'}`}
                             >
                                 {formatBreakdownLabel(
                                     breakdownResult.breakdown_value,
@@ -557,7 +559,7 @@ export function MetricRowGroup({
                             {/* Combined columns for loading/error state */}
                             <td
                                 colSpan={5}
-                                className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                className={`p-3 text-center ${isAlternatingRow ? 'bg-muted' : 'bg-card'}`}
                                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                             >
                                 {isLoading || exposuresLoading ? (
@@ -583,7 +585,7 @@ export function MetricRowGroup({
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             <td
-                                className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden border-b ${isAlternatingRow ? 'bg-muted' : 'bg-card'}`}
                                 rowSpan={totalRows}
                                 style={{
                                     height: `${CELL_HEIGHT * totalRows}px`,
@@ -603,7 +605,7 @@ export function MetricRowGroup({
                             {/* Variant name */}
                             <td
                                 className={`w-20 pt-1 pl-3 pr-3 pb-1 whitespace-nowrap overflow-hidden ${
-                                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                    isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                                 } ${variantResults.length === 0 ? 'border-b' : ''}`}
                                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                             >
@@ -613,7 +615,7 @@ export function MetricRowGroup({
                             {/* Value */}
                             <td
                                 className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                    isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                                 } ${variantResults.length === 0 ? 'border-b' : ''}`}
                                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                             >
@@ -626,7 +628,7 @@ export function MetricRowGroup({
                             {/* Change (empty for baseline) */}
                             <td
                                 className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                    isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                                 } ${variantResults.length === 0 ? 'border-b' : ''}`}
                                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                             >
@@ -636,7 +638,7 @@ export function MetricRowGroup({
                             {/* Details column - with rowspan */}
                             <td
                                 className={`pt-3 align-top relative overflow-hidden border-b ${
-                                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                    isAlternatingRow ? 'bg-muted' : 'bg-card'
                                 }`}
                                 rowSpan={totalRows}
                                 style={{
@@ -648,7 +650,7 @@ export function MetricRowGroup({
                             {/* Chart (grid lines only for baseline) */}
                             <td
                                 className={`p-0 align-top text-center relative overflow-hidden ${
-                                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                    isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                                 } ${variantResults.length === 0 ? 'border-b' : ''}`}
                                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                             >
@@ -673,7 +675,9 @@ export function MetricRowGroup({
                                         </svg>
                                     </div>
                                 ) : (
-                                    <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
+                                    <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
+                                        —
+                                    </div>
                                 )}
                             </td>
                         </tr>
@@ -697,7 +701,7 @@ export function MetricRowGroup({
                                     {/* Variant name */}
                                     <td
                                         className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                            isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                            isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                                         } ${isLastRow ? 'border-b' : ''}`}
                                         style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                                     >
@@ -707,7 +711,7 @@ export function MetricRowGroup({
                                     {/* Value */}
                                     <td
                                         className={`w-24 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                            isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                            isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                                         } ${isLastRow ? 'border-b' : ''}`}
                                         style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                                     >
@@ -720,7 +724,7 @@ export function MetricRowGroup({
                                     {/* Delta */}
                                     <td
                                         className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                            isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                            isAlternatingRow ? 'bg-bg-table' : 'bg-card'
                                         } ${isLastRow ? 'border-b' : ''}`}
                                         style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                                     >
@@ -730,7 +734,7 @@ export function MetricRowGroup({
                                                     significant
                                                         ? winning
                                                             ? 'metric-cell text-success font-bold'
-                                                            : 'metric-cell text-danger font-bold'
+                                                            : 'metric-cell text-destructive-foreground font-bold'
                                                         : 'metric-cell'
                                                 }`}
                                             >
@@ -738,7 +742,7 @@ export function MetricRowGroup({
                                             </span>
                                             {significant && deltaPositive !== undefined && (
                                                 <span
-                                                    className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}
+                                                    className={`flex-shrink-0 ${winning ? 'text-success' : 'text-destructive-foreground'}`}
                                                 >
                                                     {deltaPositive ? (
                                                         <IconTrending className="w-4 h-4" />

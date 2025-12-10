@@ -48,7 +48,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                     </>
                                 }
                             >
-                                <IconInfo className="text-xl text-secondary ml-1 shrink-0" />
+                                <IconInfo className="text-xl text-muted-foreground ml-1 shrink-0" />
                             </Tooltip>
                         </div>
                     }

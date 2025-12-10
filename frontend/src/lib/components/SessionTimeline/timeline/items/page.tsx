@@ -26,7 +26,12 @@ export const pageRenderer: ItemRenderer<PageItem> = {
             <BasePreview
                 name="Pageview"
                 description={
-                    <Link className="text-secondary hover:text-accent" subtle to={item.payload.url} target="_blank">
+                    <Link
+                        className="text-muted-foreground hover:text-accent"
+                        subtle
+                        to={item.payload.url}
+                        target="_blank"
+                    >
                         {getUrlPathname(item.payload.url)}
                     </Link>
                 }

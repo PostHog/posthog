@@ -52,11 +52,11 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
     const projectedCost = parseFloat(tier.projected_amount_usd || '0')
 
     return (
-        <div className="border rounded-lg p-4 bg-bg-light hover:bg-bg-3000 transition-colors">
+        <div className="border rounded-lg p-4 bg-card hover:bg-card transition-colors">
             <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                     <div className="font-medium text-sm mb-1">{tierName}</div>
-                    <div className="text-xs text-muted">
+                    <div className="text-xs text-muted-foreground">
                         {unitPrice === 0 ? (
                             'Free tier'
                         ) : (
@@ -68,7 +68,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
                 </div>
                 <div className="text-right">
                     <div className="text-xl font-semibold">${currentCost.toFixed(2)}</div>
-                    <div className="text-xs text-muted">{compactNumber(tier.current_usage)} rows</div>
+                    <div className="text-xs text-muted-foreground">{compactNumber(tier.current_usage)} rows</div>
                 </div>
             </div>
 
@@ -83,7 +83,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             width: `${currentPercentage}%`,
-                            background: 'var(--brand-blue)',
+                            background: 'var(--color-brand-blue)',
                             transitionTimingFunction: 'cubic-bezier(0.15, 0.15, 0.2, 1)',
                         }}
                     />
@@ -114,7 +114,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
                         <span
                             className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ background: 'var(--brand-blue)' }}
+                            style={{ background: 'var(--color-brand-blue)' }}
                         />
                         <span className="font-medium">{compactNumber(tier.current_usage)} rows</span>
                     </div>
@@ -128,7 +128,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
                                         'repeating-linear-gradient(-45deg, var(--data-color-1), var(--data-color-1) 0.125rem, var(--data-color-1-hover) 0.125rem, var(--data-color-1-hover) 0.25rem)',
                                 }}
                             />
-                            <span className="text-muted">
+                            <span className="text-muted-foreground">
                                 Projected: {compactNumber(tier.projected_usage || 0)} rows · ${projectedCost.toFixed(2)}
                             </span>
                         </div>
@@ -141,7 +141,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
 
 export function DataWarehouseTierBreakdown({ product }: { product: BillingProductV2Type }): JSX.Element {
     if (!product.tiers || product.tiers.length === 0) {
-        return <div className="text-muted">No tier data available</div>
+        return <div className="text-muted-foreground">No tier data available</div>
     }
 
     return (

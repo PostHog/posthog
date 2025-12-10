@@ -109,7 +109,7 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
                     <ul className="space-y-0.5 text-sm *:flex *:items-start">
                         {Object.entries(toolsByProduct).map(([product, tools]) => (
                             <li key={product}>
-                                <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
+                                <IconArrowRight className="text-base text-muted-foreground shrink-0 ml-1 mr-2 h-[1.25em]" />
                                 <span>
                                     <em>
                                         In {sceneConfigurations[product as Scene]?.name || identifierToHuman(product)}
@@ -209,7 +209,7 @@ export function ModeSelector(): JSX.Element {
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}
             menu={{ className: 'min-w-48' }}
-            className="flex-shrink-0 border [&>span]:text-secondary"
+            className="flex-shrink-0 border [&>span]:text-muted-foreground"
         />
     )
 }

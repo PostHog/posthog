@@ -134,7 +134,7 @@ export function WorkflowsTable(): JSX.Element {
             width: 0,
             render: (_, item) => {
                 if (!item.created_by) {
-                    return <span className="text-muted">Unknown</span>
+                    return <span className="text-muted-foreground">Unknown</span>
                 }
                 return (
                     <div className="flex items-center gap-2">

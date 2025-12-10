@@ -42,10 +42,7 @@ export function HogFunctionCode(): JSX.Element {
     const content = (
         <div
             ref={sourceCodeRef}
-            className={clsx(
-                'p-3 rounded border deprecated-space-y-2',
-                showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
-            )}
+            className={clsx('p-3 rounded border deprecated-space-y-2', showSource ? 'bg-card' : 'bg-muted')}
         >
             <div className="flex gap-2 justify-end items-center">
                 <div className="flex-1 deprecated-space-y-2">
@@ -88,7 +85,7 @@ export function HogFunctionCode(): JSX.Element {
                     {({ value, onChange }) => (
                         <>
                             {!type.startsWith('site_') ? (
-                                <span className="text-xs text-secondary">
+                                <span className="text-xs text-muted-foreground">
                                     This is the underlying Hog code that will run whenever this triggers.{' '}
                                     <Link to="https://posthog.com/docs/hog">See the docs</Link> for more info
                                 </span>

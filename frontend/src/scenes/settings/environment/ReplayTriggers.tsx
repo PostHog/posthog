@@ -158,7 +158,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                                     </>
                                 }
                             >
-                                <IconInfo className="text-muted-alt cursor-help" />
+                                <IconInfo className="text-muted-foreground cursor-help" />
                             </Tooltip>
                         </LemonLabel>
                         <AccessControlAction
@@ -214,7 +214,7 @@ function UrlConfigForm({
             logic={replayTriggersLogic}
             formKey={type === 'trigger' ? 'proposedUrlTrigger' : 'proposedUrlBlocklist'}
             enableFormOnSubmit
-            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-surface-primary gap-2"
+            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-card gap-2"
         >
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
@@ -229,10 +229,10 @@ function UrlConfigForm({
                     </LemonField>
                 </LemonLabel>
                 {type === 'trigger' && urlTriggerInputValidationWarning && (
-                    <span className="text-danger">{urlTriggerInputValidationWarning}</span>
+                    <span className="text-destructive-foreground">{urlTriggerInputValidationWarning}</span>
                 )}
                 {type === 'blocklist' && urlBlocklistInputValidationWarning && (
-                    <span className="text-danger">{urlBlocklistInputValidationWarning}</span>
+                    <span className="text-destructive-foreground">{urlBlocklistInputValidationWarning}</span>
                 )}
             </div>
             <div className="flex justify-between gap-2 w-full">
@@ -294,7 +294,7 @@ function UrlConfigRow({
 }): JSX.Element {
     if (editIndex === index) {
         return (
-            <div className="border rounded p-2 bg-surface-primary">
+            <div className="border rounded p-2 bg-card">
                 <UrlConfigForm type={type} onCancel={() => onEdit(-1)} isSubmitting={false} />
             </div>
         )
@@ -302,7 +302,7 @@ function UrlConfigRow({
 
     return (
         <div
-            className={cn('border rounded flex items-center p-2 pl-4 bg-surface-primary', {
+            className={cn('border rounded flex items-center p-2 pl-4 bg-card', {
                 'border-success': checkUrlResult === true,
                 'border-danger': checkUrlResult === false,
             })}
@@ -314,7 +314,7 @@ function UrlConfigRow({
                     <span
                         className={cn('ml-2 text-xs', {
                             'text-success': checkUrlResult === true,
-                            'text-danger': checkUrlResult === false,
+                            'text-destructive-foreground': checkUrlResult === false,
                         })}
                     >
                         {checkUrlResult ? (
@@ -422,7 +422,7 @@ function UrlConfigSection({
             )}
 
             {!props.isAddFormVisible && props.config && props.config.length > 0 && (
-                <div className="border rounded p-3 bg-surface-primary">
+                <div className="border rounded p-3 bg-card">
                     <LemonLabel className="text-sm font-medium mb-2 block">
                         Test a URL against these patterns:
                     </LemonLabel>
@@ -434,11 +434,13 @@ function UrlConfigSection({
                         className="mb-2"
                     />
                     {checkUrl && (
-                        <div className="text-xs text-muted">
+                        <div className="text-xs text-muted-foreground">
                             {Object.values(checkUrlResults).some(Boolean) ? (
                                 <span className="text-success">✓ This URL matches at least one pattern</span>
                             ) : (
-                                <span className="text-danger">✗ This URL doesn't match any patterns</span>
+                                <span className="text-destructive-foreground">
+                                    ✗ This URL doesn't match any patterns
+                                </span>
                             )}
                         </div>
                     )}
@@ -943,11 +945,11 @@ export function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatfor
                             {trigger.enabled ? (
                                 <IconCheck className="text-success" />
                             ) : (
-                                <IconCircleDashed className="text-muted" />
+                                <IconCircleDashed className="text-muted-foreground" />
                             )}
-                            <span className={trigger.enabled ? '' : 'text-muted'}>
+                            <span className={trigger.enabled ? '' : 'text-muted-foreground'}>
                                 {trigger.label}
-                                {trigger.detail && <span className="text-muted"> ({trigger.detail})</span>}
+                                {trigger.detail && <span className="text-muted-foreground"> ({trigger.detail})</span>}
                             </span>
                         </div>
                     ))}

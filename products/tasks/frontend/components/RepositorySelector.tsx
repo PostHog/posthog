@@ -35,7 +35,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
 
     if (integrationsLoading) {
         return (
-            <div className="flex items-center gap-2 p-4 border rounded bg-bg-light">
+            <div className="flex items-center gap-2 p-4 border rounded bg-card">
                 <Spinner /> Loading GitHub integrations...
             </div>
         )
@@ -45,10 +45,10 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
         return (
             <LemonCard className="p-6 text-center">
                 <div className="space-y-4 flex flex-col items-center">
-                    <IconCode className="mx-auto text-4xl text-muted" />
+                    <IconCode className="mx-auto text-4xl text-muted-foreground" />
                     <div>
                         <h3 className="font-medium">Connect GitHub</h3>
-                        <p className="text-muted text-sm">
+                        <p className="text-muted-foreground text-sm">
                             Connect your GitHub account to create tasks from repositories.
                         </p>
                     </div>
@@ -116,7 +116,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
             )}
 
             {githubRepositoriesLoading && availableRepos.length === 0 && (
-                <div className="flex items-center gap-2 text-muted">
+                <div className="flex items-center gap-2 text-muted-foreground">
                     <Spinner /> Loading repositories...
                 </div>
             )}

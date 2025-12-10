@@ -56,7 +56,7 @@ export function LLMASessionFeedbackDisplay({ sessionId }: LLMASessionFeedbackDis
                         <span key={`feedback-group-${index}`} className="contents">
                             <LemonTag
                                 size="medium"
-                                className="bg-surface-primary"
+                                className="bg-card"
                                 type={getFeedbackTagType(feedback.rating)}
                                 title={`Feedback: ${feedback.rating}`}
                             >
@@ -66,7 +66,7 @@ export function LLMASessionFeedbackDisplay({ sessionId }: LLMASessionFeedbackDis
                             </LemonTag>
                             <LemonTag
                                 size="medium"
-                                className="bg-surface-primary"
+                                className="bg-card"
                                 type="muted"
                                 title={`Trigger: ${feedback.triggerType}`}
                             >
@@ -87,7 +87,7 @@ export function LLMASessionFeedbackDisplay({ sessionId }: LLMASessionFeedbackDis
                         >
                             <LemonTag
                                 size="medium"
-                                className="bg-surface-primary"
+                                className="bg-card"
                                 icon={<IconSupport />}
                                 title={`Support ticket: ${ticket.ticketId}`}
                             >

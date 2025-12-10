@@ -52,7 +52,9 @@ export function MetricsTable({
     if (metrics.length === 0) {
         return (
             <div className="p-8 text-center border rounded-md">
-                <div className="text-muted">No {isSecondary ? 'secondary' : 'primary'} metrics configured</div>
+                <div className="text-muted-foreground">
+                    No {isSecondary ? 'secondary' : 'primary'} metrics configured
+                </div>
             </div>
         )
     }

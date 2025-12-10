@@ -106,7 +106,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 ) : (
                     <div className="deprecated-space-y-4">
-                        <div className="flex flex-wrap items-center gap-2 text-secondary">
+                        <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
                             <div>{isProperty ? 'Property' : 'Event'} name:</div>
                             <LemonTag className="font-mono">{editDefinition.name}</LemonTag>
                         </div>

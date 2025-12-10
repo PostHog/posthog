@@ -51,7 +51,7 @@ export const MetricCard = ({ metric, metricContext, onDelete, filterTestAccounts
     }
 
     return (
-        <div className="border rounded bg-surface-primary p-4">
+        <div className="border rounded bg-card p-4">
             <div className="space-y-3">
                 <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0 gap-2">

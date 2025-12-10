@@ -52,7 +52,7 @@ const StatusPageAlert = (): JSX.Element | null => {
     const description = useIncidentIo ? incidentIoDescription : statusPage?.status.description || 'Active incident'
 
     const severityClass = status.includes('outage')
-        ? 'bg-danger-highlight border-danger'
+        ? 'bg-destructive border-danger'
         : 'bg-warning-highlight border-warning'
 
     return (
@@ -195,7 +195,7 @@ const SupportResponseTimesTable = ({
     ]
 
     return (
-        <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 bg-surface-primary mb-2">
+        <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 bg-card mb-2">
             {plansToDisplay.map((plan, index) => {
                 const isBold = plan.current_plan
 
@@ -210,10 +210,12 @@ const SupportResponseTimesTable = ({
                             <span className={`${isCompact ? '' : 'text-sm'}`}>
                                 {plan.name}
                                 {plan.legacy_product && (
-                                    <span className="text-muted text-xs font-normal"> (legacy)</span>
+                                    <span className="text-muted-foreground text-xs font-normal"> (legacy)</span>
                                 )}
                                 {isBold && ' '}
-                                {isBold && <span className="text-muted text-xs font-normal">(your plan)</span>}
+                                {isBold && (
+                                    <span className="text-muted-foreground text-xs font-normal">(your plan)</span>
+                                )}
                             </span>
                         </div>
                         <div
@@ -237,7 +239,7 @@ const SupportResponseTimesTable = ({
             {/* Display expired trial information */}
             {!(hasBoostTrial || hasScaleTrial || hasEnterpriseTrial) && hasExpiredTrial && expiredTrialDate && (
                 <>
-                    <div className="border-t text-muted col-span-2">Trial expired</div>
+                    <div className="border-t text-muted-foreground col-span-2">Trial expired</div>
                 </>
             )}
 
@@ -318,7 +320,7 @@ export function SidePanelSupport(): JSX.Element {
                 <br />
 
                 {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
-                    <div className="border bg-surface-primary p-2 rounded gap-2">
+                    <div className="border bg-card p-2 rounded gap-2">
                         <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
                         <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
                     </div>

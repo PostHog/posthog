@@ -136,8 +136,8 @@ export function ReplChunk({
             )}
             {status === 'error' && (
                 <div className="flex items-start mt-2">
-                    <span className="text-danger">!</span>
-                    <div className="flex-1 whitespace-pre-wrap ml-2 text-danger">{error}</div>
+                    <span className="text-destructive-foreground">!</span>
+                    <div className="flex-1 whitespace-pre-wrap ml-2 text-destructive-foreground">{error}</div>
                 </div>
             )}
         </div>

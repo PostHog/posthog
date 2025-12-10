@@ -27,7 +27,7 @@ export function ResolutionView(): JSX.Element {
                 </>
             }
         >
-            <span className="text-secondary text-xs flex flex-row items-center gap-x-1">
+            <span className="text-muted-foreground text-xs flex flex-row items-center gap-x-1">
                 <span>{resolutionDisplay}</span>
                 <span>({scaleDisplay})</span>
             </span>
@@ -40,7 +40,7 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
     const { sessionPerson } = useValues(playerMetaLogic(logicProps))
 
     return (
-        <div className="flex flex-col overflow-auto bg-primary px-2 py-1 h-full deprecated-space-y-1">
+        <div className="flex flex-col overflow-auto bg-card px-2 py-1 h-full deprecated-space-y-1">
             <div className="flex flex-row justify-between items-center gap-2 min-w-0">
                 <div className="min-w-0 flex-1">
                     <PersonDisplay person={sessionPerson} withIcon withCopyButton placement="bottom" />

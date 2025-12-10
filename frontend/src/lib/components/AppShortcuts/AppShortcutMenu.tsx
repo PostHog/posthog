@@ -21,14 +21,14 @@ function getShortcutIcon(shortcut: AppShortcutType): JSX.Element | null {
         case 'focus':
             return (
                 <div className="flex items-center gap-1 size-4">
-                    <IconArrowRight className="w-4 h-4 text-muted" />
+                    <IconArrowRight className="w-4 h-4 text-muted-foreground" />
                 </div>
             )
         case 'click':
         default:
             return (
                 <div className="flex items-center gap-1 size-4">
-                    <IconArrowRight className="w-4 h-4 text-muted" />
+                    <IconArrowRight className="w-4 h-4 text-muted-foreground" />
                 </div>
             )
     }
@@ -190,7 +190,7 @@ export function AppShortcutMenu(): JSX.Element | null {
     const paletteContent = (
         <div className="fixed inset-0 z-[var(--z-shortcut-menu)] flex items-end justify-center p-6 backdrop-blur-[var(--modal-backdrop-blur)]">
             <div
-                className="bg-surface-secondary border-3 border-tertiary rounded-lg shadow-2xl w-96 max-h-[calc(100vh-(var(--spacing)*6))] overflow-x-hidden overflow-y-auto backdrop-blur-sm"
+                className="bg-muted border-3 border-border-strong rounded-lg shadow-2xl w-96 max-h-[calc(100vh-(var(--spacing)*6))] overflow-x-hidden overflow-y-auto backdrop-blur-sm"
                 id="app-shortcut-menu"
                 onKeyDown={handleKeyDown}
             >

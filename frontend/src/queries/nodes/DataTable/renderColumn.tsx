@@ -82,7 +82,7 @@ export function renderColumn(
     if (value === loadingColumn) {
         return <Spinner />
     } else if (value === errorColumn) {
-        return <LemonTag className="text-danger">Error</LemonTag>
+        return <LemonTag className="text-destructive-foreground">Error</LemonTag>
     } else if (queryContextColumnName && queryContextColumn?.render) {
         const Component = queryContextColumn?.render
         return (
@@ -376,7 +376,7 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--color-accent)' }}
+                iconStyle={{ color: 'var(--color-primary)' }}
                 description="person id"
             >
                 {String(value)}
@@ -386,7 +386,7 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--color-accent)' }}
+                iconStyle={{ color: 'var(--color-primary)' }}
                 description="group id"
             >
                 {String(value)}

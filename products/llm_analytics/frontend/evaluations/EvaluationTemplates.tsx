@@ -50,16 +50,16 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
 
     return (
         <button
-            className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left group p-6 cursor-pointer min-h-[180px]"
+            className="relative flex flex-col bg-card border border-border rounded-lg hover:border-border-3000-hover focus:border-border-3000-hover focus:outline-none transition-colors text-left group p-6 cursor-pointer min-h-[180px]"
             data-attr={isBlank ? 'blank-evaluation-template' : `evaluation-template-${template.key}`}
             onClick={handleClick}
         >
             <div className="flex flex-col items-center text-center gap-4 h-full">
                 <div className="bg-primary-3000/10 rounded-lg p-3 flex-shrink-0">
                     {isBlank ? (
-                        <IconPlus className="w-6 h-6 text-primary-3000" />
+                        <IconPlus className="w-6 h-6 text-foreground-3000" />
                     ) : (
-                        <div className="text-primary-3000">{getTemplateIcon(template.icon)}</div>
+                        <div className="text-foreground-3000">{getTemplateIcon(template.icon)}</div>
                     )}
                 </div>
                 <div className="flex-1 flex flex-col justify-start">
@@ -73,7 +73,7 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
                             </LemonTag>
                         )}
                     </div>
-                    <p className="text-sm text-secondary leading-relaxed">
+                    <p className="text-sm text-muted-foreground leading-relaxed">
                         {isBlank
                             ? 'Build a custom evaluation with your own prompt and configuration'
                             : template.description}
@@ -115,7 +115,7 @@ function TemplateGrid({
                 <div className="space-y-8">
                     <div className="text-center space-y-3">
                         <h1 className="text-3xl font-bold">{title}</h1>
-                        <p className="text-base text-secondary max-w-2xl mx-auto">{description}</p>
+                        <p className="text-base text-muted-foreground max-w-2xl mx-auto">{description}</p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

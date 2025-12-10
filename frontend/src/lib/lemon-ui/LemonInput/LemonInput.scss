@@ -10,12 +10,12 @@
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
-    color: var(--text-3000);
+    color: var(--color-foreground);
     text-align: left;
     cursor: text;
     background: none;
-    background-color: var(--color-bg-fill-input);
-    border: 1px solid var(--color-border-primary);
+    background-color: var(--color-card);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
 
     &[aria-disabled='true'] {
@@ -24,7 +24,7 @@
 
     &:hover:not([aria-disabled='true']),
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--color-border-secondary);
+        border-color: var(--color-border-strong);
     }
 
     &.LemonInput--transparent-background {
@@ -33,7 +33,7 @@
 
     .Field--error &:not(.ignore-error-border),
     &.LemonInput--status-danger {
-        border-color: var(--danger) !important; // The error border overrides hover/focus higlighting
+        border-color: var(--color-border-destructive) !important; // The error border overrides hover/focus higlighting
     }
 
     .LemonInput__input {
@@ -56,7 +56,7 @@
         width: 1em;
         height: 1em;
         font-size: 1.25rem;
-        color: var(--color-text-secondary);
+        color: var(--color-muted-foreground);
         transition: color 200ms ease;
     }
 
@@ -90,7 +90,7 @@
 
     &.LemonInput--has-content {
         > .LemonIcon {
-            color: var(--color-accent);
+            color: var(--color-primary);
         }
     }
 

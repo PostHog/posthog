@@ -98,8 +98,8 @@ export const HogFunctionTestEditor = ({
                         },
                         options: {
                             isWholeLine: true,
-                            className: 'bg-danger-highlight',
-                            glyphMarginClassName: 'text-danger flex items-center justify-center',
+                            className: 'bg-destructive',
+                            glyphMarginClassName: 'text-destructive-foreground flex items-center justify-center',
                             glyphMarginHoverMessage: { value: err.message },
                         },
                     },
@@ -190,7 +190,7 @@ export function HogFunctionTest(): JSX.Element {
                 ref={testResultsRef}
                 className={clsx(
                     'p-3 rounded border deprecated-space-y-2',
-                    expanded ? 'bg-surface-primary' : 'bg-surface-secondary',
+                    expanded ? 'bg-card' : 'bg-muted',
                     expanded ? 'min-h-120' : ''
                 )}
             >
@@ -477,7 +477,7 @@ export function HogFunctionTest(): JSX.Element {
                                             <div className="deprecated-space-y-2">
                                                 <div>Here are all the global variables you can use in your code:</div>
                                                 {sampleGlobalsError ? (
-                                                    <div className="text-warning">{sampleGlobalsError}</div>
+                                                    <div className="text-warning-foreground">{sampleGlobalsError}</div>
                                                 ) : null}
                                             </div>
                                             <HogFunctionTestEditor

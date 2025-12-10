@@ -20,11 +20,11 @@ export function ReleasePreviewPill({ release }: { release: ErrorTrackingRelease 
             onMouseLeaveInside={() => setIsOpen(false)}
         >
             <LemonTag
-                className="bg-fill-primary cursor-default inline-flex items-center"
+                className="bg-card cursor-default inline-flex items-center"
                 onMouseEnter={() => setIsOpen(true)}
                 onMouseLeave={() => setIsOpen(false)}
             >
-                <IconCommit className="text-sm text-secondary" />
+                <IconCommit className="text-sm text-muted-foreground" />
                 <span>{releasePillTitle(release)}</span>
             </LemonTag>
         </Popover>

@@ -90,7 +90,7 @@ export function HowToReadTooltip(): JSX.Element {
                     </div>
                 }
             >
-                <span className="text-xs text-secondary cursor-help">How to read</span>
+                <span className="text-xs text-muted-foreground cursor-help">How to read</span>
             </Tooltip>
         </>
     )

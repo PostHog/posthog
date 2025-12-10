@@ -97,7 +97,7 @@ export function SurveyContainerAppearance({
 
     return (
         <SurveyOptionsGroup sectionTitle="Container options">
-            <span className="col-span-2 text-secondary">
+            <span className="col-span-2 text-muted-foreground">
                 These options are only applied in the web surveys. Not on native mobile apps.
             </span>
             <SurveyAppearanceInput

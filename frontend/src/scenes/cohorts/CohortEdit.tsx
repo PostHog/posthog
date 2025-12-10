@@ -411,8 +411,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 callToAction={
                                                     <div
                                                         className={cn(
-                                                            'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
-                                                            'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
+                                                            'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-foreground deprecated-space-y-1',
+                                                            'text-foreground mt-0 bg-transparent border border-dashed border-border hover:border-border-strong p-8',
                                                             cohort.csv?.name && 'border-success'
                                                         )}
                                                     >
@@ -421,7 +421,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                                 <IconUpload
                                                                     style={{
                                                                         fontSize: '3rem',
-                                                                        color: 'var(--color-text-primary)',
+                                                                        color: 'var(--color-foreground)',
                                                                     }}
                                                                 />
                                                                 <div>{cohort.csv?.name ?? 'File chosen'}</div>
@@ -431,13 +431,13 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                                 <IconUpload
                                                                     style={{
                                                                         fontSize: '3rem',
-                                                                        color: 'var(--color-text-primary)',
+                                                                        color: 'var(--color-foreground)',
                                                                     }}
                                                                 />
                                                                 <div>
                                                                     Drag a file here or click to browse for a file
                                                                 </div>
-                                                                <div className="text-secondary text-xs">
+                                                                <div className="text-muted-foreground text-xs">
                                                                     Accepts .csv files only
                                                                 </div>
                                                             </>
@@ -525,14 +525,14 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     title={
                                         <>
                                             Persons in this cohort
-                                            <span className="text-secondary ml-2">
+                                            <span className="text-muted-foreground ml-2">
                                                 {!cohort.is_calculating &&
                                                     cohort.count != undefined &&
                                                     `(${cohort.count})`}
                                             </span>
                                             {shouldShowCountWarning && (
                                                 <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
-                                                    <IconWarning className="text-warning ml-2" />
+                                                    <IconWarning className="text-warning-foreground ml-2" />
                                                 </Tooltip>
                                             )}
                                         </>

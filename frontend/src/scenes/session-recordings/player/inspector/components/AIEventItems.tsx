@@ -86,7 +86,7 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
 
     if (event.properties.$ai_is_error) {
         return (
-            <div className="flex items-center gap-1 text-danger">
+            <div className="flex items-center gap-1 text-destructive-foreground">
                 <IconExclamation />
                 <span>Error</span>
             </div>
@@ -125,7 +125,7 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
     }
 
     return (
-        <div className="hidden @sm:flex flex-col items-center gap-1 text-muted-alt">
+        <div className="hidden @sm:flex flex-col items-center gap-1 text-muted-foreground">
             {messageChain.map((m) => (
                 <div
                     className={cn(
@@ -135,9 +135,7 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
                     key={m.id}
                 >
                     {isAIMessage(m) && <IconRobot className="mr-1 text-2xl" />}
-                    <div className="max-w-2/3 border rounded px-2 py-1 text-wrap text-sm bg-surface-primary">
-                        {m.content}
-                    </div>
+                    <div className="max-w-2/3 border rounded px-2 py-1 text-wrap text-sm bg-card">{m.content}</div>
                     {isHumanMessage(m) && <IconPerson className="ml-1 text-2xl" />}
                 </div>
             ))}

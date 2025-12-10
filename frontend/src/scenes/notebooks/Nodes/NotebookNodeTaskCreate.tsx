@@ -60,7 +60,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeTaskCreateAttri
             </div>
         </div>
     ) : (
-        <div className="p-2 flex items-center gap-2 text-muted">
+        <div className="p-2 flex items-center gap-2 text-muted-foreground">
             {parsedSeverity ? (
                 <LemonTag size="small" type={parsedSeverity.toLowerCase() === 'critical' ? 'danger' : 'warning'}>
                     {parsedSeverity}

@@ -57,7 +57,7 @@ export function IntegrationSettingsModal({
                         label: 'Match field',
                         content: (
                             <div className="space-y-3">
-                                <p className="text-muted text-sm">
+                                <p className="text-muted-foreground text-sm">
                                     Select whether to match campaigns using the campaign name or campaign ID. This
                                     determines how we link your UTM parameters back to the {integrationName} data. If
                                     your UTM campaign values don't match either,{' '}
@@ -79,7 +79,7 @@ export function IntegrationSettingsModal({
                         label: 'Campaign mappings',
                         content: (
                             <div className="space-y-3">
-                                <p className="text-muted text-sm">
+                                <p className="text-muted-foreground text-sm">
                                     If you're using custom UTM campaign values that don't match your {integrationName}{' '}
                                     campaign names or IDs, add mappings here. This lets you manually link arbitrary UTM
                                     campaign tags back to the correct campaign in {integrationName} based on your{' '}
@@ -105,7 +105,7 @@ export function IntegrationSettingsModal({
                         label: 'Custom sources',
                         content: (
                             <div className="space-y-3">
-                                <p className="text-muted text-sm">
+                                <p className="text-muted-foreground text-sm">
                                     We automatically recognize common UTM sources for {integrationName}, but if you use
                                     custom source values in your campaigns, add them here so we can properly attribute
                                     the traffic.

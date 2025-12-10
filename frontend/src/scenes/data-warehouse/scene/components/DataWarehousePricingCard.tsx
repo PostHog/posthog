@@ -10,7 +10,7 @@ function FreeRowsDisplay({ addon }: { addon: BillingProductV2AddonType }): JSX.E
     const currentUsage = addon.current_usage
 
     return (
-        <div className="border rounded-lg p-4 mb-3 bg-bg-light">
+        <div className="border rounded-lg p-4 mb-3 bg-card">
             <div className="flex flex-col items-center justify-between">
                 <div>
                     <div className="font-medium text-sm mb-1">Free historical rows</div>
@@ -29,7 +29,7 @@ export function DataWarehousePricingCard({ product }: { product: BillingProductV
             <LemonCard className="hover:transform-none">
                 <div>
                     <h2 className="text-xl font-semibold mb-3">Cost breakdown</h2>
-                    <div className="py-8 text-center text-muted">
+                    <div className="py-8 text-center text-muted-foreground">
                         <div className="mb-2">No billing data available</div>
                         <div className="text-xs">Cost breakdown will appear when you have usage data</div>
                     </div>
@@ -49,15 +49,17 @@ export function DataWarehousePricingCard({ product }: { product: BillingProductV
         <LemonCard className="hover:transform-none p-4">
             <div className="pb-4">
                 <h2 className="text-lg font-medium mb-3">Cost breakdown</h2>
-                <div className="flex items-center justify-between py-3 px-4 bg-bg-3000 rounded border">
+                <div className="flex items-center justify-between py-3 px-4 bg-card rounded border">
                     <div className="text-center flex-1">
-                        <div className="text-xs text-muted mb-1">Current period</div>
+                        <div className="text-xs text-muted-foreground mb-1">Current period</div>
                         <div className="text-2xl font-bold">${currentTotal.toFixed(2)}</div>
                     </div>
                     {hasProjected && (
                         <div className="text-center flex-1">
-                            <div className="text-xs text-muted mb-1">Projected total</div>
-                            <div className="text-2xl font-bold text-muted-3000">${projectedTotal.toFixed(2)}</div>
+                            <div className="text-xs text-muted-foreground mb-1">Projected total</div>
+                            <div className="text-2xl font-bold text-muted-foreground-3000">
+                                ${projectedTotal.toFixed(2)}
+                            </div>
                         </div>
                     )}
                 </div>

@@ -78,7 +78,7 @@ export function EvaluationRunModal({
                     />
                 </div>
 
-                <div className="text-sm text-muted">
+                <div className="text-sm text-muted-foreground">
                     <p>
                         The evaluation will be executed asynchronously. Results will appear in the evaluation runs table
                         once complete.

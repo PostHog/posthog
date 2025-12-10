@@ -178,7 +178,7 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                     [TaxonomicFilterGroupType.Events]: [null],
                 }}
             />
-            {error && <div className="text-danger mt-2 text-sm">{error}</div>}
+            {error && <div className="text-destructive-foreground mt-2 text-sm">{error}</div>}
         </div>
     )
 }

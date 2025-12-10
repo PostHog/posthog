@@ -124,7 +124,7 @@ export function DistributionModal(): JSX.Element {
                     />
 
                     {!areVariantRolloutsValid && (
-                        <p className="text-danger mt-2">
+                        <p className="text-destructive-foreground mt-2">
                             Percentage rollouts must sum to 100 (currently {variantRolloutSum}).
                         </p>
                     )}
@@ -270,9 +270,7 @@ export function DistributionTable(): JSX.Element {
                 loading={false}
                 columns={columns}
                 dataSource={tableData}
-                rowClassName={(item) =>
-                    item.key === `holdout-${experiment.holdout?.id}` ? 'dark:bg-fill-primary bg-mid' : ''
-                }
+                rowClassName={(item) => (item.key === `holdout-${experiment.holdout?.id}` ? 'dark:bg-card bg-mid' : '')}
             />
         </div>
     )

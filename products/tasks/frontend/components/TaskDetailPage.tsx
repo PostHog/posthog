@@ -29,7 +29,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
 
     if (!task) {
-        return <div className="text-center py-8 text-muted">Task not found</div>
+        return <div className="text-center py-8 text-muted-foreground">Task not found</div>
     }
 
     const hasBeenRun = runs.length > 0
@@ -46,21 +46,21 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 <ScenePanelInfoSection>
                     <div className="flex flex-col gap-3">
                         <div>
-                            <div className="text-xs text-muted mb-1">Task ID</div>
+                            <div className="text-xs text-muted-foreground mb-1">Task ID</div>
                             <div className="font-mono text-sm">{task.slug}</div>
                         </div>
                         <div>
-                            <div className="text-xs text-muted mb-1">Repository</div>
+                            <div className="text-xs text-muted-foreground mb-1">Repository</div>
                             <div className="text-sm">{task.repository}</div>
                         </div>
                         <div>
-                            <div className="text-xs text-muted mb-1">Created by</div>
+                            <div className="text-xs text-muted-foreground mb-1">Created by</div>
                             <div className="text-sm">
                                 {task.created_by?.first_name || task.created_by?.email || 'Unknown'}
                             </div>
                         </div>
                         <div>
-                            <div className="text-xs text-muted mb-1">Created</div>
+                            <div className="text-xs text-muted-foreground mb-1">Created</div>
                             <div className="text-sm">{dayjs(task.created_at).format('MMM D, YYYY HH:mm')}</div>
                         </div>
                     </div>
@@ -79,7 +79,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     <>
                         <ScenePanelDivider />
                         <ScenePanelInfoSection>
-                            <div className="text-xs font-semibold text-muted mb-2">Run History</div>
+                            <div className="text-xs font-semibold text-muted-foreground mb-2">Run History</div>
                             <div className="flex flex-col gap-1">
                                 {runs.map((run) => (
                                     <TaskRunItem
@@ -136,7 +136,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 </div>
             ) : runs.length === 0 ? (
                 <div className="text-center py-16">
-                    <p className="text-muted">This task hasn't been run yet</p>
+                    <p className="text-muted-foreground">This task hasn't been run yet</p>
                 </div>
             ) : selectedRun ? (
                 <div className="flex-1 overflow-hidden">

@@ -59,7 +59,9 @@ const LogLine = ({ line, index }: { line: string; index: number }): JSX.Element 
     return (
         <div key={index} className="py-0.5 flex gap-2">
             {parsed.timestamp && (
-                <span className="text-muted shrink-0">{new Date(parsed.timestamp).toLocaleTimeString()}</span>
+                <span className="text-muted-foreground shrink-0">
+                    {new Date(parsed.timestamp).toLocaleTimeString()}
+                </span>
             )}
             {parsed.level && (
                 <span className={`${getLevelColor(parsed.level)} shrink-0 uppercase`}>[{parsed.level}]</span>
@@ -80,7 +82,7 @@ export function TaskRunLogs({ logs, loading }: TaskRunLogsProps): JSX.Element {
 
     if (!logs) {
         return (
-            <div className="p-4 text-center text-muted">
+            <div className="p-4 text-center text-muted-foreground">
                 <p>No logs available</p>
             </div>
         )
@@ -90,7 +92,7 @@ export function TaskRunLogs({ logs, loading }: TaskRunLogsProps): JSX.Element {
 
     return (
         <div className="p-4">
-            <pre className="bg-bg-3000 text-default p-4 rounded overflow-auto font-mono text-xs">
+            <pre className="bg-card text-default p-4 rounded overflow-auto font-mono text-xs">
                 {logLines.map((line, index) => (
                     <LogLine key={index} line={line} index={index} />
                 ))}

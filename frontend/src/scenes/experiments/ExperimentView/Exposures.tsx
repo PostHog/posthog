@@ -118,8 +118,8 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
                 width: '60px',
                 height: '20px',
                 pointerEvents: 'none',
-                borderBottom: '1px solid var(--color-border-primary)',
-                borderRight: '1px solid var(--color-border-primary)',
+                borderBottom: '1px solid var(--color-border)',
+                borderRight: '1px solid var(--color-border)',
             }}
         >
             <canvas ref={canvasRef} />
@@ -303,7 +303,7 @@ export function Exposures(): JSX.Element {
                     key: 'cumulative-exposures',
                     header: headerContent,
                     content: (
-                        <div className="space-y-4 bg-bg-light -m-4 p-4">
+                        <div className="space-y-4 bg-card -m-4 p-4">
                             {/* Chart Section */}
                             {exposuresLoading ? (
                                 <div className="relative border rounded h-[200px] flex justify-center items-center">
@@ -312,9 +312,9 @@ export function Exposures(): JSX.Element {
                             ) : !exposures?.timeseries?.length ? (
                                 <div className="relative border rounded h-[200px] flex justify-center items-center">
                                     <div className="text-center">
-                                        <IconCorrelationAnalysis className="text-3xl mb-2 text-tertiary" />
+                                        <IconCorrelationAnalysis className="text-3xl mb-2 text-muted-foreground" />
                                         <div className="text-md font-semibold leading-tight mb-2">No exposures yet</div>
-                                        <p className="text-sm text-center text-balance text-tertiary">
+                                        <p className="text-sm text-center text-balance text-muted-foreground">
                                             Exposures will appear here once the first participant has been exposed.
                                         </p>
                                         <div className="flex justify-center mt-4">

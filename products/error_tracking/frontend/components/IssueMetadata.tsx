@@ -154,7 +154,7 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
                             <div className="text-lg font-bold inline-block">
                                 {value == null ? '0' : humanFriendlyLargeNumber(value)}
                             </div>
-                            <div className="text-xs text-muted inline-block">{name}</div>
+                            <div className="text-xs text-muted-foreground inline-block">{name}</div>
                         </div>
                     </Tooltip>
                 ))
@@ -165,7 +165,9 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
 
 function renderDate(date: Date): JSX.Element {
     return (
-        <div className="text-xs text-muted whitespace-nowrap">{dayjs(date).utc().format('D MMM YYYY HH:mm (UTC)')}</div>
+        <div className="text-xs text-muted-foreground whitespace-nowrap">
+            {dayjs(date).utc().format('D MMM YYYY HH:mm (UTC)')}
+        </div>
     )
 }
 

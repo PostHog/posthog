@@ -169,7 +169,7 @@ const LemonTableLogs = (): JSX.Element => {
                     <DisplayOptions />
                 </div>
                 {pinnedParsedLogs.length > 0 && (
-                    <div className="border rounded-t bg-bg-light shadow-sm">
+                    <div className="border rounded-t bg-card shadow-sm">
                         <LogsTable
                             dataSource={pinnedParsedLogs}
                             loading={false}
@@ -181,7 +181,7 @@ const LemonTableLogs = (): JSX.Element => {
                     </div>
                 )}
             </div>
-            <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
+            <div className={cn('flex-1 border bg-card', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
                 <LogsTable
                     showHeader={!pinnedParsedLogs.length}
                     dataSource={parsedLogs}
@@ -311,8 +311,8 @@ function LogsTable({
                                         className={cn(
                                             'transition-opacity',
                                             pinned
-                                                ? 'text-primary opacity-100'
-                                                : 'text-muted opacity-0 group-hover:opacity-100'
+                                                ? 'text-foreground opacity-100'
+                                                : 'text-muted-foreground opacity-0 group-hover:opacity-100'
                                         )}
                                     />
                                     <LogsTableRowActions log={record} />
@@ -528,7 +528,7 @@ const DisplayOptions = (): JSX.Element => {
             </div>
             <div className="flex items-center gap-4">
                 {!sparklineLoading && totalLogsMatchingFilters > 0 && (
-                    <span className="text-muted text-xs">
+                    <span className="text-muted-foreground text-xs">
                         Showing {humanFriendlyNumber(parsedLogs.length)} of{' '}
                         {humanFriendlyNumber(totalLogsMatchingFilters)} logs
                     </span>
@@ -547,7 +547,7 @@ const DisplayOptions = (): JSX.Element => {
                         ]}
                     />
                 </LemonField.Pure>
-                <span className="text-muted text-xs flex items-center gap-1">
+                <span className="text-muted-foreground text-xs flex items-center gap-1">
                     <KeyboardShortcut arrowup />
                     <KeyboardShortcut arrowdown />
                     or

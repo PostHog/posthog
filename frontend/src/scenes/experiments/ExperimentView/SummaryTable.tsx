@@ -112,7 +112,7 @@ export function SummaryTable({
                             </div>
                         }
                     >
-                        <IconInfo className="text-secondary text-base" />
+                        <IconInfo className="text-muted-foreground text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -143,7 +143,7 @@ export function SummaryTable({
                 <div className="inline-flex items-center deprecated-space-x-1">
                     <div className="">Delta %</div>
                     <Tooltip title="Delta % indicates the percentage change in the mean between the control and the test variant.">
-                        <IconInfo className="text-secondary text-base" />
+                        <IconInfo className="text-muted-foreground text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -162,7 +162,11 @@ export function SummaryTable({
                 return (
                     <div
                         className={`font-semibold ${
-                            deltaResult.isPositive ? 'text-success' : deltaResult.deltaPercent < 0 ? 'text-danger' : ''
+                            deltaResult.isPositive
+                                ? 'text-success'
+                                : deltaResult.deltaPercent < 0
+                                  ? 'text-destructive-foreground'
+                                  : ''
                         }`}
                     >
                         {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
@@ -176,7 +180,7 @@ export function SummaryTable({
                 <div className="inline-flex items-center deprecated-space-x-1">
                     <div className="">Credible interval (95%)</div>
                     <Tooltip title="A credible interval estimates the percentage change in the mean, indicating with 95% probability how much higher or lower the test variant's mean is compared to the control.">
-                        <IconInfo className="text-secondary text-base" />
+                        <IconInfo className="text-muted-foreground text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -252,7 +256,7 @@ export function SummaryTable({
                 <div className="inline-flex items-center deprecated-space-x-1">
                     <div className="">Delta %</div>
                     <Tooltip title="Delta % indicates the percentage change in the conversion rate between the control and the test variant.">
-                        <IconInfo className="text-secondary text-base" />
+                        <IconInfo className="text-muted-foreground text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -271,9 +275,9 @@ export function SummaryTable({
                 const delta = ((variantConversionRate - controlConversionRate) / controlConversionRate) * 100
 
                 return (
-                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
-                        delta > 0 ? '+' : ''
-                    }${delta.toFixed(2)}%`}</div>
+                    <div
+                        className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-destructive-foreground' : ''}`}
+                    >{`${delta > 0 ? '+' : ''}${delta.toFixed(2)}%`}</div>
                 )
             },
         })
@@ -284,7 +288,7 @@ export function SummaryTable({
                 <div className="inline-flex items-center deprecated-space-x-1">
                     <div className="">Credible interval (95%)</div>
                     <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
-                        <IconInfo className="text-secondary text-base" />
+                        <IconInfo className="text-muted-foreground text-base" />
                     </Tooltip>
                 </div>
             ),

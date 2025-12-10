@@ -52,7 +52,7 @@ export function WebVitalsPathBreakdown(props: {
     const webVitalsQueryResponse = response as WebVitalsPathBreakdownQueryResponse | undefined
 
     return (
-        <div className="border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
+        <div className="border rounded bg-card grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
             <div className="p-4">
                 <Header band="good" label="Good" />
                 <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
@@ -122,7 +122,7 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
                 <Icon className="w-6 h-6" />
                 {label}
             </span>
-            <span className="text-sm text-secondary">{thresholdText}</span>
+            <span className="text-sm text-muted-foreground">{thresholdText}</span>
         </div>
     )
 }
@@ -167,7 +167,7 @@ const Content = ({
                                 key={path}
                             >
                                 <div
-                                    className="absolute top-0 left-0 h-full opacity-80 bg-surface-secondary"
+                                    className="absolute top-0 left-0 h-full opacity-80 bg-muted"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width }}
                                 />
@@ -190,7 +190,7 @@ const Content = ({
                 ) : (
                     <div className="text-center">
                         <span>{band === 'good' ? '😿' : '🚀'}</span>
-                        <span className="text-secondary">No scores in this band</span>
+                        <span className="text-muted-foreground">No scores in this band</span>
                     </div>
                 )}
             </div>

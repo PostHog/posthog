@@ -14,10 +14,10 @@ export function GroupCaption({ groupData, groupTypeName, displayType = 'wrap' }:
     return (
         <div className={className}>
             <div className="mr-4">
-                <span className="text-secondary">Type:</span> {groupTypeName}
+                <span className="text-muted-foreground">Type:</span> {groupTypeName}
             </div>
             <div className="mr-4">
-                <span className="text-secondary">Key:</span>{' '}
+                <span className="text-muted-foreground">Key:</span>{' '}
                 <CopyToClipboardInline
                     tooltipMessage={null}
                     description="group key"
@@ -27,7 +27,7 @@ export function GroupCaption({ groupData, groupTypeName, displayType = 'wrap' }:
                 </CopyToClipboardInline>
             </div>
             <div>
-                <span className="text-secondary">First seen:</span>{' '}
+                <span className="text-muted-foreground">First seen:</span>{' '}
                 {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
             </div>
         </div>

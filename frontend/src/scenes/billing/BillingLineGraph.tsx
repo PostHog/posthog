@@ -61,7 +61,7 @@ function useBillingTooltip(): {
             tooltipElRef.current = document.createElement('div')
             tooltipElRef.current.id = 'BillingTooltipWrapper'
             tooltipElRef.current.className =
-                'BillingTooltipWrapper hidden absolute z-10 p-2 bg-bg-light rounded shadow-md text-xs pointer-events-none border border-border'
+                'BillingTooltipWrapper hidden absolute z-10 p-2 bg-card rounded shadow-md text-xs pointer-events-none border border-border'
             document.body.appendChild(tooltipElRef.current)
         }
         if (!tooltipRootRef.current) {
@@ -341,8 +341,8 @@ export function BillingLineGraph({
     return (
         <div className="relative h-96" onMouseLeave={hideBillingTooltip}>
             {isLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-bg-light bg-opacity-75 z-10">
-                    <div className="text-muted">Loading...</div>
+                <div className="absolute inset-0 flex items-center justify-center bg-card bg-opacity-75 z-10">
+                    <div className="text-muted-foreground">Loading...</div>
                 </div>
             )}
             <canvas ref={canvasRef} />
@@ -355,8 +355,8 @@ export function BillingLineGraph({
                             '--billing-markers-chart-area-left': `${chartAreaLeft}px`,
                             '--billing-markers-chart-area-top': `${chartAreaTop}px`,
                             '--billing-marker-text-color': axisLabelColor,
-                            '--billing-marker-bg-color': 'var(--color-bg-surface-primary)',
-                            '--billing-marker-border-color': 'var(--color-border-primary)',
+                            '--billing-marker-bg-color': 'var(--color-card)',
+                            '--billing-marker-border-color': 'var(--color-border)',
                         } as React.CSSProperties & Record<string, string>
                     }
                 >

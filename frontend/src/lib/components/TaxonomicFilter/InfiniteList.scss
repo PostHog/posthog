@@ -18,7 +18,7 @@
         align-items: center;
         justify-content: space-between;
         padding: 4px 12px;
-        color: var(--text-3000);
+        color: var(--color-foreground);
         cursor: pointer;
         border: none;
 
@@ -40,15 +40,15 @@
                     vertical-align: middle;
 
                     &.taxonomy-icon-muted {
-                        color: var(--color-text-secondary);
+                        color: var(--color-text-muted-foreground);
                     }
 
                     &.taxonomy-icon-verified {
-                        color: var(--success);
+                        color: var(--color-success-foreground);
                     }
 
                     &.taxonomy-icon-built-in {
-                        color: var(--color-accent);
+                        color: var(--color-primary);
                     }
                 }
             }
@@ -67,7 +67,7 @@
 
         &.hover,
         &.active {
-            background-color: var(--color-bg-primary);
+            background-color: var(--color-accent);
             border-radius: var(--radius);
         }
 
@@ -76,7 +76,7 @@
         }
 
         &.expand-row {
-            color: var(--color-accent);
+            color: var(--color-primary);
         }
     }
 }

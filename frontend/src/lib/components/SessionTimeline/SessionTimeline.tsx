@@ -146,7 +146,7 @@ export function SessionTimeline({
                 {beforeLoading && (
                     <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
                         <Spinner />
-                        <span className="text-secondary">loading...</span>
+                        <span className="text-muted-foreground">loading...</span>
                     </div>
                 )}
                 {items.map((item) => {
@@ -167,7 +167,7 @@ export function SessionTimeline({
                 {afterLoading && !beforeLoading && (
                     <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
                         <Spinner />
-                        <span className="text-secondary">loading...</span>
+                        <span className="text-muted-foreground">loading...</span>
                     </div>
                 )}
             </div>
@@ -179,7 +179,7 @@ const itemContainer = cva({
     base: 'flex justify-between gap-2 items-center px-2 w-full h-[2rem]',
     variants: {
         selected: {
-            true: 'bg-[var(--gray-1)] border-1 border-accent',
+            true: 'bg-[var(--gray-1)] border-1 border-primary',
             false: 'border-b border-[var(--gray-2)]',
         },
     },
@@ -198,11 +198,14 @@ const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineI
     ): JSX.Element {
         return (
             <div ref={ref} className={itemContainer({ selected })} data-item-id={item.id}>
-                <span className="text-xs text-tertiary w-[20px] shrink-0 text-center">
+                <span className="text-xs text-muted-foreground w-[20px] shrink-0 text-center">
                     <renderer.sourceIcon item={item} />
                 </span>
-                <span className="text-xs text-tertiary w-[50px] shrink-0 text-center">
-                    <Link className="text-tertiary hover:text-accent" onClick={() => onTimeClick?.(item.timestamp)}>
+                <span className="text-xs text-muted-foreground w-[50px] shrink-0 text-center">
+                    <Link
+                        className="text-muted-foreground hover:text-accent"
+                        onClick={() => onTimeClick?.(item.timestamp)}
+                    >
                         {item.timestamp.format('HH:mm:ss')}
                     </Link>
                 </span>

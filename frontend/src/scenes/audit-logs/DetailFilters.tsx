@@ -77,7 +77,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     label: (
                         <div className="flex flex-col">
                             <div>{displayName}</div>
-                            <div className="text-xs text-muted">{displayPath}</div>
+                            <div className="text-xs text-muted-foreground">{displayPath}</div>
                         </div>
                     ),
                     tooltip: (
@@ -197,7 +197,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                         status={fieldPathError ? 'danger' : undefined}
                         size="small"
                     />
-                    {fieldPathError && <div className="text-xs text-danger mt-1">{fieldPathError}</div>}
+                    {fieldPathError && <div className="text-xs text-destructive-foreground mt-1">{fieldPathError}</div>}
                 </div>
             ) : (
                 <LemonSelect
@@ -304,7 +304,7 @@ export const DetailFilters = (): JSX.Element => {
                     label: (
                         <div className="flex flex-col">
                             <div>{displayName}</div>
-                            <div className="text-xs text-muted">{displayPath}</div>
+                            <div className="text-xs text-muted-foreground">{displayPath}</div>
                         </div>
                     ),
                     tooltip: (
@@ -355,7 +355,7 @@ export const DetailFilters = (): JSX.Element => {
             <div className="flex items-center gap-1">
                 <label className="block text-sm font-medium">Detail filters</label>
                 <Tooltip title="Filter by specific fields within the activity log details field. For example, filter by changes to specific dashboard properties, feature flag variations, or other detailed attributes logged with each activity.">
-                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                    <IconInfo className="w-4 h-4 text-muted-foreground cursor-help" />
                 </Tooltip>
             </div>
 

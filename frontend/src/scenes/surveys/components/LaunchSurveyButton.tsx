@@ -36,7 +36,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                         title: 'Launch this survey?',
                         content: (
                             <div>
-                                <div className="text-sm text-secondary">
+                                <div className="text-sm text-muted-foreground">
                                     The survey will immediately start displaying to{' '}
                                     {doesSurveyHaveDisplayConditions(survey)
                                         ? 'users matching the display conditions'

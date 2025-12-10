@@ -3,19 +3,19 @@
     height: fit-content;
     padding: 0.75rem 1rem 1rem;
     margin: 1.5rem;
-    background: var(--danger-highlight);
+    background: var(--color-destructive);
     border-radius: var(--radius);
 
     h2 {
         margin-bottom: 0.75rem;
         font-weight: 600;
-        color: var(--danger);
+        color: var(--color-destructive-foreground);
     }
 
     pre {
         padding: 0.75rem 1rem;
         margin-bottom: 0.75rem;
-        background: var(--color-border-primary);
+        border: 1px solid var(--color-border-strong);
         border-radius: var(--radius);
     }
 

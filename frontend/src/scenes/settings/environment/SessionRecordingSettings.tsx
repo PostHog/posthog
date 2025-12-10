@@ -58,7 +58,7 @@ export function Since(props: {
 
     return (
         <Tooltip delayMs={200} title={<ul>{tooltipContent}</ul>}>
-            <IconInfo className="text-muted-alt cursor-help" />
+            <IconInfo className="text-muted-foreground cursor-help" />
         </Tooltip>
     )
 }

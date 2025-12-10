@@ -89,7 +89,7 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                         value={config.mode}
                         onChange={(value) => setConfig({ mode: value as 'automatic' | 'manual' })}
                     />
-                    <div className="text-xs text-muted mt-1">
+                    <div className="text-xs text-muted-foreground mt-1">
                         {config.mode === 'manual'
                             ? 'Enter your own values to calculate sample size and running time.'
                             : 'Uses actual experiment data to calculate estimates.'}
@@ -124,7 +124,9 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 />
                                 {config.metricType === 'funnel' && <span className="text-muted">%</span>}
                             </div>
-                            <div className="text-xs text-muted mt-1">{getBaselineHelp(config.metricType)}</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                                {getBaselineHelp(config.metricType)}
+                            </div>
                         </div>
 
                         <div>
@@ -149,10 +151,10 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                         step={0.1}
                                         className="flex-1"
                                     />
-                                    <span className="text-muted">%</span>
+                                    <span className="text-muted-foreground">%</span>
                                 </div>
                             </div>
-                            <div className="text-xs text-muted mt-1">
+                            <div className="text-xs text-muted-foreground mt-1">
                                 The smallest change you want to detect. Lower values require more data.
                             </div>
                         </div>
@@ -167,7 +169,7 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 step={100}
                                 className="w-32 mt-1"
                             />
-                            <div className="text-xs text-muted mt-1">
+                            <div className="text-xs text-muted-foreground mt-1">
                                 Total users entering the experiment per day (across all variants).
                             </div>
                         </div>
@@ -176,7 +178,7 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                             <Label intent="menu">Calculated results</Label>
                             <div className="grid grid-cols-2 gap-4 mt-2">
                                 <div>
-                                    <div className="text-xs text-muted">Recommended sample size</div>
+                                    <div className="text-xs text-muted-foreground">Recommended sample size</div>
                                     <div className="font-semibold">
                                         {manualFormPreview.sampleSize
                                             ? manualFormPreview.sampleSize.toLocaleString()
@@ -184,7 +186,7 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                     </div>
                                 </div>
                                 <div>
-                                    <div className="text-xs text-muted">Estimated running time</div>
+                                    <div className="text-xs text-muted-foreground">Estimated running time</div>
                                     <div className="font-semibold">
                                         {manualFormPreview.runningTime
                                             ? `~${manualFormPreview.runningTime} day${manualFormPreview.runningTime !== 1 ? 's' : ''}`
@@ -256,10 +258,10 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                         step={0.1}
                                         className="flex-1"
                                     />
-                                    <span className="text-muted">%</span>
+                                    <span className="text-muted-foreground">%</span>
                                 </div>
                             </div>
-                            <div className="text-xs text-muted mt-1">
+                            <div className="text-xs text-muted-foreground mt-1">
                                 The smallest change you want to detect. Lower values require more data and longer run
                                 times.
                             </div>

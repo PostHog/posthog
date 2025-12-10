@@ -194,7 +194,7 @@ export function PersonsModal({
                                   )
                         )}
 
-                    <div className="flex items-center gap-2 text-secondary">
+                    <div className="flex items-center gap-2 text-muted-foreground">
                         {actorsResponseLoading ? (
                             <>
                                 <Spinner />
@@ -355,7 +355,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="relative border rounded bg-surface-primary">
+        <div className="relative border rounded bg-card">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
@@ -381,9 +381,9 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {actor.distinct_ids?.[0] && (
                                 <CopyToClipboardInline
                                     explicitValue={actor.distinct_ids[0]}
-                                    iconStyle={{ color: 'var(--color-accent)' }}
+                                    iconStyle={{ color: 'var(--color-primary)' }}
                                     iconPosition="end"
-                                    className="text-xs text-secondary"
+                                    className="text-xs text-muted-foreground"
                                 >
                                     {midEllipsis(actor.distinct_ids[0], 32)}
                                 </CopyToClipboardInline>
@@ -421,7 +421,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
             </div>
 
             {expanded ? (
-                <div className="PersonsModal__tabs bg-primary border-t rounded-b">
+                <div className="PersonsModal__tabs bg-card border-t rounded-b">
                     <LemonTabs
                         activeKey={tab}
                         onChange={setTab}

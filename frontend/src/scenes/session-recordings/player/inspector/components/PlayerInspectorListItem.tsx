@@ -347,7 +347,7 @@ const ListItemDetail = memo(function ListItemDetail({ item, index }: { item: Ins
                     className="flex justify-end cursor-pointer mx-2 my-1"
                     onClick={() => setItemExpanded(index, false)}
                 >
-                    <span className="text-secondary">Collapse</span>
+                    <span className="text-muted-foreground">Collapse</span>
                 </div>
             </div>
         </div>
@@ -408,9 +408,9 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
             ref={ref}
             className={clsx(
                 'ml-1 flex flex-col items-center',
-                isExpanded && 'border border-accent',
+                isExpanded && 'border border-primary',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                isHovering && 'bg-surface-primary'
+                isHovering && 'bg-card'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{

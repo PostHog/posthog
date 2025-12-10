@@ -19,7 +19,7 @@ export const ResultsInsightInfoBanner = ({ exposureDifference }: SafeResultsInsi
                     processing methods. We're actively working on fixing this.&nbsp;
                     <Link
                         to="https://posthog.com/docs/experiments/common-questions"
-                        className="font-semibold text-primary hover:text-primary-dark"
+                        className="font-semibold text-foreground hover:text-foreground-dark"
                     >
                         Learn more in our docs
                     </Link>

@@ -1,6 +1,6 @@
 @keyframes LemonTable__row__highlight__animation {
     0% {
-        background-color: var(--color-accent-highlight-secondary);
+        background-color: var(--color-primary-muted);
     }
 
     100% {
@@ -11,7 +11,7 @@
 .LemonTable {
     --row-base-height: auto;
     --row-horizontal-padding: 0.5rem;
-    --lemon-table-background-color: var(--color-bg-surface-primary);
+    --lemon-table-background-color: var(--color-card);
 
     position: relative;
     flex: 1;
@@ -19,14 +19,14 @@
     overflow: hidden;
     font-size: 13px;
     background: var(--lemon-table-background-color) !important;
-    border: 1px solid var(--color-border-primary);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
 
     .WebAnalyticsDashboard &,
     .Insight &,
     .InsightCard__viz & {
         // Special override for scenes where the table is primarily next to insights
-        --lemon-table-background-color: var(--color-bg-surface-primary);
+        --lemon-table-background-color: var(--color-card);
     }
 
     .WebAnalyticsDashboard &,
@@ -102,14 +102,14 @@
     .PaginationControl {
         height: var(--row-base-height);
         padding: 0.5rem;
-        border-top: 1px solid var(--color-border-primary);
+        border-top: 1px solid var(--color-border);
     }
 
     a.Link {
-        color: var(--text-3000);
+        color: var(--color-foreground);
 
         &:not(:disabled):hover {
-            color: var(--primary-3000-hover);
+            color: var(--color-primary);
         }
     }
 }
@@ -135,7 +135,7 @@
 
                 // box shadow as a border supports sticky headers
                 // Also it needs to be on the th - any higher and safari will not render the shadow
-                box-shadow: inset 0 -1px var(--color-border-primary);
+                box-shadow: inset 0 -1px var(--color-border);
 
                 .LemonButton {
                     margin: -0.5rem 0;
@@ -151,12 +151,12 @@
     > tbody {
         > tr {
             &:not(:first-child) {
-                border-top: 1px solid var(--color-border-primary);
+                border-top: 1px solid var(--color-border);
             }
 
             &.LemonTable__expansion {
                 position: relative;
-                background: var(--color-bg-primary);
+                background: var(--color-muted);
 
                 > td {
                     // Disable padding inside the expansion for better tailored placement of contents
@@ -166,10 +166,10 @@
 
             &.LemonTable__row--status-highlighted {
                 font-weight: 600;
-                color: var(--text-3000);
+                color: var(--color-foreground);
 
                 > td:not(.LemonTable__cell--sticky) {
-                    background: var(--color-accent-highlight-secondary);
+                    background: var(--color-primary-muted);
                 }
             }
 
@@ -190,7 +190,7 @@
             > td {
                 padding-top: 0.3125rem;
                 padding-bottom: 0.3125rem;
-                color: var(--color-text-secondary);
+                color: var(--color-text-muted-foreground);
 
                 // Cancel the vertical margin for CodeSnippet actions
                 // This is annoyingly specific, but really needed for CodeSnippet to look good in expanded table rows
@@ -224,7 +224,7 @@
                 }
 
                 &.LemonTable__boundary:not(:first-of-type) {
-                    border-left: 1px solid var(--color-border-primary);
+                    border-left: 1px solid var(--color-border);
                 }
 
                 &.LemonTable__toggle {
@@ -247,7 +247,7 @@
 }
 
 .LemonTable__empty-state {
-    color: var(--color-text-secondary);
+    color: var(--color-text-muted-foreground);
 }
 
 .LemonTable__overlay {
@@ -272,7 +272,7 @@
     cursor: default;
 
     .LemonTable__header-content {
-        color: var(--color-text-secondary);
+        color: var(--color-text-muted-foreground);
     }
 
     &.LemonTable__header--actionable {
@@ -281,14 +281,14 @@
         &:hover {
             &:not(:has(.LemonTable__header--no-hover:hover)) {
                 .LemonTable__header-content {
-                    color: var(--color-text-primary);
+                    color: var(--color-foreground);
                 }
             }
         }
 
         &:active {
             .LemonTable__header-content {
-                color: var(--color-text-primary);
+                color: var(--color-foreground);
             }
         }
     }
@@ -307,7 +307,7 @@
 
 .LemonTable__footer {
     cursor: default;
-    border-top: 1px solid var(--color-border-primary);
+    border-top: 1px solid var(--color-border);
 }
 
 // NOTE: this is outside of the storybook check for 3000 selective styling
@@ -315,7 +315,7 @@
     background: var(--lemon-table-background-color);
 
     .LemonTable__row--status-highlighted &::before {
-        background: var(--color-accent-highlight-secondary);
+        background: var(--color-primary-muted);
     }
 }
 

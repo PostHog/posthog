@@ -11,7 +11,7 @@ export function MarketingIntegrationAdvancedSettings(): JSX.Element {
         <div className="space-y-4">
             <div>
                 <h3 className="text-lg font-semibold mb-1">Integration-specific settings</h3>
-                <p className="text-muted mb-4">
+                <p className="text-muted-foreground mb-4">
                     Configure campaign name mappings, custom UTM source mappings, and field preferences for each ad
                     platform integration.
                 </p>

@@ -50,9 +50,7 @@ export function PropertiesTable({ entries, alternatingColors = true }: Propertie
                     },
                 },
             ]}
-            rowClassName={
-                alternatingColors ? 'even:bg-fill-tertiary odd:bg-surface-primary group' : 'bg-fill-secondary group'
-            }
+            rowClassName={alternatingColors ? 'even:bg-fill-tertiary odd:bg-card group' : 'bg-muted group'}
             firstColumnSticky
         />
     )
@@ -111,7 +109,7 @@ export function MaskedValue({ value, tooltip }: { value: string; tooltip: string
     return (
         <span className="inline-flex items-center gap-1">
             <Tooltip title={tooltip}>
-                <IconInfo className="text-muted text-sm" />
+                <IconInfo className="text-muted-foreground text-sm" />
             </Tooltip>
             {value}
         </span>

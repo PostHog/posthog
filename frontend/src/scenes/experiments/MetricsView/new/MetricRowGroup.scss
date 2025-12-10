@@ -1,12 +1,12 @@
 .metric-cell {
     font-size: 13px;
     font-weight: 500;
-    color: var(--color-text-secondary);
+    color: var(--color-text-muted-foreground);
 }
 
 .metric-cell-header {
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--color-text-muted-foreground);
     text-transform: uppercase;
     letter-spacing: 0.03125rem;
 }

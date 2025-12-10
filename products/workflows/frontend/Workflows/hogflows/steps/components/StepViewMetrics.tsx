@@ -47,7 +47,7 @@ export function StepViewMetrics({ action }: { action: HogFlowAction }): JSX.Elem
                 </div>
             </Tooltip>
             <Tooltip title="Filtered runs of this action">
-                <div className="flex-1 px-1 text-muted">
+                <div className="flex-1 px-1 text-muted-foreground">
                     <IconFilter /> {humanFriendlyLargeNumber(metrics.filtered)}
                 </div>
             </Tooltip>

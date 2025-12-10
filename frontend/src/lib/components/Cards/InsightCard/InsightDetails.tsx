@@ -69,9 +69,9 @@ export function InsightDetailSectionDisplay({
 }): JSX.Element {
     return (
         <section className="flex items-start gap-2 text-xs">
-            <div className="flex text-muted-alt mt-px flex-shrink-0 text-sm">{icon}</div>
+            <div className="flex text-muted-foreground mt-px flex-shrink-0 text-sm">{icon}</div>
             <div className="flex-1 min-w-0">
-                <div className="text-muted-alt mb-0.5">{label}</div>
+                <div className="text-muted-foreground mb-0.5">{label}</div>
                 <div className="leading-6">{children}</div>
             </div>
         </section>
@@ -296,7 +296,7 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
         <>
             {formulaNodes.map((node, index) => (
                 <div className="SeriesDisplay" key={index}>
-                    <IconCalculate className="text-xl m-px text-text-secondary-3000" />
+                    <IconCalculate className="text-xl m-px text-text-muted-foreground-3000" />
                     <span>
                         Formula
                         {node.custom_name && (

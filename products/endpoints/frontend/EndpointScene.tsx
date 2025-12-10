@@ -83,7 +83,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         LemonDialog.open({
             title: 'Delete endpoint?',
             content: (
-                <div className="text-sm text-secondary">
+                <div className="text-sm text-muted-foreground">
                     Are you sure you want to delete this endpoint? This action cannot be undone.
                 </div>
             ),
@@ -127,7 +127,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                             {endpoint.is_active ? 'Deactivate' : 'Activate'}
                         </ButtonPrimitive>
                         <LemonDivider />
-                        <ButtonPrimitive menuItem onClick={handleDelete} className="text-danger">
+                        <ButtonPrimitive menuItem onClick={handleDelete} className="text-destructive-foreground">
                             <IconTrash />
                             Delete endpoint
                         </ButtonPrimitive>

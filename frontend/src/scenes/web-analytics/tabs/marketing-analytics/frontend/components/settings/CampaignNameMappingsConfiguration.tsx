@@ -137,7 +137,7 @@ export function CampaignNameMappingsConfiguration({
             {!compact && (
                 <div>
                     <h3 className="text-lg font-semibold mb-1">Campaign name mappings</h3>
-                    <p className="text-muted mb-4">
+                    <p className="text-muted-foreground mb-4">
                         Map UTM campaign values to your ad platform campaign names for proper conversion attribution. If
                         your <code className="text-xs">utm_campaign</code> doesn't exactly match your ad platform
                         campaign name, your conversions won't attribute to the paid campaign.
@@ -149,13 +149,17 @@ export function CampaignNameMappingsConfiguration({
             <div className="border rounded overflow-x-auto">
                 <table className="w-full table-fixed">
                     <thead>
-                        <tr className="bg-bg-light border-b">
+                        <tr className="bg-card border-b">
                             {!sourceFilter && (
-                                <th className="text-left text-xs font-semibold p-2 text-muted w-1/4">Source</th>
+                                <th className="text-left text-xs font-semibold p-2 text-muted-foreground w-1/4">
+                                    Source
+                                </th>
                             )}
-                            <th className="text-left text-xs font-semibold p-2 text-muted w-1/3">{columnHeader}</th>
-                            <th className="text-left text-xs font-semibold p-2 text-muted">utm_campaign</th>
-                            <th className="text-right text-xs font-semibold p-2 text-muted w-16">Actions</th>
+                            <th className="text-left text-xs font-semibold p-2 text-muted-foreground w-1/3">
+                                {columnHeader}
+                            </th>
+                            <th className="text-left text-xs font-semibold p-2 text-muted-foreground">utm_campaign</th>
+                            <th className="text-right text-xs font-semibold p-2 text-muted-foreground w-16">Actions</th>
                         </tr>
                     </thead>
                     <tbody>

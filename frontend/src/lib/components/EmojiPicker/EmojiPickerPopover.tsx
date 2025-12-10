@@ -12,7 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
 
 const EmojiPickerCategoryHeader = ({ category, ...props }: EmojiPickerListCategoryHeaderProps): JSX.Element => (
-    <div className="bg-bg-light px-3 pt-3 pb-1.5 font-medium text-neutral-600 text-sm" {...props}>
+    <div className="bg-card px-3 pt-3 pb-1.5 font-medium text-neutral-600 text-sm" {...props}>
         {category.label}
     </div>
 )
@@ -65,7 +65,7 @@ export function EmojiPickerPopover({
             visible={emojiPickerOpen}
             overlay={
                 <EmojiPicker.Root
-                    className="isolate flex h-[368px] w-fit flex-col bg-bg-light"
+                    className="isolate flex h-[368px] w-fit flex-col bg-card"
                     onEmojiSelect={({ emoji }) => {
                         onSelect(emoji)
                         setEmojiPickerOpen(false)
@@ -73,10 +73,10 @@ export function EmojiPickerPopover({
                 >
                     <EmojiPicker.Search className="z-10 mx-2 mt-2 appearance-none rounded bg-fill-input px-2.5 py-2 text-sm border" />
                     <EmojiPicker.Viewport className="relative flex-1 outline-hidden">
-                        <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
+                        <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
                             Loading…
                         </EmojiPicker.Loading>
-                        <EmojiPicker.Empty className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
+                        <EmojiPicker.Empty className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
                             No emoji found.
                         </EmojiPicker.Empty>
                         <EmojiPicker.List

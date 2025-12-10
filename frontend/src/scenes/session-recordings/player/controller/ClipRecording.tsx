@@ -67,12 +67,12 @@ export function ClipOverlay(): JSX.Element | null {
     }
 
     return (
-        <div className="absolute bottom-4 right-4 z-20 w-64 space-y-3 p-2 bg-primary border border-border rounded shadow-lg">
+        <div className="absolute bottom-4 right-4 z-20 w-64 space-y-3 p-2 bg-card border border-border rounded shadow-lg">
             <div className="space-y-1 text-center">
                 <div className="text-sm font-medium text-default">
                     Clipping from {startClip} to {endClip}
                 </div>
-                <div className="text-muted">(centered around {current})</div>
+                <div className="text-muted-foreground">(centered around {current})</div>
             </div>
             <div className="space-y-1">
                 <label className="block text-sm font-medium text-default">Format</label>

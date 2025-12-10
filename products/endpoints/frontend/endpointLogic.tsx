@@ -239,7 +239,7 @@ export const endpointLogic = kea<endpointLogicType>([
                 LemonDialog.open({
                     title: isActivating ? 'Activate endpoint?' : 'Deactivate endpoint?',
                     content: (
-                        <div className="text-sm text-secondary">
+                        <div className="text-sm text-muted-foreground">
                             {isActivating
                                 ? 'Are you sure you want to activate this endpoint? It will be accessible via the API.'
                                 : 'Are you sure you want to deactivate this endpoint? It will no longer be accessible via the API.'}

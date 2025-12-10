@@ -69,7 +69,7 @@ export function SessionEventsList(): JSX.Element {
     if (isInitialLoading) {
         return (
             <LemonCard className="p-6">
-                <div className="text-muted-alt text-center">Loading events...</div>
+                <div className="text-muted-foreground text-center">Loading events...</div>
             </LemonCard>
         )
     }
@@ -77,7 +77,7 @@ export function SessionEventsList(): JSX.Element {
     if (!sessionEvents || sessionEvents?.length === 0) {
         return (
             <LemonCard className="p-6">
-                <div className="text-muted-alt text-center">No events found</div>
+                <div className="text-muted-foreground text-center">No events found</div>
             </LemonCard>
         )
     }
@@ -85,7 +85,7 @@ export function SessionEventsList(): JSX.Element {
     return (
         <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
             {/* Header */}
-            <div className="flex items-center justify-between bg-surface-primary p-3">
+            <div className="flex items-center justify-between bg-card p-3">
                 <div className="flex items-center gap-2">
                     <LemonButton
                         size="small"
@@ -118,7 +118,7 @@ export function SessionEventsList(): JSX.Element {
             {/* Events List */}
             {!eventsListFolded && (
                 <div
-                    className="p-2 space-y-1 max-h-[600px] overflow-y-auto bg-primary border-t border-border"
+                    className="p-2 space-y-1 max-h-[600px] overflow-y-auto bg-card border-t border-border"
                     onScroll={handleScroll}
                 >
                     {sessionEvents?.map((event, index) => (
@@ -132,7 +132,7 @@ export function SessionEventsList(): JSX.Element {
                         />
                     ))}
                     {hasMoreEvents && (
-                        <div className="text-center py-4 text-muted-alt">
+                        <div className="text-center py-4 text-muted-foreground">
                             {isLoadingMore ? 'Loading more events...' : 'Scroll for more'}
                         </div>
                     )}

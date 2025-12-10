@@ -16,10 +16,7 @@ export function EventSelector(): JSX.Element {
             {selectedEvents.length > 0 && (
                 <div className="space-y-2 mb-2">
                     {selectedEvents.map((eventName) => (
-                        <div
-                            key={eventName}
-                            className="flex items-center justify-between p-2 border rounded bg-bg-light"
-                        >
+                        <div key={eventName} className="flex items-center justify-between p-2 border rounded bg-card">
                             <span className="text-sm font-medium">{eventName}</span>
                             <LemonButton
                                 size="xsmall"

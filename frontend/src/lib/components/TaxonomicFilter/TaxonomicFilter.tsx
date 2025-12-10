@@ -183,7 +183,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                             }
                         >
                             <span>
-                                <Icon123 style={{ fontSize: '1.2rem' }} className="text-secondary" />
+                                <Icon123 style={{ fontSize: '1.2rem' }} className="text-muted-foreground" />
                             </span>
                         </Tooltip>
                     )}
@@ -194,7 +194,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                         }
                         docLink={docLink}
                     >
-                        <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
+                        <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-muted-foreground" />
                     </Tooltip>
                 </>
             }

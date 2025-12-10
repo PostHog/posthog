@@ -330,7 +330,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
                         if (!ids) {
                             return (
-                                <div className="p-4 text-danger">
+                                <div className="p-4 text-destructive-foreground">
                                     Cannot expand: required columns (uuid, properties.$ai_trace_id) are missing. Please
                                     reset your column configuration.
                                 </div>
@@ -427,10 +427,12 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             key: 'name',
             render: (_, evaluation) => (
                 <div className="flex flex-col">
-                    <Link to={urls.llmAnalyticsEvaluation(evaluation.id)} className="font-semibold text-primary">
+                    <Link to={urls.llmAnalyticsEvaluation(evaluation.id)} className="font-semibold text-foreground">
                         {evaluation.name}
                     </Link>
-                    {evaluation.description && <div className="text-muted text-sm">{evaluation.description}</div>}
+                    {evaluation.description && (
+                        <div className="text-muted-foreground text-sm">{evaluation.description}</div>
+                    )}
                 </div>
             ),
             sorter: (a, b) => a.name.localeCompare(b.name),
@@ -446,7 +448,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         size="small"
                         data-attr="toggle-evaluation-enabled"
                     />
-                    <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
+                    <span className={evaluation.enabled ? 'text-success' : 'text-muted-foreground'}>
                         {evaluation.enabled ? 'Enabled' : 'Disabled'}
                     </span>
                 </div>
@@ -458,7 +460,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             key: 'prompt',
             render: (_, evaluation) => (
                 <div className="max-w-md">
-                    <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
+                    <div className="text-sm font-mono bg-card border rounded px-2 py-1 truncate">
                         {evaluation.evaluation_config.prompt || '(No prompt)'}
                     </div>
                 </div>
@@ -476,7 +478,9 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                                 ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
                         </LemonTag>
                     ))}
-                    {evaluation.conditions.length === 0 && <span className="text-muted text-sm">No triggers</span>}
+                    {evaluation.conditions.length === 0 && (
+                        <span className="text-muted-foreground text-sm">No triggers</span>
+                    )}
                 </div>
             ),
         },
@@ -486,15 +490,15 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             render: (_, evaluation: EvaluationConfig & { stats?: EvaluationStats }) => {
                 const stats = evaluation.stats
                 if (!stats || stats.runs_count === 0) {
-                    return <span className="text-muted text-sm">No runs</span>
+                    return <span className="text-muted-foreground text-sm">No runs</span>
                 }
 
                 const passRateColor =
                     stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
                         ? 'text-success'
                         : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
-                          ? 'text-warning'
-                          : 'text-danger'
+                          ? 'text-warning-foreground'
+                          : 'text-destructive-foreground'
 
                 return (
                     <div className="flex flex-col items-center">
@@ -513,7 +517,9 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                 <div className="flex flex-col items-center">
                     <div className="font-semibold">{evaluation.total_runs}</div>
                     {evaluation.last_run_at && (
-                        <div className="text-muted text-xs">Last: {humanFriendlyDuration(evaluation.last_run_at)}</div>
+                        <div className="text-muted-foreground text-xs">
+                            Last: {humanFriendlyDuration(evaluation.last_run_at)}
+                        </div>
                     )}
                 </div>
             ),
@@ -567,7 +573,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Evaluations</h2>
-                    <p className="text-muted">
+                    <p className="text-muted-foreground">
                         Configure evaluation prompts and triggers to automatically assess your LLM generations.
                     </p>
                 </div>

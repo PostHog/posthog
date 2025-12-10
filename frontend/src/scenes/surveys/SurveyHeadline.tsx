@@ -27,11 +27,11 @@ export function SurveyHeadline(): JSX.Element | null {
     )
 
     return (
-        <div className="p-4 border rounded bg-bg-light flex flex-col gap-1">
+        <div className="p-4 border rounded bg-card flex flex-col gap-1">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                     <IconSparkles className="text-lg" style={{ color: '#F7B955' }} />
-                    <span className="text-xs font-semibold uppercase text-text-secondary">
+                    <span className="text-xs font-semibold uppercase text-text-muted-foreground">
                         What your responses are saying
                     </span>
                 </div>

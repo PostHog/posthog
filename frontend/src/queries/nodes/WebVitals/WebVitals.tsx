@@ -103,7 +103,7 @@ export function WebVitals(props: {
                         isLoading={responseLoading}
                     />
                 </div>
-                <span className="text-xs text-text-tertiary self-center sm:self-end">
+                <span className="text-xs text-text-muted-foreground self-center sm:self-end">
                     Metrics above are from the last day in the selected time range.{' '}
                     <Link to="https://posthog.com/docs/web-analytics/web-vitals#web-vitals-dashboard" target="_blank">
                         Learn more in the Docs.
@@ -113,7 +113,7 @@ export function WebVitals(props: {
 
             <div className="flex flex-col sm:flex-row gap-2">
                 <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
-                <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
+                <div className="flex flex-col flex-1 bg-card rounded border p-4">
                     <Query
                         query={webVitalsMetricQuery}
                         readOnly

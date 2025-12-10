@@ -15,11 +15,11 @@
                     flex-shrink: 0;
 
                     &.taxonomy-icon-muted {
-                        color: var(--color-text-secondary);
+                        color: var(--color-text-muted-foreground);
                     }
 
                     &.taxonomy-icon-verified {
-                        color: var(--success);
+                        color: var(--color-success-foreground);
                     }
                 }
             }
@@ -41,7 +41,7 @@
                     cursor: pointer;
 
                     svg {
-                        color: var(--success);
+                        color: var(--color-success-foreground);
                     }
                 }
             }

@@ -88,10 +88,10 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     ): JSX.Element => (
         <div
             key={tab.id}
-            className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary"
+            className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-card"
         >
             <div className="flex min-w-0 items-center gap-2">
-                <span className="shrink-0 text-lg text-muted-alt">
+                <span className="shrink-0 text-lg text-muted-foreground">
                     {iconForType(
                         tab.iconType && tab.iconType !== 'loading' && tab.iconType !== 'blank'
                             ? (tab.iconType as FileSystemIconType)
@@ -99,7 +99,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                     )}
                 </span>
                 <div className="flex items-center gap-2 truncate">
-                    <div className="truncate font-medium text-primary">{tab.customTitle || tab.title}</div>
+                    <div className="truncate font-medium text-foreground">{tab.customTitle || tab.title}</div>
                     {isHomepage && <LemonTag size="small">Homepage</LemonTag>}
                 </div>
             </div>
@@ -123,15 +123,15 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     ): JSX.Element => (
         <section className="space-y-3">
             <div>
-                <h3 className="text-lg font-semibold text-primary">{title}</h3>
-                <p className="text-sm text-muted-alt">{description}</p>
+                <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+                <p className="text-sm text-muted-foreground">{description}</p>
             </div>
             {sectionTabs.length > 0 ? (
                 <div className="space-y-2">
                     {sectionTabs.map((tab) => renderTabRow(tab, actions(tab), isHomepage?.(tab)))}
                 </div>
             ) : (
-                <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted">
+                <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
                     {emptyState}
                 </div>
             )}
@@ -159,16 +159,16 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                 )}
                 <section className="space-y-3">
                     <div>
-                        <h3 className="text-lg font-semibold text-primary">Homepage</h3>
-                        <p className="text-sm text-muted-alt">Choose your personal homepage for this project.</p>
+                        <h3 className="text-lg font-semibold text-foreground">Homepage</h3>
+                        <p className="text-sm text-muted-foreground">Choose your personal homepage for this project.</p>
                     </div>
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-card">
                         <div className="flex min-w-0 items-center gap-2">
-                            <span className="shrink-0 text-lg text-muted-alt">{homepageIconElement}</span>
+                            <span className="shrink-0 text-lg text-muted-foreground">{homepageIconElement}</span>
                             <div className="min-w-0">
-                                <div className="truncate font-medium text-primary">{homepageDisplayTitle}</div>
+                                <div className="truncate font-medium text-foreground">{homepageDisplayTitle}</div>
                                 {homepageSubtitle && (
-                                    <div className="truncate text-xs text-muted">{homepageSubtitle}</div>
+                                    <div className="truncate text-xs text-muted-foreground">{homepageSubtitle}</div>
                                 )}
                             </div>
                         </div>
@@ -194,8 +194,8 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                 </section>
                 <section className="space-y-3">
                     <div>
-                        <h3 className="text-lg font-semibold text-primary">Project default dashboard</h3>
-                        <p className="text-sm text-muted-alt">
+                        <h3 className="text-lg font-semibold text-foreground">Project default dashboard</h3>
+                        <p className="text-sm text-muted-foreground">
                             This dashboard opens by default for everyone who has not set a custom homepage.
                         </p>
                     </div>

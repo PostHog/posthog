@@ -167,7 +167,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
-                <div className="border rounded p-4 bg-surface-primary">
+                <div className="border rounded p-4 bg-card">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
@@ -254,7 +254,9 @@ export function FeatureFlagReleaseConditions({
                             />
                         </div>
                     )}
-                    {readOnly && group.description && <div className="mt-2 text-muted">{group.description}</div>}
+                    {readOnly && group.description && (
+                        <div className="mt-2 text-muted-foreground">{group.description}</div>
+                    )}
                     <LemonDivider className="my-3" />
                     {!readOnly && hasNonInstantProperty(group.properties || []) && (
                         <LemonBanner type="info" className="mt-3 mb-3">
@@ -352,7 +354,7 @@ export function FeatureFlagReleaseConditions({
                                               return message.value ? (
                                                   <div
                                                       key={index}
-                                                      className="text-danger flex items-center gap-1 text-sm Field--error"
+                                                      className="text-destructive-foreground flex items-center gap-1 text-sm Field--error"
                                                   >
                                                       <IconErrorOutline className="text-xl" /> {message.value}
                                                   </div>
@@ -517,7 +519,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
-                <div className="mb-4 rounded p-4 bg-surface-primary">
+                <div className="mb-4 rounded p-4 bg-card">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <div>
@@ -578,7 +580,7 @@ export function FeatureFlagReleaseConditions({
                 !readOnly &&
                 !excludeTitle && (
                     <>
-                        <div className="text-secondary mb-2">
+                        <div className="text-muted-foreground mb-2">
                             Specify {aggregationTargetName} for flag release. Condition sets are evaluated top to bottom
                             - the first matching set is used. A condition matches when all property filters pass AND the
                             target falls within the rollout percentage.

@@ -24,7 +24,7 @@ export function CodeLine({
     return (
         <div
             className={clsx(
-                'flex items-center group hover:bg-bg-3000 transition-colors',
+                'flex items-center group hover:bg-card transition-colors',
                 hasNewHits && 'bg-yellow-100 dark:bg-yellow-900/20'
             )}
         >
@@ -43,7 +43,7 @@ export function CodeLine({
                     )}
                 </div>
             </div>
-            <div className="w-10 text-right pr-2 text-muted text-xs select-none">{lineNumber}</div>
+            <div className="w-10 text-right pr-2 text-muted-foreground text-xs select-none">{lineNumber}</div>
             {hitCount > 0 && (
                 <div
                     className="w-6 h-4 text-xs bg-orange-500 text-white rounded-full flex items-center justify-center cursor-pointer mr-2 hover:bg-orange-600 transition-colors"

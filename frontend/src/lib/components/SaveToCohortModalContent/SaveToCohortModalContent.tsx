@@ -63,7 +63,7 @@ export function SaveToCohortModalContent({ closeModal, query }: SaveToCohortModa
         },
     ]
     return (
-        <div className="text-muted mb-2 w-160">
+        <div className="text-muted-foreground mb-2 w-160">
             <LemonInput
                 className="w-48 mb-2"
                 type="search"

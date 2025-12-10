@@ -91,7 +91,7 @@ export function DataWarehouseManagedViewsetImpactModal({
                     </p>
                     <div className="flex flex-wrap gap-2 max-w-2xl">
                         {viewsLoading ? (
-                            <div className="text-muted">Loading views...</div>
+                            <div className="text-muted-foreground">Loading views...</div>
                         ) : views.length > 0 ? (
                             views.map((view) => (
                                 <LemonTag key={view.id} type="default">
@@ -99,14 +99,14 @@ export function DataWarehouseManagedViewsetImpactModal({
                                 </LemonTag>
                             ))
                         ) : (
-                            <p className="text-muted">No existing views found.</p>
+                            <p className="text-muted-foreground">No existing views found.</p>
                         )}
                     </div>
                 </div>
 
                 <div>
                     <p className="font-semibold mb-2">
-                        To confirm, type <code className="px-1 py-0.5 bg-bg-light rounded">{confirmText}</code> below:
+                        To confirm, type <code className="px-1 py-0.5 bg-card rounded">{confirmText}</code> below:
                     </p>
                     <LemonInput
                         value={confirmationInput}

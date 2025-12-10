@@ -99,7 +99,7 @@ export function SceneTextarea({
                         defaultValue
                     )
                 ) : (
-                    <span className="text-tertiary font-normal">
+                    <span className="text-muted-foreground font-normal">
                         No {name} {optional ? '(optional)' : ''}
                     </span>
                 )}

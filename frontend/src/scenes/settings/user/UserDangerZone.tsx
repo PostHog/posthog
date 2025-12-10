@@ -68,7 +68,7 @@ export function DeleteUserModal({
             >
                 {organizations.length > 0 && (
                     <>
-                        <p className="text-danger font-semibold">
+                        <p className="text-destructive-foreground font-semibold">
                             You must leave or delete all organizations before deleting your account.
                         </p>
                         <LemonTable
@@ -85,7 +85,7 @@ export function DeleteUserModal({
                                     title: '',
                                     render: function RenderActionButton(_, organization) {
                                         return (
-                                            <div className="flex justify-end items-center gap-2 py-1 text-danger font-semibold">
+                                            <div className="flex justify-end items-center gap-2 py-1 text-destructive-foreground font-semibold">
                                                 {organization.membership_level ===
                                                     OrganizationMembershipLevel.Owner && (
                                                     <LemonButton
@@ -158,7 +158,7 @@ export function DeleteUserModal({
 
                         {keys.length > 0 && (
                             <>
-                                <p className="text-danger font-semibold mt-4">
+                                <p className="text-destructive-foreground font-semibold mt-4">
                                     The following personal API keys will be deleted
                                 </p>
                                 <LemonTable
@@ -234,9 +234,9 @@ export function UserDangerZone(): JSX.Element {
 
     return (
         <>
-            <div className="text-danger">
+            <div className="text-destructive-foreground">
                 <div className="mt-4">
-                    <p className="text-danger">
+                    <p className="text-destructive-foreground">
                         This is <b>irreversible</b>. Please be certain.
                     </p>
                     <LemonButton

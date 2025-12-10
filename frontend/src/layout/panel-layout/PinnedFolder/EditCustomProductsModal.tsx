@@ -44,7 +44,7 @@ export function EditCustomProductsModal(): JSX.Element {
         >
             <div className="flex flex-col gap-2">
                 <div>
-                    <p className="text-sm text-muted">
+                    <p className="text-sm text-muted-foreground">
                         Select which products you want to see in your sidebar. You can change this anytime.
                         {customProductsLoading && <Spinner />}
                     </p>
@@ -74,7 +74,7 @@ export function EditCustomProductsModal(): JSX.Element {
                                                     ? 'Loading...'
                                                     : undefined
                                         }
-                                        label={<span className="font-semibold text-tertiary">{category}</span>}
+                                        label={<span className="font-semibold text-muted-foreground">{category}</span>}
                                     />
                                 </div>
                                 <div className="space-y-1">
@@ -144,7 +144,7 @@ export function EditCustomProductsModal(): JSX.Element {
                             </span>
                         }
                     />
-                    <span className="text-sm text-muted">
+                    <span className="text-sm text-muted-foreground">
                         When we detect you are using a new product, we'll automatically add it to your sidebar as a
                         suggestion. We might also suggest products that are related to the ones you are using when we
                         launch a new product.
@@ -155,7 +155,7 @@ export function EditCustomProductsModal(): JSX.Element {
 
                 <div className="flex flex-col items-start gap-2 border-t pt-4">
                     <div className="flex flex-col gap-2 w-full">
-                        <label className="text-sm font-semibold text-tertiary">Shortcut position</label>
+                        <label className="text-sm font-semibold text-muted-foreground">Shortcut position</label>
                         <LemonSelect<UserShortcutPosition>
                             value={shortcutPosition}
                             onChange={(value) => setShortcutPosition(value)}
@@ -167,7 +167,7 @@ export function EditCustomProductsModal(): JSX.Element {
                             disabledReason={shortcutPositionLoading ? 'Saving...' : undefined}
                             fullWidth
                         />
-                        <span className="text-sm text-muted">
+                        <span className="text-sm text-muted-foreground">
                             Choose where shortcuts appear in your sidebar when using custom products.
                         </span>
                     </div>

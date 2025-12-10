@@ -37,7 +37,9 @@ function SceneTitlePanelButton(): JSX.Element | null {
                     ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
                     : setScenePanelOpen(!scenePanelOpen)
             }
-            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
+            icon={
+                !scenePanelOpen ? <IconEllipsis className="text-foreground" /> : <IconX className="text-foreground" />
+            }
             tooltip={
                 !scenePanelOpen
                     ? 'Open Info & actions panel'
@@ -180,9 +182,9 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    'bg-[var(--scene-layout-background)] @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
-                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent'
+                    isScrolled && '@2xl/main-content:border-border [body.storybook-test-runner_&]:border-transparent'
                 )}
             >
                 <div
@@ -358,7 +360,9 @@ function SceneName({
                             fullWidth
                             truncate
                         >
-                            <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
+                            <span className="truncate">
+                                {name || <span className="text-muted-foreground">Unnamed</span>}
+                            </span>
                             {canEdit && !forceEdit && <IconPencil />}
                         </ButtonPrimitive>
                     </Tooltip>
@@ -366,7 +370,7 @@ function SceneName({
             </>
         ) : (
             <h1 className={cn(buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses}` }))}>
-                <span className="min-w-fit">{name || <span className="text-tertiary">Unnamed</span>}</span>
+                <span className="min-w-fit">{name || <span className="text-muted-foreground">Unnamed</span>}</span>
             </h1>
         )
 
@@ -515,7 +519,11 @@ function SceneDescription({
                             autoHeight: true,
                         })}
                     >
-                        {description !== null ? description : <span className="text-tertiary">{emptyText}</span>}
+                        {description !== null ? (
+                            description
+                        ) : (
+                            <span className="text-muted-foreground">{emptyText}</span>
+                        )}
                     </p>
                 )}
             </>

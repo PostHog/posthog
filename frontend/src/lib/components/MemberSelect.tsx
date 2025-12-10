@@ -98,7 +98,7 @@ export function MemberSelect({
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
                                         <span>{fullName(member.user)}</span>
-                                        <span className="text-secondary">
+                                        <span className="text-muted-foreground">
                                             {meFirstMembers[0] === member && `(you)`}
                                         </span>
                                     </span>
@@ -107,9 +107,9 @@ export function MemberSelect({
                         ))}
 
                         {membersLoading ? (
-                            <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
+                            <div className="p-2 text-muted-foreground italic truncate border-t">Loading...</div>
                         ) : selectableMembers.length === 0 ? (
-                            <div className="p-2 text-secondary italic truncate border-t">
+                            <div className="p-2 text-muted-foreground italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>
                         ) : null}

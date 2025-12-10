@@ -104,11 +104,11 @@ function VerifiedDomainsTable(): JSX.Element {
                                   <IconCheckCircle style={iconStyle} /> Verified
                               </div>
                           ) : verified_at ? (
-                              <div className="flex items-center text-danger">
+                              <div className="flex items-center text-destructive-foreground">
                                   <IconExclamation style={iconStyle} /> Verification expired
                               </div>
                           ) : (
-                              <div className="flex items-center text-warning">
+                              <div className="flex items-center text-warning-foreground">
                                   <IconWarning style={iconStyle} /> Pending verification
                               </div>
                           )
@@ -144,7 +144,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         />
                     </div>
                 ) : (
-                    <i className="text-secondary">Verify domain to enable automatic provisioning</i>
+                    <i className="text-muted-foreground">Verify domain to enable automatic provisioning</i>
                 )
             },
         },
@@ -162,8 +162,8 @@ function VerifiedDomainsTable(): JSX.Element {
                 if (!isSSOEnforcementAvailable) {
                     return index === 0 ? (
                         <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SSO
-                            enforcement
+                            <IconLock style={{ color: 'var(--color-warning-foreground)', marginLeft: 4 }} /> Upgrade to
+                            enable SSO enforcement
                         </Link>
                     ) : (
                         <></>
@@ -178,7 +178,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         disabledReason={restrictionReason}
                     />
                 ) : (
-                    <i className="text-secondary">Verify domain to enable</i>
+                    <i className="text-muted-foreground">Verify domain to enable</i>
                 )
             },
         },
@@ -189,7 +189,8 @@ function VerifiedDomainsTable(): JSX.Element {
                 if (!isSAMLAvailable) {
                     return index === 0 ? (
                         <Link to={urls.organizationBilling()} className="flex items-center">
-                            <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SAML
+                            <IconLock style={{ color: 'var(--color-warning-foreground)', marginLeft: 4 }} /> Upgrade to
+                            enable SAML
                         </Link>
                     ) : (
                         <></>
@@ -202,7 +203,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                 <IconCheckCircle style={iconStyle} /> SAML enabled
                             </div>
                         ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
-                            <div className="flex items-center text-warning">
+                            <div className="flex items-center text-warning-foreground">
                                 <IconWarning style={iconStyle} /> SAML partially configured
                             </div>
                         ) : (
@@ -212,7 +213,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         )}
                     </>
                 ) : (
-                    <i className="text-secondary">Verify domain to enable</i>
+                    <i className="text-muted-foreground">Verify domain to enable</i>
                 )
             },
         },

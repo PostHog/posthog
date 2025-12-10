@@ -120,13 +120,7 @@ export function HogFunctionFilters({
     const showEventMatchers = !useMapping && (configuration?.filters?.source ?? 'events') === 'events'
 
     const mainContent = (
-        <div
-            className={clsx(
-                'deprecated-space-y-2 rounded bg-surface-primary',
-                !embedded && 'border p-3',
-                embedded && 'p-2'
-            )}
-        >
+        <div className={clsx('deprecated-space-y-2 rounded bg-card', !embedded && 'border p-3', embedded && 'p-2')}>
             {showSourcePicker && (
                 <LemonField
                     name="filters"
@@ -180,7 +174,7 @@ export function HogFunctionFilters({
                     return (
                         <>
                             {useMapping && (
-                                <p className="mb-0 text-sm text-secondary">
+                                <p className="mb-0 text-sm text-muted-foreground">
                                     Filters here apply for all events that could trigger this function, regardless of
                                     mappings.
                                 </p>
@@ -216,7 +210,7 @@ export function HogFunctionFilters({
                                             {isTransformation ? 'Match events' : 'Match events and actions'}
                                         </LemonLabel>
                                     </div>
-                                    <p className="mb-0 text-xs text-secondary">
+                                    <p className="mb-0 text-xs text-muted-foreground">
                                         If set, the {type} will only run if the <b>event matches any</b> of the below.
                                     </p>
                                     <ActionFilter
@@ -252,7 +246,7 @@ export function HogFunctionFilters({
                                 </>
                             ) : null}
                             {oldFilters && newFilters && (
-                                <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-surface-secondary">
+                                <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-muted">
                                     <div className="flex-1 text-center">
                                         <span className="text-sm font-medium">Suggested by Max</span>
                                     </div>
@@ -272,7 +266,7 @@ export function HogFunctionFilters({
                                         </LemonButton>
                                         <LemonButton
                                             type="tertiary"
-                                            icon={<IconCheck color="var(--success)" />}
+                                            icon={<IconCheck color="var(--color-success-foreground)" />}
                                             onClick={() => {
                                                 onChange(newFilters)
                                                 reportAIFiltersAccepted()

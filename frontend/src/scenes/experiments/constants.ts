@@ -54,13 +54,13 @@ export const CONCLUSION_DISPLAY_CONFIG: Record<
     [ExperimentConclusion.StoppedEarly]: {
         title: 'Stopped Early',
         description: 'The experiment was terminated before reaching a conclusive result.',
-        color: 'bg-muted-alt',
+        color: 'bg-muted',
     },
     [ExperimentConclusion.Invalid]: {
         title: 'Invalid',
         description:
             'The experiment data is unreliable due to issues like tracking errors, incorrect setup, or external disruptions.',
-        color: 'bg-muted-alt',
+        color: 'bg-muted',
     },
 }
 

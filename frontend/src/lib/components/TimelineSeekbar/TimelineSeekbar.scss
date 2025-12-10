@@ -25,12 +25,12 @@
     font-size: 0.75rem;
     font-weight: 500;
     line-height: 1.25rem;
-    color: var(--color-bg-surface-primary);
-    background: var(--color-accent);
+    color: var(--color-card);
+    background: var(--color-primary);
     border-radius: var(--radius);
 
     &::selection {
-        background: var(--primary-3000-hover); // Default selection background is invisible on primary
+        background: var(--color-primary); // Default selection background is invisible on primary
     }
 
     .Spinner {
@@ -65,7 +65,7 @@
     left: calc(var(--timeline-seekbar-section-progress-current) - var(--timeline-seekbar-thickness));
     width: var(--timeline-seekbar-section-progress-next);
     cursor: pointer;
-    border-left: var(--timeline-seekbar-thickness) solid var(--color-bg-surface-primary);
+    border-left: var(--timeline-seekbar-thickness) solid var(--color-card);
 
     &:last-child {
         width: calc(var(--timeline-seekbar-section-progress-next) + 1.25rem);
@@ -78,7 +78,7 @@
     left: 0;
     width: calc(100% - var(--timeline-seekbar-arrow-width));
     height: var(--timeline-seekbar-thickness);
-    background: var(--color-accent);
+    background: var(--color-primary);
 }
 
 .TimelineSeekbar__line-start,
@@ -92,7 +92,7 @@
         height: var(--timeline-seekbar-arrow-height);
         margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
         content: '';
-        background: var(--color-accent);
+        background: var(--color-primary);
     }
 }
 

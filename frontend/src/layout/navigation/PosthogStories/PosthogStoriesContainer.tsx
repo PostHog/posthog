@@ -80,7 +80,7 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                         hasViewedEntireGroup ? 'bg-gray-300 p-[1px]' : 'bg-orange-500 p-[2px]'
                                     }`}
                                 >
-                                    <div className="w-full h-full rounded-full overflow-hidden bg-bg-light p-[2px]">
+                                    <div className="w-full h-full rounded-full overflow-hidden bg-card p-[2px]">
                                         <div className="w-full h-full rounded-full overflow-hidden relative">
                                             <img
                                                 src={nextStory.thumbnailUrl}

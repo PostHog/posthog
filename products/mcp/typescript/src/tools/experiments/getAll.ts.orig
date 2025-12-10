@@ -1,12 +1,5 @@
 import { ExperimentGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-<<<<<<< LEFT
-import type { z } from 'zod'
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
-||||||| BASE
-import type { z } from 'zod'
-=======
->>>>>>> RIGHT
 
 const schema = ExperimentGetAllSchema
 

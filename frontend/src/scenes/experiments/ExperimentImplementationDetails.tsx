@@ -196,7 +196,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
 
     return (
         <div className="mb-4">
-            <div className="border rounded bg-surface-primary">
+            <div className="border rounded bg-card">
                 <div className="p-6 deprecated-space-y-4">
                     <div className="flex justify-between">
                         <div className="flex items-center">

@@ -34,7 +34,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
         >
             <SidebarQuestionInput />
             <div className="flex flex-col items-center justify-center gap-y-2">
-                <h3 className="text-center text-xs font-medium mb-0 text-secondary">{tip}</h3>
+                <h3 className="text-center text-xs font-medium mb-0 text-muted-foreground">{tip}</h3>
                 <FloatingSuggestionsDisplay
                     type="secondary"
                     dataProcessingAccepted={dataProcessingAccepted}

@@ -220,7 +220,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </>
             }
             leftContainerContent={
-                <div className="mb-8 text-secondary">
+                <div className="mb-8 text-muted-foreground">
                     <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
                         <span>You've been invited to join</span>
                         <span className="text-4xl font-bold border-b border-dashed pb-2">
@@ -331,10 +331,10 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     />
                 )}
             </Form>
-            <div className="mt-4 text-center text-secondary">
+            <div className="mt-4 text-center text-muted-foreground">
                 Already have an account? <Link to="/login">Log in</Link>
             </div>
-            <div className="mt-4 text-center text-secondary">
+            <div className="mt-4 text-center text-muted-foreground">
                 By clicking continue you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service

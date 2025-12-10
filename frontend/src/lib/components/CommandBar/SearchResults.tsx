@@ -19,7 +19,7 @@ export const SearchResults = (): JSX.Element => {
                 </div>
             ) : (
                 <div className="md:grid md:grid-cols-[320px_1fr] overflow-y-auto overflow-x-hidden">
-                    <div className="border-r border-b md:border-b-0 bg-primary overscroll-contain overflow-y-auto overflow-x-hidden">
+                    <div className="border-r border-b md:border-b-0 bg-card overscroll-contain overflow-y-auto overflow-x-hidden">
                         {combinedSearchLoading && !combinedSearchResults?.length && (
                             <>
                                 <SearchResultSkeleton />
@@ -36,7 +36,7 @@ export const SearchResults = (): JSX.Element => {
                             />
                         ))}
                         {!combinedSearchLoading && anySearchLoading && (
-                            <div className="px-3 py-2 text-xs text-muted opacity-75 border-t">
+                            <div className="px-3 py-2 text-xs text-muted-foreground opacity-75 border-t">
                                 Loading more results...
                             </div>
                         )}

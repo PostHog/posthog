@@ -44,7 +44,7 @@ function ScopesList({
 
     if (!showAll && visibleScopes.length === 0) {
         return (
-            <div className="text-muted text-sm italic py-2">
+            <div className="text-muted-foreground text-sm italic py-2">
                 No scopes selected. Click "Manage scopes" to select permissions.
             </div>
         )
@@ -61,7 +61,7 @@ function ScopesList({
 
                                 {info ? (
                                     <Tooltip title={info}>
-                                        <IconInfo className="text-secondary text-base" />
+                                        <IconInfo className="text-muted-foreground text-base" />
                                     </Tooltip>
                                 ) : null}
                             </div>
@@ -90,7 +90,7 @@ function ScopesList({
                         </div>
                         {warnings?.[formScopeRadioValues[key]] && (
                             <div className="flex items-start gap-2 text-xs italic pb-2">
-                                <IconWarning className="text-base text-secondary mt-0.5" />
+                                <IconWarning className="text-base text-muted-foreground mt-0.5" />
                                 <span>{warnings[formScopeRadioValues[key]]}</span>
                             </div>
                         )}
@@ -150,7 +150,7 @@ export function CLIAuthorize(): JSX.Element {
                             <p>You can now close this window and return to your terminal.</p>
                         </div>
                     </LemonBanner>
-                    <div className="text-muted text-sm mt-4">
+                    <div className="text-muted-foreground text-sm mt-4">
                         <p>
                             A Personal API Key has been created for your CLI. You can manage your API keys in{' '}
                             <Link to={urls.settings('user-api-keys')} className="font-semibold">
@@ -162,7 +162,7 @@ export function CLIAuthorize(): JSX.Element {
             ) : (
                 <div className="space-y-4">
                     <h2>Authorize CLI Access</h2>
-                    <p className="text-muted text-sm">
+                    <p className="text-muted-foreground text-sm">
                         The PostHog CLI should have displayed a 9-character code (e.g., ABCD-1234). Enter it below to
                         authorize your CLI.
                     </p>
@@ -208,7 +208,7 @@ export function CLIAuthorize(): JSX.Element {
                                     Manage scopes
                                 </LemonButton>
                             </div>
-                            <p className="text-muted text-sm mb-2">
+                            <p className="text-muted-foreground text-sm mb-2">
                                 Selected permissions for the CLI. Only grant the scopes you need.
                             </p>
                         </div>
@@ -217,7 +217,7 @@ export function CLIAuthorize(): JSX.Element {
                             {({ error }) => (
                                 <>
                                     {error && (
-                                        <div className="text-danger flex items-center gap-1 text-sm mb-2">
+                                        <div className="text-destructive-foreground flex items-center gap-1 text-sm mb-2">
                                             <IconErrorOutline className="text-xl" /> {error}
                                         </div>
                                     )}

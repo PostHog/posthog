@@ -71,7 +71,7 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     const allChecked = checklist.every((_, index) => checkListValues[index])
 
     return (
-        <div className="bg-primary p-4 rounded relative w-full max-w-160">
+        <div className="bg-card p-4 rounded relative w-full max-w-160">
             <div className="flex flex-col justify-center">
                 <div className="deprecated-space-y-2 text-left">
                     {checklist.map((item, index) => (
@@ -161,7 +161,7 @@ export function VerifyEmail(): JSX.Element {
 
                                 <SupportButtons />
 
-                                <p className="text-xs text-muted mt-6">
+                                <p className="text-xs text-muted-foreground mt-6">
                                     If you've already verified your email, then{' '}
                                     <Link to={urls.login()}>log in here</Link>.
                                 </p>

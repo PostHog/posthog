@@ -172,7 +172,7 @@ export function ProjectExplorer({
                 This is a flagged feature <code>new-tab-project-explorer</code>. Share your feedback with
                 #team-platform-ux.
             </LemonBanner>
-            <div className="rounded bg-bg-300">
+            <div className="rounded">
                 <div className={clsx(rowGridClass, 'border-b border-border px-3 py-2 text-xs uppercase text-muted')}>
                     <div className="flex items-center gap-2 pr-3 pl-6">
                         <span>Name</span>

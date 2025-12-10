@@ -189,7 +189,7 @@ const SimpleSwitch = ({
                 disabled={userLoading}
                 label={label}
             />
-            <span className="text-muted">{description}</span>
+            <span className="text-muted-foreground">{description}</span>
         </div>
     )
 }

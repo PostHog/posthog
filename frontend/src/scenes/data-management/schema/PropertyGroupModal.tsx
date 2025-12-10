@@ -87,7 +87,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                     />
                     {isNonStandardPropertyName(property.name) && (
                         <Tooltip title="Property names should start with a letter or underscore and contain only letters, numbers, and underscores. Non-standard names may not work correctly with type safety features. Only use if already in use.">
-                            <IconWarning className="text-warning text-lg flex-shrink-0" />
+                            <IconWarning className="text-warning-foreground text-lg flex-shrink-0" />
                         </Tooltip>
                     )}
                 </div>
@@ -182,11 +182,13 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                                 pagination={undefined}
                             />
                             {propertyGroupFormValidationError && (
-                                <div className="text-danger text-sm mt-2">{propertyGroupFormValidationError}</div>
+                                <div className="text-destructive-foreground text-sm mt-2">
+                                    {propertyGroupFormValidationError}
+                                </div>
                             )}
                         </>
                     ) : (
-                        <div className="text-center text-muted py-6">
+                        <div className="text-center text-muted-foreground py-6">
                             No properties yet. Click "Add property" to get started.
                         </div>
                     )}

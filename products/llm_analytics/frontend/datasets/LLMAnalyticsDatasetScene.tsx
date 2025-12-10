@@ -406,11 +406,11 @@ function DatasetMetadata({ dataset }: { dataset: Dataset }): JSX.Element {
             <div className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold m-0">Metadata</h3>
                 {dataset.metadata ? (
-                    <div className="bg-bg-light p-4 rounded border overflow-x-auto">
+                    <div className="bg-card p-4 rounded border overflow-x-auto">
                         <HighlightedJSONViewer src={dataset.metadata} />
                     </div>
                 ) : (
-                    <p className="text-muted m-0">No metadata available.</p>
+                    <p className="text-muted-foreground m-0">No metadata available.</p>
                 )}
             </div>
         </div>

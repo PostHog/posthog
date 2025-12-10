@@ -111,7 +111,7 @@ function Step({
                     </LemonTag>
                 )}
             </div>
-            {subtitle && <p className="text-muted text-sm m-0">{subtitle}</p>}
+            {subtitle && <p className="text-muted-foreground text-sm m-0">{subtitle}</p>}
             <div>{children}</div>
         </div>
     )

@@ -36,7 +36,7 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                         </LemonLabel>
                         <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold">v{endpoint.current_version}</span>
-                            <span className="text-xs text-muted">({endpoint.versions_count} total)</span>
+                            <span className="text-xs text-muted-foreground">({endpoint.versions_count} total)</span>
                         </div>
                     </div>
                     <div className="flex flex-col">
@@ -63,9 +63,9 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                         <div className="space-y-2 mt-1">
                             {Object.entries(endpoint.parameters).map(([key, value]) => (
                                 <div key={key} className="flex items-start gap-2">
-                                    <code className="text-xs bg-bg-light px-2 py-1 rounded">{key}</code>
-                                    <span className="text-muted-alt">:</span>
-                                    <code className="text-xs text-muted">{JSON.stringify(value)}</code>
+                                    <code className="text-xs bg-card px-2 py-1 rounded">{key}</code>
+                                    <span className="text-muted-foreground">:</span>
+                                    <code className="text-xs text-muted-foreground">{JSON.stringify(value)}</code>
                                 </div>
                             ))}
                         </div>
@@ -81,7 +81,7 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                             {endpoint.last_executed_at ? (
                                 <TZLabel time={endpoint.last_executed_at} />
                             ) : (
-                                <span className="text-muted">Never</span>
+                                <span className="text-muted-foreground">Never</span>
                             )}
                         </div>
                         <div className="flex flex-col">
