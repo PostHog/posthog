@@ -1,7 +1,7 @@
 name: Deploy PR to DigitalOcean
 permissions:
-  contents: read
-  pull-requests: write
+    contents: read
+    pull-requests: write
 
 on:
     pull_request:
@@ -71,14 +71,26 @@ jobs:
                   echo "Adding new tag: $NEW_TAG"
                   doctl compute droplet tag $DROPLET_ID --tag-name "$NEW_TAG"
 
-            - name: Create SSH key if needed
+            - name: Get or create SSH key
               if: steps.check-droplet.outputs.exists == 'false'
+              id: ssh-key
               run: |
-                  if ! doctl compute ssh-key get ${{ env.SSH_KEY_NAME }} --format ID --no-header 2>/dev/null; then
-                    echo "Creating SSH key in DigitalOcean..."
+                  # Try to find existing SSH key by name
+                  SSH_KEY_ID=$(doctl compute ssh-key list --format ID,Name --no-header | grep "${{ env.SSH_KEY_NAME }}" | awk '{print $1}')
+
+                  if [ -z "$SSH_KEY_ID" ]; then
+                    echo "SSH key not found, creating new one..."
                     doctl compute ssh-key create ${{ env.SSH_KEY_NAME }} \
-                      --public-key "${{ secrets.DO_DEPLOY_SSH_PUBLIC_KEY }}"
+                      --public-key "${{ secrets.DO_DEPLOY_SSH_PUBLIC_KEY }}" \
+                      --format ID --no-header
+
+                    # Get the newly created key ID
+                    SSH_KEY_ID=$(doctl compute ssh-key list --format ID,Name --no-header | grep "${{ env.SSH_KEY_NAME }}" | awk '{print $1}')
+                  else
+                    echo "SSH key already exists with ID: $SSH_KEY_ID"
                   fi
+
+                  echo "id=${SSH_KEY_ID}" >> $GITHUB_OUTPUT
 
             - name: Create droplet
               if: steps.check-droplet.outputs.exists == 'false'
@@ -91,7 +103,7 @@ jobs:
                     --region ${{ env.REGION }} \
                     --size ${{ env.SIZE }} \
                     --image ${{ env.IMAGE }} \
-                    --ssh-keys $(doctl compute ssh-key get ${{ env.SSH_KEY_NAME }} --format ID --no-header) \
+                    --ssh-keys ${{ steps.ssh-key.outputs.id }} \
                     --tag-names "pr-preview,pr-${{ github.event.pull_request.number }},last-updated-${TIMESTAMP}" \
                     --wait
 
