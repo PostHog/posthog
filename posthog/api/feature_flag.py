@@ -1140,7 +1140,16 @@ class MyFlagsQuerySerializer(serializers.Serializer):
 
 
 class LocalEvaluationQuerySerializer(serializers.Serializer):
-    send_cohorts = serializers.BooleanField(required=False, help_text="Include cohorts in response")
+    send_cohorts = serializers.BooleanField(
+        required=False, default=False, allow_null=True, help_text="Include cohorts in response"
+    )
+
+    def to_internal_value(self, data):
+        # Handle ?send_cohorts without a value (empty string) as True
+        if "send_cohorts" in data and data["send_cohorts"] == "":
+            data = data.copy()
+            data["send_cohorts"] = True
+        return super().to_internal_value(data)
 
 
 class EvaluationReasonsQuerySerializer(serializers.Serializer):
@@ -1716,7 +1725,7 @@ class FeatureFlagViewSet(
             200: OpenApiResponse(response=MyFlagsResponseSerializer(many=True)),
         },
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, pagination_class=None)
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()

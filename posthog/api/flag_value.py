@@ -9,7 +9,7 @@ from posthog.models import FeatureFlag
 
 
 class FlagValueQuerySerializer(serializers.Serializer):
-    key = serializers.IntegerField(required=True, help_text="The flag ID")
+    key = serializers.CharField(required=False, help_text="The flag ID", allow_blank=True)
 
 
 class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -40,15 +40,12 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         - Array of objects with 'name' field containing possible values
         """
-        flag_id = request.GET.get(
-            "key"
-        )  # "key" here is the property key, which happens to be the flag id for flag dependencies.
+        flag_id = request.validated_query_data.get("key")
 
         if not flag_id:
             return response.Response({"error": "Missing flag ID parameter"}, status=400)
 
         try:
-            # Convert flag_id to integer if it's a string
             flag_id_int = int(flag_id)
         except (ValueError, TypeError):
             return response.Response({"error": "Invalid flag ID - must be a valid integer"}, status=400)
