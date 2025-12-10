@@ -80,9 +80,11 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 4.1 Multipart File Creation
 
-- [ ] Implement multipart/mixed format
-- [ ] Store metadata within multipart format
-- [ ] Generate S3 URLs for blobs (including byte range parameters)
+- [x] Implement multipart/mixed format for S3 storage
+- [x] Store headers (Content-Type, Content-Disposition, Content-Encoding) within multipart format
+- [x] Generate S3 URLs with byte range parameters (ranges exclude boundaries, include headers + body)
+- [x] Full document parseable as valid multipart/mixed
+- [x] Individual ranges parseable as MIME parts using standard parsers (httparse in Rust, email.parser in Python)
 
 ### Phase 5: Authorization
 
