@@ -1507,12 +1507,11 @@ class _Printer(Visitor[str]):
                 return materialized_property_sql
             else:
                 return self._unsafe_json_extract_trim_quotes(
-                    materialized_property_sql, [self.context.add_value(name) for name in type.chain[1:]]
+                    materialized_property_sql,
+                    self._json_property_args(type.chain[1:]),
                 )
 
-        return self._unsafe_json_extract_trim_quotes(
-            self.visit(type.field_type), [self.context.add_value(name) for name in type.chain]
-        )
+        return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         sample_value = self.visit_ratio_expr(node.sample_value)
@@ -1718,7 +1717,23 @@ class _Printer(Visitor[str]):
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
+        if self.dialect == "postgres":
+            if len(unsafe_args) == 0:
+                return unsafe_field
+
+            json_expr = unsafe_field
+            for arg in unsafe_args[:-1]:
+                json_expr = f"({json_expr}) -> {arg}"
+
+            return f"({json_expr}) ->> {unsafe_args[-1]}"
+
         return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
+
+    def _json_property_args(self, chain: list[str]) -> list[str]:
+        if self.dialect == "postgres":
+            return [self._print_escaped_string(name) for name in chain]
+
+        return [self.context.add_value(name) for name in chain]
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
@@ -1812,6 +1827,16 @@ class PostgresPrinter(_Printer):
         pretty: bool = False,
     ):
         super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+
+    def visit_field(self, node: ast.Field):
+        if node.type is None:
+            field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
+            raise ImpossibleASTError(f"Field {field} has no type")
+
+        if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
+            raise QueryError(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
+
+        return self.visit(node.type)
 
     def visit_call(self, node: ast.Call):
         # No function call validation for postgres

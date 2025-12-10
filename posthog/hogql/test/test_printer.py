@@ -3314,6 +3314,19 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("false"), "false")
         self.assertEqual(self._expr("null"), "NULL")
 
+    def test_json_properties_render_as_postgres_json_access(self):
+        self.assertEqual(
+            self._expr("properties.a.b.c.$browser"),
+            "((((events.properties) -> 'a') -> 'b') -> 'c') ->> '$browser'",
+        )
+
+    def test_json_properties_in_select_render_as_postgres_json_access(self):
+        printed = self._select("SELECT properties.detail.name FROM events")
+
+        self.assertIn("(events.properties) ->", printed)
+        self.assertIn("->> 'name'", printed)
+        self.assertIn('AS "properties.detail.name"', printed)
+
     def test_allows_dollar_identifiers(self):
         printed = self._select("SELECT event AS $value FROM events")
 
