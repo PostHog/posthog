@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 _client: OpenAI | None = None
 
 # Shared prompt suffixes to keep probes and generation in sync
-SUFFIXES = ["alternatives", "competitors", "best", "pricing", "reviews"]
+SUFFIXES = ["alternatives", "competitors", "best"]
 # Limit concurrent probes to avoid flooding the LLM/API
 _PROBE_CONCURRENCY = 10
 # LLM call protection
@@ -200,7 +200,8 @@ async def _call_structured_llm(prompt: str, schema_model: type[BaseModel]) -> di
 async def extract_info_from_url(payload: ExtractInfoInput) -> dict:
     prompt = (
         "You are an analyst. Given a domain URL, identify the business name and category. "
-        "Return a concise summary of what it does.\n\n"
+        "Describe the primary customer problem they solve and the core solution in one concise sentence "
+        "using generic capability terms, not marketing fluff.\n\n"
         f"Domain: {payload.domain}"
     )
     logger.info("ai_visibility.extract_info_from_url.start", domain=payload.domain)
@@ -213,8 +214,9 @@ async def extract_info_from_url(payload: ExtractInfoInput) -> dict:
 async def get_topics(payload: TopicsInput) -> list[str]:
     info = BusinessInfo.model_validate(payload.info)
     prompt = (
-        "List the top features/solutions/topics this business is known for. "
-        "Keep topics short (2-5 words each). Return 5-10 items.\n\n"
+        "List the top problem/solution themes this business addresses. "
+        "Use generic capability terms customers would search for (e.g., containerization, app portability, orchestration). "
+        "Do NOT output brand or product names. Keep topics short (2-5 words), focused, and non-overlapping. Return 5-10 items.\n\n"
         f"Business: {info.name}\nCategory: {info.category}\nSummary: {info.summary}"
     )
     logger.info("ai_visibility.get_topics.start", domain=payload.domain, business=info.name)
@@ -228,10 +230,11 @@ async def get_topics(payload: TopicsInput) -> list[str]:
 async def generate_prompts(payload: PromptsInput) -> list[dict]:
     info = BusinessInfo.model_validate(payload.info)
     prompt = (
-        "Generate search-style prompts to probe AI assistants about a target business and its space. "
-        "For each suffix, craft one prompt using the business name, category, and topics. "
+        "Generate search-style prompts to probe AI assistants about how well a business solves customer problems in its category. "
+        "Use the topics as problem/solution themes (avoid brand/product names). "
+        "For each suffix, craft one distinct prompt using the business name, category, and topics. "
         "Prompts must be 8-12 words (never more than 15), concise, natural, and non-overlapping.\n\n"
-        f"Business: {info.name}\nCategory: {info.category}\nTopics: {payload.topics}\nSuffixes: {SUFFIXES}"
+        f"Business: {info.name}\nCategory: {info.category}\nProblem/Solution topics: {payload.topics}\nSuffixes: {SUFFIXES}"
     )
     logger.info("ai_visibility.generate_prompts.start", domain=payload.domain)
     data = await _call_structured_llm(prompt, PromptsOutput)
