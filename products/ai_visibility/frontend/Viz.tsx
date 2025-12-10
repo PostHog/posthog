@@ -2,9 +2,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconLogomark, IconMessage, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 
 import { CompetitorComparison, MatrixCell, TopCitedSource, Topic } from './types'
@@ -12,6 +13,42 @@ import { DashboardTab, vizLogic } from './vizLogic'
 
 export interface VizProps {
     brand: string
+}
+
+function TopBar({
+    lastUpdated,
+    onRefresh,
+    isRefreshing,
+}: {
+    lastUpdated: string | null
+    onRefresh: () => void
+    isRefreshing: boolean
+}): JSX.Element {
+    const formattedDate = lastUpdated ? dayjs(lastUpdated).format('MMM D') : null
+
+    return (
+        <div className="flex items-center justify-between px-4 py-2 border-b bg-bg-light">
+            <div className="flex items-center gap-2">
+                <IconLogomark className="text-2xl" />
+                <span className="font-semibold text-base">AI visibility</span>
+            </div>
+            <div className="flex items-center gap-3">
+                {formattedDate && <span className="text-muted text-sm">Data last updated on {formattedDate}</span>}
+                <LemonButton size="small" icon={<IconMessage />} type="secondary">
+                    Feedback
+                </LemonButton>
+                <LemonButton
+                    size="small"
+                    icon={<IconRefresh />}
+                    type="primary"
+                    onClick={onRefresh}
+                    loading={isRefreshing}
+                >
+                    Generate new report
+                </LemonButton>
+            </div>
+        </div>
+    )
 }
 
 function CategoryTag({ category }: { category: string }): JSX.Element {
@@ -67,7 +104,7 @@ function RankingCard({
                     <span className="text-5xl font-bold">#{rank}</span>
                     <span className="text-lg opacity-80">Most mentioned in your generated prompts</span>
                 </div>
-                <p className="text-sm opacity-80 mb-4">Login to Amplitude to customize your prompts</p>
+                <p className="text-sm opacity-80 mb-4">Login to PostHog to customize your prompts</p>
                 <h3 className="text-xl font-semibold mb-3">Congratulations 🎉</h3>
                 <div className="bg-black/30 rounded-lg p-4">
                     <div className="flex justify-between text-sm mb-2 opacity-80">
@@ -566,31 +603,36 @@ function CompetitorsTab({ brand }: { brand: string }): JSX.Element {
     )
 }
 
-function DashboardView({ brand }: { brand: string }): JSX.Element {
+function DashboardView({ brand, lastUpdated }: { brand: string; lastUpdated: string | null }): JSX.Element {
     const logic = vizLogic({ brand })
-    const { brandDisplayName, activeTab } = useValues(logic)
-    const { setActiveTab } = useActions(logic)
+    const { brandDisplayName, activeTab, triggerResultLoading } = useValues(logic)
+    const { setActiveTab, forceNewRun } = useActions(logic)
 
     return (
-        <div className="p-6 space-y-6 max-w-7xl mx-auto">
-            <div>
-                <h1 className="text-2xl font-bold mb-1">AI visibility for {brandDisplayName}</h1>
-                <p className="text-muted">Track how AI assistants mention your brand across prompts</p>
+        <div className="flex flex-col h-full">
+            <TopBar lastUpdated={lastUpdated} onRefresh={forceNewRun} isRefreshing={triggerResultLoading} />
+            <div className="flex-1 overflow-auto">
+                <div className="p-6 space-y-6 max-w-7xl mx-auto">
+                    <div>
+                        <h1 className="text-2xl font-bold mb-1">AI visibility for {brandDisplayName}</h1>
+                        <p className="text-muted">Track how AI assistants mention your brand across prompts</p>
+                    </div>
+
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(key) => setActiveTab(key as DashboardTab)}
+                        tabs={[
+                            { key: 'overview', label: 'Overview' },
+                            { key: 'prompts', label: 'Prompts' },
+                            { key: 'competitors', label: 'Competitors' },
+                        ]}
+                    />
+
+                    {activeTab === 'overview' && <OverviewTab brand={brand} />}
+                    {activeTab === 'prompts' && <PromptsTab brand={brand} />}
+                    {activeTab === 'competitors' && <CompetitorsTab brand={brand} />}
+                </div>
             </div>
-
-            <LemonTabs
-                activeKey={activeTab}
-                onChange={(key) => setActiveTab(key as DashboardTab)}
-                tabs={[
-                    { key: 'overview', label: 'Overview' },
-                    { key: 'prompts', label: 'Prompts' },
-                    { key: 'competitors', label: 'Competitors' },
-                ]}
-            />
-
-            {activeTab === 'overview' && <OverviewTab brand={brand} />}
-            {activeTab === 'prompts' && <PromptsTab brand={brand} />}
-            {activeTab === 'competitors' && <CompetitorsTab brand={brand} />}
         </div>
     )
 }
@@ -601,6 +643,7 @@ export function Viz({ brand }: VizProps): JSX.Element {
         useValues(logic)
     const { loadTriggerResult } = useActions(logic)
     const [dotCount, setDotCount] = useState(1)
+    const [lastUpdated, setLastUpdated] = useState<string | null>(null)
 
     useEffect(() => {
         if (!isPolling) {
@@ -612,9 +655,15 @@ export function Viz({ brand }: VizProps): JSX.Element {
         return () => clearInterval(interval)
     }, [isPolling])
 
+    useEffect(() => {
+        if (isReady && results) {
+            setLastUpdated(new Date().toISOString())
+        }
+    }, [isReady, results])
+
     // Show dashboard when we have results
     if (isReady && results) {
-        return <DashboardView brand={brand} />
+        return <DashboardView brand={brand} lastUpdated={lastUpdated} />
     }
 
     return (

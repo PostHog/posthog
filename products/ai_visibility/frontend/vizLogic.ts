@@ -22,6 +22,7 @@ export type DashboardTab = 'overview' | 'prompts' | 'competitors'
 
 interface StartedResponse {
     workflow_id: string
+    run_id: string
     status: 'started' | 'running'
     created_at: string
 }
@@ -50,7 +51,7 @@ export const vizLogic = kea<vizLogicType>([
         stopPolling: true,
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         triggerResult: [
             null as ApiResponse | null,
             {
@@ -58,10 +59,30 @@ export const vizLogic = kea<vizLogicType>([
                     if (!props.brand) {
                         throw new Error('Brand missing')
                     }
+                    const body: { domain: string; run_id?: string } = { domain: props.brand }
+                    if (values.pollingRunId) {
+                        body.run_id = values.pollingRunId
+                    }
                     const response = await fetch('/api/ai_visibility/', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ domain: props.brand }),
+                        body: JSON.stringify(body),
+                    })
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}))
+                        const message = data?.error || `Request failed with status ${response.status}`
+                        throw new Error(message)
+                    }
+                    return await response.json()
+                },
+                forceNewRun: async () => {
+                    if (!props.brand) {
+                        throw new Error('Brand missing')
+                    }
+                    const response = await fetch('/api/ai_visibility/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ domain: props.brand, force: true }),
                     })
                     if (!response.ok) {
                         const data = await response.json().catch(() => ({}))
@@ -98,6 +119,21 @@ export const vizLogic = kea<vizLogicType>([
             {
                 loadTriggerResultFailure: (_, { error }) => error ?? 'Failed to start workflow',
                 loadTriggerResultSuccess: () => null,
+                forceNewRunFailure: (_, { error }) => error ?? 'Failed to start workflow',
+                forceNewRunSuccess: () => null,
+            },
+        ],
+        pollingRunId: [
+            null as string | null,
+            {
+                loadTriggerResultSuccess: (_, { triggerResult }) =>
+                    triggerResult?.status === 'started' || triggerResult?.status === 'running'
+                        ? (triggerResult as StartedResponse).run_id
+                        : null,
+                forceNewRunSuccess: (_, { triggerResult }) =>
+                    triggerResult?.status === 'started' || triggerResult?.status === 'running'
+                        ? (triggerResult as StartedResponse).run_id
+                        : null,
             },
         ],
     }),
@@ -507,6 +543,13 @@ export const vizLogic = kea<vizLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         loadTriggerResultSuccess: ({ triggerResult }) => {
+            if (triggerResult?.status === 'started' || triggerResult?.status === 'running') {
+                actions.startPolling()
+            } else if (triggerResult?.status === 'ready') {
+                actions.stopPolling()
+            }
+        },
+        forceNewRunSuccess: ({ triggerResult }) => {
             if (triggerResult?.status === 'started' || triggerResult?.status === 'running') {
                 actions.startPolling()
             } else if (triggerResult?.status === 'ready') {
