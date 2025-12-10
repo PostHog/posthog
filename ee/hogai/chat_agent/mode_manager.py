@@ -13,6 +13,7 @@ from products.tasks.backend.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,
     GetTaskRunTool,
+    ListRepositoriesTool,
     ListTaskRunsTool,
     ListTasksTool,
     RunTaskTool,
@@ -79,6 +80,7 @@ TASK_TOOLS: list[type["MaxTool"]] = [
     GetTaskRunLogsTool,
     ListTasksTool,
     ListTaskRunsTool,
+    ListRepositoriesTool,
 ]
 
 

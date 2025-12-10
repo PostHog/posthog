@@ -586,6 +586,8 @@ export const productUrls = {
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
     alerts: (): string => `/insights?tab=alerts`,
+    productTours: (): string => '/product_tours',
+    productTour: (id: string): string => `/product_tours/${id}`,
     replay: (
         tab?: ReplayTabs,
         filters?: Partial<RecordingUniversalFilters>,
@@ -722,6 +724,13 @@ export const fileSystemTypes = {
         iconType: 'notebook',
         href: (ref: string) => urls.notebook(ref),
         filterKey: 'notebook',
+    },
+    product_tour: {
+        name: 'Product tour',
+        iconType: 'product_tour',
+        href: (ref: string) => urls.productTour(ref),
+        iconColor: ['var(--color-product-surveys-light)'],
+        filterKey: 'product_tour',
     },
     revenue: {
         name: 'Revenue',
@@ -911,6 +920,13 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.LINKS,
     },
     { path: `Notebook`, type: 'notebook', href: urls.notebook('new'), iconType: 'notebook' },
+    {
+        path: `Product tour`,
+        type: 'product_tour',
+        href: urls.productTour('new'),
+        iconType: 'product_tour',
+        iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+    },
     {
         path: `Survey`,
         type: 'survey',
@@ -1129,6 +1145,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-product-analytics-light)'],
         sceneKey: 'SavedInsights',
         sceneKeys: ['SavedInsights', 'Insight'],
+    },
+    {
+        path: 'Product tours',
+        category: 'Behavior',
+        type: 'product_tour',
+        href: urls.productTours(),
+        iconType: 'product_tour',
+        iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+        sceneKey: 'ProductTours',
+        sceneKeys: ['ProductTour', 'ProductTours'],
+        flag: FEATURE_FLAGS.PRODUCT_TOURS,
     },
     {
         path: 'Revenue analytics',

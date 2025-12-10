@@ -49,7 +49,7 @@ from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckL
 from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
-from products.data_warehouse.backend.data_load.saved_query_service import pause_saved_query_schedule
+from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
 from products.data_warehouse.backend.models import (
     DataWarehouseModelPath,
     DataWarehouseSavedQuery,
@@ -678,7 +678,7 @@ async def set_view_to_never_sync(saved_query: DataWarehouseSavedQuery, logger: F
     saved_query.sync_frequency_interval = None
     await database_sync_to_async(saved_query.save)()
 
-    pause_saved_query_schedule(str(saved_query.id))
+    await a_pause_saved_query_schedule(str(saved_query.id))
 
     await logger.adebug(f"Updated saved query {saved_query.id} to never sync")
 
