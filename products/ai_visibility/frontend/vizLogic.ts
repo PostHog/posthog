@@ -97,7 +97,7 @@ export const vizLogic = kea<vizLogicType>([
             (brand, results): DashboardData | null => {
                 // Prefer real API results over mock data
                 if (results) {
-                    return results as DashboardData
+                    return results as unknown as DashboardData
                 }
                 return MOCK_DATA_BY_BRAND[brand] || null
             },
