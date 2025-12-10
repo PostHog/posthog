@@ -375,7 +375,27 @@ export const biLogic = kea<biLogicType>([
         setFilters: () => actions.loadQueryResponse(),
         updateFilter: () => actions.loadQueryResponse(),
         removeFilter: () => actions.loadQueryResponse(),
-        selectTable: ({ table }) => table && actions.loadQueryResponse(),
+        selectTable: async ({ table }, breakpoint) => {
+            if (!table) {
+                return
+            }
+
+            await breakpoint(0)
+
+            const selectedColumnsForTable = values.selectedColumns.filter((column) => column.table === table)
+
+            if (selectedColumnsForTable.length === 0) {
+                const tableObject = values.allTables.find((candidate) => candidate.name === table) || null
+                const defaultColumn = defaultColumnForTable(tableObject)
+
+                if (defaultColumn) {
+                    actions.setColumns([defaultColumn])
+                    return
+                }
+            }
+
+            actions.loadQueryResponse()
+        },
         setSort: () => actions.loadQueryResponse(),
         setLimit: () => actions.loadQueryResponse(),
         refreshQuery: () => actions.loadQueryResponse(),
@@ -565,6 +585,22 @@ function parseFiltersParam(param: any, table: string | null): BIQueryFilter[] {
     } catch {
         return []
     }
+}
+
+function defaultColumnForTable(table: DatabaseSchemaTable | null): BIQueryColumn | null {
+    if (!table) {
+        return null
+    }
+
+    const fields = Object.values(table.fields || {})
+
+    if (fields.length === 0) {
+        return null
+    }
+
+    const defaultField = fields.find((field) => field.name.toLowerCase() === 'id') || fields[0]
+
+    return { table: table.name, field: defaultField.name, aggregation: 'count' }
 }
 
 function parseSortParam(param: any, table: string | null): BISort | null {
