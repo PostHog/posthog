@@ -1,4 +1,4 @@
-# This workflow runs e2e smoke test for hobby deployment
+# This workflow runs e2e smoke test for Preview
 # To check on the status of the instance if this fails go to DO open the instance
 # Instance name should look like `do-ci-hobby-deploy-xxxx`
 # SSH onto the instance and `tail -f /var/log/cloud-init-output.log`
@@ -61,7 +61,7 @@ jobs:
                       const existingComment = comments.find(c => c.body.includes(commentMarker));
 
                       const initialBody = `${commentMarker}
-                      ## 🦔 Hobby deployment instance
+                      ## 🦔 Preview instance
 
                       ${previewMode ? '🔄 **Preview mode** - Reusing or creating persistent droplet' : '🧪 **Smoke test mode** - Creating ephemeral droplet'}
 
@@ -104,7 +104,7 @@ jobs:
                       const output = `comment-id=${commentId}`;
                       fs.appendFileSync(process.env.GITHUB_OUTPUT, `${output}\n`);
             - name: Wait for container image build to complete
-              uses: fountainhead/action-wait-for-check@4699210ccc66e2a13260803fadbb77085421b891 # v1.2.0
+              uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
               id: wait-for-image
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
@@ -122,7 +122,7 @@ jobs:
                       const buildConclusion = '${{ steps.wait-for-image.outputs.conclusion }}';
 
                       const errorBody = `${commentMarker}
-                      ## 🦔 Hobby deployment instance
+                      ## 🦔 Preview instance
 
                       ❌ **Docker image build failed**
 
@@ -159,7 +159,7 @@ jobs:
                       const previewMode = '${{ steps.check-preview.outputs.preview }}' === 'true';
 
                       const updatedBody = `${commentMarker}
-                      ## 🦔 Hobby deployment instance
+                      ## 🦔 Preview instance
 
                       ${previewMode ? '🔄 **Preview mode** - Reusing or creating persistent droplet' : '🧪 **Smoke test mode** - Creating ephemeral droplet'}
 
@@ -227,7 +227,7 @@ jobs:
                       }
 
                       const updatedBody = `${commentMarker}
-                      ## 🦔 Hobby deployment instance
+                      ## 🦔 Preview instance
 
                       ${previewMode ? '🔄 **Preview mode** - Reusing or creating persistent droplet' : '🧪 **Smoke test mode** - Creating ephemeral droplet'}
 
@@ -360,7 +360,7 @@ jobs:
                       }
 
                       const commentBody = `${commentMarker}
-                      ## 🦔 Hobby deployment instance
+                      ## 🦔 Preview instance
 
                       ${statusEmoji} **${statusText}**
 
