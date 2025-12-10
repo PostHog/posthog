@@ -77,6 +77,13 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
         conversation_id = str(uuid4())
         conversation_url = f"{settings.SITE_URL}/project/{integration.team_id}/ai?chat={conversation_id}"
 
+        # Get the timestamp of the message that mentioned us (for emoji reactions)
+        user_message_ts = event.get("ts")
+
+        # Add a loading emoji reaction to the user's message
+        if user_message_ts:
+            slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="hourglass_flowing_sand")
+
         # Post initial "working on it" message in the thread with link to conversation
         initial_response = slack.client.chat_postMessage(
             channel=channel,
@@ -111,6 +118,7 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
             channel=channel,
             thread_ts=thread_ts,
             initial_message_ts=initial_message_ts,
+            user_message_ts=user_message_ts,
             messages=messages,
             conversation_id=conversation_id,
         )

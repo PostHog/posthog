@@ -30,6 +30,7 @@ class SlackConversationRunnerWorkflowInputs:
     channel: str
     thread_ts: str
     initial_message_ts: str
+    user_message_ts: str | None
     messages: list[dict[str, Any]]
     conversation_id: str
 
@@ -97,10 +98,14 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     )
     if not membership or not membership.user:
         logger.error("slack_conversation_no_user", team_id=inputs.team_id)
-        await _update_slack_message(
+        if inputs.user_message_ts:
+            await _remove_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hourglass_flowing_sand")
+            await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "x")
+        await _delete_slack_message(integration, inputs.channel, inputs.initial_message_ts)
+        await _post_slack_message(
             integration,
             inputs.channel,
-            inputs.initial_message_ts,
+            inputs.thread_ts,
             "Sorry, I couldn't process your request - no team user found.",
         )
         return
@@ -168,12 +173,20 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     # Build conversation URL for the "View in PostHog" button
     conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={inputs.conversation_id}"
 
-    # Update the initial Slack message with the final response
+    # Replace loading reaction with checkmark on user's message
+    if inputs.user_message_ts:
+        await _remove_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hourglass_flowing_sand")
+        await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "white_check_mark")
+
+    # Delete the initial "working on it" message and post the final response as a new message
+    # (new messages trigger notifications, updates don't)
+    await _delete_slack_message(integration, inputs.channel, inputs.initial_message_ts)
+
     if final_response:
-        await _update_slack_message(
+        await _post_slack_message(
             integration,
             inputs.channel,
-            inputs.initial_message_ts,
+            inputs.thread_ts,
             final_response,
             conversation_url=conversation_url,
         )
@@ -184,33 +197,22 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
             thread_ts=inputs.thread_ts,
         )
     else:
-        await _update_slack_message(
+        await _post_slack_message(
             integration,
             inputs.channel,
-            inputs.initial_message_ts,
+            inputs.thread_ts,
             "Sorry, I couldn't generate a response. Please try again.",
             conversation_url=conversation_url,
         )
 
 
-async def _update_slack_message(
-    integration: "Integration",
-    channel: str,
-    ts: str,
-    text: str,
-    conversation_url: str | None = None,
-) -> None:
-    """Helper to update a Slack message."""
-    from posthog.models.integration import SlackIntegration
-
-    # Split text into separate blocks per paragraph to avoid Slack's "See more..." truncation
+def _build_slack_message_blocks(text: str, conversation_url: str | None = None) -> list[dict]:
+    """Build Slack message blocks from text."""
     blocks: list[dict] = []
 
-    # Split on double newlines (paragraph boundaries)
     paragraphs = text.split("\n\n")
-
     for para in paragraphs:
-        if para.strip():  # Skip empty paragraphs
+        if para.strip():
             blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": para}})
 
     if conversation_url:
@@ -227,8 +229,87 @@ async def _update_slack_message(
             }
         )
 
+    return blocks
+
+
+async def _post_slack_message(
+    integration: "Integration",
+    channel: str,
+    thread_ts: str,
+    text: str,
+    conversation_url: str | None = None,
+) -> None:
+    """Helper to post a new Slack message in a thread."""
+    from posthog.models.integration import SlackIntegration
+
+    blocks = _build_slack_message_blocks(text, conversation_url)
+    slack = SlackIntegration(integration)
+    try:
+        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
+    except Exception as e:
+        logger.exception("slack_message_post_failed", error=str(e))
+
+
+async def _update_slack_message(
+    integration: "Integration",
+    channel: str,
+    ts: str,
+    text: str,
+    conversation_url: str | None = None,
+) -> None:
+    """Helper to update a Slack message."""
+    from posthog.models.integration import SlackIntegration
+
+    blocks = _build_slack_message_blocks(text, conversation_url)
     slack = SlackIntegration(integration)
     try:
         slack.client.chat_update(channel=channel, ts=ts, text=text, blocks=blocks)
     except Exception as e:
         logger.exception("slack_message_update_failed", error=str(e))
+
+
+async def _delete_slack_message(
+    integration: "Integration",
+    channel: str,
+    ts: str,
+) -> None:
+    """Helper to delete a Slack message."""
+    from posthog.models.integration import SlackIntegration
+
+    slack = SlackIntegration(integration)
+    try:
+        slack.client.chat_delete(channel=channel, ts=ts)
+    except Exception as e:
+        logger.exception("slack_message_delete_failed", error=str(e))
+
+
+async def _add_slack_reaction(
+    integration: "Integration",
+    channel: str,
+    timestamp: str,
+    name: str,
+) -> None:
+    """Helper to add a reaction to a Slack message."""
+    from posthog.models.integration import SlackIntegration
+
+    slack = SlackIntegration(integration)
+    try:
+        slack.client.reactions_add(channel=channel, timestamp=timestamp, name=name)
+    except Exception as e:
+        logger.exception("slack_reaction_add_failed", error=str(e))
+
+
+async def _remove_slack_reaction(
+    integration: "Integration",
+    channel: str,
+    timestamp: str,
+    name: str,
+) -> None:
+    """Helper to remove a reaction from a Slack message."""
+    from posthog.models.integration import SlackIntegration
+
+    slack = SlackIntegration(integration)
+    try:
+        slack.client.reactions_remove(channel=channel, timestamp=timestamp, name=name)
+    except Exception as e:
+        logger.exception("slack_reaction_remove_failed", error=str(e))
