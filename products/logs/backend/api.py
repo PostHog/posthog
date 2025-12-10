@@ -31,6 +31,30 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         live_logs_checkpoint = query_data.get("liveLogsCheckpoint", None)
         after_cursor = query_data.get("after", None)
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
+
+        # When using cursor pagination, narrow the date range based on the cursor timestamp.
+        # This allows time-slicing optimization to work on progressively smaller ranges
+        # as the user pages through results.
+        order_by = query_data.get("orderBy")
+        if after_cursor:
+            try:
+                cursor = json.loads(base64.b64decode(after_cursor).decode("utf-8"))
+                cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
+                if order_by == "earliest":
+                    # For "earliest" ordering, we're looking for logs AFTER the cursor
+                    date_range = DateRange(
+                        date_from=cursor_ts.isoformat(),
+                        date_to=date_range.date_to,
+                    )
+                else:
+                    # For "latest" ordering (default), we're looking for logs BEFORE the cursor
+                    date_range = DateRange(
+                        date_from=date_range.date_from,
+                        date_to=cursor_ts.isoformat(),
+                    )
+            except (KeyError, ValueError, json.JSONDecodeError):
+                pass  # Invalid cursor format, continue with original date range
+
         requested_limit = min(query_data.get("limit", 1000), 2000)
         logs_query_params = {
             "dateRange": date_range,
@@ -114,10 +138,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
                 return LogsQueryRunner(slice_query, self.team), LogsQueryRunner(remainder_query, self.team)
 
-            # Skip time-slicing optimization when:
-            # - live tailing: we're always only looking at the most recent 1-2 minutes
-            # - cursor pagination: the cursor marks a continuation point in a single query
-            if live_logs_checkpoint or after_cursor:
+            # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
+            # Note: cursor pagination no longer skips time-slicing because we narrow the date range
+            # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
+            if live_logs_checkpoint:
                 response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 yield from response.results
                 return
