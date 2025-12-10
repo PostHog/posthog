@@ -76,10 +76,10 @@ class Producer:
                 Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Prefix=folder
             )
             if not (contents := response.get("Contents", [])):
-                await self.logger.ainfo("No files found in S3 -> assuming no data to export")
+                self.logger.info("No files found in S3 -> assuming no data to export")
                 return
             keys = [obj["Key"] for obj in contents if "Key" in obj]
-            await self.logger.ainfo(f"Producer found {len(keys)} files in S3 stage")
+            self.logger.info(f"Producer found {len(keys)} files in S3 stage")
 
             # Read in batches
             try:
@@ -87,7 +87,7 @@ class Producer:
                     s3_client, keys, queue, max_record_batch_size_bytes, min_records_per_batch
                 )
             except Exception as e:
-                await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
+                self.logger.exception("Unexpected error occurred while producing record batches", exc_info=e)
                 raise
 
     async def _stream_record_batches_from_s3(
@@ -99,6 +99,8 @@ class Producer:
         min_records_per_batch: int = 100,
     ):
         async def stream_from_s3_file(key):
+            self.logger.info("Starting stream", key=key)
+
             s3_ob = await s3_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
             assert "Body" in s3_ob, "Body not found in S3 object"
             stream: StreamingBody = s3_ob["Body"]
@@ -108,6 +110,8 @@ class Producer:
             async for batch in reader:
                 for record_batch_slice in slice_record_batch(batch, max_record_batch_size_bytes, min_records_per_batch):
                     await queue.put(record_batch_slice)
+
+            self.logger.info("Finished stream", key=key)
 
         async with asyncio.TaskGroup() as tg:
             stream_func = make_retryable_with_exponential_backoff(

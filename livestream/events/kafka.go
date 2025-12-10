@@ -3,23 +3,99 @@ package events
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	jlexer "github.com/mailru/easyjson/jlexer"
+	jwriter "github.com/mailru/easyjson/jwriter"
 	"github.com/posthog/posthog/livestream/geo"
 	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// FlexibleString handles JSON values that can be either a string or a number,
+// converting them to a string representation. This is needed because some SDKs
+// (e.g., posthog-ruby) may send distinct_id as an integer instead of a string.
+type FlexibleString string
+
+func (f *FlexibleString) UnmarshalEasyJSON(in *jlexer.Lexer) {
+	if in.IsNull() {
+		in.Skip()
+		*f = ""
+		return
+	}
+
+	// Try to detect the type by looking at the first character
+	data := in.Raw()
+	if len(data) == 0 {
+		*f = ""
+		return
+	}
+
+	// If it starts with a quote, it's a string
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			in.AddError(err)
+			return
+		}
+		*f = FlexibleString(s)
+		return
+	}
+
+	// Otherwise, try to parse as a number and convert to string
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err != nil {
+		// If that fails, just use the raw value as a string
+		*f = FlexibleString(string(data))
+		return
+	}
+	*f = FlexibleString(n.String())
+}
+
+func (f FlexibleString) MarshalEasyJSON(out *jwriter.Writer) {
+	out.String(string(f))
+}
+
+func (f *FlexibleString) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*f = ""
+		return nil
+	}
+
+	// If it starts with a quote, it's a string
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		*f = FlexibleString(s)
+		return nil
+	}
+
+	// Otherwise, try to parse as a number and convert to string
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err != nil {
+		return fmt.Errorf("FlexibleString: cannot unmarshal %s", string(data))
+	}
+	*f = FlexibleString(n.String())
+	return nil
+}
+
+func (f FlexibleString) MarshalJSON() ([]byte, error) {
+	return json.Marshal(string(f))
+}
+
 //easyjson:json
 type PostHogEventWrapper struct {
-	Uuid       string `json:"uuid"`
-	DistinctId string `json:"distinct_id"`
-	Ip         string `json:"ip"`
-	Data       string `json:"data"`
-	Token      string `json:"token"`
+	Uuid       string         `json:"uuid"`
+	DistinctId FlexibleString `json:"distinct_id"`
+	Ip         string         `json:"ip"`
+	Data       string         `json:"data"`
+	Token      string         `json:"token"`
 }
 
 //easyjson:json
@@ -145,7 +221,7 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 	}
 
 	phEvent.Uuid = wrapperMessage.Uuid
-	phEvent.DistinctId = wrapperMessage.DistinctId
+	phEvent.DistinctId = string(wrapperMessage.DistinctId)
 
 	if wrapperMessage.Token != "" {
 		phEvent.Token = wrapperMessage.Token

@@ -59,6 +59,16 @@ pub async fn main() -> Result<(), Error> {
     info!("Starting up...");
 
     let config = Config::init_from_env().unwrap();
+
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            error!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
+
     let context = Arc::new(AppContext::new(&config).await.unwrap());
 
     context.clone().spawn_shutdown_listener();
