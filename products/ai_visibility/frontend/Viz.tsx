@@ -86,9 +86,7 @@ function PromptsTab({ brand }: { brand: string }): JSX.Element {
 function CompetitorsTab({ brand }: { brand: string }): JSX.Element {
     const logic = vizLogic({ brand })
     const { brandDisplayName, visibilityScore, topCompetitors, topics, competitorComparisons, competitorTopicsMatrix } =
-        useValues(logic) as ReturnType<typeof useValues<typeof logic>> & {
-            topCompetitors: { name: string; visibility: number; logo_url: string }[]
-        }
+        useValues(logic)
 
     return (
         <div className="space-y-6">
@@ -97,6 +95,7 @@ function CompetitorsTab({ brand }: { brand: string }): JSX.Element {
                 topics={topics}
                 competitors={topCompetitors}
                 brandName={brandDisplayName}
+                brandDomain={brand}
                 visibilityScore={visibilityScore}
             />
             <div>
