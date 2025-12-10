@@ -16,6 +16,8 @@ import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { virtualizedLogsListLogic } from './virtualizedLogsListLogic'
 
+const SCROLL_INTERVAL_MS = 16 // ~60fps
+
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     trace: 'bg-muted-alt',
     debug: 'bg-muted',
@@ -138,14 +140,14 @@ export function LogRow({
         [setMessageScrollLeft]
     )
 
-    const throttledScroll = useThrottledCallback(scrollMessage, 16) // ~60fps
+    const throttledScroll = useThrottledCallback(scrollMessage, SCROLL_INTERVAL_MS)
 
     const startScrolling = useCallback(
         (direction: 'left' | 'right'): void => {
             scrollMessage(direction) // Immediate first scroll
             scrollIntervalRef.current = window.setInterval(() => {
                 throttledScroll(direction)
-            }, 16)
+            }, SCROLL_INTERVAL_MS)
         },
         [scrollMessage, throttledScroll]
     )

@@ -15,6 +15,8 @@ import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 import { logsViewerLogic } from './logsViewerLogic'
 
+const SCROLL_INTERVAL_MS = 16 // ~60fps
+
 export interface LogsViewerProps {
     tabId: string
     logs: ParsedLogMessage[]
@@ -99,10 +101,9 @@ function LogsViewerContent({
         [setMessageScrollLeft]
     )
 
-    const throttledScroll = useThrottledCallback(scrollMessage, 16)
+    const throttledScroll = useThrottledCallback(scrollMessage, SCROLL_INTERVAL_MS)
 
     const startScrolling = useCallback(
-        (direction: 'left' | 'right'): void => {
         (direction: 'left' | 'right'): void => {
             if (scrollIntervalRef.current !== null) {
                 return // Already scrolling
@@ -110,7 +111,7 @@ function LogsViewerContent({
             scrollMessage(direction)
             scrollIntervalRef.current = window.setInterval(() => {
                 throttledScroll(direction)
-            }, 16)
+            }, SCROLL_INTERVAL_MS)
         },
         [scrollMessage, throttledScroll]
     )
