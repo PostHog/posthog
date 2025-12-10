@@ -91,6 +91,12 @@ jobs:
                   exit 0
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+            - name: Generate demo data
+              if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'true'
+              timeout-minutes: 15
+              run: python3 bin/hobby-ci.py generate-demo-data
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
             - name: Fetch logs after test
               if: always()
               run: python3 bin/hobby-ci.py fetch-logs || echo "Could not fetch logs"

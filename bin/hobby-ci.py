@@ -307,6 +307,32 @@ ssh_authorized_keys:
         except Exception as e:
             return {"exit_code": -1, "stdout": "", "stderr": f"SSH command failed: {str(e)}"}
 
+    def generate_demo_data(self):
+        """Generate demo data on the droplet via SSH"""
+        if not self.droplet or not self.ssh_private_key:
+            print("❌ Cannot generate demo data: missing droplet or SSH key", flush=True)
+            return False
+
+        print("🎲 Generating demo data on droplet...", flush=True)
+        print("   This may take a few minutes", flush=True)
+
+        cmd = (
+            "cd /root/hobby && "
+            "sudo -E docker-compose -f docker-compose.yml exec -T web "
+            "python manage.py generate_demo_data"
+        )
+
+        result = self.run_ssh_command(cmd, timeout=600)
+
+        if result["exit_code"] == 0:
+            print("✅ Demo data generated successfully", flush=True)
+            return True
+        else:
+            print(f"❌ Demo data generation failed (exit {result['exit_code']})", flush=True)
+            if result["stderr"]:
+                print(f"   Error: {result['stderr']}", flush=True)
+            return False
+
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
         """Find an existing droplet for a PR by tag"""
@@ -979,6 +1005,27 @@ def main():
         else:
             print("We failed", flush=True)
             exit(1)
+
+    if command == "generate-demo-data":
+        print("Generating demo data on droplet", flush=True)
+        droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+        ssh_key_path = os.environ.get("HOBBY_SSH_KEY_PATH")
+
+        ssh_private_key = None
+        if ssh_key_path and os.path.exists(ssh_key_path):
+            with open(ssh_key_path) as f:
+                ssh_private_key = f.read()
+
+        if not ssh_private_key:
+            print("❌ No SSH key available - cannot generate demo data", flush=True)
+            exit(1)
+
+        ht = HobbyTester(
+            droplet_id=droplet_id,
+            ssh_private_key=ssh_private_key,
+        )
+        success = ht.generate_demo_data()
+        exit(0 if success else 1)
 
 
 if __name__ == "__main__":
