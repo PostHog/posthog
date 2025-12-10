@@ -16,6 +16,7 @@ import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { virtualizedLogsListLogic } from './virtualizedLogsListLogic'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
+const SCROLL_AMOUNT_PX = 8
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     trace: 'bg-muted-alt',
@@ -130,9 +131,10 @@ export function LogRow({
         (direction: 'left' | 'right'): void => {
             const el = messageScrollRef.current
             if (el) {
-                const scrollAmount = 8
                 const newScrollLeft =
-                    direction === 'left' ? Math.max(0, el.scrollLeft - scrollAmount) : el.scrollLeft + scrollAmount
+                    direction === 'left'
+                        ? Math.max(0, el.scrollLeft - SCROLL_AMOUNT_PX)
+                        : el.scrollLeft + SCROLL_AMOUNT_PX
                 el.scrollLeft = newScrollLeft
                 setMessageScrollLeft(newScrollLeft)
             }

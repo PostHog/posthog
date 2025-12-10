@@ -15,6 +15,7 @@ import { LogsViewerToolbar } from './LogsViewerToolbar'
 import { logsViewerLogic } from './logsViewerLogic'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
+const SCROLL_AMOUNT_PX = 8
 
 export interface LogsViewerProps {
     tabId: string
@@ -89,11 +90,10 @@ function LogsViewerContent({
 
     const scrollMessage = useCallback(
         (direction: 'left' | 'right'): void => {
-            const scrollAmount = 8
             const newScrollLeft =
                 direction === 'left'
-                    ? Math.max(0, scrollLeftRef.current - scrollAmount)
-                    : scrollLeftRef.current + scrollAmount
+                    ? Math.max(0, scrollLeftRef.current - SCROLL_AMOUNT_PX)
+                    : scrollLeftRef.current + SCROLL_AMOUNT_PX
             scrollLeftRef.current = newScrollLeft
             setMessageScrollLeft(newScrollLeft)
         },
