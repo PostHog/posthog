@@ -388,6 +388,7 @@ Generate a unique persona that fits this audience and would provide useful testi
                     team_id=self.team.id,
                     user_id=self.request.user.id,
                     session_id=session.id,
+                    target_url=session.round.study.target_url,
                     research_session_id=session.id,
                 )
                 await client.start_workflow(

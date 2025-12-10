@@ -37,6 +37,7 @@ class SyntheticUserWorkflowInputs:
     user_id: int
     research_session_id: UUID
     session_id: Optional[str] = None
+    target_url: Optional[str] = None
 
 
 @workflow.defn(name="synthetic-user")
@@ -83,6 +84,10 @@ async def process_synthetic_user_activity(inputs: SyntheticUserWorkflowInputs) -
         You are a synthetic user navigating a website. You are given a task to complete:
 
         {session.plan}
+
+        The target URL to navigate to and complete the task on is:
+
+        {inputs.target_url}
 
         You need to pretend to be this person:
 
