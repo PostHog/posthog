@@ -114,6 +114,112 @@ Integration.objects.filter(kind='firebase').first()
 # Or create one (see integration_from_key for full setup)
 ```
 
+## Loading the Template
+
+The Firebase Push Notification template lives in the plugin-server and needs to be synced to the database.
+
+**Option 1: Automatic sync (requires plugin-server running)**
+
+```bash
+flox activate -- python manage.py sync_hog_function_templates
+```
+
+This fetches templates from the plugin-server at `localhost:6738`. If the plugin-server keeps crashing (common MinIO/blobby issue), use Option 2.
+
+**Option 2: Manual database insert**
+
+If the plugin-server is unstable, you can insert the template directly:
+
+```bash
+flox activate -- python manage.py shell
+```
+
+```python
+from posthog.models.hog_function_template import HogFunctionTemplate
+
+# Check if it already exists
+if HogFunctionTemplate.objects.filter(template_id='template-firebase-push').exists():
+    print("Template already exists!")
+else:
+    code = '''
+let fcmToken := inputs.fcm_token
+let title := inputs.title
+let body := inputs.body
+let projectId := inputs.firebase_account.project_id
+
+if (not fcmToken) {
+    throw Error('FCM token is required')
+}
+
+if (not title) {
+    throw Error('Notification title is required')
+}
+
+let url := f'https://fcm.googleapis.com/v1/projects/{projectId}/messages:send'
+
+let message := {
+    'message': {
+        'token': fcmToken,
+        'notification': {
+            'title': title,
+            'body': body
+        }
+    }
+}
+
+if (inputs.data) {
+    message.message.data := inputs.data
+}
+
+let payload := {
+    'method': 'POST',
+    'headers': {
+        'Authorization': f'Bearer {inputs.firebase_account.access_token}',
+        'Content-Type': 'application/json'
+    },
+    'body': message
+}
+
+if (inputs.debug) {
+    print('Sending push notification', url, payload)
+}
+
+let res := fetch(url, payload)
+
+if (res.status < 200 or res.status >= 300) {
+    throw Error(f'Failed to send push notification via FCM: {res.status} {res.body}')
+}
+
+if (inputs.debug) {
+    print('Push notification sent', res)
+}
+'''
+
+    template = HogFunctionTemplate.objects.create(
+        template_id='template-firebase-push',
+        name='Firebase Push Notification',
+        description='Send push notifications to mobile devices via Firebase Cloud Messaging (FCM)',
+        type='destination',
+        status='alpha',
+        free=False,
+        icon_url='/static/services/firebase.png',
+        category=['Communication'],
+        code_language='hog',
+        code=code,
+        inputs_schema=[
+            {'key': 'firebase_account', 'type': 'integration', 'integration': 'firebase', 'label': 'Firebase project', 'requiredScopes': 'placeholder', 'secret': False, 'hidden': False, 'required': True},
+            {'key': 'fcm_token', 'type': 'string', 'label': 'FCM device token', 'secret': False, 'required': True, 'description': 'The Firebase Cloud Messaging token for the target device.', 'default': '', 'templating': 'liquid'},
+            {'key': 'title', 'type': 'string', 'label': 'Notification title', 'secret': False, 'required': True, 'description': 'The title of the push notification', 'default': 'Notification from {{ event.event }}', 'templating': 'liquid'},
+            {'key': 'body', 'type': 'string', 'label': 'Notification body', 'secret': False, 'required': False, 'description': 'The body text of the push notification', 'default': '', 'templating': 'liquid'},
+            {'key': 'data', 'type': 'json', 'label': 'Custom data payload', 'secret': False, 'required': False, 'description': 'Optional custom key-value data to send with the notification', 'default': {}},
+            {'key': 'debug', 'type': 'boolean', 'label': 'Log responses', 'description': 'Logs the FCM responses for debugging.', 'secret': False, 'required': False, 'default': False},
+        ],
+    )
+    print(f"Created template: {template.template_id}")
+```
+
+After loading, refresh the destinations page and you should see "Firebase Push Notification".
+
 ## Testing via PostHog UI
 
 1. Start PostHog locally
