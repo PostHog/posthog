@@ -4,12 +4,15 @@
  * Provides autocomplete suggestions for HogQL queries by analyzing AST nodes
  * and database schema. Mirrors the Python implementation in posthog/hogql/autocomplete.py
  */
+import { performQuery } from '~/queries/query'
 import {
     AutocompleteCompletionItem,
     AutocompleteCompletionItemKind,
+    DatabaseSchemaQuery,
     HogLanguage,
     HogQLAutocomplete,
     HogQLAutocompleteResponse,
+    NodeKind,
 } from '~/queries/schema/schema-general'
 // ====================================
 // Database Schema Types
@@ -20,6 +23,7 @@ import type {
     DatabaseSchemaQueryResponse,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type * as ast from './ast'
 import { isParseError, parseHogQLExpr, parseHogQLProgram, parseHogQLSelect, parseHogQLTemplateString } from './parser'
@@ -65,152 +69,12 @@ export function resetDatabaseSchema(): void {
 
 /**
  * Fetch database schema from API
- * For now, returns a mock schema - will be replaced with actual API call
  */
 async function fetchDatabaseSchemaFromAPI(): Promise<DatabaseSchema> {
-    // TODO: Replace with actual API call to externalDataSources.database_schema
-    // For now, return a basic schema structure with lazy tables matching the API response format
-    return {
-        tables: {
-            events: {
-                type: 'posthog',
-                id: 'events',
-                name: 'events',
-                row_count: undefined,
-                fields: {
-                    uuid: {
-                        name: 'uuid',
-                        hogql_value: 'uuid',
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    event: {
-                        name: 'event',
-                        hogql_value: 'event',
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    timestamp: {
-                        name: 'timestamp',
-                        hogql_value: 'timestamp',
-                        type: 'datetime',
-                        schema_valid: true,
-                    },
-                    distinct_id: {
-                        name: 'distinct_id',
-                        hogql_value: 'distinct_id',
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    properties: {
-                        name: 'properties',
-                        hogql_value: 'properties',
-                        type: 'json',
-                        schema_valid: true,
-                    },
-                    person_id: {
-                        name: 'person_id',
-                        hogql_value: 'person_id',
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    // Lazy table: pdi references person_distinct_ids table
-                    pdi: {
-                        name: 'pdi',
-                        hogql_value: 'pdi',
-                        type: 'lazy_table',
-                        schema_valid: true,
-                        fields: ['distinct_id', 'person_id', 'team_id', 'person'],
-                        id: 'pdi',
-                        table: 'person_distinct_ids',
-                    },
-                    // Virtual table: poe (person overrides events) - actually references persons fields
-                    poe: {
-                        name: 'poe',
-                        hogql_value: 'poe',
-                        type: 'virtual_table',
-                        schema_valid: true,
-                        fields: ['id', 'created_at', 'properties', 'is_identified'],
-                        table: 'persons',
-                    },
-                    // Field traverser: person
-                    person: {
-                        name: 'person',
-                        hogql_value: 'person',
-                        type: 'field_traverser',
-                        schema_valid: true,
-                        chain: ['poe'],
-                    },
-                },
-            },
-            persons: {
-                type: 'posthog',
-                id: 'persons',
-                name: 'persons',
-                fields: {
-                    id: {
-                        name: 'id',
-                        hogql_value: 'id',
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    created_at: {
-                        name: 'created_at',
-                        hogql_value: 'created_at',
-                        type: 'datetime',
-                        schema_valid: true,
-                    },
-                    properties: {
-                        name: 'properties',
-                        hogql_value: 'properties',
-                        type: 'json',
-                        schema_valid: true,
-                    },
-                    is_identified: {
-                        name: 'is_identified',
-                        hogql_value: 'is_identified',
-                        type: 'boolean',
-                        schema_valid: true,
-                    },
-                },
-            },
-            person_distinct_ids: {
-                type: 'posthog',
-                id: 'person_distinct_ids',
-                name: 'person_distinct_ids',
-                fields: {
-                    distinct_id: {
-                        name: 'distinct_id',
-                        hogql_value: 'distinct_id',
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    person_id: {
-                        name: 'person_id',
-                        hogql_value: 'person_id',
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    team_id: {
-                        name: 'team_id',
-                        hogql_value: 'team_id',
-                        type: 'integer',
-                        schema_valid: true,
-                    },
-                    person: {
-                        name: 'person',
-                        hogql_value: 'person',
-                        type: 'lazy_table',
-                        schema_valid: true,
-                        fields: ['id', 'created_at', 'properties', 'is_identified'],
-                        id: 'person',
-                        table: 'persons',
-                    },
-                },
-            },
-        },
-        joins: [],
-    }
+    const response = (await performQuery(
+        setLatestVersionsOnQuery({ kind: NodeKind.DatabaseSchemaQuery }) as DatabaseSchemaQuery
+    )) as DatabaseSchemaQueryResponse
+    return response
 }
 
 // ====================================

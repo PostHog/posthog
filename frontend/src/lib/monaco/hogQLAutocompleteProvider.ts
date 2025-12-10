@@ -12,6 +12,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
+import { getDatabaseSchema, getHogQLAutocomplete } from '../hogql/autocomplete'
+import { initParser } from '../hogql/parser'
+
 const convertCompletionItemKind = (kind: AutocompleteCompletionItemKind): languages.CompletionItemKind => {
     switch (kind) {
         case 'Method':
@@ -85,6 +88,18 @@ const kindToSortText = (kind: AutocompleteCompletionItemKind, label: string): st
     return `3-${label}`
 }
 
+/**
+ * Pre-initialize the HogQL parser WASM module and database schema
+ * Call this early to avoid delays when autocomplete is first triggered
+ */
+export async function initHogQLAutocomplete(): Promise<void> {
+    // Initialize both in parallel
+    await Promise.all([
+        initParser(), // Initialize WASM parser module
+        getDatabaseSchema(), // Fetch and cache database schema
+    ])
+}
+
 export const hogQLAutocompleteProvider = (type: HogLanguage): languages.CompletionItemProvider => ({
     triggerCharacters: [' ', ',', '.', '{'],
     provideCompletionItems: async (model, position) => {
@@ -118,7 +133,16 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
             },
             { recursion: false }
         )
-        const response = await performQuery<HogQLAutocomplete>(query)
+
+        let response
+        // Use local autocomplete for HogQL language (faster, no network request)
+        if (type === HogLanguage.hogQL) {
+            response = await getHogQLAutocomplete(query)
+        } else {
+            // For other languages (Hog, templates, etc.), use the backend API
+            response = await performQuery<HogQLAutocomplete>(query)
+        }
+
         const completionItems = response.suggestions
         const suggestions = completionItems.map<languages.CompletionItem>((item) => {
             const kind = convertCompletionItemKind(item.kind)

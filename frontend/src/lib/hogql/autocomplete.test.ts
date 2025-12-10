@@ -4,14 +4,172 @@
  * Tests for the HogQL autocomplete functionality
  * Based on posthog/hogql/test/test_autocomplete.py
  */
+import { performQuery } from '~/queries/query'
 import { HogLanguage, HogQLAutocomplete, NodeKind } from '~/queries/schema/schema-general'
+import type { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 
 import { getHogQLAutocomplete, resetDatabaseSchema } from './autocomplete'
 
+// Mock the performQuery function
+jest.mock('~/queries/query', () => ({
+    performQuery: jest.fn(),
+}))
+
+const mockedPerformQuery = performQuery as jest.MockedFunction<typeof performQuery>
+
+// Mock database schema for tests
+const mockDatabaseSchema: DatabaseSchemaQueryResponse = {
+    tables: {
+        events: {
+            type: 'posthog',
+            id: 'events',
+            name: 'events',
+            row_count: undefined,
+            fields: {
+                uuid: {
+                    name: 'uuid',
+                    hogql_value: 'uuid',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                event: {
+                    name: 'event',
+                    hogql_value: 'event',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                timestamp: {
+                    name: 'timestamp',
+                    hogql_value: 'timestamp',
+                    type: 'datetime',
+                    schema_valid: true,
+                },
+                distinct_id: {
+                    name: 'distinct_id',
+                    hogql_value: 'distinct_id',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                properties: {
+                    name: 'properties',
+                    hogql_value: 'properties',
+                    type: 'json',
+                    schema_valid: true,
+                },
+                person_id: {
+                    name: 'person_id',
+                    hogql_value: 'person_id',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                // Lazy table: pdi references person_distinct_ids table
+                pdi: {
+                    name: 'pdi',
+                    hogql_value: 'pdi',
+                    type: 'lazy_table',
+                    schema_valid: true,
+                    fields: ['distinct_id', 'person_id', 'team_id', 'person'],
+                    id: 'pdi',
+                    table: 'person_distinct_ids',
+                },
+                // Virtual table: poe (person overrides events) - actually references persons fields
+                poe: {
+                    name: 'poe',
+                    hogql_value: 'poe',
+                    type: 'virtual_table',
+                    schema_valid: true,
+                    fields: ['id', 'created_at', 'properties', 'is_identified'],
+                    table: 'persons',
+                },
+                // Field traverser: person
+                person: {
+                    name: 'person',
+                    hogql_value: 'person',
+                    type: 'field_traverser',
+                    schema_valid: true,
+                    chain: ['poe'],
+                },
+            },
+        },
+        persons: {
+            type: 'posthog',
+            id: 'persons',
+            name: 'persons',
+            fields: {
+                id: {
+                    name: 'id',
+                    hogql_value: 'id',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                created_at: {
+                    name: 'created_at',
+                    hogql_value: 'created_at',
+                    type: 'datetime',
+                    schema_valid: true,
+                },
+                properties: {
+                    name: 'properties',
+                    hogql_value: 'properties',
+                    type: 'json',
+                    schema_valid: true,
+                },
+                is_identified: {
+                    name: 'is_identified',
+                    hogql_value: 'is_identified',
+                    type: 'boolean',
+                    schema_valid: true,
+                },
+            },
+        },
+        person_distinct_ids: {
+            type: 'posthog',
+            id: 'person_distinct_ids',
+            name: 'person_distinct_ids',
+            fields: {
+                distinct_id: {
+                    name: 'distinct_id',
+                    hogql_value: 'distinct_id',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                person_id: {
+                    name: 'person_id',
+                    hogql_value: 'person_id',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                team_id: {
+                    name: 'team_id',
+                    hogql_value: 'team_id',
+                    type: 'integer',
+                    schema_valid: true,
+                },
+                person: {
+                    name: 'person',
+                    hogql_value: 'person',
+                    type: 'lazy_table',
+                    schema_valid: true,
+                    fields: ['id', 'created_at', 'properties', 'is_identified'],
+                    id: 'person',
+                    table: 'persons',
+                },
+            },
+        },
+    },
+    joins: [],
+}
+
 describe('HogQL Autocomplete', () => {
     beforeEach(() => {
+        // Mock the performQuery to return our mock schema
+        mockedPerformQuery.mockResolvedValue(mockDatabaseSchema as any)
         // Reset schema cache before each test
         resetDatabaseSchema()
+    })
+
+    afterEach(() => {
+        jest.clearAllMocks()
     })
 
     // Helper to create a SELECT query autocomplete request
