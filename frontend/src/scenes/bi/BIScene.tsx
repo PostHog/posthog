@@ -286,10 +286,17 @@ export function BIScene(): JSX.Element {
     const [openColumnPopover, setOpenColumnPopover] = useState<string | null>(null)
     const [openFilterPopover, setOpenFilterPopover] = useState<number | null>(null)
     const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set())
+    const [showGeneratedQuery, setShowGeneratedQuery] = useState(false)
 
     useEffect(() => {
         setExpandedFields(new Set())
     }, [selectedTableObject?.name])
+
+    useEffect(() => {
+        if (!_queryString) {
+            setShowGeneratedQuery(false)
+        }
+    }, [_queryString])
 
     const rows = useMemo(() => {
         if (!queryResponse?.results || selectedFields.length === 0 || queryResponseLoading) {
@@ -418,6 +425,14 @@ export function BIScene(): JSX.Element {
                                 suffix="rows"
                                 style={{ width: 140 }}
                             />
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => setShowGeneratedQuery((current) => !current)}
+                                disabled={!_queryString}
+                            >
+                                {showGeneratedQuery ? 'Hide generated HogQL' : 'Show generated HogQL'}
+                            </LemonButton>
                         </div>
                         <div className="flex flex-wrap gap-2">
                             {filters.map((filter, index) => (
@@ -436,7 +451,7 @@ export function BIScene(): JSX.Element {
                         </div>
                     </div>
 
-                    {_queryString && (
+                    {showGeneratedQuery && _queryString && (
                         <LemonCard hoverEffect={false}>
                             <div className="flex items-start justify-between gap-2">
                                 <div className="text-muted">Generated HogQL</div>
