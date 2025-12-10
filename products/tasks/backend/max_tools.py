@@ -44,6 +44,10 @@ class ListTaskRunsArgs(BaseModel):
     limit: int = Field(default=10, ge=1, le=50, description="Maximum number of runs to return")
 
 
+class ListRepositoriesArgs(BaseModel):
+    search: str | None = Field(default=None, description="Optional search term to filter repositories by name")
+
+
 class CreateTaskTool(MaxTool):
     name: str = "create_task"
     description: str = """
@@ -428,3 +432,65 @@ Use this tool when the user wants to:
             )
 
         return "\n".join(lines), {"task_id": task_info["id"], "slug": task_info["slug"], "runs": run_list}
+
+
+class ListRepositoriesTool(MaxTool):
+    name: str = "list_repositories"
+    description: str = """
+List available GitHub repositories that can be used for tasks.
+
+Use this tool when the user wants to:
+- See which repositories are available for creating tasks
+- Find a specific repository by name
+- Check if a repository is connected via GitHub integration
+    """.strip()
+    args_schema: type[BaseModel] = ListRepositoriesArgs
+
+    async def _arun_impl(self, search: str | None = None) -> tuple[str, dict[str, Any]]:
+        from posthog.models.integration import GitHubIntegration, Integration
+
+        @sync_to_async
+        def get_repositories():
+            integrations = Integration.objects.filter(team=self._team, kind="github")
+
+            all_repos: list[dict[str, str]] = []
+
+            for integration in integrations:
+                try:
+                    github = GitHubIntegration(integration)
+                    org = github.organization()
+                    repo_names = github.list_repositories()
+
+                    for repo_name in repo_names:
+                        full_name = f"{org}/{repo_name}"
+                        if search:
+                            if search.lower() not in repo_name.lower():
+                                continue
+                        all_repos.append(
+                            {
+                                "repository": full_name,
+                                "organization": org,
+                                "name": repo_name,
+                            }
+                        )
+                except Exception:
+                    continue
+
+            return all_repos
+
+        repos = await get_repositories()
+
+        if not repos:
+            if search:
+                return f"No repositories found matching '{search}'", {"repositories": []}
+            settings_url = "/settings/project-integrations"
+            return (
+                f"No GitHub repositories available. Please connect a GitHub integration in Settings: {settings_url}",
+                {"repositories": [], "settings_url": settings_url},
+            )
+
+        lines = [f"Found {len(repos)} repository(ies):\n"]
+        for repo in repos:
+            lines.append(f"- {repo['repository']}")
+
+        return "\n".join(lines), {"repositories": repos}
