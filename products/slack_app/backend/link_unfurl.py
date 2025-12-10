@@ -1,6 +1,7 @@
 import re
+import json
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import structlog
 import posthoganalytics
@@ -60,6 +61,200 @@ def extract_dashboard_id_from_url(url: str) -> Optional[int]:
     return None
 
 
+def extract_query_from_new_insight_url(url: str) -> Optional[dict]:
+    """
+    Extract query JSON from new insight URLs with query in hash.
+
+    Examples:
+    - https://us.posthog.com/project/2/insights/new#q=%7B%22kind%22%3A... -> query dict
+    - https://us.posthog.com/insights/new#q=... -> query dict
+    """
+    parsed = urlparse(url)
+    path = parsed.path
+    fragment = parsed.fragment
+
+    # Check if this is a "new insight" URL
+    if not path.endswith("/insights/new") and "/insights/new" not in path:
+        return None
+
+    if not fragment:
+        return None
+
+    # Parse the hash fragment - it might be just the query or have q= parameter
+    if fragment.startswith("q="):
+        # Extract the q parameter value
+        hash_params = parse_qs(fragment)
+        if hash_params.get("q"):
+            query_str = hash_params["q"][0]
+        else:
+            return None
+    elif fragment.startswith("{") or fragment.startswith("["):
+        # The fragment itself is the JSON query
+        query_str = fragment
+    else:
+        # Try parsing as URL params
+        try:
+            hash_params = parse_qs(fragment)
+            if hash_params.get("q"):
+                query_str = hash_params["q"][0]
+            else:
+                return None
+        except Exception:
+            return None
+
+    # URL decode and parse JSON
+    try:
+        decoded = unquote(query_str)
+        query = json.loads(decoded)
+        if isinstance(query, dict):
+            return query
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        logger.debug("slack_unfurl_query_extraction_failed", url=url, error=str(e))
+        return None
+
+    return None
+
+
+@shared_task(ignore_result=True)
+def export_and_unfurl_query(
+    integration_id: int,
+    query: dict,
+    url: str,
+    unfurl_id: str,
+    channel: str,
+    source: str,
+    message_ts: str,
+    name: Optional[str] = None,
+) -> None:
+    """
+    Export a query (from new insight URL) as an image and unfurl it in Slack.
+    This runs asynchronously since image export can take time.
+    """
+    try:
+        integration = Integration.objects.get(pk=integration_id)
+        slack = SlackIntegration(integration)
+
+        # Create ExportedAsset with query in export_context
+        asset = ExportedAsset.objects.create(
+            team=integration.team,
+            export_format="image/png",
+            export_context={
+                "query": query,
+                "name": name or "Insight",
+            },
+        )
+
+        # Export the image synchronously (this can take a while)
+        # Use max_height_pixels to limit image size for Slack (Slack has image size limits)
+        logger.info(
+            "slack_unfurl_exporting_query",
+            asset_id=asset.id,
+            url=url,
+        )
+        exporter.export_asset_direct(asset, max_height_pixels=2000)
+
+        # Wait for export to complete and get the public URL
+        asset.refresh_from_db()
+        if not asset.has_content:
+            logger.error(
+                "slack_unfurl_export_failed",
+                asset_id=asset.id,
+                url=url,
+                exception=asset.exception,
+            )
+            return
+
+        image_url = asset.get_public_content_url()
+
+        # Unfurl the link in Slack - use standalone image block for better display
+        unfurls = {
+            url: {
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{name or 'Insight'}*",
+                        },
+                    },
+                    {
+                        "type": "image",
+                        "image_url": image_url,
+                        "alt_text": name or "Insight",
+                    },
+                ]
+            }
+        }
+
+        # Use chat_unfurl API - try with channel/ts first, fallback to without if needed
+        try:
+            if channel and message_ts:
+                slack.client.chat_unfurl(
+                    unfurls=unfurls,
+                    unfurl_id=unfurl_id,
+                    source=source,
+                    channel=channel,
+                    ts=message_ts,
+                )
+            else:
+                slack.client.chat_unfurl(
+                    unfurls=unfurls,
+                    unfurl_id=unfurl_id,
+                    source=source,
+                    channel="",
+                    ts="",
+                )
+
+            logger.info(
+                "slack_unfurl_message_sent",
+                image_url=image_url,
+                url=url,
+            )
+        except SlackApiError as e:
+            # If it fails with channel/ts, try without (some sources don't require them)
+            if channel and message_ts and "channel" in str(e).lower():
+                slack.client.chat_unfurl(
+                    unfurls=unfurls,
+                    unfurl_id=unfurl_id,
+                    source=source,
+                    channel="",
+                    ts="",
+                )
+                logger.info(
+                    "slack_unfurl_message_sent",
+                    image_url=image_url,
+                    url=url,
+                )
+            else:
+                raise
+
+        logger.info(
+            "slack_unfurl_success",
+            asset_id=asset.id,
+            url=url,
+            unfurl_id=unfurl_id,
+        )
+
+    except Integration.DoesNotExist:
+        logger.exception("slack_unfurl_integration_not_found", integration_id=integration_id)
+    except SlackApiError as e:
+        logger.exception(
+            "slack_unfurl_api_error",
+            error=str(e),
+            response=e.response,
+            url=url,
+            unfurl_id=unfurl_id,
+        )
+    except Exception as e:
+        logger.exception(
+            "slack_unfurl_error",
+            error=str(e),
+            url=url,
+            unfurl_id=unfurl_id,
+        )
+        capture_exception(e)
+
+
 @shared_task(ignore_result=True)
 def export_and_unfurl_insight(
     integration_id: int,
@@ -110,13 +305,14 @@ def export_and_unfurl_insight(
             )
 
             # Export the image synchronously (this can take a while)
+            # Use max_height_pixels to limit image size for Slack (Slack has image size limits)
             logger.info(
                 "slack_unfurl_exporting_insight",
                 asset_id=asset.id,
                 insight_id=insight_id,
                 insight_pk=insight.id,
             )
-            exporter.export_asset_direct(asset)
+            exporter.export_asset_direct(asset, max_height_pixels=2000)
 
             # Wait for export to complete and get the public URL
             asset.refresh_from_db()
@@ -131,7 +327,7 @@ def export_and_unfurl_insight(
 
             image_url = asset.get_public_content_url()
 
-            # Unfurl the link in Slack - use section block with image as accessory (matches working pattern)
+            # Unfurl the link in Slack - use standalone image block for better display
             unfurls = {
                 url: {
                     "blocks": [
@@ -139,14 +335,14 @@ def export_and_unfurl_insight(
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": insight.name or insight.derived_name or "Insight",
+                                "text": f"*{insight.name or insight.derived_name or 'Insight'}*",
                             },
-                            "accessory": {
-                                "type": "image",
-                                "image_url": image_url,
-                                "alt_text": insight.name or insight.derived_name or "Insight",
-                            },
-                        }
+                        },
+                        {
+                            "type": "image",
+                            "image_url": image_url,
+                            "alt_text": insight.name or insight.derived_name or "Insight",
+                        },
                     ]
                 }
             }
@@ -267,12 +463,13 @@ def export_and_unfurl_dashboard(
             )
 
             # Export the image synchronously (this can take a while)
+            # Use max_height_pixels to limit image size for Slack (Slack has image size limits)
             logger.info(
                 "slack_unfurl_exporting_dashboard",
                 asset_id=asset.id,
                 dashboard_id=dashboard_id,
             )
-            exporter.export_asset_direct(asset)
+            exporter.export_asset_direct(asset, max_height_pixels=2000)
 
             # Wait for export to complete and get the public URL
             asset.refresh_from_db()
@@ -287,7 +484,7 @@ def export_and_unfurl_dashboard(
 
             image_url = asset.get_public_content_url()
 
-            # Unfurl the link in Slack - use section block with image as accessory
+            # Unfurl the link in Slack - use standalone image block for better display
             unfurls = {
                 url: {
                     "blocks": [
@@ -295,14 +492,14 @@ def export_and_unfurl_dashboard(
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": dashboard.name or "Dashboard",
+                                "text": f"*{dashboard.name or 'Dashboard'}*",
                             },
-                            "accessory": {
-                                "type": "image",
-                                "image_url": image_url,
-                                "alt_text": dashboard.name or "Dashboard",
-                            },
-                        }
+                        },
+                        {
+                            "type": "image",
+                            "image_url": image_url,
+                            "alt_text": dashboard.name or "Dashboard",
+                        },
                     ]
                 }
             }
@@ -455,7 +652,29 @@ def handle_link_shared(event: dict, slack_team_id: str) -> None:
         if "posthog.com" not in domain and "posthog.com" not in url:
             continue
 
-        # Try to extract insight ID first
+        # Try to extract query from new insight URL first
+        query = extract_query_from_new_insight_url(url)
+        if query:
+            logger.info(
+                "slack_link_shared_new_insight_found",
+                url=url,
+                slack_team_id=slack_team_id,
+                unfurl_id=unfurl_id,
+            )
+
+            # Queue the export and unfurl task for query
+            export_and_unfurl_query.delay(
+                integration_id=integration.id,
+                query=query,
+                url=url,
+                unfurl_id=unfurl_id,
+                channel=channel or "",
+                source=source,
+                message_ts=message_ts or "",
+            )
+            continue
+
+        # Try to extract insight ID
         insight_id = extract_insight_id_from_url(url)
         if insight_id:
             logger.info(
