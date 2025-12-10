@@ -216,6 +216,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             return metadata.get("columns", None)
         return None
 
+    @property
+    def indexes(self) -> list[dict[str, Any]] | None:
+        """Returns the index metadata for this schema."""
+        metadata = self.schema_metadata
+        if metadata:
+            return metadata.get("indexes", None)
+        return None
+
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],

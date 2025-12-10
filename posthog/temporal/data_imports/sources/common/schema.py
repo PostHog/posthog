@@ -20,6 +20,15 @@ class ColumnInfo(TypedDict, total=False):
     is_nullable: bool
 
 
+class IndexInfo(TypedDict, total=False):
+    """Index metadata for a table."""
+
+    name: str  # Index name
+    columns: list[str]  # Columns in the index
+    is_unique: bool  # Whether the index enforces uniqueness
+    is_primary: bool  # Whether this is the primary key index
+
+
 @dataclass
 class SourceSchema:
     name: str
@@ -30,3 +39,4 @@ class SourceSchema:
     primary_key: list[str] | None = None  # List of column names forming the primary key
     foreign_keys: list[ForeignKey] | None = None  # Foreign key relationships
     columns: list[ColumnInfo] | None = None  # Column metadata
+    indexes: list[IndexInfo] | None = None  # Index metadata

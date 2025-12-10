@@ -479,6 +479,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     schema_metadata["foreign_keys"] = schema.get("foreign_keys")
                 if schema.get("columns"):
                     schema_metadata["columns"] = schema.get("columns")
+                if schema.get("indexes"):
+                    schema_metadata["indexes"] = schema.get("indexes")
                 if schema_metadata:
                     sync_type_config["schema_metadata"] = schema_metadata
 
@@ -647,6 +649,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "primary_key": schema.primary_key,
                 "foreign_keys": schema.foreign_keys,
                 "columns": schema.columns,
+                "indexes": schema.indexes,
             }
             for schema in schemas
         ]

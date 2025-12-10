@@ -776,6 +776,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 primary_key: schema.primary_key,
                                 foreign_keys: schema.foreign_keys,
                                 columns: schema.columns,
+                                indexes: schema.indexes,
                             })),
                         },
                     })

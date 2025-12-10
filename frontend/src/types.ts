@@ -5002,6 +5002,13 @@ export interface ColumnInfo {
     is_nullable?: boolean
 }
 
+export interface IndexInfo {
+    name: string
+    columns: string[]
+    is_unique: boolean
+    is_primary: boolean
+}
+
 export interface ExternalDataSourceSyncSchema {
     table: string
     rows?: number | null
@@ -5017,6 +5024,7 @@ export interface ExternalDataSourceSyncSchema {
     primary_key?: string[] | null
     foreign_keys?: ForeignKeyInfo[] | null
     columns?: ColumnInfo[] | null
+    indexes?: IndexInfo[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
