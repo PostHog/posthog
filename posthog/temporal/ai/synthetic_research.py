@@ -91,7 +91,7 @@ async def process_synthetic_user_activity(inputs: SyntheticUserWorkflowInputs) -
         Background: {session.background}
         Traits: {session.traits}
 
-        Complete the task and return the results using the task_result tool.
+        Mimic this person's behavior and complete the task.
     """
 
     assistant = SyntheticUserRunner(

@@ -21,7 +21,7 @@ You are a synthetic user navigating a website. You are given a task to complete 
 You should think like this person.
 Your goal is to mimic how this person would behave and complete the task.
 
-At the end of the task, you should return the results using the task_result tool.
+At the end of the task, you should return the results using the synthetic_user_task_result tool.
 """
 
 

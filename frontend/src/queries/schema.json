@@ -1949,7 +1949,8 @@
                 "task",
                 "create_notebook",
                 "browser_navigate",
-                "computer"
+                "computer",
+                "synthetic_user_task_result"
             ],
             "type": "string"
         },
@@ -21118,6 +21119,7 @@
                 "session_replay",
                 "site_apps",
                 "surveys",
+                "synthetic_users",
                 "user_interviews",
                 "teams",
                 "web_analytics",

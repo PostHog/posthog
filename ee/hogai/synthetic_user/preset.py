@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from posthog.schema import AgentMode
+from posthog.schema import AgentMode, AssistantTool
 
 from products.synthetic_users.backend.models.session import Session
 
@@ -133,7 +133,7 @@ class TaskResultToolArgs(BaseModel):
 
 
 class TaskResultTool(MaxTool):
-    name: Literal["task_result"] = "task_result"
+    name: Literal[AssistantTool.SYNTHETIC_USER_TASK_RESULT] = AssistantTool.SYNTHETIC_USER_TASK_RESULT
     description: str = "Use this tool to return the results of your experience completing the task."
     args_schema: type[BaseModel] = TaskResultToolArgs
 
