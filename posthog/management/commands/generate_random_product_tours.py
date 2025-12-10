@@ -20,7 +20,7 @@ from posthog.models.person.person import Person, PersonDistinctId
 from products.product_tours.backend.models import ProductTour
 
 # Sample step content for generating realistic tours
-TOUR_TEMPLATES = [
+TOUR_TEMPLATES: list[dict[str, Any]] = [
     {
         "name": "Welcome Tour",
         "description": "Introduce new users to the main features",
@@ -189,8 +189,9 @@ class Command(BaseCommand):
         template = random.choice(TOUR_TEMPLATES)
 
         # Randomly select a subset of steps (at least 2)
-        num_steps = random.randint(2, len(template["steps"]))
-        selected_steps = random.sample(template["steps"], num_steps)
+        template_steps: list[dict[str, str]] = template["steps"]
+        num_steps = random.randint(2, len(template_steps))
+        selected_steps = random.sample(template_steps, num_steps)
 
         steps = []
         for step in selected_steps:
