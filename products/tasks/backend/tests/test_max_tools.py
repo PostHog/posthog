@@ -157,7 +157,7 @@ class TestCreateTaskTool(BaseTaskToolTest):
 
         content, artifact = await tool._arun_impl(title="No Integration", description="Test", repository="org/repo")
 
-        assert "Created task" in content
+        assert "Created and started task" in content
         task = await sync_to_async(Task.objects.get)(id=artifact["task_id"])
         assert task.github_integration is None
 
