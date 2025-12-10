@@ -87,6 +87,7 @@ class ProductTourSerializer(serializers.ModelSerializer):
             "feature_flag_key",
             "targeting_flag_filters",
             "content",
+            "auto_launch",
             "start_date",
             "end_date",
             "created_at",
@@ -146,6 +147,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "internal_targeting_flag",
             "targeting_flag_filters",
             "content",
+            "auto_launch",
             "start_date",
             "end_date",
             "created_at",
@@ -172,8 +174,9 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         instance = super().create(validated_data)
 
-        # Create internal targeting flag
-        self._create_internal_targeting_flag(instance)
+        # Only create internal targeting flag if auto_launch is enabled
+        if instance.auto_launch:
+            self._create_internal_targeting_flag(instance)
 
         return instance
 
@@ -184,18 +187,31 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         _NOT_PROVIDED = object()
         targeting_flag_filters = validated_data.pop("targeting_flag_filters", _NOT_PROVIDED)
 
-        # Update internal targeting flag if start_date or end_date changed
+        # Track what changed
         start_date_changed = "start_date" in validated_data and validated_data["start_date"] != instance.start_date
         end_date_changed = "end_date" in validated_data and validated_data["end_date"] != instance.end_date
         archived_changed = "archived" in validated_data and validated_data["archived"] != instance.archived
+        auto_launch_changed = "auto_launch" in validated_data and validated_data["auto_launch"] != instance.auto_launch
+        auto_launch_enabled = validated_data.get("auto_launch", instance.auto_launch)
 
         instance = super().update(instance, validated_data)
 
-        if start_date_changed or end_date_changed or archived_changed:
-            self._update_internal_targeting_flag_state(instance)
+        # Handle auto_launch changes
+        if auto_launch_changed:
+            if auto_launch_enabled and not instance.internal_targeting_flag:
+                # auto_launch turned ON and no flag exists - create one
+                self._create_internal_targeting_flag(instance)
+            elif not auto_launch_enabled and instance.internal_targeting_flag:
+                # auto_launch turned OFF - deactivate the flag
+                instance.internal_targeting_flag.active = False
+                instance.internal_targeting_flag.save(update_fields=["active"])
+        elif start_date_changed or end_date_changed or archived_changed:
+            # Only update flag state if auto_launch is enabled
+            if instance.auto_launch:
+                self._update_internal_targeting_flag_state(instance)
 
         # Update targeting flag filters if explicitly provided (including null to reset)
-        if targeting_flag_filters is not _NOT_PROVIDED:
+        if targeting_flag_filters is not _NOT_PROVIDED and instance.internal_targeting_flag:
             self._update_targeting_flag_filters(instance, targeting_flag_filters)
 
         return instance
@@ -487,6 +503,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
             "steps",
             "conditions",
             "appearance",
+            "auto_launch",
             "start_date",
             "end_date",
         ]
