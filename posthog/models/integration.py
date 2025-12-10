@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.db import models
+from django.http import HttpRequest
 
 import jwt
 import requests
@@ -830,7 +831,7 @@ class SlackIntegration:
         return channels
 
     @classmethod
-    def validate_request(cls, request: Request):
+    def validate_request(cls, request: HttpRequest | Request):
         """
         Based on https://api.slack.com/authentication/verifying-requests-from-slack
         """

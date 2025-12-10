@@ -29,6 +29,7 @@ import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues, fetchPersons } from '../../src/worker/ingestion/persons/repositories/test-helpers'
+import { createTestEventHeaders } from '../helpers/event-headers'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
@@ -117,7 +118,13 @@ describe('processEvent', () => {
             // Create the event
             const createEventStep = createCreateEventStep()
             const { person, preparedEvent, processPerson, historicalMigration } = res.value
-            const createResult = await createEventStep({ person, preparedEvent, processPerson, historicalMigration })
+            const createResult = await createEventStep({
+                person,
+                preparedEvent,
+                processPerson,
+                historicalMigration,
+                inputHeaders: createTestEventHeaders(),
+            })
 
             if (isOkResult(createResult)) {
                 // Use emit event step to emit the event
@@ -247,7 +254,13 @@ describe('processEvent', () => {
             // Create the event
             const createEventStep = createCreateEventStep()
             const { person, preparedEvent, processPerson, historicalMigration } = res.value
-            const createResult = await createEventStep({ person, preparedEvent, processPerson, historicalMigration })
+            const createResult = await createEventStep({
+                person,
+                preparedEvent,
+                processPerson,
+                historicalMigration,
+                inputHeaders: createTestEventHeaders(),
+            })
 
             if (isOkResult(createResult)) {
                 // Use emit event step to emit the event

@@ -165,8 +165,8 @@ RUN apt-get update && \
     "build-essential" \
     "git" \
     "libpq-dev" \
-    "libxmlsec1" \
-    "libxmlsec1-dev" \
+    "libxmlsec1=1.2.37-2" \
+    "libxmlsec1-dev=1.2.37-2" \
     "libffi-dev" \
     "zlib1g-dev" \
     "pkg-config" \
@@ -174,7 +174,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies using cache mount for faster rebuilds
-RUN --mount=type=cache,target=/root/.cache/uv \
+# Cache ID includes libxmlsec1 version to bust cache when system library changes
+RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
@@ -244,8 +245,8 @@ RUN apt-get update && \
     "chromium" \
     "chromium-driver" \
     "libpq-dev" \
-    "libxmlsec1" \
-    "libxmlsec1-dev" \
+    "libxmlsec1=1.2.37-2" \
+    "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "gettext-base" \
     "ffmpeg=7:5.1.7-0+deb12u1" \

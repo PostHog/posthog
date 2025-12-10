@@ -74,7 +74,12 @@ async fn main() {
     // Instantiate tracing outputs:
     //   - stdout with a level configured by the RUST_LOG envvar (default=ERROR)
     //   - OpenTelemetry if enabled, for levels INFO and higher
-    let log_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    let log_layer = tracing_subscriber::fmt::layer().with_filter(
+        EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy()
+            .add_directive("pyroscope=warn".parse().unwrap()),
+    );
     let otel_layer = config
         .otel_url
         .clone()

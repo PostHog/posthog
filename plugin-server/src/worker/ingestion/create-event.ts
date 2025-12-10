@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { Properties } from '@posthog/plugin-scaffold'
@@ -7,7 +8,7 @@ import { elementsToString, extractElements } from '../../utils/db/elements-chain
 import { safeClickhouseString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { castTimestampOrNow } from '../../utils/utils'
+import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 
 const elementsOrElementsChainCounter = new Counter({
@@ -46,7 +47,8 @@ export function createEvent(
     preIngestionEvent: PreIngestionEvent,
     person: Person,
     processPerson: boolean,
-    historicalMigration = false
+    historicalMigration: boolean,
+    capturedAt: Date | null
 ): RawKafkaEvent {
     const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
@@ -97,6 +99,10 @@ export function createEvent(
         distinct_id: safeClickhouseString(distinctId),
         elements_chain: safeClickhouseString(elementsChain),
         created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+        captured_at:
+            capturedAt !== null
+                ? castTimestampToClickhouseFormat(DateTime.fromJSDate(capturedAt), TimestampFormat.ClickHouse)
+                : null,
         person_id: person.uuid,
         person_properties: eventPersonProperties,
         person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),

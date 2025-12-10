@@ -152,9 +152,12 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockHeaders
             )
             expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, true, false)
-            expect(result).toBe(mockPipelineResult)
-            // Verify side effects are present
+            expect(result.type).toBe(PipelineResultType.OK)
             expect(result.sideEffects).toEqual([ackPromise])
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.inputHeaders).toBe(mockHeaders)
+                expect(result.value.inputMessage).toBe(mockMessage)
+            }
         })
 
         it('should handle retriable errors by re-throwing them', async () => {
@@ -234,9 +237,12 @@ describe('event-pipeline-runner-v1-step', () => {
             }
 
             const result = await step(input)
-            expect(result).toBe(mockPipelineResult)
             expect(result.type).toBe(PipelineResultType.OK)
             expect(result.sideEffects).toEqual(sideEffects)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.inputHeaders).toBe(mockHeaders)
+                expect(result.value.inputMessage).toBe(mockMessage)
+            }
         })
 
         it('should handle successful pipeline results without side effects', async () => {
@@ -256,9 +262,12 @@ describe('event-pipeline-runner-v1-step', () => {
             }
 
             const result = await step(input)
-            expect(result).toBe(mockPipelineResult)
             expect(result.type).toBe(PipelineResultType.OK)
             expect(result.sideEffects).toEqual([])
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.inputHeaders).toBe(mockHeaders)
+                expect(result.value.inputMessage).toBe(mockMessage)
+            }
         })
 
         it('should pass all required parameters to EventPipelineRunner constructor', async () => {

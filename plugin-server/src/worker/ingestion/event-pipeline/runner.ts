@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
@@ -34,9 +33,6 @@ export type RunnerResult<T = object> = T & {
     // Only used in tests
     lastStep: string
     error?: string
-    // For ingestion lag metric
-    inputHeaders?: EventHeaders
-    inputMessage?: Message
 }
 
 export type EventPipelineResult = RunnerResult<{
