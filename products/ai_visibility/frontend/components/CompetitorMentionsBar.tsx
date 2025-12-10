@@ -1,0 +1,71 @@
+import clsx from 'clsx'
+
+import { Link } from 'lib/lemon-ui/Link'
+
+export function CompetitorMentionsBar({
+    brandName,
+    visibilityScore,
+    competitors,
+}: {
+    brandName: string
+    visibilityScore: number
+    competitors: { name: string; visibility: number }[]
+}): JSX.Element {
+    // Build full sorted list to get accurate rankings
+    const fullList = [
+        { name: brandName, visibility: visibilityScore, isOurBrand: true },
+        ...competitors.map((c) => ({ ...c, isOurBrand: false })),
+    ].sort((a, b) => b.visibility - a.visibility)
+
+    // Add rank to each entry
+    const rankedList = fullList.map((brand, index) => ({ ...brand, rank: index + 1 }))
+
+    // Get top 9 competitors + our brand (with their true ranks)
+    const ourBrand = rankedList.find((b) => b.isOurBrand)!
+    const topCompetitors = rankedList.filter((b) => !b.isOurBrand).slice(0, 9)
+    const displayList = [...topCompetitors, ourBrand].sort((a, b) => a.rank - b.rank)
+
+    const maxVisibility = Math.max(...displayList.map((b) => b.visibility), 1)
+
+    return (
+        <div className="border rounded-lg p-4 bg-bg-light">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">Competitor mentions vs {brandName}</h3>
+                <Link to="#" className="text-xs text-primary">
+                    View all
+                </Link>
+            </div>
+            <div className="space-y-3">
+                {displayList.map((brand) => (
+                    <div key={brand.name} className="flex items-center gap-3">
+                        <span
+                            className={clsx(
+                                'w-6 text-sm text-muted text-right',
+                                brand.isOurBrand && 'text-[#f97316] font-semibold'
+                            )}
+                        >
+                            {brand.rank}
+                        </span>
+                        <span className={clsx('w-28 text-sm truncate', brand.isOurBrand && 'font-semibold')}>
+                            {brand.name}
+                        </span>
+                        <div className="flex-1 h-4 bg-border rounded overflow-hidden">
+                            <div
+                                className={clsx('h-full rounded', brand.isOurBrand ? 'bg-[#f97316]' : 'bg-gray-400')}
+                                style={{ width: `${(brand.visibility / maxVisibility) * 100}%` }}
+                            />
+                        </div>
+                        <span
+                            className={clsx(
+                                'w-10 text-sm text-right',
+                                brand.isOurBrand ? 'text-[#f97316] font-semibold' : ''
+                            )}
+                        >
+                            {brand.visibility}%
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
