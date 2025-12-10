@@ -49,35 +49,35 @@ class AIVisibilityWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, input: AIVisibilityWorkflowInput) -> AIVisibilityWorkflowResult:
-        info = await workflow.execute_activity(
+        info: dict = await workflow.execute_activity(
             extract_info_from_url,
             ExtractInfoInput(domain=input.domain),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        topics = await workflow.execute_activity(
+        topics: list[str] = await workflow.execute_activity(
             get_topics,
             TopicsInput(domain=input.domain, info=info),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        prompts = await workflow.execute_activity(
+        prompts: list[dict] = await workflow.execute_activity(
             generate_prompts,
-            PromptsInput(domain=input.domain, topics=topics),
+            PromptsInput(domain=input.domain, topics=topics, info=info),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        ai_calls = await workflow.execute_activity(
+        ai_calls: list[dict] = await workflow.execute_activity(
             make_ai_calls,
-            AICallsInput(domain=input.domain, prompts=prompts),
-            start_to_close_timeout=timedelta(seconds=30),
+            AICallsInput(domain=input.domain, prompts=prompts, info=info, topics=topics),
+            start_to_close_timeout=timedelta(seconds=60),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        combined = await workflow.execute_activity(
+        combined: dict = await workflow.execute_activity(
             combine_calls,
             CombineInput(domain=input.domain, info=info, topics=topics, ai_calls=ai_calls),
             start_to_close_timeout=timedelta(seconds=30),
