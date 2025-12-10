@@ -1,6 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
-import { useThrottledCallback } from 'use-debounce'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -101,8 +100,6 @@ function LogsViewerContent({
         [setMessageScrollLeft]
     )
 
-    const throttledScroll = useThrottledCallback(scrollMessage, SCROLL_INTERVAL_MS)
-
     const startScrolling = useCallback(
         (direction: 'left' | 'right'): void => {
             if (scrollIntervalRef.current !== null) {
@@ -110,10 +107,10 @@ function LogsViewerContent({
             }
             scrollMessage(direction)
             scrollIntervalRef.current = window.setInterval(() => {
-                throttledScroll(direction)
+                scrollMessage(direction)
             }, SCROLL_INTERVAL_MS)
         },
-        [scrollMessage, throttledScroll]
+        [scrollMessage]
     )
 
     const stopScrolling = useCallback((): void => {

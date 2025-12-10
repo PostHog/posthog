@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
-import { useThrottledCallback } from 'use-debounce'
 
 import { IconChevronLeft, IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -141,16 +140,14 @@ export function LogRow({
         [setMessageScrollLeft]
     )
 
-    const throttledScroll = useThrottledCallback(scrollMessage, SCROLL_INTERVAL_MS)
-
     const startScrolling = useCallback(
         (direction: 'left' | 'right'): void => {
             scrollMessage(direction) // Immediate first scroll
             scrollIntervalRef.current = window.setInterval(() => {
-                throttledScroll(direction)
+                scrollMessage(direction)
             }, SCROLL_INTERVAL_MS)
         },
-        [scrollMessage, throttledScroll]
+        [scrollMessage]
     )
 
     const stopScrolling = useCallback((): void => {
