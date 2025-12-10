@@ -33,18 +33,26 @@ jobs:
             - name: 'Check for preview mode'
               id: check-preview
               run: |
-                  LABELS=$(gh pr view ${{ github.event.pull_request.number }} --json labels -q '.labels[].name' 2>/dev/null || echo "")
-                  if echo "$LABELS" | grep -q "hobby-preview"; then
+                  echo "Fetching labels for PR #${{ github.event.pull_request.number }}"
+                  LABELS=$(gh pr view ${{ github.event.pull_request.number }} --json labels -q '.labels[].name' 2>&1)
+                  LABEL_CHECK_EXIT=$?
+                  echo "Label fetch exit code: $LABEL_CHECK_EXIT"
+                  echo "Raw labels output: $LABELS"
+
+                  # Check if hobby-preview label exists (case-insensitive)
+                  if echo "$LABELS" | grep -iq "hobby-preview"; then
                     echo "preview=true" >> $GITHUB_OUTPUT
-                    echo "🔄 Preview mode enabled - will reuse droplet if exists"
+                    echo "✅ Preview mode enabled - found 'hobby-preview' label"
                   else
                     echo "preview=false" >> $GITHUB_OUTPUT
-                    echo "🧪 Smoke test mode - ephemeral droplet"
+                    echo "🧪 Smoke test mode - 'hobby-preview' label not found"
+                    echo "Available labels: $LABELS"
                   fi
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             - name: Post initial PR comment
               id: post-comment
+              if: steps.check-preview.outputs.preview == 'true'
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
               with:
                   script: |
@@ -113,7 +121,7 @@ jobs:
                   timeoutSeconds: 3600
                   intervalSeconds: 30
             - name: Update comment - Docker build failed
-              if: always() && steps.wait-for-image.outputs.conclusion != 'success'
+              if: always() && steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion != 'success'
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
               with:
                   script: |
@@ -150,7 +158,7 @@ jobs:
                   echo "Docker image build failed with conclusion: ${{ steps.wait-for-image.outputs.conclusion }}"
                   exit 1
             - name: Update comment - Docker image ready
-              if: steps.wait-for-image.outputs.conclusion == 'success'
+              if: steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion == 'success'
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
               with:
                   script: |
@@ -206,7 +214,7 @@ jobs:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
             - name: Update comment - Instance created
-              if: github.event_name == 'pull_request' && env.HOBBY_COMMENT_ID
+              if: env.PREVIEW_MODE == 'true' && env.HOBBY_COMMENT_ID
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
               with:
                   script: |
@@ -262,7 +270,7 @@ jobs:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
             - name: Update PR comment with final status
-              if: always() && github.event_name == 'pull_request' && env.HOBBY_COMMENT_ID
+              if: always() && env.PREVIEW_MODE == 'true' && env.HOBBY_COMMENT_ID
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
               with:
                   script: |
