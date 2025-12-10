@@ -116,7 +116,7 @@ Output ONLY the short code (no explanations):""",
             short_code = short_code.split(":", 1)[1].strip()
 
         # Validate: only lowercase letters, numbers, hyphens, length 3-15
-        if re.match(r"^[a-z0-9-]{3,15}$", short_code):
+        if re.match(r"^[a-z0-9-]{3,18}$", short_code):
             logger.info(f"Generated short code: {short_code}")
             return short_code
 
