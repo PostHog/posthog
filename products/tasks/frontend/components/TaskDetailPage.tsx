@@ -25,8 +25,7 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskLoading, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll } =
-        useValues(sceneLogic)
+    const { task, taskLoading, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll } = useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
 
     if (!task) {

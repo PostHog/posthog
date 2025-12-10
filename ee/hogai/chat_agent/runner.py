@@ -20,8 +20,9 @@ from ee.hogai.utils.types import (
 from ee.models import Conversation
 
 if TYPE_CHECKING:
-    from ee.hogai.utils.types.composed import MaxNodeName
     from products.slack_app.backend.slack_thread import SlackThreadContext
+
+    from ee.hogai.utils.types.composed import MaxNodeName
 
 
 STREAMING_NODES: set["MaxNodeName"] = {
