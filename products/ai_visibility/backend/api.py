@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 
+from .models import AiVisibilityRun
 from .serializers import AIVisibilityTriggerResponseSerializer, AIVisibilityTriggerSerializer
 from .temporal.client import trigger_ai_visibility_workflow
 
@@ -38,10 +39,17 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
 
         workflow_id = trigger_ai_visibility_workflow(domain=domain, team_id=None, user_id=None)
 
+        run = AiVisibilityRun.objects.create(
+            domain=domain,
+            workflow_id=workflow_id,
+            status=AiVisibilityRun.Status.RUNNING,
+        )
+
         logger.info(
             "ai_visibility.triggered",
             domain=domain,
             workflow_id=workflow_id,
+            run_id=str(run.id),
         )
 
         serializer = AIVisibilityTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"})
