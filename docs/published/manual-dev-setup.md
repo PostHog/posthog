@@ -267,6 +267,11 @@ DEBUG=1 ./bin/migrate
 
 ## 6. Start PostHog
 
+We use flock to prevent multiple instances of posthog running on the same machine at the same time - while this is technically possible, in practice it's almost never what you want to do. You'll need to install it with:
+```bash
+brew install flock
+```
+
 Now start all of PostHog (backend, worker, plugin server, and frontend – simultaneously) with one of:
 
 ```bash
