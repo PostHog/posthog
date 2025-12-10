@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS {table_name}
     document_id String, -- A uuid, a path like "issue/<chunk_id>", whatever you like really
     timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
     inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
-    content String{default_clause}, -- The actual text content that was embedded
+    content String{content_default}, -- The actual text content that was embedded
+    metadata String{metadata_default}, -- JSON metadata for the document, stored as a string
     embedding Array(Float64) -- The embedding itself
     {extra_fields}
 ) ENGINE = {engine}
@@ -56,7 +57,8 @@ def DOCUMENT_EMBEDDINGS_TABLE_SQL():
         engine=ReplacingMergeTree(
             PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS, ver="inserted_at", replication_scheme=ReplicationScheme.SHARDED
         ),
-        default_clause=" DEFAULT ''",
+        content_default=" DEFAULT ''",
+        metadata_default=" DEFAULT '{}'",
         extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
     , {index_by_kafka_timestamp(PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS)}
@@ -73,7 +75,8 @@ def DISTRIBUTED_DOCUMENT_EMBEDDINGS_TABLE_SQL():
             data_table=PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS,
             sharding_key="cityHash64(document_id)",
         ),
-        default_clause=" DEFAULT ''",
+        content_default=" DEFAULT ''",
+        metadata_default=" DEFAULT '{}'",
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     )
 
@@ -85,7 +88,8 @@ def DOCUMENT_EMBEDDINGS_WRITABLE_TABLE_SQL():
             data_table=PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS,
             sharding_key="cityHash64(document_id)",
         ),
-        default_clause=" DEFAULT ''",
+        content_default=" DEFAULT ''",
+        metadata_default=" DEFAULT '{}'",
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     )
 
@@ -94,7 +98,8 @@ def KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL():
     return DOCUMENT_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name=KAFKA_DOCUMENT_EMBEDDINGS,
         engine=kafka_engine(KAFKA_DOCUMENT_EMBEDDINGS_TOPIC, group="clickhouse_document_embeddings"),
-        default_clause="",
+        content_default="",
+        metadata_default="",
         extra_fields="",
     )
 
@@ -115,6 +120,7 @@ document_id,
 timestamp,
 _timestamp as inserted_at,
 coalesce(content, '') as content,
+coalesce(metadata, '{{}}') as metadata,
 embedding,
 _timestamp,
 _offset,

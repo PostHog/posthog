@@ -10,6 +10,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     LazyTableToAdd,
     StringDatabaseField,
+    StringJSONDatabaseField,
     Table,
 )
 
@@ -25,6 +26,7 @@ DOCUMENT_EMBEDDINGS_FIELDS: dict[str, FieldOrTable] = {
     "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
     "inserted_at": DateTimeDatabaseField(name="inserted_at", nullable=False),
     "content": StringDatabaseField(name="content", nullable=False),
+    "metadata": StringJSONDatabaseField(name="metadata", nullable=False),
     "embedding": FloatArrayDatabaseField(name="embedding", nullable=False),
 }
 
