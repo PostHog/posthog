@@ -1,4 +1,4 @@
-import { afterMount, kea, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import type { vizLogicType } from './vizLogicType'
@@ -7,18 +7,34 @@ export interface VizLogicProps {
     domain: string
 }
 
-interface TriggerResponse {
+interface StartedResponse {
     workflow_id: string
-    status: string
+    status: 'started'
 }
+
+interface ReadyResponse {
+    status: 'ready'
+    run_id: string
+    domain: string
+    results: Record<string, unknown>
+}
+
+type ApiResponse = StartedResponse | ReadyResponse
+
+const POLL_INTERVAL_MS = 5000
 
 export const vizLogic = kea<vizLogicType>([
     path(['products', 'ai_visibility', 'frontend', 'vizLogic']),
     props({} as VizLogicProps),
 
+    actions({
+        startPolling: true,
+        stopPolling: true,
+    }),
+
     loaders(({ props }) => ({
         triggerResult: [
-            null as TriggerResponse | null,
+            null as ApiResponse | null,
             {
                 loadTriggerResult: async () => {
                     if (!props.domain) {
@@ -48,14 +64,79 @@ export const vizLogic = kea<vizLogicType>([
                 loadTriggerResultSuccess: () => null,
             },
         ],
+        pollIntervalId: [
+            null as number | null,
+            {
+                startPolling: () => null,
+                stopPolling: () => null,
+            },
+        ],
     }),
 
     selectors({
-        workflowId: [(s) => [s.triggerResult], (triggerResult): string | null => triggerResult?.workflow_id ?? null],
-        workflowStatus: [(s) => [s.triggerResult], (triggerResult): string | null => triggerResult?.status ?? null],
+        workflowId: [
+            (s) => [s.triggerResult],
+            (triggerResult): string | null => {
+                if (triggerResult?.status === 'started') {
+                    return triggerResult.workflow_id
+                }
+                return null
+            },
+        ],
+        isReady: [(s) => [s.triggerResult], (triggerResult): boolean => triggerResult?.status === 'ready'],
+        results: [
+            (s) => [s.triggerResult],
+            (triggerResult): Record<string, unknown> | null => {
+                if (triggerResult?.status === 'ready') {
+                    return triggerResult.results
+                }
+                return null
+            },
+        ],
+        runId: [
+            (s) => [s.triggerResult],
+            (triggerResult): string | null => {
+                if (triggerResult?.status === 'ready') {
+                    return triggerResult.run_id
+                }
+                return null
+            },
+        ],
     }),
+
+    listeners(({ actions, values, cache }) => ({
+        loadTriggerResultSuccess: ({ triggerResult }) => {
+            if (triggerResult?.status === 'started') {
+                actions.startPolling()
+            } else if (triggerResult?.status === 'ready') {
+                actions.stopPolling()
+            }
+        },
+        startPolling: () => {
+            if (cache.pollIntervalId) {
+                clearInterval(cache.pollIntervalId)
+            }
+            cache.pollIntervalId = setInterval(() => {
+                if (!values.triggerResultLoading) {
+                    actions.loadTriggerResult()
+                }
+            }, POLL_INTERVAL_MS)
+        },
+        stopPolling: () => {
+            if (cache.pollIntervalId) {
+                clearInterval(cache.pollIntervalId)
+                cache.pollIntervalId = null
+            }
+        },
+    })),
 
     afterMount(({ actions }) => {
         actions.loadTriggerResult()
+    }),
+
+    beforeUnmount(({ cache }) => {
+        if (cache.pollIntervalId) {
+            clearInterval(cache.pollIntervalId)
+        }
     }),
 ])
