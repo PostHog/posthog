@@ -364,28 +364,8 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalTimestamp.
-    def visitColumnExprNoLogicalTimestamp(self, ctx:HogQLParser.ColumnExprNoLogicalTimestampContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalLiteral.
     def visitColumnExprNoLogicalLiteral(self, ctx:HogQLParser.ColumnExprNoLogicalLiteralContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalAsterisk.
-    def visitColumnExprNoLogicalAsterisk(self, ctx:HogQLParser.ColumnExprNoLogicalAsteriskContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalDict.
-    def visitColumnExprNoLogicalDict(self, ctx:HogQLParser.ColumnExprNoLogicalDictContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalSubquery.
-    def visitColumnExprNoLogicalSubquery(self, ctx:HogQLParser.ColumnExprNoLogicalSubqueryContext):
         return self.visitChildren(ctx)
 
 
@@ -394,113 +374,8 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalNullTupleAccess.
-    def visitColumnExprNoLogicalNullTupleAccess(self, ctx:HogQLParser.ColumnExprNoLogicalNullTupleAccessContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalCallSelect.
-    def visitColumnExprNoLogicalCallSelect(self, ctx:HogQLParser.ColumnExprNoLogicalCallSelectContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalNullArrayAccess.
-    def visitColumnExprNoLogicalNullArrayAccess(self, ctx:HogQLParser.ColumnExprNoLogicalNullArrayAccessContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalIsNull.
-    def visitColumnExprNoLogicalIsNull(self, ctx:HogQLParser.ColumnExprNoLogicalIsNullContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalCast.
-    def visitColumnExprNoLogicalCast(self, ctx:HogQLParser.ColumnExprNoLogicalCastContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalTupleAccess.
-    def visitColumnExprNoLogicalTupleAccess(self, ctx:HogQLParser.ColumnExprNoLogicalTupleAccessContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalAlias.
-    def visitColumnExprNoLogicalAlias(self, ctx:HogQLParser.ColumnExprNoLogicalAliasContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalFunction.
-    def visitColumnExprNoLogicalFunction(self, ctx:HogQLParser.ColumnExprNoLogicalFunctionContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalNullish.
-    def visitColumnExprNoLogicalNullish(self, ctx:HogQLParser.ColumnExprNoLogicalNullishContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalDate.
-    def visitColumnExprNoLogicalDate(self, ctx:HogQLParser.ColumnExprNoLogicalDateContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalCase.
-    def visitColumnExprNoLogicalCase(self, ctx:HogQLParser.ColumnExprNoLogicalCaseContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalWinFunctionTarget.
-    def visitColumnExprNoLogicalWinFunctionTarget(self, ctx:HogQLParser.ColumnExprNoLogicalWinFunctionTargetContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalTuple.
-    def visitColumnExprNoLogicalTuple(self, ctx:HogQLParser.ColumnExprNoLogicalTupleContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalArrayAccess.
-    def visitColumnExprNoLogicalArrayAccess(self, ctx:HogQLParser.ColumnExprNoLogicalArrayAccessContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalPropertyAccess.
-    def visitColumnExprNoLogicalPropertyAccess(self, ctx:HogQLParser.ColumnExprNoLogicalPropertyAccessContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalTrim.
-    def visitColumnExprNoLogicalTrim(self, ctx:HogQLParser.ColumnExprNoLogicalTrimContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalNullPropertyAccess.
-    def visitColumnExprNoLogicalNullPropertyAccess(self, ctx:HogQLParser.ColumnExprNoLogicalNullPropertyAccessContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalWinFunction.
-    def visitColumnExprNoLogicalWinFunction(self, ctx:HogQLParser.ColumnExprNoLogicalWinFunctionContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalCall.
-    def visitColumnExprNoLogicalCall(self, ctx:HogQLParser.ColumnExprNoLogicalCallContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalTemplateString.
-    def visitColumnExprNoLogicalTemplateString(self, ctx:HogQLParser.ColumnExprNoLogicalTemplateStringContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalNegate.
     def visitColumnExprNoLogicalNegate(self, ctx:HogQLParser.ColumnExprNoLogicalNegateContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalTernaryOp.
-    def visitColumnExprNoLogicalTernaryOp(self, ctx:HogQLParser.ColumnExprNoLogicalTernaryOpContext):
         return self.visitChildren(ctx)
 
 
@@ -509,48 +384,8 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalInterval.
-    def visitColumnExprNoLogicalInterval(self, ctx:HogQLParser.ColumnExprNoLogicalIntervalContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalLambda.
-    def visitColumnExprNoLogicalLambda(self, ctx:HogQLParser.ColumnExprNoLogicalLambdaContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalPrecedence1.
-    def visitColumnExprNoLogicalPrecedence1(self, ctx:HogQLParser.ColumnExprNoLogicalPrecedence1Context):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalIntervalString.
-    def visitColumnExprNoLogicalIntervalString(self, ctx:HogQLParser.ColumnExprNoLogicalIntervalStringContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalPrecedence2.
-    def visitColumnExprNoLogicalPrecedence2(self, ctx:HogQLParser.ColumnExprNoLogicalPrecedence2Context):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalSubstring.
-    def visitColumnExprNoLogicalSubstring(self, ctx:HogQLParser.ColumnExprNoLogicalSubstringContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalArray.
-    def visitColumnExprNoLogicalArray(self, ctx:HogQLParser.ColumnExprNoLogicalArrayContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalTagElement.
-    def visitColumnExprNoLogicalTagElement(self, ctx:HogQLParser.ColumnExprNoLogicalTagElementContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalPrecedence3.
-    def visitColumnExprNoLogicalPrecedence3(self, ctx:HogQLParser.ColumnExprNoLogicalPrecedence3Context):
+    # Visit a parse tree produced by HogQLParser#ColumnExprNoLogicalSubquery.
+    def visitColumnExprNoLogicalSubquery(self, ctx:HogQLParser.ColumnExprNoLogicalSubqueryContext):
         return self.visitChildren(ctx)
 
 

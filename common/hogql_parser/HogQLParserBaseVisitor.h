@@ -299,23 +299,7 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitColumnExprNoLogicalTimestamp(HogQLParser::ColumnExprNoLogicalTimestampContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
   virtual std::any visitColumnExprNoLogicalLiteral(HogQLParser::ColumnExprNoLogicalLiteralContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalAsterisk(HogQLParser::ColumnExprNoLogicalAsteriskContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalDict(HogQLParser::ColumnExprNoLogicalDictContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalSubquery(HogQLParser::ColumnExprNoLogicalSubqueryContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -323,91 +307,7 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitColumnExprNoLogicalNullTupleAccess(HogQLParser::ColumnExprNoLogicalNullTupleAccessContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalCallSelect(HogQLParser::ColumnExprNoLogicalCallSelectContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalNullArrayAccess(HogQLParser::ColumnExprNoLogicalNullArrayAccessContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalIsNull(HogQLParser::ColumnExprNoLogicalIsNullContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalCast(HogQLParser::ColumnExprNoLogicalCastContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalTupleAccess(HogQLParser::ColumnExprNoLogicalTupleAccessContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalAlias(HogQLParser::ColumnExprNoLogicalAliasContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalFunction(HogQLParser::ColumnExprNoLogicalFunctionContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalNullish(HogQLParser::ColumnExprNoLogicalNullishContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalDate(HogQLParser::ColumnExprNoLogicalDateContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalCase(HogQLParser::ColumnExprNoLogicalCaseContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalWinFunctionTarget(HogQLParser::ColumnExprNoLogicalWinFunctionTargetContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalTuple(HogQLParser::ColumnExprNoLogicalTupleContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalArrayAccess(HogQLParser::ColumnExprNoLogicalArrayAccessContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalPropertyAccess(HogQLParser::ColumnExprNoLogicalPropertyAccessContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalTrim(HogQLParser::ColumnExprNoLogicalTrimContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalNullPropertyAccess(HogQLParser::ColumnExprNoLogicalNullPropertyAccessContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalWinFunction(HogQLParser::ColumnExprNoLogicalWinFunctionContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalCall(HogQLParser::ColumnExprNoLogicalCallContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalTemplateString(HogQLParser::ColumnExprNoLogicalTemplateStringContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
   virtual std::any visitColumnExprNoLogicalNegate(HogQLParser::ColumnExprNoLogicalNegateContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalTernaryOp(HogQLParser::ColumnExprNoLogicalTernaryOpContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -415,39 +315,7 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitColumnExprNoLogicalInterval(HogQLParser::ColumnExprNoLogicalIntervalContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalLambda(HogQLParser::ColumnExprNoLogicalLambdaContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalPrecedence1(HogQLParser::ColumnExprNoLogicalPrecedence1Context *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalIntervalString(HogQLParser::ColumnExprNoLogicalIntervalStringContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalPrecedence2(HogQLParser::ColumnExprNoLogicalPrecedence2Context *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalSubstring(HogQLParser::ColumnExprNoLogicalSubstringContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalArray(HogQLParser::ColumnExprNoLogicalArrayContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalTagElement(HogQLParser::ColumnExprNoLogicalTagElementContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitColumnExprNoLogicalPrecedence3(HogQLParser::ColumnExprNoLogicalPrecedence3Context *ctx) override {
+  virtual std::any visitColumnExprNoLogicalSubquery(HogQLParser::ColumnExprNoLogicalSubqueryContext *ctx) override {
     return visitChildren(ctx);
   }
 

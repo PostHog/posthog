@@ -147,62 +147,15 @@ columnTypeExpr
     ;
 columnExprList: columnExpr (COMMA columnExpr)* COMMA?;
 
-// columnExprNoLogical: Same as columnExpr but excludes logical operators (AND, OR, NOT, BETWEEN)
-// to prevent greedy consumption in BETWEEN operands. Includes parenthesized expressions as escape hatch.
+// columnExprNoLogical: Minimal subset of columnExpr excluding logical operators (AND, OR, NOT, BETWEEN).
+// This prevents greedy consumption in BETWEEN operands while allowing complex expressions via parentheses.
+// For expressions requiring arithmetic/comparison operators, use parentheses: x BETWEEN (y * 2) AND (z + 3)
 columnExprNoLogical
-    : CASE caseExpr=columnExprNoLogical? (WHEN whenExpr=columnExprNoLogical THEN thenExpr=columnExprNoLogical)+ (ELSE elseExpr=columnExprNoLogical)? END  # ColumnExprNoLogicalCase
-    | CAST LPAREN columnExprNoLogical AS columnTypeExpr RPAREN                           # ColumnExprNoLogicalCast
-    | DATE STRING_LITERAL                                                                 # ColumnExprNoLogicalDate
-    | INTERVAL STRING_LITERAL                                                             # ColumnExprNoLogicalIntervalString
-    | INTERVAL columnExprNoLogical interval                                               # ColumnExprNoLogicalInterval
-    | SUBSTRING LPAREN columnExprNoLogical FROM columnExprNoLogical (FOR columnExprNoLogical)? RPAREN  # ColumnExprNoLogicalSubstring
-    | TIMESTAMP STRING_LITERAL                                                            # ColumnExprNoLogicalTimestamp
-    | TRIM LPAREN (BOTH | LEADING | TRAILING) string FROM columnExprNoLogical RPAREN     # ColumnExprNoLogicalTrim
-    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprNoLogicalWinFunction
-    | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER identifier               # ColumnExprNoLogicalWinFunctionTarget
-    | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? RPAREN                                 # ColumnExprNoLogicalFunction
-    | columnExprNoLogical LPAREN selectSetStmt RPAREN                                     # ColumnExprNoLogicalCallSelect
-    | columnExprNoLogical LPAREN columnExprList? RPAREN                                   # ColumnExprNoLogicalCall
-    | hogqlxTagElement                                                                    # ColumnExprNoLogicalTagElement
-    | templateString                                                                      # ColumnExprNoLogicalTemplateString
-    | literal                                                                             # ColumnExprNoLogicalLiteral
-    | columnExprNoLogical LBRACKET columnExprNoLogical RBRACKET                           # ColumnExprNoLogicalArrayAccess
-    | columnExprNoLogical DOT DECIMAL_LITERAL                                             # ColumnExprNoLogicalTupleAccess
-    | columnExprNoLogical DOT identifier                                                  # ColumnExprNoLogicalPropertyAccess
-    | columnExprNoLogical NULL_PROPERTY LBRACKET columnExprNoLogical RBRACKET             # ColumnExprNoLogicalNullArrayAccess
-    | columnExprNoLogical NULL_PROPERTY DECIMAL_LITERAL                                   # ColumnExprNoLogicalNullTupleAccess
-    | columnExprNoLogical NULL_PROPERTY identifier                                        # ColumnExprNoLogicalNullPropertyAccess
-    | DASH columnExprNoLogical                                                            # ColumnExprNoLogicalNegate
-    | left=columnExprNoLogical ( operator=ASTERISK | operator=SLASH | operator=PERCENT ) right=columnExprNoLogical  # ColumnExprNoLogicalPrecedence1
-    | left=columnExprNoLogical ( operator=PLUS | operator=DASH | operator=CONCAT ) right=columnExprNoLogical        # ColumnExprNoLogicalPrecedence2
-    | left=columnExprNoLogical ( operator=EQ_DOUBLE
-                 | operator=EQ_SINGLE
-                 | operator=NOT_EQ
-                 | operator=LT_EQ
-                 | operator=LT
-                 | operator=GT_EQ
-                 | operator=GT
-                 | operator=NOT? IN COHORT?
-                 | operator=NOT? (LIKE | ILIKE)
-                 | operator=REGEX_SINGLE
-                 | operator=REGEX_DOUBLE
-                 | operator=NOT_REGEX
-                 | operator=IREGEX_SINGLE
-                 | operator=IREGEX_DOUBLE
-                 | operator=NOT_IREGEX
-                 ) right=columnExprNoLogical                                              # ColumnExprNoLogicalPrecedence3
-    | columnExprNoLogical IS NOT? NULL_SQL                                                # ColumnExprNoLogicalIsNull
-    | columnExprNoLogical NULLISH columnExprNoLogical                                     # ColumnExprNoLogicalNullish
-    | <assoc=right> columnExprNoLogical QUERY columnExprNoLogical COLON columnExprNoLogical  # ColumnExprNoLogicalTernaryOp
-    | columnExprNoLogical (AS identifier | AS STRING_LITERAL)                             # ColumnExprNoLogicalAlias
-    | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprNoLogicalAsterisk
-    | LPAREN selectSetStmt RPAREN                                                         # ColumnExprNoLogicalSubquery
-    | LPAREN columnExpr RPAREN                                                            # ColumnExprNoLogicalParens
-    | LPAREN columnExprList RPAREN                                                        # ColumnExprNoLogicalTuple
-    | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprNoLogicalArray
-    | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprNoLogicalDict
-    | columnLambdaExpr                                                                    # ColumnExprNoLogicalLambda
-    | columnIdentifier                                                                    # ColumnExprNoLogicalIdentifier
+    : literal                                    # ColumnExprNoLogicalLiteral
+    | columnIdentifier                           # ColumnExprNoLogicalIdentifier
+    | DASH columnExprNoLogical                   # ColumnExprNoLogicalNegate
+    | LPAREN columnExpr RPAREN                   # ColumnExprNoLogicalParens
+    | LPAREN selectSetStmt RPAREN                # ColumnExprNoLogicalSubquery
     ;
 
 columnExpr

@@ -161,81 +161,15 @@ public:
 
     virtual std::any visitColumnExprList(HogQLParser::ColumnExprListContext *context) = 0;
 
-    virtual std::any visitColumnExprNoLogicalTimestamp(HogQLParser::ColumnExprNoLogicalTimestampContext *context) = 0;
-
     virtual std::any visitColumnExprNoLogicalLiteral(HogQLParser::ColumnExprNoLogicalLiteralContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalAsterisk(HogQLParser::ColumnExprNoLogicalAsteriskContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalDict(HogQLParser::ColumnExprNoLogicalDictContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalSubquery(HogQLParser::ColumnExprNoLogicalSubqueryContext *context) = 0;
 
     virtual std::any visitColumnExprNoLogicalIdentifier(HogQLParser::ColumnExprNoLogicalIdentifierContext *context) = 0;
 
-    virtual std::any visitColumnExprNoLogicalNullTupleAccess(HogQLParser::ColumnExprNoLogicalNullTupleAccessContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalCallSelect(HogQLParser::ColumnExprNoLogicalCallSelectContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalNullArrayAccess(HogQLParser::ColumnExprNoLogicalNullArrayAccessContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalIsNull(HogQLParser::ColumnExprNoLogicalIsNullContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalCast(HogQLParser::ColumnExprNoLogicalCastContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalTupleAccess(HogQLParser::ColumnExprNoLogicalTupleAccessContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalAlias(HogQLParser::ColumnExprNoLogicalAliasContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalFunction(HogQLParser::ColumnExprNoLogicalFunctionContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalNullish(HogQLParser::ColumnExprNoLogicalNullishContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalDate(HogQLParser::ColumnExprNoLogicalDateContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalCase(HogQLParser::ColumnExprNoLogicalCaseContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalWinFunctionTarget(HogQLParser::ColumnExprNoLogicalWinFunctionTargetContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalTuple(HogQLParser::ColumnExprNoLogicalTupleContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalArrayAccess(HogQLParser::ColumnExprNoLogicalArrayAccessContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalPropertyAccess(HogQLParser::ColumnExprNoLogicalPropertyAccessContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalTrim(HogQLParser::ColumnExprNoLogicalTrimContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalNullPropertyAccess(HogQLParser::ColumnExprNoLogicalNullPropertyAccessContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalWinFunction(HogQLParser::ColumnExprNoLogicalWinFunctionContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalCall(HogQLParser::ColumnExprNoLogicalCallContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalTemplateString(HogQLParser::ColumnExprNoLogicalTemplateStringContext *context) = 0;
-
     virtual std::any visitColumnExprNoLogicalNegate(HogQLParser::ColumnExprNoLogicalNegateContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalTernaryOp(HogQLParser::ColumnExprNoLogicalTernaryOpContext *context) = 0;
 
     virtual std::any visitColumnExprNoLogicalParens(HogQLParser::ColumnExprNoLogicalParensContext *context) = 0;
 
-    virtual std::any visitColumnExprNoLogicalInterval(HogQLParser::ColumnExprNoLogicalIntervalContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalLambda(HogQLParser::ColumnExprNoLogicalLambdaContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalPrecedence1(HogQLParser::ColumnExprNoLogicalPrecedence1Context *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalIntervalString(HogQLParser::ColumnExprNoLogicalIntervalStringContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalPrecedence2(HogQLParser::ColumnExprNoLogicalPrecedence2Context *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalSubstring(HogQLParser::ColumnExprNoLogicalSubstringContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalArray(HogQLParser::ColumnExprNoLogicalArrayContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalTagElement(HogQLParser::ColumnExprNoLogicalTagElementContext *context) = 0;
-
-    virtual std::any visitColumnExprNoLogicalPrecedence3(HogQLParser::ColumnExprNoLogicalPrecedence3Context *context) = 0;
+    virtual std::any visitColumnExprNoLogicalSubquery(HogQLParser::ColumnExprNoLogicalSubqueryContext *context) = 0;
 
     virtual std::any visitColumnExprTernaryOp(HogQLParser::ColumnExprTernaryOpContext *context) = 0;
 
