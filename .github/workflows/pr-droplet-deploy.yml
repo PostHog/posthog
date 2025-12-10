@@ -63,12 +63,17 @@ jobs:
                     if [[ $tag == last-updated-* ]]; then
                       echo "Removing old tag: $tag"
                       doctl compute droplet untag $DROPLET_ID --tag-name "$tag"
+                      # Delete the old tag entirely
+                      doctl compute tag delete "$tag" --force || true
                     fi
                   done
 
-                  # Add new timestamp tag
+                  # Create and add new timestamp tag
                   NEW_TAG="last-updated-${TIMESTAMP}"
                   echo "Adding new tag: $NEW_TAG"
+                  # Create the tag first (tags must exist before being applied)
+                  doctl compute tag create "$NEW_TAG" || true
+                  # Now apply it to the droplet
                   doctl compute droplet tag $DROPLET_ID --tag-name "$NEW_TAG"
 
             - name: Get or create SSH key
