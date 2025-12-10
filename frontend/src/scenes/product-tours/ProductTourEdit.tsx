@@ -19,9 +19,7 @@ import { productTourLogic } from './productTourLogic'
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     const { productTour, productTourLoading, productTourForm, targetingFlagFilters, isProductTourFormSubmitting } =
         useValues(productTourLogic({ id }))
-    const { editingProductTour, setProductTourFormValue, submitProductTourForm, setFlagPropertyErrors } = useActions(
-        productTourLogic({ id })
-    )
+    const { editingProductTour, setProductTourFormValue, submitProductTourForm } = useActions(productTourLogic({ id }))
 
     if (!productTour) {
         return <LemonSkeleton />
@@ -161,8 +159,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                                 id={String(productTour.internal_targeting_flag?.id) || 'new'}
                                                 excludeTitle={true}
                                                 filters={targetingFlagFilters}
-                                                onChange={(filters, errors) => {
-                                                    setFlagPropertyErrors(errors)
+                                                onChange={(filters) => {
                                                     setProductTourFormValue('targeting_flag_filters', filters)
                                                 }}
                                                 showTrashIconWithOneCondition
