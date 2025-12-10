@@ -132,7 +132,8 @@ export function LogRow({
             const el = messageScrollRef.current
             if (el) {
                 const scrollAmount = 8
-                const newScrollLeft = direction === 'left' ? Math.max(0, el.scrollLeft - scrollAmount) : el.scrollLeft + scrollAmount
+                const newScrollLeft =
+                    direction === 'left' ? Math.max(0, el.scrollLeft - scrollAmount) : el.scrollLeft + scrollAmount
                 el.scrollLeft = newScrollLeft
                 setMessageScrollLeft(newScrollLeft)
             }
@@ -215,6 +216,7 @@ export function LogRow({
                         <button
                             type="button"
                             title="Scroll left (← or h)"
+                            aria-label="Scroll left"
                             className="p-1 text-muted hover:text-default cursor-pointer select-none"
                             onMouseDown={(e) => {
                                 e.preventDefault()
@@ -228,6 +230,7 @@ export function LogRow({
                         <button
                             type="button"
                             title="Scroll right (→ or l)"
+                            aria-label="Scroll right"
                             className="p-1 text-muted hover:text-default cursor-pointer select-none"
                             onMouseDown={(e) => {
                                 e.preventDefault()
