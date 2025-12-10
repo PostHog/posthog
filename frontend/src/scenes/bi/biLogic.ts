@@ -9,7 +9,13 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
-import { DatabaseSchemaField, DatabaseSchemaTable, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DatabaseSchemaField,
+    DatabaseSchemaQueryResponse,
+    DatabaseSchemaTable,
+    HogQLQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { biLogicType } from './biLogicType'
@@ -33,6 +39,12 @@ export interface BIQueryColumn {
 export interface BIQueryFilter {
     column: BIQueryColumn
     expression: string
+}
+
+export interface FieldTreeNode {
+    field: DatabaseSchemaField
+    path: string
+    children: FieldTreeNode[]
 }
 
 export const biLogic = kea<biLogicType>([
@@ -173,23 +185,29 @@ export const biLogic = kea<biLogicType>([
                 ),
         ],
         selectedFields: [
-            (s) => [s.selectedColumns, s.selectedTableObject],
-            (columns, table) => {
+            (s) => [s.selectedColumns, s.selectedTableObject, s.database],
+            (columns, table, database) => {
                 if (!table) {
                     return []
                 }
                 return columns
                     .map((column) => {
-                        const field = table?.fields?.[column.field] as DatabaseSchemaField | undefined
-                        if (!field) {
+                        const resolution = resolveFieldAndExpression(column.field, table, database)
+                        if (!resolution) {
                             return null
                         }
 
                         return {
                             column,
-                            field,
+                            field: resolution.field,
                             alias: columnAlias(column),
-                            expression: columnExpression(column, field, table),
+                            expression: columnExpression(
+                                column,
+                                resolution.field,
+                                table,
+                                resolution.expression,
+                                resolution.table
+                            ),
                         }
                     })
                     .filter(Boolean) as {
@@ -200,19 +218,9 @@ export const biLogic = kea<biLogicType>([
                 }[]
             },
         ],
-        filteredFields: [
-            (s) => [s.selectedTableObject, s.columnSearchTerm],
-            (table, columnSearchTerm) => {
-                if (!table) {
-                    return []
-                }
-
-                const fields = Object.values(table.fields || {})
-                if (!columnSearchTerm) {
-                    return fields
-                }
-                return fields.filter((field) => field.name.toLowerCase().includes(columnSearchTerm.toLowerCase()))
-            },
+        selectedFieldTrees: [
+            (s) => [s.selectedTableObject, s.database, s.columnSearchTerm],
+            (table, database, columnSearchTerm) => buildFieldTrees(table, database, columnSearchTerm),
         ],
         searchTerm: [
             (s) => [s.selectedTableObject, s.tableSearchTerm, s.columnSearchTerm],
@@ -220,8 +228,8 @@ export const biLogic = kea<biLogicType>([
                 selectedTableObject ? columnSearchTerm : tableSearchTerm,
         ],
         queryString: [
-            (s) => [s.selectedTableObject, s.selectedFields, s.filters, s.sort, s.limit],
-            (table, selectedFields, filters, sort, limit) => {
+            (s) => [s.selectedTableObject, s.selectedFields, s.filters, s.sort, s.limit, s.database],
+            (table, selectedFields, filters, sort, limit, database) => {
                 if (!table || selectedFields.length === 0) {
                     return ''
                 }
@@ -232,12 +240,18 @@ export const biLogic = kea<biLogicType>([
                 const havingParts: string[] = []
 
                 filters.forEach(({ column, expression }) => {
-                    const field = table.fields[column.field]
-                    if (!field) {
+                    const resolution = resolveFieldAndExpression(column.field, table, database)
+                    if (!resolution) {
                         return
                     }
 
-                    const target = columnExpression(column, field, table)
+                    const target = columnExpression(
+                        column,
+                        resolution.field,
+                        table,
+                        resolution.expression,
+                        resolution.table
+                    )
                     if (column.aggregation) {
                         havingParts.push(`${target} ${expression}`)
                     } else {
@@ -430,10 +444,17 @@ export function columnAlias(column: BIQueryColumn): string {
     return alias
 }
 
-function columnExpression(column: BIQueryColumn, field: DatabaseSchemaField, table: DatabaseSchemaTable): string {
+function columnExpression(
+    column: BIQueryColumn,
+    field: DatabaseSchemaField,
+    table: DatabaseSchemaTable,
+    expressionOverride?: string,
+    fieldTable?: DatabaseSchemaTable
+): string {
+    const baseExpression = expressionOverride || field.hogql_value
     const timeExpression = column.timeInterval
-        ? wrapTimeAggregation(field.hogql_value, column.timeInterval, table)
-        : field.hogql_value
+        ? wrapTimeAggregation(baseExpression, column.timeInterval, fieldTable || table)
+        : baseExpression
 
     if (column.aggregation) {
         return `${column.aggregation}(${timeExpression})`
@@ -662,6 +683,124 @@ function parseColumnItem(item: string, table: string): BIQueryColumn | null {
         aggregation: aggregation as BIAggregation | undefined,
         timeInterval: (timeInterval as BITimeAggregation | undefined) || undefined,
     }
+}
+
+function resolveFieldAndExpression(
+    fieldPath: string,
+    table: DatabaseSchemaTable,
+    database: DatabaseSchemaQueryResponse | null
+): { field: DatabaseSchemaField; expression: string; table: DatabaseSchemaTable } | null {
+    const parts = fieldPath.split('.')
+    let currentTable: DatabaseSchemaTable | null = table
+    let expression = ''
+    let field: DatabaseSchemaField | undefined
+
+    for (let index = 0; index < parts.length; index++) {
+        const part = parts[index]
+        field = currentTable?.fields?.[part]
+
+        if (!field) {
+            return null
+        }
+
+        expression = expression ? `${expression}.${field.hogql_value}` : field.hogql_value
+
+        if (index < parts.length - 1) {
+            if (!field.table) {
+                return null
+            }
+
+            currentTable = getTableFromDatabase(database, field.table)
+
+            if (!currentTable) {
+                return null
+            }
+        }
+    }
+
+    if (!field || !currentTable) {
+        return null
+    }
+
+    return { field, expression, table: currentTable }
+}
+
+function buildFieldTrees(
+    table: DatabaseSchemaTable | null,
+    database: DatabaseSchemaQueryResponse | null,
+    searchTerm: string
+): FieldTreeNode[] {
+    if (!table) {
+        return []
+    }
+
+    const visitedTables = new Set<string>([table.name])
+    const nodes = buildFieldTreeNodes(table, database, '', visitedTables)
+
+    if (!searchTerm) {
+        return nodes
+    }
+
+    const term = searchTerm.toLowerCase()
+    return filterFieldTreeNodes(nodes, term)
+}
+
+function buildFieldTreeNodes(
+    table: DatabaseSchemaTable,
+    database: DatabaseSchemaQueryResponse | null,
+    parentPath: string,
+    visitedTables: Set<string>
+): FieldTreeNode[] {
+    return Object.values(table.fields || {}).map((field) => {
+        const path = parentPath ? `${parentPath}.${field.name}` : field.name
+        const targetTable = field.table ? getTableFromDatabase(database, field.table) : null
+        const limitedTableFields =
+            targetTable && field.fields?.length
+                ? {
+                      ...targetTable,
+                      fields: Object.fromEntries(
+                          Object.entries(targetTable.fields).filter(([name]) => field.fields?.includes(name))
+                      ),
+                  }
+                : targetTable
+
+        const children =
+            limitedTableFields && !visitedTables.has(limitedTableFields.name)
+                ? buildFieldTreeNodes(
+                      limitedTableFields,
+                      database,
+                      path,
+                      new Set<string>([...visitedTables, limitedTableFields.name])
+                  )
+                : []
+
+        return { field, path, children }
+    })
+}
+
+function filterFieldTreeNodes(nodes: FieldTreeNode[], term: string): FieldTreeNode[] {
+    return nodes
+        .map((node) => {
+            const filteredChildren = filterFieldTreeNodes(node.children, term)
+            const matches =
+                node.path.toLowerCase().includes(term) ||
+                node.field.name.toLowerCase().includes(term) ||
+                filteredChildren.length > 0
+
+            if (!matches) {
+                return null
+            }
+
+            return { ...node, children: filteredChildren }
+        })
+        .filter(Boolean) as FieldTreeNode[]
+}
+
+function getTableFromDatabase(
+    database: DatabaseSchemaQueryResponse | null,
+    tableName: string
+): DatabaseSchemaTable | null {
+    return (database as any)?.tables?.[tableName] || null
 }
 
 function wrapTimeAggregation(value: string, interval: BITimeAggregation, table: DatabaseSchemaTable): string {

@@ -30,6 +30,7 @@ import {
     BIQueryFilter,
     BISortDirection,
     BITimeAggregation,
+    FieldTreeNode,
     biLogic,
     columnAlias,
     columnKey,
@@ -69,6 +70,61 @@ function MiniLine({ values }: { values: number[] }): JSX.Element {
     )
 }
 
+function FieldTree({
+    nodes,
+    expandedFields,
+    onToggle,
+    onSelect,
+    depth = 0,
+}: {
+    nodes: FieldTreeNode[]
+    expandedFields: Set<string>
+    onToggle: (path: string) => void
+    onSelect: (path: string) => void
+    depth?: number
+}): JSX.Element {
+    return (
+        <div className="flex flex-col">
+            {nodes.map((node) => {
+                const hasChildren = node.children.length > 0
+                const isExpanded = expandedFields.has(node.path)
+
+                return (
+                    <div key={node.path}>
+                        <LemonButton
+                            size="small"
+                            fullWidth
+                            className="justify-start"
+                            icon={
+                                hasChildren ? (
+                                    <span className="text-muted">{isExpanded ? '▾' : '▸'}</span>
+                                ) : (
+                                    fieldTypeIcon(node.field)
+                                )
+                            }
+                            onClick={() => (hasChildren ? onToggle(node.path) : onSelect(node.path))}
+                            style={{ paddingLeft: depth * 12 }}
+                        >
+                            {node.field.name}
+                        </LemonButton>
+                        {hasChildren && isExpanded && (
+                            <div className="ml-2">
+                                <FieldTree
+                                    nodes={node.children}
+                                    expandedFields={expandedFields}
+                                    onToggle={onToggle}
+                                    onSelect={onSelect}
+                                    depth={depth + 1}
+                                />
+                            </div>
+                        )}
+                    </div>
+                )
+            })}
+        </div>
+    )
+}
+
 export const scene: SceneExport = {
     component: BIScene,
     logic: biLogic,
@@ -78,7 +134,7 @@ export const scene: SceneExport = {
 export function BIScene(): JSX.Element {
     const {
         filteredTables,
-        filteredFields,
+        selectedFieldTrees,
         selectedTableObject,
         selectedFields,
         queryResponse,
@@ -110,6 +166,11 @@ export function BIScene(): JSX.Element {
 
     const [openColumnPopover, setOpenColumnPopover] = useState<string | null>(null)
     const [openFilterPopover, setOpenFilterPopover] = useState<number | null>(null)
+    const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set())
+
+    useEffect(() => {
+        setExpandedFields(new Set())
+    }, [selectedTableObject?.name])
 
     const rows = useMemo(() => {
         if (!queryResponse?.results || selectedFields.length === 0 || queryResponseLoading) {
@@ -180,22 +241,23 @@ export function BIScene(): JSX.Element {
                                 ) : (
                                     <div className="text-xs text-muted px-1">via posthog data warehouse</div>
                                 )}
-                                {filteredFields.length > 0 ? (
-                                    <div>
-                                        {filteredFields.map((field) => (
-                                            <LemonButton
-                                                key={field.name}
-                                                size="small"
-                                                fullWidth
-                                                onClick={() =>
-                                                    addColumn({ table: selectedTableObject.name, field: field.name })
+                                {selectedFieldTrees.length > 0 ? (
+                                    <FieldTree
+                                        nodes={selectedFieldTrees}
+                                        expandedFields={expandedFields}
+                                        onToggle={(path) =>
+                                            setExpandedFields((current) => {
+                                                const next = new Set(current)
+                                                if (next.has(path)) {
+                                                    next.delete(path)
+                                                } else {
+                                                    next.add(path)
                                                 }
-                                                icon={fieldTypeIcon(field)}
-                                            >
-                                                {field.name}
-                                            </LemonButton>
-                                        ))}
-                                    </div>
+                                                return next
+                                            })
+                                        }
+                                        onSelect={(path) => addColumn({ table: selectedTableObject.name, field: path })}
+                                    />
                                 ) : (
                                     <div className="text-muted">No columns match your search.</div>
                                 )}
@@ -386,6 +448,16 @@ function ColumnHeader({
                 onVisibilityChange={onPopoverVisibilityChange}
                 overlay={
                     <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
+                        <LemonButton
+                            status="danger"
+                            size="small"
+                            onClick={() => {
+                                onRemove()
+                                onPopoverVisibilityChange(false)
+                            }}
+                        >
+                            Remove column
+                        </LemonButton>
                         <LemonInput
                             placeholder="= 'value' or > 10"
                             value={draft}
@@ -479,16 +551,6 @@ function ColumnHeader({
                                 </LemonButton>
                             ))}
                         </div>
-                        <LemonButton
-                            status="danger"
-                            size="small"
-                            onClick={() => {
-                                onRemove()
-                                onPopoverVisibilityChange(false)
-                            }}
-                        >
-                            Remove column
-                        </LemonButton>
                     </div>
                 }
             >
