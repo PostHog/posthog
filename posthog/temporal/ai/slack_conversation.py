@@ -239,7 +239,7 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         is_new_conversation=is_new_conversation,
     )
 
-    # Build conversation URL for the "View in PostHog" button
+    # Build conversation URL for the "View chat in PostHog" button
     conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={inputs.conversation_id}"
 
     # Start background task to update the "working on it" message with thinking messages
@@ -298,7 +298,7 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         await _remove_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hourglass_flowing_sand")
         await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "white_check_mark")
 
-    # Build conversation URL for the "View in PostHog" button
+    # Build conversation URL for the "View chat in PostHog" button
     conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={conversation.id}"
 
     # Post the final response as a new message, then delete the initial "working on it" message
@@ -361,7 +361,7 @@ def _build_slack_message_blocks(text: str, conversation_url: str | None = None) 
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "View in PostHog", "emoji": True},
+                        "text": {"type": "plain_text", "text": "View chat in PostHog", "emoji": True},
                         "url": conversation_url,
                     }
                 ],
