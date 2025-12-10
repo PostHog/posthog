@@ -7,11 +7,14 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.exceptions import Throttled
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.storage import object_storage
+from posthog.utils import get_ip_address
 
 from .models import AiVisibilityRun
 from .serializers import (
@@ -24,6 +27,15 @@ from .temporal.client import trigger_ai_visibility_workflow
 logger = structlog.get_logger(__name__)
 
 
+class AIVisibilityIPThrottle(SimpleRateThrottle):
+    scope = "ai_visibility"
+    rate = "5/hour"
+
+    def get_cache_key(self, request, view):
+        ip = get_ip_address(request)
+        return self.cache_format % {"scope": self.scope, "ident": ip}
+
+
 @extend_schema(tags=["ai-visibility"])
 @method_decorator(csrf_exempt, name="dispatch")
 class AIVisibilityViewSet(viewsets.GenericViewSet):
@@ -31,6 +43,12 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
     http_method_names = ["post"]
     authentication_classes: list = []
     permission_classes = [AllowAny]
+
+    def _check_new_run_throttle(self, request):
+        """Only rate limit when actually creating a new workflow run."""
+        throttle = AIVisibilityIPThrottle()
+        if not throttle.allow_request(request, self):
+            raise Throttled(wait=throttle.wait())
 
     @validated_request(
         request_serializer=AIVisibilityTriggerSerializer,
@@ -129,6 +147,9 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
                 return Response(serializer.data, status=status.HTTP_200_OK)
 
         # No existing run (or only failed runs), create a new one
+        # Rate limit only when triggering new workflows
+        self._check_new_run_throttle(request)
+
         run = AiVisibilityRun.objects.create(
             domain=domain,
             workflow_id="",

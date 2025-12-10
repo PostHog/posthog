@@ -95,7 +95,14 @@ export const vizLogic = kea<vizLogicType>([
                     })
                     if (!response.ok) {
                         const data = await response.json().catch(() => ({}))
-                        const message = data?.error || `Request failed with status ${response.status}`
+                        if (response.status === 429) {
+                            const wait = data?.detail?.match(/(\d+)\s*seconds?/)?.[1]
+                            const waitMsg = wait ? ` Try again in ${Math.ceil(wait / 60)} minutes.` : ''
+                            throw new Error(
+                                `RATE_LIMITED:You've reached the limit for new analysis requests.${waitMsg}`
+                            )
+                        }
+                        const message = data?.detail || data?.error || `Request failed with status ${response.status}`
                         throw new Error(message)
                     }
                     return await response.json()
@@ -111,7 +118,14 @@ export const vizLogic = kea<vizLogicType>([
                     })
                     if (!response.ok) {
                         const data = await response.json().catch(() => ({}))
-                        const message = data?.error || `Request failed with status ${response.status}`
+                        if (response.status === 429) {
+                            const wait = data?.detail?.match(/(\d+)\s*seconds?/)?.[1]
+                            const waitMsg = wait ? ` Try again in ${Math.ceil(wait / 60)} minutes.` : ''
+                            throw new Error(
+                                `RATE_LIMITED:You've reached the limit for new analysis requests.${waitMsg}`
+                            )
+                        }
+                        const message = data?.detail || data?.error || `Request failed with status ${response.status}`
                         throw new Error(message)
                     }
                     return await response.json()
@@ -142,10 +156,25 @@ export const vizLogic = kea<vizLogicType>([
         lastError: [
             null as string | null,
             {
-                loadTriggerResultFailure: (_, { error }) => error ?? 'Failed to start workflow',
+                loadTriggerResultFailure: (_, { error }) => {
+                    const msg = error ?? 'Failed to start workflow'
+                    return msg.startsWith('RATE_LIMITED:') ? msg.slice('RATE_LIMITED:'.length) : msg
+                },
                 loadTriggerResultSuccess: () => null,
-                forceNewRunFailure: (_, { error }) => error ?? 'Failed to start workflow',
+                forceNewRunFailure: (_, { error }) => {
+                    const msg = error ?? 'Failed to start workflow'
+                    return msg.startsWith('RATE_LIMITED:') ? msg.slice('RATE_LIMITED:'.length) : msg
+                },
                 forceNewRunSuccess: () => null,
+            },
+        ],
+        isRateLimited: [
+            false,
+            {
+                loadTriggerResultFailure: (_, { error }) => error?.startsWith('RATE_LIMITED:') ?? false,
+                loadTriggerResultSuccess: () => false,
+                forceNewRunFailure: (_, { error }) => error?.startsWith('RATE_LIMITED:') ?? false,
+                forceNewRunSuccess: () => false,
             },
         ],
         pollingRunId: [
