@@ -1694,7 +1694,10 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
 
     // Parse ranges: format is "start-end"
     let input_parts: Vec<usize> = input_range.split('-').map(|s| s.parse().unwrap()).collect();
-    let output_parts: Vec<usize> = output_range.split('-').map(|s| s.parse().unwrap()).collect();
+    let output_parts: Vec<usize> = output_range
+        .split('-')
+        .map(|s| s.parse().unwrap())
+        .collect();
 
     let (input_start, input_end) = (input_parts[0], input_parts[1]);
     let (output_start, output_end) = (output_parts[0], output_parts[1]);
@@ -1812,14 +1815,8 @@ async fn test_ai_event_with_multiple_blobs_sequential_ranges() {
     assert!(end3 > start3, "Third range should be valid");
 
     // Verify ranges are sequential (non-overlapping)
-    assert!(
-        start2 > end1,
-        "Second blob should start after first ends"
-    );
-    assert!(
-        start3 > end2,
-        "Third blob should start after second ends"
-    );
+    assert!(start2 > end1, "Second blob should start after first ends");
+    assert!(start3 > end2, "Third blob should start after second ends");
 }
 
 #[tokio::test]

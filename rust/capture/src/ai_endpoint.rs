@@ -222,14 +222,14 @@ pub async fn ai_handler(
             .blob_parts
             .iter()
             .filter_map(|bp| {
-                bp.name.strip_prefix("event.properties.").map(|prop_name| {
-                    crate::ai_s3::BlobData {
+                bp.name
+                    .strip_prefix("event.properties.")
+                    .map(|prop_name| crate::ai_s3::BlobData {
                         property_name: prop_name.to_string(),
                         content_type: bp.content_type.clone(),
                         content_encoding: bp.content_encoding.clone(),
                         data: bp.data.clone(),
-                    }
-                })
+                    })
             })
             .collect();
 

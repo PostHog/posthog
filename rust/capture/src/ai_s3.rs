@@ -65,7 +65,7 @@ fn generate_boundary(event_uuid: &str) -> String {
         .take(8)
         .map(char::from)
         .collect();
-    format!("----posthog-ai-{}-{}", event_uuid, suffix)
+    format!("----posthog-ai-{event_uuid}-{suffix}")
 }
 
 /// Write multipart part headers and body directly into the buffer.
@@ -395,7 +395,8 @@ mod tests {
         let mut header_buf = [httparse::EMPTY_HEADER; 16];
 
         // Parse headers (httparse expects request/response format, so we parse as headers only)
-        let status = httparse::parse_headers(data, &mut header_buf).expect("Failed to parse headers");
+        let status =
+            httparse::parse_headers(data, &mut header_buf).expect("Failed to parse headers");
 
         let (header_len, parsed_headers) = match status {
             httparse::Status::Complete((len, headers)) => (len, headers),
@@ -503,7 +504,9 @@ mod tests {
         assert_eq!(parts[2].2.as_ref(), b"{\"tokens\": 100}");
 
         // Extract each part by range - should get headers + body (no boundaries)
-        let extracted1 = doc.data.slice(doc.parts[0].range_start..=doc.parts[0].range_end);
+        let extracted1 = doc
+            .data
+            .slice(doc.parts[0].range_start..=doc.parts[0].range_end);
         let (headers, body) = parse_mime_part(&extracted1);
         assert!(headers
             .get("content-disposition")
@@ -512,7 +515,9 @@ mod tests {
         assert_eq!(headers.get("content-type").unwrap(), "application/json");
         assert_eq!(body, b"{\"q\": 1}");
 
-        let extracted2 = doc.data.slice(doc.parts[1].range_start..=doc.parts[1].range_end);
+        let extracted2 = doc
+            .data
+            .slice(doc.parts[1].range_start..=doc.parts[1].range_end);
         let (headers, body) = parse_mime_part(&extracted2);
         assert!(headers
             .get("content-disposition")
@@ -521,7 +526,9 @@ mod tests {
         assert_eq!(headers.get("content-type").unwrap(), "text/plain");
         assert_eq!(body, b"response text");
 
-        let extracted3 = doc.data.slice(doc.parts[2].range_start..=doc.parts[2].range_end);
+        let extracted3 = doc
+            .data
+            .slice(doc.parts[2].range_start..=doc.parts[2].range_end);
         let (headers, body) = parse_mime_part(&extracted3);
         assert!(headers
             .get("content-disposition")
@@ -545,7 +552,9 @@ mod tests {
             }],
         );
 
-        let extracted = doc.data.slice(doc.parts[0].range_start..=doc.parts[0].range_end);
+        let extracted = doc
+            .data
+            .slice(doc.parts[0].range_start..=doc.parts[0].range_end);
         let (headers, _) = parse_mime_part(&extracted);
         assert_eq!(
             headers.get("content-type").unwrap(),
