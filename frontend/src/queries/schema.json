@@ -1940,6 +1940,7 @@
                 "get_task_run_logs",
                 "list_tasks",
                 "list_task_runs",
+                "list_repositories",
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",

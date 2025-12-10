@@ -12,6 +12,7 @@ from products.tasks.backend.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,
     GetTaskRunTool,
+    ListRepositoriesTool,
     ListTaskRunsTool,
     ListTasksTool,
     RunTaskTool,
@@ -779,3 +780,203 @@ class TestListTaskRunsTool(BaseTaskToolTest):
         assert "Error:" in content
         assert "..." in content
         assert len(content.split("Error:")[1].split("\n")[0]) < 120
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_list_runs_short_error_no_ellipsis(self):
+        task = await self._create_task()
+        short_error = "Short error message"
+        await self._create_task_run(task, status=TaskRun.Status.FAILED, error_message=short_error)
+
+        tool = self._create_tool(ListTaskRunsTool)
+
+        content, artifact = await tool._arun_impl(task_id=str(task.id))
+
+        assert "Error: Short error message" in content
+        assert "..." not in content
+
+
+class TestListRepositoriesTool(BaseTaskToolTest):
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_list_repositories_no_integration(self):
+        tool = self._create_tool(ListRepositoriesTool)
+
+        content, artifact = await tool._arun_impl()
+
+        assert "No GitHub repositories available" in content
+        assert "/settings/project-integrations" in content
+        assert artifact["repositories"] == []
+        assert artifact["settings_url"] == "/settings/project-integrations"
+
+    @patch("posthog.models.integration.GitHubIntegration")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_list_repositories_success(self, mock_github_class):
+        from posthog.models.integration import Integration
+
+        @sync_to_async
+        def create_integration():
+            return Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id="12345",
+                config={"account": {"name": "posthog"}},
+            )
+
+        await create_integration()
+
+        mock_github_instance = mock_github_class.return_value
+        mock_github_instance.organization.return_value = "posthog"
+        mock_github_instance.list_repositories.return_value = ["posthog-js", "posthog-python", "posthog"]
+
+        tool = self._create_tool(ListRepositoriesTool)
+
+        content, artifact = await tool._arun_impl()
+
+        assert "3 repository(ies)" in content
+        assert len(artifact["repositories"]) == 3
+        assert artifact["repositories"][0]["repository"] == "posthog/posthog-js"
+        assert artifact["repositories"][0]["organization"] == "posthog"
+        assert artifact["repositories"][0]["name"] == "posthog-js"
+
+    @patch("posthog.models.integration.GitHubIntegration")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_list_repositories_with_search(self, mock_github_class):
+        from posthog.models.integration import Integration
+
+        @sync_to_async
+        def create_integration():
+            return Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id="12345",
+                config={"account": {"name": "posthog"}},
+            )
+
+        await create_integration()
+
+        mock_github_instance = mock_github_class.return_value
+        mock_github_instance.organization.return_value = "posthog"
+        mock_github_instance.list_repositories.return_value = ["posthog-js", "posthog-python", "posthog"]
+
+        tool = self._create_tool(ListRepositoriesTool)
+
+        content, artifact = await tool._arun_impl(search="python")
+
+        assert "1 repository(ies)" in content
+        assert len(artifact["repositories"]) == 1
+        assert artifact["repositories"][0]["repository"] == "posthog/posthog-python"
+
+    @patch("posthog.models.integration.GitHubIntegration")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_list_repositories_search_case_insensitive(self, mock_github_class):
+        from posthog.models.integration import Integration
+
+        @sync_to_async
+        def create_integration():
+            return Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id="12345",
+                config={"account": {"name": "PostHog"}},
+            )
+
+        await create_integration()
+
+        mock_github_instance = mock_github_class.return_value
+        mock_github_instance.organization.return_value = "PostHog"
+        mock_github_instance.list_repositories.return_value = ["PostHog-JS"]
+
+        tool = self._create_tool(ListRepositoriesTool)
+
+        content, artifact = await tool._arun_impl(search="posthog-js")
+
+        assert len(artifact["repositories"]) == 1
+
+    @patch("posthog.models.integration.GitHubIntegration")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_list_repositories_search_no_match(self, mock_github_class):
+        from posthog.models.integration import Integration
+
+        @sync_to_async
+        def create_integration():
+            return Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id="12345",
+                config={"account": {"name": "posthog"}},
+            )
+
+        await create_integration()
+
+        mock_github_instance = mock_github_class.return_value
+        mock_github_instance.organization.return_value = "posthog"
+        mock_github_instance.list_repositories.return_value = ["posthog-js", "posthog-python"]
+
+        tool = self._create_tool(ListRepositoriesTool)
+
+        content, artifact = await tool._arun_impl(search="nonexistent")
+
+        assert "No repositories found matching 'nonexistent'" in content
+        assert artifact["repositories"] == []
+
+    @patch("posthog.models.integration.GitHubIntegration")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_list_repositories_handles_integration_error(self, mock_github_class):
+        from posthog.models.integration import Integration
+
+        @sync_to_async
+        def create_integration():
+            return Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id="12345",
+                config={"account": {"name": "posthog"}},
+            )
+
+        await create_integration()
+
+        mock_github_class.side_effect = Exception("API error")
+
+        tool = self._create_tool(ListRepositoriesTool)
+
+        content, artifact = await tool._arun_impl()
+
+        assert "No GitHub repositories available" in content
+        assert "/settings/project-integrations" in content
+        assert artifact["repositories"] == []
+        assert artifact["settings_url"] == "/settings/project-integrations"
+
+    @patch("posthog.models.integration.GitHubIntegration")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_list_repositories_team_isolation(self, mock_github_class):
+        from posthog.models import Organization, Team
+        from posthog.models.integration import Integration
+
+        @sync_to_async
+        def create_other_team_integration():
+            other_org = Organization.objects.create(name="Other Org")
+            other_team = Team.objects.create(organization=other_org, name="Other Team")
+            Integration.objects.create(
+                team=other_team,
+                kind="github",
+                integration_id="other-12345",
+                config={"account": {"name": "other-org"}},
+            )
+
+        await create_other_team_integration()
+
+        tool = self._create_tool(ListRepositoriesTool)
+
+        content, artifact = await tool._arun_impl()
+
+        assert "No GitHub repositories available" in content
+        assert "/settings/project-integrations" in content
+        assert artifact["repositories"] == []
+        assert artifact["settings_url"] == "/settings/project-integrations"
