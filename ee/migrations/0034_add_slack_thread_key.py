@@ -4,6 +4,8 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Required for CREATE INDEX CONCURRENTLY
+
     dependencies = [
         ("ee", "0033_conversation_type_slack"),
     ]
@@ -19,12 +21,39 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.AddConstraint(
+        migrations.AddField(
             model_name="conversation",
-            constraint=models.UniqueConstraint(
-                condition=models.Q(("slack_thread_key__isnull", False)),
-                fields=("team", "slack_thread_key"),
-                name="unique_team_slack_thread_key",
+            name="slack_workspace_domain",
+            field=models.CharField(
+                blank=True,
+                help_text="Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)",
+                max_length=100,
+                null=True,
             ),
+        ),
+        # Create partial unique index concurrently to avoid table lock.
+        # Partial indexes can't be converted to constraints, but the index alone enforces uniqueness.
+        # SeparateDatabaseAndState keeps Django's state in sync with raw SQL.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddConstraint(
+                    model_name="conversation",
+                    constraint=models.UniqueConstraint(
+                        condition=models.Q(("slack_thread_key__isnull", False)),
+                        fields=("team", "slack_thread_key"),
+                        name="unique_team_slack_thread_key",
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS unique_team_slack_thread_key
+                        ON ee_conversation (team_id, slack_thread_key)
+                        WHERE slack_thread_key IS NOT NULL
+                    """,
+                    reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS unique_team_slack_thread_key",
+                ),
+            ],
         ),
     ]
