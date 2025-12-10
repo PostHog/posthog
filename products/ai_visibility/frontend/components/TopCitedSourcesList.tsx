@@ -16,7 +16,7 @@ export function TopCitedSourcesList({ sources }: { sources: TopCitedSource[] }):
                     <div key={source.domain} className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <img
-                                src={`https://www.google.com/s2/favicons?domain=${source.domain}&sz=32`}
+                                src={`https://www.google.com/s2/favicons?domain=${source.domain}&sz=128`}
                                 alt=""
                                 className="w-5 h-5 rounded"
                             />

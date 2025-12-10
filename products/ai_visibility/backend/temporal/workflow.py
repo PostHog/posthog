@@ -17,6 +17,7 @@ from .activities import (
     PromptsInput,
     SaveResultsInput,
     TopicsInput,
+    UpdateProgressInput,
     combine_calls,
     extract_info_from_url,
     generate_prompts,
@@ -24,6 +25,7 @@ from .activities import (
     make_ai_calls,
     mark_run_failed,
     save_results,
+    update_progress,
 )
 
 
@@ -56,7 +58,19 @@ class AIVisibilityWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, input: AIVisibilityWorkflowInput) -> AIVisibilityWorkflowResult:
+        progress_timeout = timedelta(seconds=10)
+        progress_retry = RetryPolicy(maximum_attempts=2)
+
+        async def set_progress(step: str) -> None:
+            await workflow.execute_activity(
+                update_progress,
+                UpdateProgressInput(run_id=input.run_id, step=step),
+                start_to_close_timeout=progress_timeout,
+                retry_policy=progress_retry,
+            )
+
         try:
+            await set_progress("extracting_info")
             info: dict = await workflow.execute_activity(
                 extract_info_from_url,
                 ExtractInfoInput(domain=input.domain),
@@ -64,6 +78,7 @@ class AIVisibilityWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
+            await set_progress("generating_topics")
             topics: list[dict] = await workflow.execute_activity(
                 get_topics,
                 TopicsInput(domain=input.domain, info=info),
@@ -71,6 +86,7 @@ class AIVisibilityWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
+            await set_progress("generating_prompts")
             prompts: list[dict] = await workflow.execute_activity(
                 generate_prompts,
                 PromptsInput(domain=input.domain, topics=topics, info=info),
@@ -78,6 +94,7 @@ class AIVisibilityWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
+            await set_progress("running_ai_calls")
             ai_calls: list[dict] = await workflow.execute_activity(
                 make_ai_calls,
                 AICallsInput(domain=input.domain, prompts=prompts, info=info, topics=topics),
@@ -85,6 +102,7 @@ class AIVisibilityWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
+            await set_progress("combining_results")
             combined: dict = await workflow.execute_activity(
                 combine_calls,
                 CombineInput(domain=input.domain, info=info, topics=topics, ai_calls=ai_calls),
@@ -92,6 +110,7 @@ class AIVisibilityWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
+            await set_progress("saving")
             s3_path = await workflow.execute_activity(
                 save_results,
                 SaveResultsInput(run_id=input.run_id, combined=combined),

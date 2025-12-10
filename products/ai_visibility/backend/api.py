@@ -73,6 +73,7 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
                             "workflow_id": specific_run.workflow_id,
                             "run_id": specific_run.id,
                             "status": "running",
+                            "progress_step": specific_run.progress_step,
                             "created_at": specific_run.created_at,
                         }
                     )
@@ -121,6 +122,7 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
                         "workflow_id": existing_run.workflow_id,
                         "run_id": existing_run.id,
                         "status": "running",
+                        "progress_step": existing_run.progress_step,
                         "created_at": existing_run.created_at,
                     }
                 )
@@ -146,6 +148,12 @@ class AIVisibilityViewSet(viewsets.GenericViewSet):
         )
 
         serializer = AIVisibilityStartedResponseSerializer(
-            {"workflow_id": workflow_id, "run_id": run.id, "status": "started", "created_at": run.created_at}
+            {
+                "workflow_id": workflow_id,
+                "run_id": run.id,
+                "status": "started",
+                "progress_step": run.progress_step,
+                "created_at": run.created_at,
+            }
         )
         return Response(serializer.data, status=status.HTTP_201_CREATED)

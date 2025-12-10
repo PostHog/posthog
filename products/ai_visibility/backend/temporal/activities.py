@@ -168,6 +168,12 @@ class MarkFailedInput:
     error_message: str
 
 
+@dataclass
+class UpdateProgressInput:
+    run_id: str
+    step: str
+
+
 def _compute_share_of_voice(probes: list[ProbeResult], target: str) -> ShareOfVoice:
     if not probes:
         return ShareOfVoice(you=0.0, competitors={})
@@ -432,3 +438,15 @@ async def mark_run_failed(payload: MarkFailedInput) -> None:
     await asyncio.to_thread(run.mark_failed, payload.error_message)
 
     logger.info("ai_visibility.mark_run_failed.complete", run_id=payload.run_id)
+
+
+@activity.defn(name="updateProgress")
+async def update_progress(payload: UpdateProgressInput) -> None:
+    await asyncio.sleep(0)
+    logger.info("ai_visibility.update_progress", run_id=payload.run_id, step=payload.step)
+
+    run = await asyncio.to_thread(AiVisibilityRun.objects.get, id=payload.run_id)
+    step = AiVisibilityRun.ProgressStep(payload.step)
+    await asyncio.to_thread(run.update_progress, step)
+
+    logger.info("ai_visibility.update_progress.complete", run_id=payload.run_id, step=payload.step)
