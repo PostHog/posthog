@@ -90,7 +90,7 @@ function FieldTree({
     nodes: FieldTreeNode[]
     expandedFields: Set<string>
     onToggle: (path: string) => void
-    onSelect: (path: string) => void
+    onSelect: (path: string, field?: DatabaseSchemaField) => void
     depth?: number
 }): JSX.Element {
     const [openJsonPopover, setOpenJsonPopover] = useState<string | null>(null)
@@ -129,7 +129,7 @@ function FieldTree({
 
                 const handleJsonSubmit = (path: string): void => {
                     const selectedPath = jsonPathDraft.trim() || path
-                    onSelect(selectedPath)
+                    onSelect(selectedPath, node.field)
                     setJsonPathDraft('')
                     setOpenJsonPopover(null)
                 }
@@ -141,7 +141,7 @@ function FieldTree({
                     } else if (hasChildren) {
                         onToggle(node.path)
                     } else {
-                        onSelect(node.path)
+                        onSelect(node.path, node.field)
                     }
                 }
 
@@ -382,7 +382,13 @@ export function BIScene(): JSX.Element {
                                                 return next
                                             })
                                         }
-                                        onSelect={(path) => addColumn({ table: selectedTableObject.name, field: path })}
+                                        onSelect={(path, field) =>
+                                            addColumn({
+                                                table: selectedTableObject.name,
+                                                field: path,
+                                                ...(field && isTemporalField(field) ? { timeInterval: 'day' } : {}),
+                                            })
+                                        }
                                     />
                                 ) : (
                                     <div className="text-muted">No columns match your search.</div>
@@ -531,7 +537,22 @@ export function BIScene(): JSX.Element {
                                             if (typeof value === 'number') {
                                                 return humanFriendlyNumber(value)
                                             }
-                                            return value === null || value === undefined ? '—' : String(value)
+
+                                            if (value === null || value === undefined) {
+                                                return '—'
+                                            }
+
+                                            if (typeof value === 'string') {
+                                                const dayMatch = value.match(
+                                                    /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/
+                                                )
+
+                                                if (dayMatch) {
+                                                    return dayMatch[1]
+                                                }
+                                            }
+
+                                            return String(value)
                                         },
                                     }))}
                                 />
