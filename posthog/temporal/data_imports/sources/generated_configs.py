@@ -207,7 +207,8 @@ class RedshiftSourceConfig(config.Config):
 
 @config.config
 class RevenueCatSourceConfig(config.Config):
-    pass
+    revenuecat_api_key: str
+    revenuecat_project_id: str
 
 
 @config.config
