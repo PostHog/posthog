@@ -267,6 +267,53 @@ To find your project API key:
 flox activate -- python manage.py shell -c "from posthog.models import Team; print(Team.objects.first().api_token)"
 ```
 
+## Testing SDK Token Registration
+
+### Android SDK
+
+The posthog-android SDK now supports automatic FCM token registration:
+
+```kotlin
+// In your FirebaseMessagingService
+override fun onNewToken(token: String) {
+    super.onNewToken(token)
+    PostHog.setFcmToken(token)  // Automatically registers with PostHog backend
+}
+```
+
+**Verify token was stored:**
+
+```bash
+flox activate -- python manage.py shell -c "
+from posthog.models.push_subscription import PushSubscription
+subs = PushSubscription.objects.all().values('distinct_id', 'token', 'platform', 'created_at')
+for s in subs:
+    print(f'{s[\"distinct_id\"][:40]} | {s[\"platform\"]} | {s[\"token\"][:50]}... | {s[\"created_at\"]}')"
+```
+
+### Testing Auto-Lookup in Hog Function
+
+The Firebase Push destination can now auto-lookup tokens from the `PushSubscription` table:
+
+1. Create a Hog function with `lookup_tokens: true` (default)
+2. Leave `fcm_token` input empty
+3. The function will query `/api/internal/push_subscriptions/lookup/` using the event's `distinct_id`
+4. If found, uses that token; otherwise falls back to manual `fcm_token` input
+
+**Test the lookup endpoint directly:**
+
+```bash
+curl -X POST http://localhost:8010/api/internal/push_subscriptions/lookup/ \
+  -H "Content-Type: application/json" \
+  -d '{"team_id": 1, "distinct_id": "your-distinct-id"}'
+```
+
+Expected response:
+
+```json
+{"tokens": [{"token": "your-fcm-token", "platform": "android"}]}
+```
+
 ## Troubleshooting
 
 | Error | Cause | Fix |
@@ -281,6 +328,35 @@ flox activate -- python manage.py shell -c "from posthog.models import Team; pri
 | Firebase logo not showing | Static file not copied | Run `cp frontend/public/services/firebase.png staticfiles/services/firebase.png` |
 | FCM returns error | FCM token has line breaks | Ensure token is pasted as single line with no whitespace/newlines |
 | 403 CSRF error on /capture/ | Wrong endpoint | Use `http://localhost:8010/e/` not `http://localhost:8000/capture/` |
+| Hog function never triggers | Plugin-server ingestion not running | Check `docker exec posthog-kafka-1 rpk group describe clickhouse-ingestion` shows active members. Restart plugin-server if needed |
+| Events reach Kafka but not ClickHouse | Plugin-server consumer not consuming | See "Local Dev Environment Issues" below |
+
+## Local Dev Environment Issues
+
+**Known Issue**: Plugin-server ingestion consumer may not start, preventing events from flowing through the pipeline:
+
+```bash
+# Check if ingestion consumer is running
+docker exec posthog-kafka-1 rpk group describe clickhouse-ingestion
+
+# If STATE=Empty and MEMBERS=0, the consumer isn't running
+# Restart plugin-server via mprocs or:
+cd ~/dev/posthog
+./bin/plugin-server
+```
+
+**Symptoms:**
+
+- SDK sends events successfully (HTTP 200)
+- Events appear in Kafka `events_plugin_ingestion` topic
+- Events never appear in ClickHouse `events` table
+- Hog functions never trigger
+
+**Workaround for E2E testing:**
+
+- Test token registration directly via database queries (see above)
+- Test manual token input in Hog function (works without event pipeline)
+- Full auto-lookup E2E testing requires staging/production environment
 
 ## Running Unit Tests
 
