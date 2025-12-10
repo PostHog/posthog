@@ -641,32 +641,17 @@ export const vizLogic = kea<vizLogicType>([
 
         // Top cited sources (domains mentioned in responses)
         topCitedSources: [
-            (s) => [s.prompts],
-            (prompts: Prompt[]): TopCitedSource[] => {
+            (s) => [s.prompts, s.competitorDomains],
+            (prompts: Prompt[], competitorDomains: Record<string, string>): TopCitedSource[] => {
                 const sourceCounts = new Map<string, number>()
 
-                // Build a map of competitor names to their domains
-                const competitorDomains = new Map<string, string>()
                 for (const p of prompts) {
-                    for (const comp of p.competitors || []) {
-                        if (comp.domain && !competitorDomains.has(comp.name)) {
-                            competitorDomains.set(comp.name, comp.domain)
-                        }
-                    }
-                }
-
-                for (const p of prompts) {
-                    // Count prompts where citations exist
-                    for (const plat of Object.values(p.platforms) as (PlatformMention | undefined)[]) {
-                        if (plat?.cited) {
-                            for (const compName of p.competitors_mentioned.slice(0, 2)) {
-                                // Use actual domain if available, otherwise generate from name
-                                const domain =
-                                    competitorDomains.get(compName) ||
-                                    `${compName.toLowerCase().replace(/\s+/g, '')}.com`
-                                sourceCounts.set(domain, (sourceCounts.get(domain) || 0) + 1)
-                            }
-                        }
+                    // Count all competitors mentioned in this prompt
+                    for (const compName of p.competitors_mentioned) {
+                        // Use actual domain if available, otherwise generate from name
+                        const domain =
+                            competitorDomains[compName] || `${compName.toLowerCase().replace(/\s+/g, '')}.com`
+                        sourceCounts.set(domain, (sourceCounts.get(domain) || 0) + 1)
                     }
                 }
 
