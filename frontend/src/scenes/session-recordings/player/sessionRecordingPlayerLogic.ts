@@ -24,6 +24,7 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -1143,40 +1144,85 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Listen for resource errors from rrweb
             replayer.on('fullsnapshot-rebuilded', () => {
                 const iframeContentWindow = replayer.iframe.contentWindow
-                const iframeFetch = replayer.iframe.contentWindow?.fetch
+                const iframeDocument = iframeContentWindow?.document
+                const iframeFetch = iframeContentWindow?.fetch
 
-                if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
-                    // We have to monkey patch fetch as rrweb doesn't provide a way to listen for these errors
-                    // We do this after every fullsnapshot-rebuilded as rrweb creates a new iframe each time
-                    const originalFetch = iframeFetch
-                    const windowRef = new WeakRef(iframeContentWindow)
+                // Wait for the iframe document to finish loading before setting up error handlers
+                // This ensures all stylesheets are processed as inline <style> tags instead of external <link> tags
+                // which would fail due to CSP/CORS restrictions in the sandboxed iframe
+                const setupErrorHandlers = (): void => {
+                    if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
+                        // We have to monkey patch fetch as rrweb doesn't provide a way to listen for these errors
+                        // We do this after every fullsnapshot-rebuilded as rrweb creates a new iframe each time
+                        const originalFetch = iframeFetch
+                        const windowRef = new WeakRef(iframeContentWindow)
 
-                    iframeContentWindow.fetch = wrapFetchAndReport({
-                        fetch: iframeFetch,
-                        onError: (errorDetails: ResourceErrorDetails) => {
-                            actions.caughtAssetErrorFromIframe(errorDetails)
-                        },
-                    })
-                    ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+                        iframeContentWindow.fetch = wrapFetchAndReport({
+                            fetch: iframeFetch,
+                            onError: (errorDetails: ResourceErrorDetails) => {
+                                actions.caughtAssetErrorFromIframe(errorDetails)
+                            },
+                        })
+                        ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
 
-                    cache.disposables.add(() => {
-                        return () => {
-                            const window = windowRef.deref()
-                            if (window && window.fetch) {
-                                window.fetch = originalFetch
-                                delete (window.fetch as any).__isWrappedForErrorReporting
+                        cache.disposables.add(() => {
+                            return () => {
+                                const window = windowRef.deref()
+                                if (window && window.fetch) {
+                                    window.fetch = originalFetch
+                                    delete (window.fetch as any).__isWrappedForErrorReporting
+                                }
                             }
-                        }
-                    }, 'iframeFetchWrapper')
+                        }, 'iframeFetchWrapper')
+                    }
+
+                    if (iframeContentWindow) {
+                        cache.disposables.add(() => {
+                            return registerErrorListeners({
+                                iframeWindow: iframeContentWindow,
+                                onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                            })
+                        }, 'iframeErrorListeners')
+                    }
                 }
 
-                if (iframeContentWindow) {
+                // Check if document is still loading (gated by feature flag)
+                if (
+                    values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
+                    iframeDocument &&
+                    iframeDocument.readyState === 'loading'
+                ) {
+                    // Wait for DOMContentLoaded to ensure all stylesheets are processed
+                    const onReady = (): void => {
+                        setupErrorHandlers()
+
+                        // Force rrweb to rebuild/repaint now that the document is ready
+                        // This ensures stylesheets are processed as inline <style> tags
+                        // instead of external <link> tags which fail due to CSP
+                        if (replayer.replayer && values.currentTimestamp !== undefined) {
+                            const currentTime = values.currentTimestamp - values.sessionPlayerData.start.valueOf()
+                            // Trigger a micro-seek to force rrweb to rebuild with the ready document
+                            replayer.replayer.pause(currentTime)
+                            setTimeout(() => {
+                                if (replayer.replayer) {
+                                    replayer.replayer.pause(currentTime)
+                                }
+                            }, 0)
+                        }
+
+                        iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                    }
+                    iframeDocument.addEventListener('DOMContentLoaded', onReady)
+
+                    // Cleanup listener if component unmounts
                     cache.disposables.add(() => {
-                        return registerErrorListeners({
-                            iframeWindow: iframeContentWindow,
-                            onError: (error) => actions.caughtAssetErrorFromIframe(error),
-                        })
-                    }, 'iframeErrorListeners')
+                        return () => {
+                            iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                        }
+                    }, 'iframeDOMContentLoaded')
+                } else {
+                    // Document already loaded or flag disabled, setup handlers immediately
+                    setupErrorHandlers()
                 }
             })
 
