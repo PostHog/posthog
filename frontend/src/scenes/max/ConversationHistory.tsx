@@ -101,6 +101,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
                             target="_blank"
                             className="flex items-center gap-1"
                             onClick={(e) => e.stopPropagation()}
+                            tooltip="This chat was started in Slack"
                         >
                             Slack thread <IconExternal />
                         </Link>
