@@ -317,7 +317,7 @@ ssh_authorized_keys:
         print("   This may take a few minutes", flush=True)
 
         cmd = (
-            "cd /root/hobby && "
+            "cd /hobby && "
             "sudo -E docker-compose -f docker-compose.yml exec -T web "
             "python manage.py generate_demo_data"
         )
