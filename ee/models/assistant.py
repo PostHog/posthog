@@ -26,6 +26,13 @@ class Conversation(UUIDTModel):
         indexes = [
             models.Index(fields=["updated_at"]),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "slack_thread_key"],
+                name="unique_team_slack_thread_key",
+                condition=models.Q(slack_thread_key__isnull=False),
+            )
+        ]
 
     class Status(models.TextChoices):
         IDLE = "idle", "Idle"
@@ -45,6 +52,12 @@ class Conversation(UUIDTModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
     title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=TITLE_MAX_LENGTH)
+    slack_thread_key = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        help_text="Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'",
+    )
 
 
 class ConversationCheckpoint(UUIDTModel):
