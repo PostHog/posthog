@@ -16,6 +16,12 @@ import type { biLogicType } from './biLogicType'
 
 export type BIAggregation = 'count' | 'min' | 'max' | 'sum'
 export type BITimeAggregation = 'hour' | 'day' | 'week' | 'month'
+export type BISortDirection = 'asc' | 'desc'
+
+export interface BISort {
+    column: BIQueryColumn
+    direction: BISortDirection
+}
 
 export interface BIQueryColumn {
     table: string
@@ -56,7 +62,7 @@ export const biLogic = kea<biLogicType>([
         setFilters: (filters: BIQueryFilter[]) => ({ filters }),
         updateFilter: (index: number, expression: string) => ({ index, expression }),
         removeFilter: (index: number) => ({ index }),
-        setSort: (column: BIQueryColumn | null) => ({ column }),
+        setSort: (column: BIQueryColumn | null, direction?: BISortDirection | null) => ({ column, direction }),
         setLimit: (limit: number) => ({ limit }),
         setSearchTerm: (term: string) => ({ term }),
         refreshQuery: true,
@@ -109,8 +115,22 @@ export const biLogic = kea<biLogicType>([
             },
         ],
         sort: [
-            null as BIQueryColumn | null,
-            { setSort: (_, { column }) => column, selectTable: () => null, resetSelection: () => null },
+            null as BISort | null,
+            {
+                setSort: (state, { column, direction }) => {
+                    if (!column || !direction) {
+                        return null
+                    }
+
+                    if (state && columnsEqual(state.column, column) && state.direction === direction) {
+                        return null
+                    }
+
+                    return { column, direction }
+                },
+                selectTable: () => null,
+                resetSelection: () => null,
+            },
         ],
         limit: [50 as number, { setLimit: (_, { limit }) => limit, resetSelection: () => 50 }],
         searchTerm: ['', { setSearchTerm: (_, { term }) => term, resetSelection: () => '' }],
@@ -211,7 +231,7 @@ export const biLogic = kea<biLogicType>([
                     .map(({ expression }) => expression)
                 const hasAggregations = selectedFields.some(({ column }) => column.aggregation)
 
-                const orderBy = sort ? `\nORDER BY "${columnAlias(sort)}" ASC` : ''
+                const orderBy = sort ? `\nORDER BY "${columnAlias(sort.column)}" ${sort.direction.toUpperCase()}` : ''
                 const where = whereParts.length > 0 ? `\nWHERE ${whereParts.join(' AND ')}` : ''
                 const groupBy =
                     hasAggregations && groupByColumns.length > 0 ? `\nGROUP BY ${groupByColumns.join(', ')}` : ''
@@ -318,8 +338,8 @@ export const biLogic = kea<biLogicType>([
             if (!filtersEqual(filters, values.filters)) {
                 actions.setFilters(filters)
             }
-            if (!columnsEqual(sort, values.sort)) {
-                actions.setSort(sort)
+            if (!sortsEqual(sort, values.sort)) {
+                actions.setSort(sort?.column || null, sort?.direction)
             }
             if (limit !== values.limit) {
                 actions.setLimit(limit)
@@ -351,15 +371,17 @@ export function columnKey(column: BIQueryColumn): string {
 }
 
 export function columnAlias(column: BIQueryColumn): string {
-    const parts: string[] = []
-    if (column.aggregation) {
-        parts.push(column.aggregation)
-    }
+    let alias = column.field
+
     if (column.timeInterval) {
-        parts.push(column.timeInterval)
+        alias = `${column.timeInterval}_of_${alias}`
     }
-    parts.push(column.field)
-    return parts.join('_')
+
+    if (column.aggregation) {
+        alias = `${column.aggregation}_of_${alias}`
+    }
+
+    return alias
 }
 
 function columnExpression(column: BIQueryColumn, field: DatabaseSchemaField, table: DatabaseSchemaTable): string {
@@ -381,6 +403,17 @@ function columnsEqual(a: BIQueryColumn | null | undefined, b: BIQueryColumn | nu
         return false
     }
     return columnKey(a) === columnKey(b)
+}
+
+function sortsEqual(a: BISort | null, b: BISort | null): boolean {
+    if (!a && !b) {
+        return true
+    }
+    if (!a || !b) {
+        return false
+    }
+
+    return columnsEqual(a.column, b.column) && a.direction === b.direction
 }
 
 function columnsListsEqual(a: BIQueryColumn[], b: BIQueryColumn[]): boolean {
@@ -459,8 +492,8 @@ function serializeFilters(filters: BIQueryFilter[]): string | undefined {
     )
 }
 
-function serializeSort(sort: BIQueryColumn): string {
-    return `${sort.aggregation || 'raw'}:${sort.timeInterval || 'raw'}:${sort.field}`
+function serializeSort(sort: BISort): string {
+    return `${sort.direction}:${sort.column.aggregation || 'raw'}:${sort.column.timeInterval || 'raw'}:${sort.column.field}`
 }
 
 function parseColumnsParam(param: any, table: string | null): BIQueryColumn[] {
@@ -508,11 +541,21 @@ function parseFiltersParam(param: any, table: string | null): BIQueryFilter[] {
     }
 }
 
-function parseSortParam(param: any, table: string | null): BIQueryColumn | null {
+function parseSortParam(param: any, table: string | null): BISort | null {
     if (!table || !param) {
         return null
     }
-    return parseColumnItem(String(param), table)
+    const [maybeDirection, ...rest] = String(param).split(':')
+    const direction = maybeDirection === 'desc' ? 'desc' : 'asc'
+    const columnFromNewFormat = parseColumnItem(rest.join(':'), table)
+
+    if (columnFromNewFormat) {
+        return { column: columnFromNewFormat, direction }
+    }
+
+    const legacyColumn = parseColumnItem(String(param), table)
+
+    return legacyColumn ? { column: legacyColumn, direction: 'asc' } : null
 }
 
 function parseColumnItem(item: string, table: string): BIQueryColumn | null {

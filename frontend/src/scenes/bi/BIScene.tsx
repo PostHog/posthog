@@ -22,7 +22,15 @@ import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 import { SceneExport } from '../sceneTypes'
 import { Scene } from '../sceneTypes'
-import { BIAggregation, BIQueryFilter, BITimeAggregation, biLogic, columnAlias, columnKey } from './biLogic'
+import {
+    BIAggregation,
+    BIQueryFilter,
+    BISortDirection,
+    BITimeAggregation,
+    biLogic,
+    columnAlias,
+    columnKey,
+} from './biLogic'
 
 const COLORS = ['#5375ff', '#ff7a9e', '#2bc4ff', '#f6a700', '#7a49ff']
 
@@ -76,6 +84,7 @@ export function BIScene(): JSX.Element {
         limit,
         searchTerm,
         databaseLoading,
+        sort,
     } = useValues(biLogic)
     const {
         addColumn,
@@ -260,11 +269,11 @@ export function BIScene(): JSX.Element {
                         </LemonCard>
                     )}
 
-                    <LemonCard className="flex-1 min-h-0" hoverEffect={false}>
+                    <LemonCard className="flex-1 min-h-0 flex flex-col" hoverEffect={false}>
                         {selectedFields.length === 0 ? (
                             <div className="text-muted">Select a table from the left to start the analysis.</div>
                         ) : (
-                            <div className="max-h-[60vh] overflow-auto">
+                            <div className="flex-1 min-h-0 overflow-auto">
                                 <LemonTable
                                     dataSource={rows}
                                     loading={!queryResponse && selectedFields.length > 0}
@@ -278,7 +287,12 @@ export function BIScene(): JSX.Element {
                                                 onAddFilter={(expression) =>
                                                     addFilter({ column, expression: expression || '= ""' })
                                                 }
-                                                onSort={() => setSort(column)}
+                                                sortDirection={
+                                                    sort && columnKey(sort.column) === columnKey(column)
+                                                        ? sort.direction
+                                                        : null
+                                                }
+                                                onSort={(direction) => setSort(column, direction)}
                                                 onSetAggregation={(aggregation) =>
                                                     setColumnAggregation(
                                                         column,
@@ -321,6 +335,7 @@ function ColumnHeader({
     column,
     field,
     alias,
+    sortDirection,
     onRemove,
     onAddFilter,
     onSort,
@@ -332,9 +347,10 @@ function ColumnHeader({
     column: BIQueryColumn
     field?: DatabaseSchemaField
     alias: string
+    sortDirection: BISortDirection | null
     onRemove: () => void
     onAddFilter: (expression?: string) => void
-    onSort: () => void
+    onSort: (direction: BISortDirection | null) => void
     onSetAggregation: (aggregation?: BIAggregation | null) => void
     onSetTimeInterval: (timeInterval?: BITimeAggregation | null) => void
     isPopoverOpen: boolean
@@ -363,6 +379,7 @@ function ColumnHeader({
                         />
                         <LemonButton
                             type="secondary"
+                            size="small"
                             onClick={() => {
                                 onAddFilter(draft)
                                 setDraft('')
@@ -377,6 +394,8 @@ function ColumnHeader({
                             <div className="grid grid-cols-4 gap-1">
                                 <LemonButton
                                     type="secondary"
+                                    size="small"
+                                    active={!column.aggregation}
                                     status={!column.aggregation ? 'primary' : 'default'}
                                     onClick={() => {
                                         onSetAggregation(null)
@@ -389,7 +408,9 @@ function ColumnHeader({
                                     <LemonButton
                                         key={aggregation}
                                         type="secondary"
+                                        size="small"
                                         status={column.aggregation === aggregation ? 'primary' : 'default'}
+                                        active={column.aggregation === aggregation}
                                         onClick={() => {
                                             onSetAggregation(aggregation)
                                             onPopoverVisibilityChange(false)
@@ -408,7 +429,9 @@ function ColumnHeader({
                                         <LemonButton
                                             key={interval || 'none'}
                                             type="secondary"
+                                            size="small"
                                             status={column.timeInterval === interval ? 'primary' : 'default'}
+                                            active={column.timeInterval === interval}
                                             onClick={() => {
                                                 onSetTimeInterval(interval as BITimeAggregation | null)
                                                 onPopoverVisibilityChange(false)
@@ -420,17 +443,26 @@ function ColumnHeader({
                                 </div>
                             </div>
                         )}
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                onSort()
-                                onPopoverVisibilityChange(false)
-                            }}
-                        >
-                            Sort
-                        </LemonButton>
+                        <div className="grid grid-cols-2 gap-1">
+                            {(['asc', 'desc'] as BISortDirection[]).map((direction) => (
+                                <LemonButton
+                                    key={direction}
+                                    type="secondary"
+                                    size="small"
+                                    status={sortDirection === direction ? 'primary' : 'default'}
+                                    active={sortDirection === direction}
+                                    onClick={() => {
+                                        onSort(sortDirection === direction ? null : direction)
+                                        onPopoverVisibilityChange(false)
+                                    }}
+                                >
+                                    Sort {direction}
+                                </LemonButton>
+                            ))}
+                        </div>
                         <LemonButton
                             status="danger"
+                            size="small"
                             onClick={() => {
                                 onRemove()
                                 onPopoverVisibilityChange(false)
@@ -529,7 +561,15 @@ function FilterPill({
                 </div>
             }
         >
-            <div onClick={(event) => event.stopPropagation()}>{formatFilter(filter)}</div>
+            <div
+                className="cursor-pointer"
+                onClick={(event) => {
+                    event.stopPropagation()
+                    onOpenChange(!isOpen)
+                }}
+            >
+                {formatFilter(filter)}
+            </div>
         </Popover>
     )
 }
