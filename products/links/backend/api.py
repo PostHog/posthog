@@ -4,7 +4,8 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 import structlog
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -101,3 +102,23 @@ class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         logger.info("link_deleted", id=instance.id, team_id=self.team_id)
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=["get"], url_path="check-availability")
+    def check_availability(self, request: Request, **kwargs: Any) -> Response:
+        """
+        Check if a short_link_domain and short_code combination is available.
+        Query params:
+            - short_link_domain: The domain to check (required)
+            - short_code: The short code to check (required)
+        Returns:
+            - available: boolean indicating if the combination is available
+        """
+        short_link_domain = request.query_params.get("short_link_domain")
+        if not short_link_domain:
+            raise serializers.ValidationError({"short_link_domain": "Short link domain is required"})
+        short_code = request.query_params.get("short_code")
+        if not short_code:
+            raise serializers.ValidationError({"short_code": "Short code is required"})
+
+        exists = Link.objects.filter(short_link_domain=short_link_domain, short_code=short_code).exists()
+        return Response({"available": not exists}, status=status.HTTP_200_OK)

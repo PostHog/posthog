@@ -199,3 +199,39 @@ class TestLink(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert (
             "Special Folder/Links" in fs_entry.path
         ), f"Expected path to include 'Special Folder/Links', got '{fs_entry.path}'."
+
+    def test_check_availability_when_available(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/links/check-availability",
+            {"short_link_domain": "phog.gg", "short_code": "available123"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        json_response = response.json()
+        self.assertTrue(json_response["available"])
+
+    def test_check_availability_when_taken(self):
+        Link.objects.create(
+            team=self.team,
+            redirect_url="https://example.com",
+            short_link_domain="phog.gg",
+            short_code="taken123",
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/links/check-availability",
+            {"short_link_domain": "phog.gg", "short_code": "taken123"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        json_response = response.json()
+        self.assertFalse(json_response["available"])
+
+    def test_check_availability_missing_params(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/links/check-availability",
+            {"short_link_domain": "phog.gg"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        json_response = response.json()
+        self.assertIn("short_code", json_response["attr"])
+        self.assertIn("Short code is required", json_response["detail"])
