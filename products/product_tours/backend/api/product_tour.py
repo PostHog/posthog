@@ -105,16 +105,8 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        # Update internal targeting flag if start_date or end_date changed
-        start_date_changed = "start_date" in validated_data and validated_data["start_date"] != instance.start_date
-        end_date_changed = "end_date" in validated_data and validated_data["end_date"] != instance.end_date
-        archived_changed = "archived" in validated_data and validated_data["archived"] != instance.archived
-
         instance = super().update(instance, validated_data)
-
-        if start_date_changed or end_date_changed or archived_changed:
-            self._update_internal_targeting_flag_state(instance)
-
+        self._update_internal_targeting_flag_state(instance)
         return instance
 
     def _create_internal_targeting_flag(self, instance: ProductTour) -> None:
@@ -151,7 +143,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "key": flag_key,
             "name": f"Product Tour: {instance.name}",
             "filters": filters,
-            "active": bool(instance.start_date) and not instance.archived,
+            "active": bool(instance.start_date) and not instance.end_date and not instance.archived,
             "creation_context": "product_tours",
         }
 
@@ -172,7 +164,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not flag:
             return
 
-        should_be_active = bool(instance.start_date) and not instance.archived
+        should_be_active = bool(instance.start_date) and not instance.end_date and not instance.archived
         if flag.active != should_be_active:
             flag.active = should_be_active
             flag.save(update_fields=["active"])
