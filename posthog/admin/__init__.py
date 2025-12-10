@@ -30,6 +30,7 @@ def register_all_admin():
         PersonDistinctIdAdmin,
         PluginAdmin,
         PluginConfigAdmin,
+        ProductTourAdmin,
         ProjectAdmin,
         SurveyAdmin,
         TeamAdmin,
@@ -102,6 +103,10 @@ def register_all_admin():
     admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 
     admin.site.register(Survey, SurveyAdmin)
+
+    from products.product_tours.backend.models import ProductTour
+
+    admin.site.register(ProductTour, ProductTourAdmin)
 
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
