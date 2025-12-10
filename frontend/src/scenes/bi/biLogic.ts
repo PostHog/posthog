@@ -13,6 +13,7 @@ import {
     DatabaseSchemaField,
     DatabaseSchemaQueryResponse,
     DatabaseSchemaTable,
+    DatabaseSerializedFieldType,
     HogQLQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -766,16 +767,39 @@ function buildFieldTreeNodes(
 ): FieldTreeNode[] {
     return Object.values(table.fields || {}).map((field) => {
         const path = parentPath ? `${parentPath}.${field.name}` : field.name
-        const targetTable = field.table ? getTableFromDatabase(database, field.table) : null
-        const limitedTableFields =
-            targetTable && field.fields?.length
-                ? {
-                      ...targetTable,
-                      fields: Object.fromEntries(
-                          Object.entries(targetTable.fields).filter(([name]) => field.fields?.includes(name))
-                      ),
-                  }
-                : targetTable
+        const { field: resolvedField, table: resolvedTable } = resolveFieldReference(field, table, database)
+        const targetTable = resolvedField.table ? getTableFromDatabase(database, resolvedField.table) : null
+        const baseTableForChildren = targetTable || resolvedTable || table
+
+        let limitedTableFields: DatabaseSchemaTable | null = null
+
+        if (resolvedField.fields?.length) {
+            const filteredFields = Object.fromEntries(
+                resolvedField.fields.map((name) => {
+                    const childField = baseTableForChildren.fields?.[name]
+                    return [
+                        name,
+                        childField || {
+                            name,
+                            hogql_value: name,
+                            type: 'string' as DatabaseSerializedFieldType,
+                            schema_valid: true,
+                        },
+                    ]
+                })
+            )
+
+            const tableNamePrefix = baseTableForChildren.name === table.name ? `${baseTableForChildren.name}.` : ''
+
+            limitedTableFields = {
+                ...baseTableForChildren,
+                name: `${tableNamePrefix}${resolvedField.name}`,
+                id: `${baseTableForChildren.id}.${resolvedField.name}`,
+                fields: filteredFields,
+            }
+        } else if (baseTableForChildren.name !== table.name) {
+            limitedTableFields = baseTableForChildren
+        }
 
         const children =
             limitedTableFields && !visitedTables.has(limitedTableFields.name)
@@ -789,6 +813,38 @@ function buildFieldTreeNodes(
 
         return { field, path, children }
     })
+}
+
+function resolveFieldReference(
+    field: DatabaseSchemaField,
+    table: DatabaseSchemaTable,
+    database: DatabaseSchemaQueryResponse | null
+): { field: DatabaseSchemaField; table: DatabaseSchemaTable } {
+    let currentField = field
+    let currentTable = table
+
+    for (const part of field.chain || []) {
+        if (typeof part !== 'string') {
+            break
+        }
+
+        const nextField = currentTable.fields?.[part]
+
+        if (!nextField) {
+            break
+        }
+
+        currentField = nextField
+
+        if (nextField.table) {
+            const nextTable = getTableFromDatabase(database, nextField.table)
+            if (nextTable) {
+                currentTable = nextTable
+            }
+        }
+    }
+
+    return { field: currentField, table: currentTable }
 }
 
 function filterFieldTreeNodes(nodes: FieldTreeNode[], term: string): FieldTreeNode[] {
