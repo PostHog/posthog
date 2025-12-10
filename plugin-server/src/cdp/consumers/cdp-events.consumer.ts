@@ -35,6 +35,12 @@ const counterQuotaLimited = new Counter({
     labelNames: ['team_id'],
 })
 
+const counterQuotaCheckFailed = new Counter({
+    name: 'cdp_function_quota_check_failed',
+    help: 'A quota check failed for a function invocation',
+    labelNames: ['team_id'],
+})
+
 const counterRateLimited = new Counter({
     name: 'cdp_function_rate_limited',
     help: 'A function invocation was rate limited',
@@ -192,6 +198,9 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                         // return
                     }
                 } catch (e) {
+                    // Track quota check failures
+                    counterQuotaCheckFailed.labels({ team_id: String(item.teamId) }).inc()
+
                     captureException(e)
                     logger.error('🔴', 'Error checking quota limit for hog function', {
                         err: e,
