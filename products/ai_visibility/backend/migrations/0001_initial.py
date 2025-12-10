@@ -32,6 +32,12 @@ class Migration(migrations.Migration):
                     "completed_at",
                     models.DateTimeField(blank=True, help_text="Timestamp when the run completed or failed", null=True),
                 ),
+                (
+                    "s3_path",
+                    models.CharField(
+                        blank=True, help_text="S3 path where the results are stored", max_length=512, null=True
+                    ),
+                ),
             ],
             options={
                 "db_table": "posthog_ai_visibility_run",

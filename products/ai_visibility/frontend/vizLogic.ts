@@ -1,18 +1,29 @@
-import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { BRAND_DISPLAY_NAMES, MOCK_DATA_BY_BRAND } from './mockData'
-import { DashboardData, Prompt } from './types'
+import { DashboardData, PlatformMention, Prompt } from './types'
 import type { vizLogicType } from './vizLogicType'
 
 export interface VizLogicProps {
     brand: string
 }
 
-interface TriggerResponse {
+interface StartedResponse {
     workflow_id: string
-    status: string
+    status: 'started'
 }
+
+interface ReadyResponse {
+    status: 'ready'
+    run_id: string
+    domain: string
+    results: Record<string, unknown>
+}
+
+type ApiResponse = StartedResponse | ReadyResponse
+
+const POLL_INTERVAL_MS = 5000
 
 export const vizLogic = kea<vizLogicType>([
     path(['products', 'ai_visibility', 'frontend', 'vizLogic']),
@@ -22,11 +33,13 @@ export const vizLogic = kea<vizLogicType>([
     actions({
         setSelectedPrompt: (prompt: Prompt | null) => ({ prompt }),
         setFilterCategory: (category: 'all' | 'commercial' | 'informational' | 'navigational') => ({ category }),
+        startPolling: true,
+        stopPolling: true,
     }),
 
     loaders(({ props }) => ({
         triggerResult: [
-            null as TriggerResponse | null,
+            null as ApiResponse | null,
             {
                 loadTriggerResult: async () => {
                     if (!props.brand) {
@@ -77,7 +90,7 @@ export const vizLogic = kea<vizLogicType>([
             (brand) => BRAND_DISPLAY_NAMES[brand] || brand.charAt(0).toUpperCase() + brand.slice(1),
         ],
 
-        hasData: [(s) => [s.brand], (brand): boolean => brand in MOCK_DATA_BY_BRAND],
+        hasMockData: [(s) => [s.brand], (brand): boolean => brand in MOCK_DATA_BY_BRAND],
 
         data: [
             (s) => [s.brand],
@@ -85,6 +98,41 @@ export const vizLogic = kea<vizLogicType>([
                 return MOCK_DATA_BY_BRAND[brand] || null
             },
         ],
+
+        // Backend selectors
+        workflowId: [
+            (s) => [s.triggerResult],
+            (triggerResult): string | null => {
+                if (triggerResult?.status === 'started') {
+                    return triggerResult.workflow_id
+                }
+                return null
+            },
+        ],
+        isReady: [(s) => [s.triggerResult], (triggerResult): boolean => triggerResult?.status === 'ready'],
+        results: [
+            (s) => [s.triggerResult],
+            (triggerResult): Record<string, unknown> | null => {
+                if (triggerResult?.status === 'ready') {
+                    return triggerResult.results
+                }
+                return null
+            },
+        ],
+        runId: [
+            (s) => [s.triggerResult],
+            (triggerResult): string | null => {
+                if (triggerResult?.status === 'ready') {
+                    return triggerResult.run_id
+                }
+                return null
+            },
+        ],
+
+        // Combined: show dashboard if we have mock data OR backend results
+        hasData: [(s) => [s.hasMockData, s.isReady], (hasMockData, isReady): boolean => hasMockData || isReady],
+
+        // Dashboard selectors (for mock data)
         visibilityScore: [(s) => [s.data], (data) => data?.visibility_score ?? 0],
         scoreChange: [(s) => [s.data], (data) => data?.score_change ?? 0],
         scoreChangePeriod: [(s) => [s.data], (data) => data?.score_change_period ?? 'week'],
@@ -139,10 +187,14 @@ export const vizLogic = kea<vizLogicType>([
                 const total = prompts.length
                 const mentioned = prompts.filter((p) => p.you_mentioned).length
                 const topPosition = prompts.filter((p) => {
-                    return Object.values(p.platforms).some((plat) => plat?.mentioned && plat.position === 1)
+                    return Object.values(p.platforms).some(
+                        (plat: PlatformMention | undefined) => plat?.mentioned && plat.position === 1
+                    )
                 }).length
                 const cited = prompts.filter((p) => {
-                    return Object.values(p.platforms).some((plat) => plat?.mentioned && plat.cited)
+                    return Object.values(p.platforms).some(
+                        (plat: PlatformMention | undefined) => plat?.mentioned && plat.cited
+                    )
                 }).length
 
                 return { total, mentioned, topPosition, cited }
@@ -150,14 +202,44 @@ export const vizLogic = kea<vizLogicType>([
         ],
 
         availableBrands: [() => [], () => Object.keys(MOCK_DATA_BY_BRAND)],
-
-        workflowId: [(s) => [s.triggerResult], (triggerResult): string | null => triggerResult?.workflow_id ?? null],
-        workflowStatus: [(s) => [s.triggerResult], (triggerResult): string | null => triggerResult?.status ?? null],
     }),
 
+    listeners(({ actions, values, cache }) => ({
+        loadTriggerResultSuccess: ({ triggerResult }) => {
+            if (triggerResult?.status === 'started') {
+                actions.startPolling()
+            } else if (triggerResult?.status === 'ready') {
+                actions.stopPolling()
+            }
+        },
+        startPolling: () => {
+            if (cache.pollIntervalId) {
+                clearInterval(cache.pollIntervalId)
+            }
+            cache.pollIntervalId = setInterval(() => {
+                if (!values.triggerResultLoading) {
+                    actions.loadTriggerResult()
+                }
+            }, POLL_INTERVAL_MS)
+        },
+        stopPolling: () => {
+            if (cache.pollIntervalId) {
+                clearInterval(cache.pollIntervalId)
+                cache.pollIntervalId = null
+            }
+        },
+    })),
+
     afterMount(({ actions, values }) => {
-        if (!values.hasData) {
+        // Only trigger backend if we don't have mock data
+        if (!values.hasMockData) {
             actions.loadTriggerResult()
+        }
+    }),
+
+    beforeUnmount(({ cache }) => {
+        if (cache.pollIntervalId) {
+            clearInterval(cache.pollIntervalId)
         }
     }),
 ])

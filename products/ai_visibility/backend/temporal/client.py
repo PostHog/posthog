@@ -16,13 +16,13 @@ logger = structlog.get_logger(__name__)
 
 
 async def _start_ai_visibility_workflow(
-    workflow_id: str, domain: str, team_id: Optional[int] = None, user_id: Optional[int] = None
+    workflow_id: str, run_id: str, domain: str, team_id: Optional[int] = None, user_id: Optional[int] = None
 ) -> str:
     client = await async_connect()
 
     handle = await client.start_workflow(
         "ai-visibility",
-        AIVisibilityWorkflowInput(domain=domain, team_id=team_id, user_id=user_id),
+        AIVisibilityWorkflowInput(domain=domain, run_id=run_id, team_id=team_id, user_id=user_id),
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         task_queue=settings.AI_VISIBILITY_TASK_QUEUE,
@@ -32,7 +32,9 @@ async def _start_ai_visibility_workflow(
     return handle.id
 
 
-def trigger_ai_visibility_workflow(domain: str, team_id: Optional[int] = None, user_id: Optional[int] = None) -> str:
+def trigger_ai_visibility_workflow(
+    domain: str, run_id: str, team_id: Optional[int] = None, user_id: Optional[int] = None
+) -> str:
     """
     Fire-and-forget starter for the AI Visibility workflow. Returns the workflow id immediately.
     """
@@ -40,16 +42,19 @@ def trigger_ai_visibility_workflow(domain: str, team_id: Optional[int] = None, u
 
     def _runner() -> None:
         try:
-            asyncio.run(_start_ai_visibility_workflow(workflow_id, domain, team_id, user_id))
+            asyncio.run(_start_ai_visibility_workflow(workflow_id, run_id, domain, team_id, user_id))
             logger.info(
                 "ai_visibility.workflow_started",
                 domain=domain,
+                run_id=run_id,
                 team_id=team_id,
                 user_id=user_id,
                 workflow_id=workflow_id,
             )
         except Exception:
-            logger.exception("ai_visibility.workflow_start_failed", domain=domain, team_id=team_id, user_id=user_id)
+            logger.exception(
+                "ai_visibility.workflow_start_failed", domain=domain, run_id=run_id, team_id=team_id, user_id=user_id
+            )
 
     thread = threading.Thread(target=_runner, daemon=True)
     thread.start()

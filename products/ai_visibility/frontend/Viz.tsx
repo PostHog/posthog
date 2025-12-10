@@ -20,6 +20,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 
+import { Results } from './Results'
 import { PlatformMention, Prompt } from './types'
 import { vizLogic } from './vizLogic'
 
@@ -30,7 +31,7 @@ export interface VizProps {
 function WorkflowTriggerView({ brand }: { brand: string }): JSX.Element {
     const logic = vizLogic({ brand })
     const { loadTriggerResult } = useActions(logic)
-    const { workflowId, workflowStatus, triggerResultLoading, lastError, brandDisplayName } = useValues(logic)
+    const { workflowId, triggerResultLoading, lastError, isReady, results, runId, brandDisplayName } = useValues(logic)
 
     return (
         <div className="flex flex-col gap-3 p-4 max-w-2xl mx-auto">
@@ -41,42 +42,35 @@ function WorkflowTriggerView({ brand }: { brand: string }): JSX.Element {
                 </p>
             </div>
 
-            <div className="rounded border border-border bg-bg-300 p-3">
-                {triggerResultLoading ? (
-                    <div className="flex items-center gap-2">
-                        <Spinner />
-                        <span>Triggering workflow…</span>
-                    </div>
-                ) : lastError ? (
+            {lastError ? (
+                <div className="rounded border border-border bg-bg-300 p-3">
                     <div className="flex flex-col gap-2">
-                        <span className="text-danger font-semibold">Failed to start workflow</span>
+                        <span className="text-danger font-semibold">Failed to load results</span>
                         <code className="text-xs break-all">{lastError}</code>
                         <LemonButton type="primary" onClick={() => loadTriggerResult()}>
                             Retry
                         </LemonButton>
                     </div>
-                ) : (
-                    <div className="flex flex-col gap-1">
-                        <div className="flex gap-2">
-                            <span className="text-muted">Workflow ID:</span>
-                            <span className="font-mono">{workflowId ?? 'pending'}</span>
-                        </div>
-                        <div className="flex gap-2">
-                            <span className="text-muted">Status:</span>
-                            <span className="font-mono">{workflowStatus ?? 'pending'}</span>
-                        </div>
-                        <div className="flex gap-2">
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => loadTriggerResult()}
-                                loading={triggerResultLoading}
-                            >
-                                Re-trigger
-                            </LemonButton>
-                        </div>
+                </div>
+            ) : isReady && results ? (
+                <Results results={results} domain={brand} runId={runId} />
+            ) : (
+                <div className="rounded border border-border bg-bg-300 p-3">
+                    <div className="flex items-center gap-2">
+                        <Spinner />
+                        <span>
+                            {triggerResultLoading && !workflowId
+                                ? 'Starting workflow...'
+                                : 'Processing... checking again in 5 seconds'}
+                        </span>
                     </div>
-                )}
-            </div>
+                    {workflowId && (
+                        <div className="mt-2 text-xs text-muted">
+                            Workflow ID: <span className="font-mono">{workflowId}</span>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
@@ -401,7 +395,8 @@ function DashboardView({ brand }: { brand: string }): JSX.Element {
 
 export function Viz({ brand }: VizProps): JSX.Element {
     const logic = vizLogic({ brand: brand || 'posthog' })
-    const { hasData } = useValues(logic)
+    const { hasMockData } = useValues(logic)
 
-    return hasData ? <DashboardView brand={brand} /> : <WorkflowTriggerView brand={brand} />
+    // Mock data brands get the full dashboard, others get the workflow trigger view
+    return hasMockData ? <DashboardView brand={brand} /> : <WorkflowTriggerView brand={brand} />
 }
