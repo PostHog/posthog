@@ -53,6 +53,7 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
+from posthog.event_usage import report_user_action
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.external_data_schema import (
@@ -218,6 +219,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 scope="Endpoint",
                 activity="created",
                 detail=Detail(name=endpoint.name),
+            )
+
+            # Report endpoint created event
+            report_user_action(
+                user=cast(User, request.user),
+                event="endpoint created",
+                properties={
+                    "endpoint_id": str(endpoint.id),
+                    "endpoint_name": endpoint.name,
+                    "is_materialized": endpoint.is_materialized,
+                    "has_cache_age": endpoint.cache_age_seconds is not None,
+                    "query_kind": endpoint.query.get("kind") if isinstance(endpoint.query, dict) else None,
+                },
+                team=self.team,
             )
 
             return Response(self._serialize_endpoint(endpoint), status=status.HTTP_201_CREATED)
