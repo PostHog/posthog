@@ -43,9 +43,9 @@ PostHog acts as a conduit - customers provide their Firebase credentials, we sen
 - ✅ Push service: POST to FCM API with JWT auth
 - ✅ End-to-end tested with manually-provided FCM token
 
-### Slice 2: iOS SDK captures and sends FCM token
+### Slice 2: Android SDK captures and sends FCM token
 
-- Add `setFcmToken(token:)` method to posthog-ios
+- Add `setFcmToken(token)` method to posthog-android
 - Store token in SDK storage
 - Send token to backend (stored in `PushSubscription` model, NOT as person property)
 - Handle token refresh (Firebase can rotate tokens)
@@ -55,9 +55,9 @@ PostHog acts as a conduit - customers provide their Firebase credentials, we sen
 - Template reads token from `PushSubscription` table by distinct_id
 - End-to-end: event -> workflow -> push
 
-### Slice 4: Android SDK (same pattern)
+### Slice 4: iOS SDK (same pattern)
 
-- `setFcmToken()` for posthog-android
+- `setFcmToken(token:)` for posthog-ios
 
 ### Slice 5: Rich push (Notification Service Extension)
 

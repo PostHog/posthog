@@ -58,6 +58,7 @@ from .materialized_column_slots import MaterializedColumnSlot, MaterializedColum
 from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
+from .push_subscription import PushSubscription, PushPlatform
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
@@ -182,6 +183,8 @@ __all__ = [
     "PluginSourceFile",
     "ProductIntent",
     "Project",
+    "PushPlatform",
+    "PushSubscription",
     "Property",
     "PropertyDefinition",
     "ProxyRecord",
