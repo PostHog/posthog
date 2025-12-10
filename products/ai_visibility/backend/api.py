@@ -29,7 +29,7 @@ logger = structlog.get_logger(__name__)
 
 class AIVisibilityIPThrottle(SimpleRateThrottle):
     scope = "ai_visibility"
-    rate = "5/hour"
+    rate = "500/hour"
 
     def get_cache_key(self, request, view):
         ip = get_ip_address(request)

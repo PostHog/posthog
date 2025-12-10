@@ -58,8 +58,8 @@ class AIVisibilityWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, input: AIVisibilityWorkflowInput) -> AIVisibilityWorkflowResult:
-        progress_timeout = timedelta(seconds=10)
-        progress_retry = RetryPolicy(maximum_attempts=2)
+        progress_timeout = timedelta(seconds=30)
+        progress_retry = RetryPolicy(maximum_attempts=3)
 
         async def set_progress(step: str) -> None:
             await workflow.execute_activity(
@@ -98,7 +98,7 @@ class AIVisibilityWorkflow(PostHogWorkflow):
             ai_calls: list[dict] = await workflow.execute_activity(
                 make_ai_calls,
                 AICallsInput(domain=input.domain, prompts=prompts, info=info, topics=topics),
-                start_to_close_timeout=timedelta(seconds=60),
+                start_to_close_timeout=timedelta(seconds=180),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 

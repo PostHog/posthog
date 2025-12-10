@@ -78,6 +78,11 @@ class PromptsOutput(BaseModel):
     prompts: list[PromptVariant]
 
 
+class Citation(BaseModel):
+    url: str = Field(..., description="Direct URL to the source")
+    title: str | None = Field(default=None, description="Title or description of the source")
+
+
 class ProbeResult(BaseModel):
     prompt: str = Field(..., description="The exact prompt that was probed")
     category: str = Field(..., description="Category this prompt belongs to")
@@ -89,12 +94,19 @@ class ProbeResult(BaseModel):
     reasoning: str = Field(
         ..., max_length=280, description="One-sentence evidence for mention/no-mention; keep concise and grounded"
     )
+    response: str = Field(default="", description="The full LLM response to the prompt")
+    citations: list[Citation] = Field(default_factory=list, description="URLs referenced in the response")
 
 
 class PlatformResult(BaseModel):
     mentioned: bool
     position: int | None = None
     cited: bool | None = None
+
+
+class CitationResult(BaseModel):
+    url: str
+    title: str | None = None
 
 
 class PromptResult(BaseModel):
@@ -108,6 +120,8 @@ class PromptResult(BaseModel):
     competitors_mentioned: list[str]
     last_checked: str
     reasoning: str
+    response: str = Field(default="", description="The full LLM response to the prompt")
+    citations: list[CitationResult] = Field(default_factory=list, description="URLs referenced in the response")
 
 
 class ShareOfVoice(BaseModel):
@@ -350,7 +364,8 @@ async def _probe_prompt(domain: str, info: BusinessInfo, search_prompt: str, cat
         "Include the primary domain (no protocol) and a logo URL; "
         "use https://www.google.com/s2/favicons?domain=<domain>&sz=128 when the domain is known, else leave logo_url null.\n"
         "Provide one-sentence explaining why they were mentioned in the response.\n"
-        f"If {info.name} is in the results, set mentions_target=true. \n"
+        f"If {info.name} is in the results, set mentions_target=true.\n"
+        "IMPORTANT: In the 'response' field, include your complete response to the search prompt.\n"
     )
     data = await _call_structured_llm(llm_prompt, ProbeResult)
     # Ensure prompt and category are set correctly
@@ -422,6 +437,8 @@ async def combine_calls(payload: CombineInput) -> dict:
                 competitors_mentioned=[c.name for c in probe.competitors],
                 last_checked=timezone.now().isoformat(),
                 reasoning=probe.reasoning,
+                response=probe.response,
+                citations=[CitationResult(url=c.url, title=c.title) for c in probe.citations],
             )
         )
 
