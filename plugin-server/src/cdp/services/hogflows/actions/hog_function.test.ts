@@ -11,7 +11,7 @@ import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { HogFlowAction } from '../../../../schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '../../../types'
+import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
@@ -30,6 +30,7 @@ describe('HogFunctionHandler', () => {
 
     let invocation: CyclotronJobInvocationHogFlow
     let action: Extract<HogFlowAction, { type: 'function' }>
+    let template: DBHogFunctionTemplate
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -50,7 +51,7 @@ describe('HogFunctionHandler', () => {
 
         // Simple hog function that prints the inputs
 
-        const template = await insertHogFunctionTemplate(hub.postgres, {
+        template = await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
             name: 'Test Template',
             code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
@@ -215,7 +216,7 @@ describe('HogFunctionHandler', () => {
                 required: true,
             },
         ])
-        expect(calledConfig.template_id).toEqual('template-test-hogflow-executor')
+        expect(calledConfig.template_id).toEqual(template.template_id)
         expect(calledConfig.mappings).toEqual([{ name: 'input mapping field' }])
     })
 

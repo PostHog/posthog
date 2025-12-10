@@ -40,6 +40,7 @@ export class HogFlowFunctionsService {
             bytecode: template.bytecode,
             inputs: configuration.inputs,
             inputs_schema: template.inputs_schema,
+            template_id: template.template_id,
             mappings: configuration.mappings,
             created_at: '',
             updated_at: '',
