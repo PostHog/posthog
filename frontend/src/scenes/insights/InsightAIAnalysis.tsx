@@ -59,7 +59,7 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                 <>
                     <p className="text-muted mb-4">
                         Get AI-powered insights about your data, including trends, patterns, and actionable
-                        recommendations
+                        recommendations. Find similar insights and get suggestions for next steps.
                     </p>
                     <LemonButton
                         type="primary"
