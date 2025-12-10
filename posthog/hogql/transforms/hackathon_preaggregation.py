@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Union
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
@@ -264,9 +264,9 @@ def _is_valid_events_from(select_from: Optional[ast.JoinExpr]) -> bool:
     return True
 
 
-def _build_select_aliases(node: ast.SelectQuery, context: HogQLContext) -> dict[str, ast.Expr]:
+def _build_select_aliases(node: ast.SelectQuery, context: HogQLContext) -> dict[Union[str, int], ast.Expr]:
     """Build a mapping of alias names to their underlying expressions from SELECT."""
-    aliases = {}
+    aliases: dict[Union[str, int], ast.Expr] = {}
     if node.select:
         for select_expr in node.select:
             if isinstance(select_expr, ast.Alias):
@@ -274,7 +274,9 @@ def _build_select_aliases(node: ast.SelectQuery, context: HogQLContext) -> dict[
     return aliases
 
 
-def _resolve_alias_in_group_by(expr: ast.Expr, aliases: dict[str, ast.Expr], context: HogQLContext) -> ast.Expr:
+def _resolve_alias_in_group_by(
+    expr: ast.Expr, aliases: dict[Union[str, int], ast.Expr], context: HogQLContext
+) -> ast.Expr:
     """Resolve an alias reference in GROUP BY to its underlying expression."""
     # If it's a single-element field that matches an alias, return the aliased expression
     if isinstance(expr, ast.Field) and len(expr.chain) == 1:
