@@ -6,6 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { uuid } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
@@ -249,7 +250,7 @@ export const productToursLogic = kea<productToursLogicType>([
         ],
     }),
 
-    forms(({ actions }) => ({
+    forms(({ values, actions }) => ({
         tourForm: {
             defaults: { name: '', steps: [] } as TourForm,
             errors: ({ name }) => ({
@@ -275,14 +276,16 @@ export const productToursLogic = kea<productToursLogicType>([
                     throw new Error(error.detail || 'Failed to save tour')
                 }
 
+                const { apiURL } = values
+
                 const savedTour = await response.json()
                 lemonToast.success(id ? 'Tour updated' : 'Tour created', {
-                    button: {
-                        label: 'Open in PostHog',
-                        action: () => {
-                            // TODO: Add URL when product tours UI is available
-                        },
-                    },
+                    button: id
+                        ? {
+                              label: 'Open in PostHog',
+                              action: () => window.open(`${apiURL}${urls.productTour(id)}`, '_blank'),
+                          }
+                        : undefined,
                 })
                 actions.loadTours()
                 // Close the editing bar after successful save
@@ -293,7 +296,7 @@ export const productToursLogic = kea<productToursLogicType>([
     })),
 
     connect(() => ({
-        values: [toolbarConfigLogic, ['dataAttributes']],
+        values: [toolbarConfigLogic, ['dataAttributes', 'apiURL']],
     })),
 
     selectors({
