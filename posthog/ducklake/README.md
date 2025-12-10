@@ -1,6 +1,11 @@
 # DuckLake copy workflow configuration
 
-The DuckLake copy workflow copies materialized data modeling outputs into a DuckLake-managed S3 bucket. Workers running this workflow must be configured explicitly; otherwise copies will fail before they even reach the first activity.
+The DuckLake copy workflows copy data into a DuckLake-managed S3 bucket. There are two workflows:
+
+1. **Data Modeling** (`ducklake-copy.data-modeling`) - copies materialized saved query outputs
+2. **Data Imports** (`ducklake-copy.data-imports`) - copies external data source imports (Stripe, Hubspot, etc.)
+
+Both workflows share the same infrastructure and configuration. Workers running these workflows must be configured explicitly; otherwise copies will fail before they even reach the first activity.
 
 ## Environment variables
 
@@ -22,7 +27,7 @@ For local dev the defaults are:
 
 - `DUCKLAKE_RDS_HOST=localhost`
 - `DUCKLAKE_RDS_PORT=5432`
-- `DUCKLAKE_RDS_DATABASE=ducklake`
+- `DUCKLAKE_RDS_DATABASE=ducklake_catalog`
 - `DUCKLAKE_RDS_USERNAME=posthog`
 - `DUCKLAKE_RDS_PASSWORD=posthog`
 - `DUCKLAKE_BUCKET=ducklake-dev`
@@ -32,24 +37,30 @@ For local dev the defaults are:
 
 ## Feature flag gating
 
-The modeling workflow launches the DuckLake copy child only when the
-`ducklake-data-modeling-copy-workflow` feature flag is enabled for the team (as evaluated
-via `feature_enabled`). Create or update that flag locally to target the team you are testing
-with—otherwise the copy workflow will be skipped even if the rest of the configuration is correct.
+Each workflow is gated by its own feature flag (evaluated via `feature_enabled`). Create or update the appropriate flag locally to target the team you are testing with—otherwise the copy workflow will be skipped even if the rest of the configuration is correct.
+
+| Workflow      | Feature Flag                           |
+| ------------- | -------------------------------------- |
+| Data Modeling | `ducklake-data-modeling-copy-workflow` |
+| Data Imports  | `ducklake-data-imports-copy-workflow`  |
 
 ## Target bucket layout
 
-Every model copy is written to a deterministic prefix inside the DuckLake data bucket. Each workflow
-namespaces its data under a workflow identifier (e.g., `data_modeling` for the Temporal pipeline captured
-in this doc):
+Every copy is written to a deterministic schema inside DuckLake. Each workflow namespaces its data under a workflow-specific schema:
 
-```text
-s3://<DUCKLAKE_BUCKET>/<workflow_identifier>/team_<team_id>/job_<job_id>/model_<model_label>/<normalized_name>.parquet
-```
+### Data Modeling
 
-For the Temporal data modeling copy workflow, `<workflow_identifier>` is `data_modeling`.
+- **Schema**: `data_modeling_team_<team_id>`
+- **Table**: `<model_label>` (derived from saved query name)
+- **Example**: `ducklake.data_modeling_team_123.my_saved_query`
 
-Re-running a copy simply overwrites the same Parquet object. Choose the bucket so its lifecycle/replication policies fit that structure.
+### Data Imports
+
+- **Schema**: `data_imports_team_<team_id>`
+- **Table**: `<source_type>_<normalized_name>_<schema_id_hex[:8]>`
+- **Example**: `ducklake.data_imports_team_123.stripe_invoices_a1b2c3d4`
+
+Re-running a copy simply overwrites the same table. Choose the bucket so its lifecycle/replication policies fit that structure.
 
 ## Required permissions
 
@@ -62,33 +73,86 @@ For AWS S3, grant the worker role at least `s3:ListBucket`, `s3:GetObject`, `s3:
 
 ## Local testing (dev)
 
-Follow this checklist to exercise the DuckLake copy workflow on a local checkout without needing extra tribal knowledge:
+Follow these checklists to exercise the DuckLake copy workflows on a local checkout.
 
-1. **Start the dev stack**  
+### Testing Data Modeling workflow
+
+1. **Start the dev stack**
    Run `hogli start` (or `bin/start`) so Postgres, MinIO, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-modeling-copy-workflow` feature flag is enabled for the team you plan to use.
 
-2. **Trigger a model materialization from the app**  
+2. **Trigger a model materialization from the app**
    In the PostHog UI, open Data Warehouse → Views, pick (or create) a view, open the Materialization section, enable it if needed, and click **Sync now**. This schedules the `data-modeling-run` workflow for that team/view.
 
-3. **Observe the data-modeling workflow**  
+3. **Observe the data-modeling workflow**
    Visit the Temporal UI at `http://localhost:8081/namespaces/default/workflows` and confirm a `data-modeling-run` execution appears. Wait for it to finish successfully.
 
-4. **Verify the DuckLake copy workflow runs**  
+4. **Verify the DuckLake copy workflow runs**
    Once the modeling workflow completes it automatically starts `ducklake-copy.data-modeling` as a child run. You should see it listed in the same Temporal UI; wait for the run to complete.
 
-5. **Query the new DuckLake table**  
-   The copy activity registers a view named `ducklake_dev.data_modeling_team_<team_id>.model_<model_label>`. From any DuckDB shell you can inspect it, for example:
+5. **Query the new DuckLake table**
+   The copy activity creates a table at `ducklake.data_modeling_team_<team_id>.<model_label>`. From any DuckDB shell you can inspect it, for example:
 
    ```sql
    duckdb -c "
      INSTALL ducklake;
      LOAD ducklake;
-     SET s3_region='us-east-1';
+     SET s3_endpoint='localhost:19000';
+     SET s3_use_ssl=false;
+     SET s3_access_key_id='object_storage_root_user';
+     SET s3_secret_access_key='object_storage_root_password';
+     SET s3_url_style='path';
 
-     ATTACH 'postgres:dbname=ducklake host=localhost port=5432 user=posthog password=posthog'
-       AS ducklake (TYPE ducklake, DATA_PATH 's3://ducklake-dev/');
-     SELECT * FROM ducklake.data_modeling_team_${TEAM_ID}.model_${MODEL_LABEL} LIMIT 10;
+     ATTACH 'ducklake:postgres:dbname=ducklake_catalog host=localhost user=posthog password=posthog'
+       AS ducklake (DATA_PATH 's3://ducklake-dev/');
+
+     -- Discover available schemas
+     SELECT * FROM information_schema.schemata WHERE catalog_name = 'ducklake';
+
+     -- List tables in the ducklake catalog
+     SELECT table_schema, table_name FROM information_schema.tables WHERE table_catalog = 'ducklake';
+
+     -- Query a specific table
+     SELECT * FROM ducklake.data_modeling_team_${TEAM_ID}.${MODEL_LABEL} LIMIT 10;
    "
    ```
 
-   Replace `${TEAM_ID}` and `${MODEL_LABEL}` with the team/model that was materialized (the model label is logged by the workflow and matches the saved query’s UUID hex).
+### Testing Data Imports workflow
+
+1. **Start the dev stack**
+   Run `hogli start` (or `bin/start`) so Postgres, MinIO, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-imports-copy-workflow` feature flag is enabled for the team you plan to use.
+
+2. **Trigger a data import sync from the app**
+   In the PostHog UI, open Data Warehouse → Sources, connect a source (e.g., Stripe, Hubspot), select the schemas to sync, and click **Sync**. This schedules the `external-data-job` workflow.
+
+3. **Observe the external-data-job workflow**
+   Visit the Temporal UI at `http://localhost:8081/namespaces/default/workflows` and confirm an `external-data-job` execution appears. Wait for it to finish successfully.
+
+4. **Verify the DuckLake copy workflow runs**
+   Once the import workflow completes it automatically starts `ducklake-copy.data-imports` as a child run. You should see it listed in the same Temporal UI; wait for the run to complete.
+
+5. **Query the new DuckLake table**
+   The copy activity creates a table at `ducklake.data_imports_team_<team_id>.<source_type>_<table_name>_<schema_id_hex>`. From any DuckDB shell you can inspect it:
+
+   ```sql
+   duckdb -c "
+     INSTALL ducklake;
+     LOAD ducklake;
+     SET s3_endpoint='localhost:19000';
+     SET s3_use_ssl=false;
+     SET s3_access_key_id='object_storage_root_user';
+     SET s3_secret_access_key='object_storage_root_password';
+     SET s3_url_style='path';
+
+     ATTACH 'ducklake:postgres:dbname=ducklake_catalog host=localhost user=posthog password=posthog'
+       AS ducklake (DATA_PATH 's3://ducklake-dev/');
+
+     -- Discover available schemas
+     SELECT * FROM information_schema.schemata WHERE catalog_name = 'ducklake';
+
+     -- List tables in the ducklake catalog
+     SELECT table_schema, table_name FROM information_schema.tables WHERE table_catalog = 'ducklake';
+
+     -- Query a specific table
+     SELECT * FROM ducklake.data_imports_team_${TEAM_ID}.${SOURCE_TYPE}_${TABLE_NAME}_${SCHEMA_ID_HEX} LIMIT 10;
+   "
+   ```

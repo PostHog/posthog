@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use crate::kafka::batch_context::BatchConsumerContext;
 use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
-use crate::kafka::metrics_consts::{BATCH_CONSUMER_KAFKA_ERROR, BATCH_CONSUMER_MESSAGES_RECEIVED};
+use crate::kafka::metrics_consts::{
+    BATCH_CONSUMER_BATCH_SIZE, BATCH_CONSUMER_KAFKA_ERROR, BATCH_CONSUMER_MESSAGES_RECEIVED,
+};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 
@@ -116,10 +118,13 @@ where
                             if batch.is_empty() {
                                 continue;
                             }
+                            let message_count = batch.message_count();
                             metrics::counter!(BATCH_CONSUMER_MESSAGES_RECEIVED, "status" => "success")
-                            .increment(batch.message_count() as u64);
+                            .increment(message_count as u64);
                             metrics::counter!(BATCH_CONSUMER_MESSAGES_RECEIVED, "status" => "error")
                             .increment(batch.error_count() as u64);
+                            metrics::histogram!(BATCH_CONSUMER_BATCH_SIZE)
+                            .record(message_count as f64);
 
                             let (messages, _errors) = batch.unpack();
                             if let Err(e) = self.processor.process_batch(messages).await {

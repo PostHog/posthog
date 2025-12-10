@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, HumanMessage
@@ -40,12 +39,12 @@ class RememberCommand(SlashCommand):
                 ]
             )
 
-        await sync_to_async(self._append_to_memory)(memory_content)
+        await self._append_to_memory(memory_content)
 
         return PartialAssistantState(
             messages=[AssistantMessage(content="I'll remember that for you.", id=str(uuid4()))]
         )
 
-    def _append_to_memory(self, content: str) -> None:
-        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
-        core_memory.append_core_memory(content)
+    async def _append_to_memory(self, content: str) -> None:
+        core_memory, _ = await CoreMemory.objects.aget_or_create(team=self._team)
+        await core_memory.aappend_core_memory(content)

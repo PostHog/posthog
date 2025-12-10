@@ -38,6 +38,36 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
     },
+    {
+        identifier: 'create_task' as const,
+        name: TOOL_DEFINITIONS['create_task'].name,
+        description: TOOL_DEFINITIONS['create_task'].description,
+    },
+    {
+        identifier: 'run_task' as const,
+        name: TOOL_DEFINITIONS['run_task'].name,
+        description: TOOL_DEFINITIONS['run_task'].description,
+    },
+    {
+        identifier: 'get_task_run' as const,
+        name: TOOL_DEFINITIONS['get_task_run'].name,
+        description: TOOL_DEFINITIONS['get_task_run'].description,
+    },
+    {
+        identifier: 'get_task_run_logs' as const,
+        name: TOOL_DEFINITIONS['get_task_run_logs'].name,
+        description: TOOL_DEFINITIONS['get_task_run_logs'].description,
+    },
+    {
+        identifier: 'list_tasks' as const,
+        name: TOOL_DEFINITIONS['list_tasks'].name,
+        description: TOOL_DEFINITIONS['list_tasks'].description,
+    },
+    {
+        identifier: 'list_task_runs' as const,
+        name: TOOL_DEFINITIONS['list_task_runs'].name,
+        description: TOOL_DEFINITIONS['list_task_runs'].description,
+    },
 ]
 
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
