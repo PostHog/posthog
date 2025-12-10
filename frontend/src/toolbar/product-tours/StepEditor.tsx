@@ -2,11 +2,10 @@ import { JSONContent } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import { IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { ElementRect } from '~/toolbar/types'
 import { elementToActionStep } from '~/toolbar/utils'
@@ -96,12 +95,13 @@ function calculatePosition(
 }
 
 export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
-    const { editingStep, selectedElement, dataAttributes } = useValues(productToursLogic)
-    const { confirmStep, cancelStep } = useActions(productToursLogic)
+    const { editingStep, selectedElement, dataAttributes, inspectingElement } = useValues(productToursLogic)
+    const { confirmStep, cancelStep, removeStep } = useActions(productToursLogic)
     const [richEditor, setRichEditor] = useState<ToolbarEditor | null>(null)
     const editorRef = useRef<HTMLDivElement>(null)
     const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
     const [selector, setSelector] = useState('')
+    const [showAdvanced, setShowAdvanced] = useState(false)
 
     const editorWidth = 320
     const padding = 16
@@ -144,40 +144,86 @@ export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
         ...(position ?? { left: 0, top: 0 }),
     }
 
+    const actionLabel = editingStep ? `Editing Step ${inspectingElement! + 1}` : 'Adding new step'
+
     return (
         <div
             ref={editorRef}
-            className="bg-bg-light rounded-lg shadow-lg border p-4 space-y-3"
+            className="bg-white rounded-lg space-y-0 overflow-hidden toolbar-animate-slide-up"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ ...style, zIndex: 2147483020, pointerEvents: 'auto' }}
+            style={{
+                ...style,
+                zIndex: 2147483020,
+                pointerEvents: 'auto',
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+            }}
         >
-            <ToolbarRichTextEditor
-                initialContent={editingStep?.content ?? DEFAULT_STEP_CONTENT}
-                onCreate={setRichEditor}
-                minRows={3}
-            />
-
-            <div className="space-y-1">
-                <LemonLabel>Selector</LemonLabel>
-                <LemonInput
-                    value={selector}
-                    onChange={setSelector}
-                    placeholder="CSS selector (e.g., #my-button)"
-                    size="small"
-                    fullWidth
-                />
+            {/* Header showing current action */}
+            <div
+                className="text-white text-xs font-medium px-3 py-1.5"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ backgroundColor: '#1d4aff' }}
+            >
+                {actionLabel}
             </div>
 
-            <div className="flex items-center justify-between">
-                <div className="flex gap-2 pt-1">
-                    <LemonButton type="secondary" size="small" onClick={() => cancelStep()}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton type="primary" size="small" onClick={() => confirmStep(getContent(), selector)}>
-                        Save step
-                    </LemonButton>
+            <div className="p-4 space-y-3">
+                <ToolbarRichTextEditor
+                    initialContent={editingStep?.content ?? DEFAULT_STEP_CONTENT}
+                    onCreate={setRichEditor}
+                    minRows={3}
+                />
+
+                <div className="space-y-1">
+                    <button
+                        type="button"
+                        onClick={() => setShowAdvanced(!showAdvanced)}
+                        className="flex items-center gap-1 text-xs text-muted hover:text-default transition-colors"
+                    >
+                        <IconChevronRight
+                            className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
+                        />
+                        Advanced
+                        {!showAdvanced && selector && (
+                            <span className="font-mono text-[10px] ml-1 truncate max-w-[150px]">({selector})</span>
+                        )}
+                    </button>
+                    {showAdvanced && (
+                        <LemonInput
+                            value={selector}
+                            onChange={setSelector}
+                            placeholder="CSS selector (e.g., #my-button)"
+                            size="small"
+                            fullWidth
+                            className="font-mono text-xs"
+                        />
+                    )}
                 </div>
-                <LemonButton icon={<IconTrash />} type="secondary" status="danger" size="small" onClick={() => {}} />
+
+                <div className="flex items-center justify-between">
+                    <div className="flex gap-2 pt-1">
+                        <LemonButton type="secondary" size="small" onClick={() => cancelStep()}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton type="primary" size="small" onClick={() => confirmStep(getContent(), selector)}>
+                            Done
+                        </LemonButton>
+                    </div>
+                    <LemonButton
+                        icon={<IconTrash />}
+                        type="secondary"
+                        status="danger"
+                        size="small"
+                        onClick={() => {
+                            if (inspectingElement !== null) {
+                                removeStep(inspectingElement)
+                                cancelStep()
+                            }
+                        }}
+                        tooltip="Delete this step"
+                    />
+                </div>
             </div>
         </div>
     )
