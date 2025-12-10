@@ -7,19 +7,6 @@ export type ParticipantStatus = 'pending' | 'generating' | 'navigating' | 'compl
 export type Sentiment = 'positive' | 'neutral' | 'negative'
 
 // ============================================
-// Stream of Consciousness - Thought/Action Log
-// ============================================
-export type ThoughtActionType = 'thought' | 'action' | 'observation' | 'frustration' | 'success'
-
-export interface ThoughtAction {
-    type: ThoughtActionType
-    content: string
-    timestamp_ms: number // ms from session start
-    element?: string // CSS selector or element description for actions
-    screenshot_url?: string // optional screenshot at this moment
-}
-
-// ============================================
 // Core Entities
 // ============================================
 
@@ -40,8 +27,8 @@ export interface Session {
     // Execution
     status: ParticipantStatus
     session_replay_url: string | null
-    // Stream of consciousness - the thought/action log
-    thought_action_log: ThoughtAction[]
+    // Stream of consciousness - simple list of thoughts
+    thought_action_log: string[]
     // Results
     experience_writeup: string | null
     key_insights: string[]

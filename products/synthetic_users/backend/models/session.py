@@ -49,8 +49,8 @@ class Session(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     )
     session_replay_url = models.URLField(max_length=2048, null=True, blank=True)
 
-    # Stream of consciousness - thought/action log
-    thought_action_log = models.JSONField(default=list)
+    # Stream of consciousness - list of thought strings
+    thought_action_log = models.JSONField(default=list)  # list of strings
 
     # Results
     experience_writeup = models.TextField(null=True, blank=True)

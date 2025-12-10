@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { sessionDetailSceneLogic } from './sessionDetailSceneLogic'
-import type { ParticipantStatus, Sentiment, ThoughtAction } from './types'
+import type { ParticipantStatus, Sentiment } from './types'
 
 export const scene: SceneExport = {
     component: SessionDetailSceneWrapper,
@@ -47,64 +47,15 @@ function SentimentTag({ sentiment }: { sentiment: Sentiment | null }): JSX.Eleme
     return <LemonTag type={config[sentiment].type}>{config[sentiment].label}</LemonTag>
 }
 
-function formatTimestamp(ms: number): string {
-    const seconds = Math.floor(ms / 1000)
-    const minutes = Math.floor(seconds / 60)
-    const remainingSeconds = seconds % 60
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
-}
-
-function ThoughtActionIcon({ type }: { type: ThoughtAction['type'] }): JSX.Element {
-    const icons = {
-        thought: '💭',
-        action: '👆',
-        observation: '👀',
-        frustration: '😤',
-        success: '✅',
-    }
-    return <span className="text-base">{icons[type]}</span>
-}
-
-function StreamOfConsciousness({ log }: { log: ThoughtAction[] }): JSX.Element {
+function StreamOfConsciousness({ log }: { log: string[] }): JSX.Element {
     return (
         <div className="space-y-2">
-            {log.map((entry, i) => (
-                <div
-                    key={i}
-                    className={`flex gap-3 p-2 rounded text-sm ${
-                        entry.type === 'frustration'
-                            ? 'bg-danger-highlight'
-                            : entry.type === 'success'
-                              ? 'bg-success-highlight'
-                              : 'bg-bg-light'
-                    }`}
-                >
-                    <div className="flex-shrink-0 w-12 text-muted text-xs font-mono pt-0.5">
-                        {formatTimestamp(entry.timestamp_ms)}
-                    </div>
+            {log.map((thought, i) => (
+                <div key={i} className="flex gap-3 p-2 rounded text-sm bg-bg-light">
                     <div className="flex-shrink-0">
-                        <ThoughtActionIcon type={entry.type} />
+                        <span className="text-base">💭</span>
                     </div>
-                    <div className="flex-1">
-                        <span
-                            className={
-                                entry.type === 'thought'
-                                    ? 'italic text-muted'
-                                    : entry.type === 'frustration'
-                                      ? 'text-danger'
-                                      : entry.type === 'success'
-                                        ? 'text-success'
-                                        : ''
-                            }
-                        >
-                            {entry.content}
-                        </span>
-                        {entry.element && (
-                            <code className="ml-2 text-xs bg-surface-primary px-1 py-0.5 rounded text-muted">
-                                {entry.element}
-                            </code>
-                        )}
-                    </div>
+                    <div className="flex-1 italic text-muted">{thought}</div>
                 </div>
             ))}
         </div>
