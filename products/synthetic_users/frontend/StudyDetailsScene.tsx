@@ -34,7 +34,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { studyDetailsSceneLogic } from './studyDetailsSceneLogic'
-import type { ParticipantStatus, RoundStatus, Sentiment, Session, Study, ThoughtAction } from './types'
+import type { ParticipantStatus, RoundStatus, Sentiment, Session, Study } from './types'
 
 export const scene: SceneExport = {
     component: StudyDetailsSceneWrapper,
@@ -83,70 +83,6 @@ function SentimentTag({ sentiment }: { sentiment: Sentiment | null }): JSX.Eleme
         negative: { type: 'danger' as const, label: '😞 Negative' },
     }
     return <LemonTag type={config[sentiment].type}>{config[sentiment].label}</LemonTag>
-}
-
-function formatTimestamp(ms: number): string {
-    const seconds = Math.floor(ms / 1000)
-    const minutes = Math.floor(seconds / 60)
-    const remainingSeconds = seconds % 60
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
-}
-
-function ThoughtActionIcon({ type }: { type: ThoughtAction['type'] }): JSX.Element {
-    const icons = {
-        thought: '💭',
-        action: '👆',
-        observation: '👀',
-        frustration: '😤',
-        success: '✅',
-    }
-    return <span className="text-base">{icons[type]}</span>
-}
-
-function StreamOfConsciousness({ log }: { log: ThoughtAction[] }): JSX.Element {
-    return (
-        <div className="space-y-2">
-            {log.map((entry, i) => (
-                <div
-                    key={i}
-                    className={`flex gap-3 p-2 rounded text-sm ${
-                        entry.type === 'frustration'
-                            ? 'bg-danger-highlight'
-                            : entry.type === 'success'
-                              ? 'bg-success-highlight'
-                              : 'bg-bg-light'
-                    }`}
-                >
-                    <div className="flex-shrink-0 w-12 text-muted text-xs font-mono pt-0.5">
-                        {formatTimestamp(entry.timestamp_ms)}
-                    </div>
-                    <div className="flex-shrink-0">
-                        <ThoughtActionIcon type={entry.type} />
-                    </div>
-                    <div className="flex-1">
-                        <span
-                            className={
-                                entry.type === 'thought'
-                                    ? 'italic text-muted'
-                                    : entry.type === 'frustration'
-                                      ? 'text-danger'
-                                      : entry.type === 'success'
-                                        ? 'text-success'
-                                        : ''
-                            }
-                        >
-                            {entry.content}
-                        </span>
-                        {entry.element && (
-                            <code className="ml-2 text-xs bg-surface-primary px-1 py-0.5 rounded text-muted">
-                                {entry.element}
-                            </code>
-                        )}
-                    </div>
-                </div>
-            ))}
-        </div>
-    )
 }
 
 const DATA_COLORS = [
@@ -355,7 +291,6 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
     } = useValues(studyDetailsSceneLogic)
     const { setSelectedRoundId, generateSessionsWithPolling, startRound, regenerateSession, startSession } =
         useActions(studyDetailsSceneLogic)
-    const [selectedSession, setSelectedSession] = useState<Session | null>(null)
 
     // Get selected round from study data (keeps it in sync after reloads)
     const selectedRound = selectedRoundId ? (study.rounds || []).find((r) => r.id === selectedRoundId) || null : null
@@ -367,104 +302,8 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
         }
     }, [selectedRoundId, selectedRound, setSelectedRoundId])
 
-    // Session detail view
-    if (selectedSession && selectedRound) {
-        return (
-            <div className="space-y-4">
-                <LemonButton
-                    type="tertiary"
-                    icon={<IconChevronLeft />}
-                    onClick={() => setSelectedSession(null)}
-                    size="small"
-                >
-                    Back to Round {selectedRound.round_number}
-                </LemonButton>
-
-                <div className="bg-bg-light border rounded p-4">
-                    <div className="flex items-start gap-4 mb-4">
-                        <SessionAvatar name={selectedSession.name} size="lg" />
-                        <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                                <h3 className="font-semibold text-lg">{selectedSession.name}</h3>
-                                <SentimentTag sentiment={selectedSession.sentiment} />
-                            </div>
-                            <div className="text-muted">{selectedSession.archetype}</div>
-                        </div>
-                        {selectedSession.session_replay_url && (
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconRewind />}
-                                size="small"
-                                to={selectedSession.session_replay_url}
-                                targetBlank
-                            >
-                                View session replay
-                            </LemonButton>
-                        )}
-                    </div>
-
-                    <div className="space-y-4">
-                        <div>
-                            <label className="text-xs text-muted uppercase tracking-wide">Background</label>
-                            <p className="mt-1 text-sm">{selectedSession.background}</p>
-                        </div>
-
-                        <div>
-                            <label className="text-xs text-muted uppercase tracking-wide">Traits</label>
-                            <div className="mt-1 flex flex-wrap gap-1">
-                                {selectedSession.traits.map((trait) => (
-                                    <LemonTag key={trait} type="highlight">
-                                        {trait}
-                                    </LemonTag>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="text-xs text-muted uppercase tracking-wide">Plan</label>
-                            <pre className="mt-1 text-sm bg-surface-primary p-3 rounded whitespace-pre-wrap">
-                                {selectedSession.plan}
-                            </pre>
-                        </div>
-
-                        {selectedSession.experience_writeup && (
-                            <div>
-                                <label className="text-xs text-muted uppercase tracking-wide">Experience Writeup</label>
-                                <div className="mt-1 bg-surface-primary border rounded p-3">
-                                    {selectedSession.experience_writeup}
-                                </div>
-                            </div>
-                        )}
-
-                        {selectedSession.key_insights.length > 0 && (
-                            <div>
-                                <label className="text-xs text-muted uppercase tracking-wide">Key Insights</label>
-                                <ul className="mt-1 space-y-1">
-                                    {selectedSession.key_insights.map((insight, i) => (
-                                        <li key={i} className="flex items-start gap-2 text-sm">
-                                            <span className="text-success">•</span>
-                                            {insight}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
-
-                        {selectedSession.thought_action_log.length > 0 && (
-                            <div>
-                                <label className="text-xs text-muted uppercase tracking-wide">
-                                    Stream of Consciousness
-                                </label>
-                                <p className="text-xs text-muted mt-0.5 mb-2">
-                                    What the user was thinking and doing throughout the session
-                                </p>
-                                <StreamOfConsciousness log={selectedSession.thought_action_log} />
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        )
+    const navigateToSession = (sessionId: string): void => {
+        router.actions.push(urls.syntheticUsersSession(study.id, sessionId))
     }
 
     // Round detail view
@@ -577,7 +416,7 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                         <LemonTable
                             dataSource={sessions}
                             onRow={(session) => ({
-                                onClick: () => setSelectedSession(session),
+                                onClick: () => navigateToSession(session.id),
                                 className: 'cursor-pointer',
                             })}
                             columns={[
@@ -590,7 +429,7 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                                             <LemonTableLink
                                                 title={session.name}
                                                 description={session.archetype}
-                                                onClick={() => setSelectedSession(session)}
+                                                onClick={() => navigateToSession(session.id)}
                                             />
                                         </div>
                                     ),
@@ -883,12 +722,12 @@ function InsightsTab({ study }: { study: Study }): JSX.Element {
 // Main Scene
 // ============================================
 
-function StudyDetailsSceneWrapper({ id }: { id?: string }): JSX.Element {
-    if (!id) {
+function StudyDetailsSceneWrapper({ studyId }: { studyId?: string }): JSX.Element {
+    if (!studyId) {
         return <NotFound object="study" />
     }
     return (
-        <BindLogic logic={studyDetailsSceneLogic} props={{ id }}>
+        <BindLogic logic={studyDetailsSceneLogic} props={{ id: studyId }}>
             <StudyDetailsScene />
         </BindLogic>
     )

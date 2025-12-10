@@ -130,6 +130,7 @@ export enum Scene {
     SurveyTemplates = 'SurveyTemplates',
     Surveys = 'Surveys',
     SyntheticUsers = 'SyntheticUsers',
+    SyntheticUsersSession = 'SyntheticUsersSession',
     SyntheticUsersStudy = 'SyntheticUsersStudy',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',

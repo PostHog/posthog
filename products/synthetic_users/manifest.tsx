@@ -25,14 +25,25 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'cohort',
         },
+        SyntheticUsersSession: {
+            import: () => import('./frontend/SessionDetailScene'),
+            projectBased: true,
+            name: 'Session details',
+            activityScope: 'SyntheticUsers',
+            layout: 'app-container',
+            iconType: 'cohort',
+        },
     },
     routes: {
         '/synthetic-users': ['SyntheticUsers', 'syntheticUsers'],
-        '/synthetic-users/:id': ['SyntheticUsersStudy', 'syntheticUsersStudy'],
+        '/synthetic-users/:studyId': ['SyntheticUsersStudy', 'syntheticUsersStudy'],
+        '/synthetic-users/:studyId/sessions/:sessionId': ['SyntheticUsersSession', 'syntheticUsersSession'],
     },
     urls: {
         syntheticUsers: (): string => '/synthetic-users',
-        syntheticUsersStudy: (id: string): string => `/synthetic-users/${id}`,
+        syntheticUsersStudy: (studyId: string): string => `/synthetic-users/${studyId}`,
+        syntheticUsersSession: (studyId: string, sessionId: string): string =>
+            `/synthetic-users/${studyId}/sessions/${sessionId}`,
     },
     fileSystemTypes: {},
     treeItemsProducts: [
