@@ -8,6 +8,7 @@ on:
             - '.github/workflows/rust-docker-build.yml'
         branches:
             - 'master'
+            - 'frank/capture-logs-compression-15'
 
 jobs:
     build:
