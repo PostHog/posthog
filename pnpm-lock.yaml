@@ -811,8 +811,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.303.1
-        version: 1.303.1
+        specifier: 1.304.0
+        version: 1.304.0
       posthog-js-lite:
         specifier: 4.2.1
         version: 4.2.1
@@ -1777,8 +1777,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.303.1
-        version: 1.303.1
+        specifier: 1.304.0
+        version: 1.304.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2483,8 +2483,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.303.1
-        version: 1.303.1
+        specifier: 1.304.0
+        version: 1.304.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2555,8 +2555,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.303.1
-        version: 1.303.1
+        specifier: 1.304.0
+        version: 1.304.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -16605,8 +16605,8 @@ packages:
   posthog-js-lite@4.2.1:
     resolution: {integrity: sha512-E5sN4Z9TxEdp/L7HkyuvMs3demijmXcgbtGPj1ykPq+aCyPgGOvL745p4rIPVwzBZoqjoIdqRls8ck+LVRHCdQ==}
 
-  posthog-js@1.303.1:
-    resolution: {integrity: sha512-qSQ5T/eBwtJx/FzokB6dTCpICdz1Vi5nNfeRTlhbz7NTrb6VAc14g2XQtgYb6fr4AhRoFs61aPHZRcQJJlDjfA==}
+  posthog-js@1.304.0:
+    resolution: {integrity: sha512-revqoppmJ5y1Oa9iRUb3P8w1htfxZdrSAe+elSNMxvl7wxY62qWN7Q0kE5Sk81o1qLHa6drPhVKa/dppWOfSUw==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -16633,9 +16633,6 @@ packages:
 
   pprof-format@2.2.1:
     resolution: {integrity: sha512-p4tVN7iK19ccDqQv8heyobzUmbHyds4N2FI6aBMcXz6y99MglTWDxIyhFkNaLeEXs6IFUEzT0zya0icbSLLY0g==}
-
-  preact@10.27.2:
-    resolution: {integrity: sha512-5SYSgFKSyhCbk6SrXyMpqjb5+MQBgfvEKE/OC+PujcY34sOpqtr+0AZQtPYx5IA6VxynQ7rUPCtKzyovpj9Bpg==}
 
   preact@10.28.0:
     resolution: {integrity: sha512-rytDAoiXr3+t6OIP3WGlDd0ouCUG1iCWzkcY3++Nreuoi17y6T5i/zRhe6uYfoVcxq6YU+sBtJouuRDsq8vvqA==}
@@ -34394,7 +34391,7 @@ snapshots:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.27.2
+      preact: 10.28.0
       qs: 6.9.7
       search-insights: 2.13.0
 
@@ -38594,7 +38591,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.0
 
-  posthog-js@1.303.1:
+  posthog-js@1.304.0:
     dependencies:
       '@posthog/core': 1.7.1
       core-js: 3.40.0
@@ -38626,8 +38623,6 @@ snapshots:
   potpack@2.0.0: {}
 
   pprof-format@2.2.1: {}
-
-  preact@10.27.2: {}
 
   preact@10.28.0: {}
 
