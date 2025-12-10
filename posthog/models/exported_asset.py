@@ -9,6 +9,7 @@ from django.http import HttpResponse
 from django.utils.text import slugify
 from django.utils.timezone import now
 
+import jwt
 import structlog
 from rest_framework.exceptions import NotFound
 
@@ -178,9 +179,24 @@ def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedel
 
 
 def asset_for_token(token: str) -> ExportedAsset:
-    info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
-    asset = ExportedAsset.objects.select_related("dashboard", "insight").get(pk=info["id"])
-
+    """
+    Get ExportedAsset from a JWT token.
+    Supports both EXPORTED_ASSET tokens (with asset ID in "id") and
+    IMPERSONATED_USER tokens (with asset ID in "asset_id").
+    """
+    # Try EXPORTED_ASSET token first (legacy)
+    try:
+        info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
+        asset_id = info["id"]
+    except jwt.InvalidAudienceError:
+        # Try IMPERSONATED_USER token (for Slack exports)
+        try:
+            info = decode_jwt(token, audience=PosthogJwtAudience.IMPERSONATED_USER)
+            asset_id = info["asset_id"]
+        except (jwt.InvalidAudienceError, KeyError):
+            raise ValueError("Token is not a valid EXPORTED_ASSET or IMPERSONATED_USER token")
+    
+    asset = ExportedAsset.objects.select_related("dashboard", "insight").get(pk=asset_id)
     return asset
 
 

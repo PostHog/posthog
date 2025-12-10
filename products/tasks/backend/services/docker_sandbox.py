@@ -153,11 +153,8 @@ class DockerSandbox:
 
     @staticmethod
     def _transform_url_for_docker(url: str) -> str:
-        """Transform localhost URLs to be accessible from inside Docker container."""
-        url = url.replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal")
-        # Caddy (port 8010) returns empty responses from inside Docker, use 8000 directly
-        url = url.replace(":8010", ":8000")
-        return url
+        """Transform URLs to be accessible from inside Docker container."""
+        return "http://host.docker.internal:8000"
 
     @staticmethod
     def create(config: SandboxConfig) -> "DockerSandbox":

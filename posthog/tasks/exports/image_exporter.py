@@ -66,6 +66,8 @@ def get_driver() -> webdriver.Chrome:
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")  # This flag can make things slower but more reliable
+    options.add_argument("--disable-web-security")  # Disable CORS and other web security features
+    options.add_argument("--disable-features=VizDisplayCompositor")  # Helps with CORS issues
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
@@ -201,8 +203,8 @@ def _export_to_png(
 
     except Exception:
         # Ensure we clean up the tmp file in case anything went wrong
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
+        # if image_path and os.path.exists(image_path):
+        #     os.remove(image_path)
 
         log_error_if_site_url_not_reachable()
 
@@ -228,6 +230,11 @@ def _screenshot_asset(
         driver = get_driver()
         # Set initial window size with a more reasonable height to prevent initial rendering issues
         driver.set_window_size(screenshot_width, screenshot_height)
+        # Set bot user agent and add ngrok-skip-browser-warning header to skip ngrok warning page
+        bot_user_agent = "Mozilla/5.0 (compatible; PostHogBot/1.0; +https://posthog.com/bot)"
+        driver.execute_cdp_cmd("Network.enable", {})
+        driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": bot_user_agent})
+        driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": {"ngrok-skip-browser-warning": "true"}})
         driver.get(url_to_render)
         posthoganalytics.tag("url_to_render", url_to_render)
 
@@ -242,11 +249,6 @@ def _screenshot_asset(
         except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
-                try:
-                    driver.save_screenshot(image_path)
-                    posthoganalytics.tag("image_path", image_path)
-                except Exception:
-                    pass
                 capture_exception(e)
 
             raise Exception(f"Timeout while waiting for the page to load")
@@ -257,11 +259,6 @@ def _screenshot_asset(
         except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
-                try:
-                    driver.save_screenshot(image_path)
-                    posthoganalytics.tag("image_path", image_path)
-                except Exception:
-                    pass
                 capture_exception(e)
 
         # Get the height of the visualization container specifically
@@ -343,16 +340,8 @@ def _screenshot_asset(
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)
         driver.save_screenshot(image_path)
     except Exception as e:
-        # To help with debugging, add a screenshot and any chrome logs
         with posthoganalytics.new_context():
             posthoganalytics.tag("url_to_render", url_to_render)
-            if driver:
-                # If we encounter issues getting extra info we should silently fail rather than creating a new exception
-                try:
-                    driver.save_screenshot(image_path)
-                    posthoganalytics.tag("image_path", image_path)
-                except Exception:
-                    pass
         capture_exception(e)
 
         raise

@@ -696,6 +696,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             if request.path.endswith(f".{resource.file_ext}"):
                 return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
+            # Add the JWT token from URL to exported_data so frontend can use it for API calls
+            token = request.query_params.get("token")
+            if token:
+                exported_data["shareToken"] = token
 
         add_og_tags = (
             resource.insight

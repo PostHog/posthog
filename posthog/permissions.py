@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
+    ExportedAssetAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -303,6 +304,15 @@ class SharingTokenPermission(BasePermission):
     """
 
     def has_object_permission(self, request, view, object) -> bool:
+        if isinstance(request.successful_authenticator, ExportedAssetAuthentication):
+            # For exported assets, allow access to the asset's associated objects
+            asset = request.successful_authenticator.exported_asset
+            if hasattr(object, 'team_id'):
+                return object.team_id == asset.team.id
+            if hasattr(object, 'team'):
+                return object.team.id == asset.team.id
+            return True
+
         if not isinstance(
             request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
         ):
@@ -312,6 +322,17 @@ class SharingTokenPermission(BasePermission):
         return request.successful_authenticator.sharing_configuration.can_access_object(object)
 
     def has_permission(self, request, view) -> bool:
+        if isinstance(request.successful_authenticator, ExportedAssetAuthentication):
+            # For exported assets, allow all actions (they're used for image exports which need to execute queries)
+            try:
+                view.team  # noqa: B018
+                asset = request.successful_authenticator.exported_asset
+                if asset.team != view.team:
+                    return False
+            except NotFound:
+                return False
+            return True
+
         assert hasattr(
             view, "sharing_enabled_actions"
         ), "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
