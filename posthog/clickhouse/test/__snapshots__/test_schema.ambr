@@ -568,6 +568,7 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String, -- The actual text content that was embedded
+      metadata String, -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
@@ -854,6 +855,7 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
   , _timestamp DateTime
@@ -1915,6 +1917,7 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String, -- The actual text content that was embedded
+      metadata String, -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_document_embeddings_test', kafka_group_name = 'clickhouse_document_embeddings', kafka_format = 'JSONEachRow')
@@ -2054,6 +2057,7 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
       
@@ -2501,6 +2505,7 @@
   timestamp,
   _timestamp as inserted_at,
   coalesce(content, '') as content,
+  coalesce(metadata, '{}') as metadata,
   embedding,
   _timestamp,
   _offset,
@@ -5218,6 +5223,7 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
   , _timestamp DateTime
@@ -5883,6 +5889,7 @@
       timestamp DateTime64(3, 'UTC'), -- This is a user defined timestamp, meant to be the /documents/ creation time (or similar), rather than the time the embedding was created
       inserted_at DateTime64(3, 'UTC'), -- When was this embedding inserted (if a duplicate-key row was inserted, for example, this is what we use to choose the winner)
       content String DEFAULT '', -- The actual text content that was embedded
+      metadata String DEFAULT '{}', -- JSON metadata for the document, stored as a string
       embedding Array(Float64) -- The embedding itself
       
       
