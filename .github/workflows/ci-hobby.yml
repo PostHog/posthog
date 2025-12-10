@@ -20,10 +20,28 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
+    wait-for-docker-image:
+        name: Wait for Docker image build
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        if: github.event_name == 'pull_request'
+        steps:
+            - name: Wait for container image build to complete
+              uses: fountainhead/action-wait-for-check@4699210ccc66e2a13260803fadbb77085421b891 # v1.2.0
+              id: wait-for-image
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  checkName: Build Docker image
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  timeoutSeconds: 3600
+                  intervalSeconds: 30
+
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 40
         name: Setup DO Hobby Instance and test
+        needs: [wait-for-docker-image]
+        if: always() && (needs.wait-for-docker-image.result == 'success' || github.event_name == 'push')
         steps:
             - uses: actions/checkout@v4
               with:
