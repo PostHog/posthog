@@ -61,15 +61,15 @@
     }
 
     &.LemonTag--completion {
-        color: var(--purple);
+        color: var(--color-fuchsia-700);
         background: none;
-        border-color: var(--purple);
+        border-color: var(--color-fuchsia-700);
     }
 
     &.LemonTag--caution {
-        color: var(--danger-lighter);
+        color: color-mix(in oklab, var(--color-destructive-foreground) 60%, transparent);
         background: none;
-        border-color: var(--danger-lighter);
+        border-color: color-mix(in oklab, var(--color-destructive-foreground) 60%, transparent);
     }
 
     &.LemonTag--muted {

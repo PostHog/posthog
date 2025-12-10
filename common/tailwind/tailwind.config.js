@@ -108,7 +108,7 @@ const plugin = require('tailwindcss/plugin')
 // 'font-mono': 'var(--font-mono)',
 // // Dashboard item colors
 // blue: 'var(--blue)',
-// purple: 'var(--purple)',
+// purple: 'var(--color-fuchsia-700)',
 // green: 'var(--green)',
 // black: 'var(--black)',
 // //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
@@ -461,7 +461,7 @@ const config = {
                 300: 'var(--color-violet-300)',
                 400: 'var(--color-violet-400)',
                 500: 'var(--color-violet-500)',
-                600: 'var(--color-violet-600)',
+                600: 'var(--color-fuchsia-700)',
                 700: 'var(--color-violet-700)',
                 800: 'var(--color-violet-800)',
                 900: 'var(--color-violet-900)',
