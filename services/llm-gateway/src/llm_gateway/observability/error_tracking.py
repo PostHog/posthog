@@ -19,7 +19,7 @@ def _ensure_initialized() -> bool:
     if not settings.posthog_api_key:
         return False
 
-    posthog.api_key = settings.posthog_api_key
+    posthog.api_key = settings.posthog_api_key  # type: ignore[attr-defined]
     _initialized = True
     return True
 
@@ -34,7 +34,7 @@ def capture_exception(
         return
 
     try:
-        posthog.capture(
+        posthog.capture(  # type: ignore[attr-defined]
             distinct_id="llm-gateway-service",
             event="$exception",
             properties={
