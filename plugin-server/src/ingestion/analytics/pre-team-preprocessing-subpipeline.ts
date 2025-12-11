@@ -3,8 +3,7 @@ import { Message } from 'node-rdkafka'
 import { EventHeaders, Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import {
-    createApplyDropRestrictionsStep,
-    createApplyForceOverflowRestrictionsStep,
+    createApplyEventRestrictionsStep,
     createDropExceptionEventsStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -40,9 +39,8 @@ export function createPreTeamPreprocessingSubpipeline<TInput extends PreTeamPrep
 
     return builder
         .pipe(createParseHeadersStep())
-        .pipe(createApplyDropRestrictionsStep(eventIngestionRestrictionManager))
         .pipe(
-            createApplyForceOverflowRestrictionsStep(eventIngestionRestrictionManager, {
+            createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                 overflowEnabled,
                 overflowTopic,
                 preservePartitionLocality,

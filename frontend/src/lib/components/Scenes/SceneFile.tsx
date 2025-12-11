@@ -8,9 +8,9 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
-    DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -35,7 +35,7 @@ export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element
                     <ButtonPrimitive variant="panel" menuItem data-attr={`${dataAttrKey}-file-dropdown-menu-trigger`}>
                         <IconFolderOpen />
                         {splitPath(projectTreeRefEntry.path).slice(0, -1).join('/')}
-                        <DropdownMenuOpenIndicator className="ml-auto" />
+                        <MenuOpenIndicator className="ml-auto" />
                     </ButtonPrimitive>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" matchTriggerWidth>

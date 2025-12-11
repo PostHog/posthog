@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
-import { IconChevronLeft, IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
@@ -11,6 +11,7 @@ import { LogMessage } from '~/queries/schema/schema-general'
 
 import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
 import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
+import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { virtualizedLogsListLogic } from './virtualizedLogsListLogic'
@@ -203,89 +204,38 @@ export function LogRow({
                     </div>
                 )
             case 'message': {
-                const isPrettyJson = prettifyJson && log.parsedBody
-                const content = isPrettyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody
-
-                const scrollButtons = !wrapBody && (
-                    <div
-                        className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-l from-bg-light via-bg-light to-transparent pl-4 pr-1"
-                        onMouseDown={(e) => e.stopPropagation()}
-                    >
-                        <button
-                            type="button"
-                            title="Scroll left (← or h)"
-                            aria-label="Scroll left"
-                            className="p-1 text-muted hover:text-default cursor-pointer select-none"
-                            onMouseDown={(e) => {
-                                e.preventDefault()
-                                startScrolling('left')
-                            }}
-                            onMouseUp={stopScrolling}
-                            onMouseLeave={stopScrolling}
-                        >
-                            <IconChevronLeft className="text-lg" />
-                        </button>
-                        <button
-                            type="button"
-                            title="Scroll right (→ or l)"
-                            aria-label="Scroll right"
-                            className="p-1 text-muted hover:text-default cursor-pointer select-none"
-                            onMouseDown={(e) => {
-                                e.preventDefault()
-                                startScrolling('right')
-                            }}
-                            onMouseUp={stopScrolling}
-                            onMouseLeave={stopScrolling}
-                        >
-                            <IconChevronRight className="text-lg" />
-                        </button>
-                    </div>
-                )
-
-                if (isPrettyJson) {
-                    return (
-                        <div key={column.key} style={cellStyle} className="relative flex items-start py-1.5">
-                            <div
-                                ref={wrapBody ? undefined : messageScrollRef}
-                                className={cn(
-                                    'flex-1',
-                                    wrapBody ? 'overflow-hidden' : 'overflow-x-auto hide-scrollbar'
-                                )}
-                                onScroll={wrapBody ? undefined : handleMessageScroll}
-                            >
-                                <pre
-                                    className={cn(
-                                        'font-mono text-xs m-0',
-                                        wrapBody
-                                            ? 'overflow-hidden whitespace-pre-wrap break-all'
-                                            : 'whitespace-nowrap pr-16'
-                                    )}
-                                >
-                                    {content}
-                                </pre>
-                            </div>
-                            {scrollButtons}
-                        </div>
-                    )
-                }
-
                 return (
                     <div key={column.key} style={cellStyle} className="relative flex items-start py-1.5">
                         <div
                             ref={wrapBody ? undefined : messageScrollRef}
-                            className={cn('flex-1', wrapBody ? 'overflow-hidden' : 'overflow-x-auto hide-scrollbar')}
                             onScroll={wrapBody ? undefined : handleMessageScroll}
+                            className={cn('flex-1', wrapBody ? 'overflow-hidden' : 'overflow-x-auto hide-scrollbar')}
                         >
-                            <span
-                                className={cn(
-                                    'font-mono text-xs',
-                                    wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
+                            <div className={cn('flex items-center', wrapBody ? '' : 'w-max min-h-full')}>
+                                {prettifyJson && log.parsedBody ? (
+                                    <pre
+                                        className={cn(
+                                            'font-mono text-xs inline-block mb-0',
+                                            wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
+                                        )}
+                                    >
+                                        {JSON.stringify(log.parsedBody, null, 2)}
+                                    </pre>
+                                ) : (
+                                    <span
+                                        className={cn(
+                                            'font-mono text-xs',
+                                            wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
+                                        )}
+                                    >
+                                        {log.cleanBody}
+                                    </span>
                                 )}
-                            >
-                                {content}
-                            </span>
+                            </div>
                         </div>
-                        {scrollButtons}
+                        {!wrapBody && (
+                            <LogRowScrollButtons onStartScrolling={startScrolling} onStopScrolling={stopScrolling} />
+                        )}
                     </div>
                 )
             }
