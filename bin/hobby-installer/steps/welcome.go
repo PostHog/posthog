@@ -71,61 +71,126 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 			}
 		case key.Matches(msg, key.NewBinding(key.WithKeys(" "))):
 			m.hedgehog.Pet()
+		case key.Matches(msg, key.NewBinding(key.WithKeys("q"))):
+			return m, tea.Quit
 		}
 	}
 	return m, nil
 }
 
 func (m WelcomeModel) View() string {
-	content := lipgloss.JoinVertical(
+	// Section styles
+	sectionGap := "\n\n"
+
+	// Header section
+	header := ui.GetWelcomeArt()
+
+	// Hedgehog section - contained in its own area
+	hedgehogSection := m.hedgehog.RenderWithMessage()
+
+	// Action section - the main CTA
+	actionTitle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ui.ColorWhite).
+		Render(m.getActionTitle())
+
+	actionHint := lipgloss.NewStyle().
+		Foreground(ui.ColorPrimary).
+		Bold(true).
+		Render("Press ENTER to continue")
+
+	actionDesc := ui.MutedStyle.Render(m.getActionDescription())
+
+	actionSection := lipgloss.JoinVertical(
 		lipgloss.Center,
-		ui.GetWelcomeArt(),
+		actionTitle,
+		actionDesc,
 		"",
-		m.hedgehog.RenderWithMessage(),
-		"",
-		ui.TitleStyle.Render(m.getActionTitle()),
-		ui.SubtitleStyle.Render(m.getActionDescription()),
-		"",
+		actionHint,
+	)
+
+	// Fact section
+	factSection := lipgloss.JoinVertical(
+		lipgloss.Center,
 		m.renderFactBox(),
 		m.renderFactNav(),
-		"",
-		ui.HelpStyle.Render(m.getHelpText()),
+	)
+
+	// Help section
+	helpSection := m.renderHelp()
+
+	// Compose everything with generous spacing
+	content := lipgloss.JoinVertical(
+		lipgloss.Center,
+		header,
+		sectionGap,
+		hedgehogSection,
+		sectionGap,
+		actionSection,
+		sectionGap,
+		factSection,
+		sectionGap,
+		helpSection,
 	)
 
 	return lipgloss.NewStyle().
-		Padding(1, 4).
+		Padding(2, 6).
 		Render(content)
 }
 
 func (m WelcomeModel) getActionTitle() string {
 	if m.isUpgrade {
-		return "Upgrade PostHog (press enter to continue)"
+		return "Upgrade PostHog"
 	}
-
-	return "Install PostHog (press enter to continue)"
+	return "Install PostHog"
 }
 
 func (m WelcomeModel) getActionDescription() string {
 	if m.isUpgrade {
-		return "Existing installation detected. Ready to upgrade."
+		return "Existing installation detected"
 	}
-	return "Ready to install PostHog self-hosted."
-}
-
-func (m WelcomeModel) getHelpText() string {
-	return "enter continue • arrows cycle facts • space pet hedgehog • esc quit"
+	return "Self-hosted deployment"
 }
 
 func (m WelcomeModel) renderFactBox() string {
+	factLabel := ui.MutedStyle.Render("Did you know?")
+	factText := lipgloss.NewStyle().
+		Foreground(ui.ColorWhite).
+		Width(56).
+		Render(funFacts[m.factIndex])
+
+	innerContent := lipgloss.JoinVertical(lipgloss.Left, factLabel, "", factText)
+
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ui.ColorMuted).
-		Padding(0, 2).
-		Width(60).
-		Align(lipgloss.Center).
-		Render(fmt.Sprintf("Did you know?\n%s", funFacts[m.factIndex]))
+		Padding(1, 3).
+		Render(innerContent)
 }
 
 func (m WelcomeModel) renderFactNav() string {
-	return ui.MutedStyle.Render(fmt.Sprintf("< %d/%d >", m.factIndex+1, len(funFacts)))
+	left := ui.MutedStyle.Render("<")
+	right := ui.MutedStyle.Render(">")
+	counter := ui.MutedStyle.Render(fmt.Sprintf(" %d/%d ", m.factIndex+1, len(funFacts)))
+	return left + counter + right
+}
+
+func (m WelcomeModel) renderHelp() string {
+	// Style for keys
+	keyStyle := lipgloss.NewStyle().
+		Foreground(ui.ColorPrimary)
+
+	// Style for descriptions
+	descStyle := ui.MutedStyle
+
+	separator := descStyle.Render("  •  ")
+
+	items := []string{
+		keyStyle.Render("enter") + descStyle.Render(" continue"),
+		keyStyle.Render("< / >") + descStyle.Render(" facts"),
+		keyStyle.Render("space") + descStyle.Render(" pet"),
+		keyStyle.Render("q/esc") + descStyle.Render(" quit"),
+	}
+
+	return items[0] + separator + items[1] + separator + items[2] + separator + items[3]
 }
