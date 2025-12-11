@@ -5,11 +5,17 @@ import { useActions, useValues } from 'kea'
 import { BaseIcon, IconCheck } from '@posthog/icons'
 
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import {
+    SettingsBar,
+    SettingsButton,
+    SettingsMenu,
+    SettingsToggle,
+} from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { playerInspectorLogic } from './playerInspectorLogic'
+import { InspectorListItemConsole, playerInspectorLogic } from './playerInspectorLogic'
 
 function HideProperties(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -106,12 +112,49 @@ function ShowOnlyMatching(): JSX.Element {
     )
 }
 
+function CopyConsole(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
+
+    const { allItemsByItemType } = useValues(inspectorLogic)
+
+    const consoleItems = allItemsByItemType['console'] as InspectorListItemConsole[] | undefined
+    const hasConsoleLogs = (consoleItems?.length ?? 0) > 0
+
+    const handleCopy = (): void => {
+        if (!consoleItems?.length) {
+            return
+        }
+
+        const formattedLogs = consoleItems
+            .map((item) => {
+                const timestamp = item.timestamp.format('HH:mm:ss.SSS')
+                const level = item.data.level.toUpperCase().padEnd(5)
+                const content = item.data.content
+                return `[${timestamp}] ${level} ${content}`
+            })
+            .join('\n')
+
+        void copyToClipboard(formattedLogs, 'console logs')
+    }
+
+    return (
+        <SettingsButton
+            title="Copy all console logs to clipboard"
+            label="Copy console logs"
+            onClick={handleCopy}
+            disabledReason={hasConsoleLogs ? undefined : 'There are no console logs to copy'}
+        />
+    )
+}
+
 export function PlayerInspectorBottomSettings(): JSX.Element {
     return (
         <SettingsBar border="top">
             <SyncScrolling />
             <ShowOnlyMatching />
             <HideProperties />
+            <CopyConsole />
         </SettingsBar>
     )
 }
