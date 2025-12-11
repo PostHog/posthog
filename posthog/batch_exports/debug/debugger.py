@@ -268,7 +268,7 @@ class BatchExportsDebugger:
             k: v for k, v in self.batch_export.destination.config.items() if k in destination_config_fields
         }
         return workflow_inputs(
-            team_id=self.batch_export.team_id,  # type: ignore
+            team_id=self.batch_export.team_id,
             batch_export_id=str(self.batch_export.id),
             interval=str(self.batch_export.interval),
             batch_export_model=BatchExportModel(
@@ -492,6 +492,7 @@ class BatchExportsDebugger:
             case BatchExportDestination.Destination.DATABRICKS:
                 console.print("[bold green]Getting Databricks client...[/bold green]")
                 inputs = cast(DatabricksBatchExportInputs, self.batch_export_inputs)
+                assert self.batch_export.destination.integration is not None
                 integration = DatabricksIntegration(self.batch_export.destination.integration)
                 client = DatabricksClient(
                     server_hostname=integration.server_hostname,
