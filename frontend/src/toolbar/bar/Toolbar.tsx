@@ -400,8 +400,7 @@ export function Toolbar(): JSX.Element | null {
                 >
                     <AnimatedLogomark
                         animate={isLoading}
-                        animateOnce={isExiting}
-                        onAnimationComplete={completeGracefulExit}
+                        animateOnce={isExiting ? completeGracefulExit : undefined}
                         className="Toolbar__logomark"
                     />
                 </ToolbarButton>
