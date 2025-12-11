@@ -228,7 +228,7 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
 
 
 @csrf_exempt
-def slack_event(request: HttpRequest) -> HttpResponse:
+def slack_event_handler(request: HttpRequest) -> HttpResponse:
     """
     Handle incoming Slack events.
 

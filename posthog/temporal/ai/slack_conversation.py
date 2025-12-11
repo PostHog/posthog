@@ -207,16 +207,6 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
 
     user: User = membership.user
 
-    # Join all Slack messages into a single HumanMessage
-    message_texts = []
-    for msg in inputs.messages:
-        username = msg.get("user", "Unknown")
-        text = msg.get("text", "")
-        message_texts.append(f"{username}: {text}")
-
-    combined_message = "\n\n".join(message_texts)
-    human_message = HumanMessage(content=combined_message)
-
     # Get or create conversation for this Slack thread, keyed by slack_thread_key
     # First, fetch workspace domain from Slack API if we don't have it yet
     slack_workspace_domain = await _get_slack_workspace_domain(integration)
@@ -248,6 +238,18 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
 
     is_new_conversation = created
 
+    # Join all Slack messages into a single HumanMessage
+    message_texts = (
+        ["_This conversation is in a Slack thread, using Slack's native Markdown._"] if is_new_conversation else []
+    )
+    for msg in inputs.messages:
+        username = msg.get("user", "Unknown")
+        text = msg.get("text", "")
+        message_texts.append(f"{username}: {text}")
+
+    combined_message = "\n\n".join(message_texts)
+    human_message = HumanMessage(content=combined_message)
+
     # Create Slack thread context for task workflows to post updates
     slack_thread_context = SlackThreadContext(
         integration_id=inputs.integration_id,
@@ -271,7 +273,7 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     async def update_thinking_message():
         while True:
             await asyncio.sleep(3)
-            thinking_message = f"{random.choice(THINKING_MESSAGES)}..."
+            thinking_message = f"I'm {random.choice(THINKING_MESSAGES).lower()}..."
             await _update_slack_message(
                 integration, inputs.channel, inputs.initial_message_ts, thinking_message, conversation_url
             )
