@@ -3,6 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
+import { isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
@@ -29,18 +30,23 @@ export const sessionLevelAggregationFilterLogic = kea<sessionLevelAggregationFil
     }),
     listeners(({ actions, values }) => ({
         setSessionLevelAggregation: () => {
-            actions.updateQuerySource({
-                trendsFilter: {
-                    sessionLevelAggregation: values.sessionLevelAggregation || undefined,
-                },
-            })
+            if (isTrendsQuery(values.querySource)) {
+                actions.updateQuerySource({
+                    trendsFilter: {
+                        ...values.querySource.trendsFilter,
+                        sessionLevelAggregation: values.sessionLevelAggregation || undefined,
+                    },
+                } as any)
+            }
         },
     })),
     subscriptions(({ values, actions }) => ({
         querySource: (querySource) => {
-            const newSessionLevelAggregation = querySource?.trendsFilter?.sessionLevelAggregation || false
-            if (newSessionLevelAggregation !== values.sessionLevelAggregation) {
-                actions.setSessionLevelAggregation(newSessionLevelAggregation)
+            if (isTrendsQuery(querySource)) {
+                const newSessionLevelAggregation = querySource.trendsFilter?.sessionLevelAggregation || false
+                if (newSessionLevelAggregation !== values.sessionLevelAggregation) {
+                    actions.setSessionLevelAggregation(newSessionLevelAggregation)
+                }
             }
         },
     })),
