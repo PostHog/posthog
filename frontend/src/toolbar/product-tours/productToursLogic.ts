@@ -87,6 +87,8 @@ export const productToursLogic = kea<productToursLogicType>([
         selectTour: (id: string | null) => ({ id }),
         newTour: true,
         addStep: true,
+        addModalStep: true,
+        setEditingModalStep: (isModal: boolean) => ({ isModal }),
         removeStep: (index: number) => ({ index }),
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         updateRects: true,
@@ -170,8 +172,23 @@ export const productToursLogic = kea<productToursLogicType>([
                 selectElement: (_, { element }) => element,
                 cancelStep: () => null,
                 inspectForElementWithIndex: () => null,
+                addModalStep: () => null,
+                setEditingModalStep: (state, { isModal }) => (isModal ? null : state),
                 hideButtonProductTours: () => null,
                 // Note: confirmStep clears this AFTER the listener runs via actions.cancelStep()
+            },
+        ],
+        editingModalStep: [
+            false,
+            {
+                addModalStep: () => true,
+                setEditingModalStep: (_, { isModal }) => isModal,
+                selectElement: () => false,
+                cancelStep: () => false,
+                confirmStep: () => false,
+                inspectForElementWithIndex: () => false,
+                selectTour: () => false,
+                hideButtonProductTours: () => false,
             },
         ],
         rectUpdateCounter: [
@@ -330,7 +347,10 @@ export const productToursLogic = kea<productToursLogicType>([
                 return getRectForElement(selectedElement)
             },
         ],
-        isEditingStep: [(s) => [s.selectedElement], (selectedElement) => selectedElement !== null],
+        isEditingStep: [
+            (s) => [s.selectedElement, s.editingModalStep],
+            (selectedElement, editingModalStep) => selectedElement !== null || editingModalStep,
+        ],
         editingStep: [
             (s) => [s.inspectingElement, s.tourForm],
             (inspectingElement, tourForm): TourStep | null => {
@@ -358,9 +378,14 @@ export const productToursLogic = kea<productToursLogicType>([
 
     listeners(({ actions, values }) => ({
         confirmStep: ({ content, selector: selectorOverride }) => {
-            if (values.tourForm && values.selectedElement) {
-                const actionStep = elementToActionStep(values.selectedElement, values.dataAttributes)
-                const selector = selectorOverride ?? actionStep.selector ?? ''
+            // Check inspectingElement since editingModalStep reducer runs before listener
+            if (values.tourForm && values.inspectingElement !== null) {
+                // For modal steps (no element), selector is empty by default
+                const selector = values.selectedElement
+                    ? (selectorOverride ??
+                      elementToActionStep(values.selectedElement, values.dataAttributes).selector ??
+                      '')
+                    : (selectorOverride ?? '')
 
                 const steps = [...(values.tourForm.steps || [])]
                 const index = values.inspectingElement
@@ -373,7 +398,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     id: stepId,
                     selector,
                     content,
-                    element: values.selectedElement,
+                    element: values.selectedElement ?? undefined,
                 }
 
                 if (index !== null && index < steps.length) {
@@ -406,6 +431,9 @@ export const productToursLogic = kea<productToursLogicType>([
                 // Scroll element into view so the card is visible
                 element.scrollIntoView({ behavior: 'smooth', block: 'center' })
                 actions.selectElement(element)
+            } else {
+                // Modal step (no selector/element) - edit in centered modal mode
+                actions.setEditingModalStep(true)
             }
         },
         selectElement: ({ element }) => {
@@ -422,6 +450,10 @@ export const productToursLogic = kea<productToursLogicType>([
         addStep: () => {
             const nextIndex = values.tourForm?.steps?.length ?? 0
             actions.inspectForElementWithIndex(nextIndex)
+        },
+        addModalStep: () => {
+            const nextIndex = values.tourForm?.steps?.length ?? 0
+            actions.setInspectingElementIndex(nextIndex)
         },
         removeStep: ({ index }) => {
             if (values.tourForm) {
