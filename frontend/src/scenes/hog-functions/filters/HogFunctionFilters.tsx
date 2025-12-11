@@ -39,8 +39,16 @@ function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFilter
 
     if (filters.data_warehouse) {
         sanitized.data_warehouse = filters.data_warehouse.map((f) => ({
+            id: f.id,
             type: 'data_warehouse',
-            ...f,
+            name: f.name,
+            order: f.order,
+            properties: f.properties,
+            uuid: f.uuid,
+            table_name: f.table_name,
+            id_field: f.id_field,
+            timestamp_field: f.timestamp_field,
+            distinct_id_field: f.distinct_id_field,
         }))
     }
 
