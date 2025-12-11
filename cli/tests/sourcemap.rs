@@ -112,12 +112,12 @@ fn test_exclude() {
         .iter()
         .map(|pair| &pair.source.inner.path)
         .any(|path| path == &get_case_path("inject/chunk.js")));
+
     // Make sure chunks are ignored
-    let all_path = pairs
+    assert!(!pairs
         .iter()
-        .map(|pair| pair.source.inner.path.clone())
-        .collect::<Vec<_>>();
-    assert!(!all_path.contains(&get_case_path("search/assets/chunk.min.js")));
+        .map(|pair| &pair.source.inner.path)
+        .any(|path| path.to_string_lossy().contains("search/")));
 }
 
 #[test]
