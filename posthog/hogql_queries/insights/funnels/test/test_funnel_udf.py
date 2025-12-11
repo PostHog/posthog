@@ -20,7 +20,7 @@ from posthog.test.test_journeys import journeys_for
 
 class TestFunnelBreakdownUDF(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(FunnelOrderType.ORDERED),
+    funnel_breakdown_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     maxDiff = None
     pass

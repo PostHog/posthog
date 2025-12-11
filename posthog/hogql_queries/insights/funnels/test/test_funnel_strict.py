@@ -30,7 +30,7 @@ FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 class TestFunnelStrictStepsBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(FunnelOrderType.STRICT),
+    funnel_breakdown_test_factory(FunnelOrderType.STRICT),  # type: ignore
 ):
     maxDiff = None
 
