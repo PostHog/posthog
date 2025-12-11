@@ -44,7 +44,10 @@ export const organizationLogic = kea<organizationLogicType>([
         deleteOrganizationSuccess: ({ redirectPath }: { redirectPath?: string }) => ({ redirectPath }),
         deleteOrganizationFailure: true,
     }),
-    connect([userLogic]),
+    connect(() => ({
+        values: [userLogic, ['hasAvailableFeature']],
+        actions: [userLogic, ['loadUser'], router, ['locationChanged']],
+    })),
     reducers({
         organizationBeingDeleted: [
             null as string | null,
@@ -148,7 +151,7 @@ export const organizationLogic = kea<organizationLogicType>([
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
             }
         },
-        [router.actionTypes.locationChanged]: ({ pathname }) => {
+        locationChanged: ({ pathname }) => {
             // Redirect to deactivated page if organization is inactive (client-side navigation)
             if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
                 router.actions.replace(urls.organizationDeactivated())

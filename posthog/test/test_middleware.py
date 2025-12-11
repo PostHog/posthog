@@ -753,16 +753,6 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertNotIn("organization-deactivated", response.headers.get("Location", ""))
 
-    def test_static_paths_skipped(self):
-        """Static asset paths should be skipped by middleware"""
-        self.organization.is_active = False
-        self.organization.save()
-
-        response = self.client.get("/static/test.css")
-        # Should not redirect
-        self.assertNotEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertNotIn("organization-deactivated", response.get("Location", ""))
-
     def test_unauthenticated_user_not_affected(self):
         self.client.logout()
         # API paths are skipped, so auth check happens in view

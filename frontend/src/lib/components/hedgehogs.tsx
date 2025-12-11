@@ -182,6 +182,6 @@ export const YCHog = (props: HedgehogProps): JSX.Element => {
 export const BigLeaguesHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={bigLeaguesHog} {...props} />
 }
-export const StopSignHog = (props: HedgeHogProps): JSX.Element => {
+export const StopSignHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={stopSignHog} {...props} />
 }
