@@ -81,7 +81,8 @@ function initEditor(
         if (evt.keyCode === monaco.KeyCode.Space) {
             evt.stopPropagation()
         }
-    })
+        if (options.tabFocusMode || editorProps.onPressUpNoValue) {
+            if (options.tabFocusMode) {
 
     if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
