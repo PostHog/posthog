@@ -28,10 +28,7 @@ class TestFunnelBreakdownUDF(
 
 class TestFunnelGroupBreakdownUDF(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(  # type: ignore
-        FunnelOrderType.ORDERED,
-        PseudoFunnelActors,
-    ),
+    funnel_breakdown_group_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     pass
 
