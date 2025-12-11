@@ -64,6 +64,18 @@ export interface PersonRepository {
 
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]>
 
+    /**
+     * Batch update multiple persons in a single query using UNNEST.
+     * Returns results indexed by person UUID, each containing:
+     * - success: boolean indicating if the update succeeded
+     * - version: the new version if successful
+     * - kafkaMessage: the Kafka message to send if successful
+     * - error: error details if the update failed
+     */
+    updatePersonsBatch(
+        personUpdates: PersonUpdate[]
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>>
+
     deletePerson(person: InternalPerson): Promise<TopicMessage[]>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]>

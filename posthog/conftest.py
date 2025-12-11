@@ -419,3 +419,20 @@ def pytest_configure(config):
     # Set default databases for Django test classes
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+
+
+def _runs_on_internal_pr() -> bool:
+    """
+    Returns True when tests are running for an internal PR or on master,
+    and False for fork PRs.
+    Defaults to True, so local runs are unaffected.
+    """
+    value = os.getenv("RUNS_ON_INTERNAL_PR")
+    if value is None:
+        return True
+    return value.lower() in {"1", "true"}
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
+        pytest.skip("Skipping test that requires internal secrets on external PRs")

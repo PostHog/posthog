@@ -44,6 +44,7 @@ APIScopeObject = Literal[
     "person",
     "persisted_folder",
     "plugin",
+    "product_tour",
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints

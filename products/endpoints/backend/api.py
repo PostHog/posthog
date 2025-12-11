@@ -45,6 +45,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
@@ -218,6 +219,18 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 scope="Endpoint",
                 activity="created",
                 detail=Detail(name=endpoint.name),
+            )
+
+            # Report endpoint created event
+            report_user_action(
+                user=cast(User, request.user),
+                event="endpoint created",
+                properties={
+                    "endpoint_id": str(endpoint.id),
+                    "endpoint_name": endpoint.name,
+                    "query_kind": endpoint.query.get("kind") if isinstance(endpoint.query, dict) else None,
+                },
+                team=self.team,
             )
 
             return Response(self._serialize_endpoint(endpoint), status=status.HTTP_201_CREATED)
