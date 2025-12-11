@@ -523,6 +523,14 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
+            if (
+                self.context.get("from_cohort_id")
+                or self.context.get("from_feature_flag_key")
+                or validated_data.get("query")
+            ):
+                cohort.is_calculating = True
+                cohort.save(update_fields=["is_calculating"])
+
             self._handle_static(cohort, self.context, validated_data, person_ids)
             # Refresh from DB to get updated count field set by _insert_users_list_with_batching
             cohort.refresh_from_db()
