@@ -55,10 +55,7 @@ class WebAvgTimeOnPageTrendsQueryRunner(WebAnalyticsQueryRunner[WebAvgTimeOnPage
 
     @cached_property
     def _event_properties_expr(self) -> ast.Expr:
-        """Event and person properties, mapping $pathname to $prev_pageview_pathname for time-on-page calculation."""
-
         def map_pathname_property(prop: Union[EventPropertyFilter, PersonPropertyFilter]):
-            # Time-on-page is measured for the PREVIOUS page, so we need to filter by $prev_pageview_pathname
             if get_property_type(prop) == "event" and get_property_key(prop) == "$pathname":
                 return EventPropertyFilter(
                     key="$prev_pageview_pathname",
@@ -77,7 +74,6 @@ class WebAvgTimeOnPageTrendsQueryRunner(WebAnalyticsQueryRunner[WebAvgTimeOnPage
 
     @cached_property
     def _session_properties_expr(self) -> ast.Expr:
-        """Session properties filter."""
         properties = [
             p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
         ]
