@@ -4659,6 +4659,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'llm_provider_key'
     | 'logs'
     | 'notebook'
     | 'organization'
