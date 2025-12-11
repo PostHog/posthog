@@ -495,8 +495,8 @@ class TestExpiryTrackingVerification(BaseTest):
         assert stats["expiry_missing"] == 0
         assert len(mismatches) == 0
 
-    def test_fix_expiry_calls_update_fn(self):
-        """Test that _fix_expiry calls the update_fn to refresh cache and track expiry."""
+    def test_fix_team_cache_calls_update_fn(self):
+        """Test that _fix_team_cache calls the update_fn to refresh cache and track expiry."""
         mock_config = create_mock_config_with_expiry()
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
@@ -504,14 +504,14 @@ class TestExpiryTrackingVerification(BaseTest):
 
         stats = {"fixed": 0, "fix_failed": 0}
 
-        result = command._fix_expiry(self.team, stats, mock_config)
+        result = command._fix_team_cache(self.team, stats, "expiry tracking", mock_config)
 
         assert result is True
         assert stats["fixed"] == 1
         mock_config.update_fn.assert_called_once_with(self.team)
 
-    def test_fix_expiry_handles_update_fn_failure(self):
-        """Test that _fix_expiry handles update_fn returning False."""
+    def test_fix_team_cache_handles_update_fn_failure(self):
+        """Test that _fix_team_cache handles update_fn returning False."""
         mock_config = create_mock_config_with_expiry()
         mock_config.update_fn.return_value = False
 
@@ -520,13 +520,13 @@ class TestExpiryTrackingVerification(BaseTest):
 
         stats = {"fixed": 0, "fix_failed": 0}
 
-        result = command._fix_expiry(self.team, stats, mock_config)
+        result = command._fix_team_cache(self.team, stats, "expiry tracking", mock_config)
 
         assert result is False
         assert stats["fix_failed"] == 1
 
-    def test_fix_expiry_handles_exception(self):
-        """Test that _fix_expiry handles exceptions from update_fn."""
+    def test_fix_team_cache_handles_exception(self):
+        """Test that _fix_team_cache handles exceptions from update_fn."""
         mock_config = create_mock_config_with_expiry()
         mock_config.update_fn.side_effect = Exception("Redis error")
 
@@ -535,7 +535,7 @@ class TestExpiryTrackingVerification(BaseTest):
 
         stats = {"fixed": 0, "fix_failed": 0}
 
-        result = command._fix_expiry(self.team, stats, mock_config)
+        result = command._fix_team_cache(self.team, stats, "expiry tracking", mock_config)
 
         assert result is False
         assert stats["fix_failed"] == 1

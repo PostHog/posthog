@@ -403,28 +403,39 @@ class BaseHyperCacheCommand(BaseCommand):
             issue_detail["diffs"] = result["diffs"]
 
         if fix:
-            if self._fix_cache(team, stats):
-                issue_detail["fixed"] = True
-            else:
-                issue_detail["fixed"] = False
+            issue_detail["fixed"] = self._fix_team_cache(team, stats)
 
         mismatches.append(issue_detail)
 
-    def _fix_cache(self, team, stats: dict[str, int]) -> bool:
-        """Fix cache for a team by updating from database."""
+    def _fix_team_cache(
+        self,
+        team: Team,
+        stats: dict[str, int],
+        operation: str = "cache",
+        config: HyperCacheManagementConfig | None = None,
+    ) -> bool:
+        """
+        Fix a team by running update_fn (updates cache and re-tracks expiry).
+
+        Args:
+            team: Team to fix
+            stats: Stats dict to update (increments 'fixed' or 'fix_failed')
+            operation: Description for log messages (e.g., "cache", "expiry tracking")
+            config: HyperCache config. If None, uses get_hypercache_config().
+        """
         try:
-            config = self.get_hypercache_config()
+            config = config or self.get_hypercache_config()
             success = config.update_fn(team)
             if success:
                 stats["fixed"] += 1
-                self.stdout.write(self.style.SUCCESS(f"  ✓ Fixed cache for team {team.id} ({team.name})"))
+                self.stdout.write(self.style.SUCCESS(f"  ✓ Fixed {operation} for team {team.id} ({team.name})"))
             else:
                 stats["fix_failed"] += 1
-                self.stdout.write(self.style.ERROR(f"  ✗ Failed to fix cache for team {team.id} ({team.name})"))
+                self.stdout.write(self.style.ERROR(f"  ✗ Failed to fix {operation} for team {team.id} ({team.name})"))
             return success
         except Exception as e:
             stats["fix_failed"] += 1
-            self.stdout.write(self.style.ERROR(f"  ✗ Error fixing cache for team {team.id} ({team.name}): {e}"))
+            self.stdout.write(self.style.ERROR(f"  ✗ Error fixing {operation} for team {team.id} ({team.name}): {e}"))
             return False
 
     def _batch_check_expiry_tracking(
@@ -490,25 +501,9 @@ class BaseHyperCacheCommand(BaseCommand):
         }
 
         if fix:
-            issue_detail["fixed"] = self._fix_expiry(team, stats, config)
+            issue_detail["fixed"] = self._fix_team_cache(team, stats, "expiry tracking", config)
 
         mismatches.append(issue_detail)
-
-    def _fix_expiry(self, team: Team, stats: dict[str, int], config: HyperCacheManagementConfig) -> bool:
-        """Fix expiry tracking by updating cache (which re-tracks expiry)."""
-        try:
-            success = config.update_fn(team)
-            if success:
-                stats["fixed"] += 1
-                self.stdout.write(self.style.SUCCESS(f"  ✓ Fixed expiry tracking for team {team.id} ({team.name})"))
-            else:
-                stats["fix_failed"] += 1
-                self.stdout.write(self.style.ERROR(f"  ✗ Failed to fix expiry for team {team.id} ({team.name})"))
-            return success
-        except Exception as e:
-            stats["fix_failed"] += 1
-            self.stdout.write(self.style.ERROR(f"  ✗ Error fixing expiry for team {team.id} ({team.name}): {e}"))
-            return False
 
     def _print_verification_results(self, stats: dict, mismatches: list[dict], verbose: bool, fix: bool):
         """Print verification results."""
