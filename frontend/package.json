@@ -194,7 +194,7 @@
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "1.303.1",
+        "posthog-js": "1.305.0",
         "posthog-js-lite": "4.2.1",
         "prettier": "^3.6.2",
         "prop-types": "^15.7.2",
