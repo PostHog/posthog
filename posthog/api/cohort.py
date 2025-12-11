@@ -1444,7 +1444,7 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict, *, team_id: 
                 WHERE team_id = %(team_id)s AND cohort_id = %(from_cohort_id)s
                 ORDER BY person_id
             """
-            params = {
+            params: dict[str, int | None] = {
                 "team_id": team_id,
                 "from_cohort_id": existing_cohort.pk,
             }
@@ -1459,7 +1459,7 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict, *, team_id: 
             params = {
                 "team_id": team_id,
                 "from_cohort_id": existing_cohort.pk,
-                "version": existing_cohort.version or 0,
+                "version": existing_cohort.version,
             }
         context = Filter(data=filter_data, team=cohort.team).hogql_context
     else:
