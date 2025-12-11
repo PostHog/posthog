@@ -2,6 +2,7 @@ import os
 from datetime import timedelta
 from functools import partial, wraps
 from typing import Union
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from django.apps import apps
 from django.conf import settings
@@ -77,8 +78,13 @@ def login_required(view):
         response = base_handler(request, *args, **kwargs)
 
         # Don't include next=/ in the login redirect URL since "/" is the default destination
-        if hasattr(response, "url") and response.status_code == 302 and response.url == f"{settings.LOGIN_URL}?next=/":
-            response["Location"] = settings.LOGIN_URL
+        if hasattr(response, "url") and response.status_code == 302 and response.url.startswith(settings.LOGIN_URL):
+            parsed_url = urlparse(response.url)
+            search_params = parse_qs(parsed_url.query)
+            if search_params.get("next") == ["/"]:
+                del search_params["next"]
+                response["Location"] = urlunparse(parsed_url._replace(query=urlencode(search_params)))
+
         return response
 
     return handler
