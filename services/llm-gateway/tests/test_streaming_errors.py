@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -7,6 +8,14 @@ from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import ANTHROPIC_CONFIG, handle_llm_request
 from llm_gateway.auth.models import AuthenticatedUser
+
+
+class MockProviderError(Exception):
+    """Mock exception with status_code attribute."""
+
+    def __init__(self, message: str, status_code: int):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class TestStreamingErrorHandling:
@@ -37,13 +46,10 @@ class TestStreamingErrorHandling:
 
     @pytest.mark.asyncio
     async def test_provider_error_non_streaming(self, mock_user: AuthenticatedUser) -> None:
-        async def failing_llm_call(**kwargs):
-            error = Exception("Provider unavailable")
-            error.status_code = 503  # type: ignore
-            error.message = "Service temporarily unavailable"  # type: ignore
-            raise error
+        async def failing_llm_call(**kwargs: Any) -> None:
+            raise MockProviderError("Service temporarily unavailable", status_code=503)
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(HTTPException) as exc_info:
             await handle_llm_request(
                 request_data={"model": "test", "messages": []},
                 user=mock_user,
@@ -89,12 +95,10 @@ class TestStreamingErrorHandling:
     async def test_error_status_codes_propagate(
         self, mock_user: AuthenticatedUser, error_status: int, error_type: str
     ) -> None:
-        async def failing_llm_call(**kwargs):
-            error = Exception(f"{error_type} occurred")
-            error.status_code = error_status  # type: ignore
-            raise error
+        async def failing_llm_call(**kwargs: Any) -> None:
+            raise MockProviderError(f"{error_type} occurred", status_code=error_status)
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(HTTPException) as exc_info:
             await handle_llm_request(
                 request_data={"model": "test", "messages": []},
                 user=mock_user,
@@ -136,7 +140,7 @@ class TestStreamingLifecycle:
             llm_call=mock_llm_call,
         )
 
-        # Consume the stream
+        assert isinstance(response, StreamingResponse)
         collected = []
         async for chunk in response.body_iterator:
             collected.append(chunk)
@@ -161,6 +165,7 @@ class TestStreamingLifecycle:
             llm_call=mock_llm_call,
         )
 
+        assert isinstance(response, StreamingResponse)
         collected = []
         async for chunk in response.body_iterator:
             collected.append(chunk)

@@ -7,10 +7,12 @@ Run with: pytest tests/integration/test_anthropic_sdk.py -v
 
 import base64
 import os
+from typing import Any
 from urllib.request import urlopen
 
 import pytest
 from anthropic import Anthropic, BadRequestError
+from anthropic.types import TextBlock, ToolParam, ToolUseBlock
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
@@ -29,7 +31,9 @@ class TestAnthropicMessages:
 
         assert response is not None
         assert len(response.content) > 0
-        assert response.content[0].text is not None
+        first_block = response.content[0]
+        assert isinstance(first_block, TextBlock)
+        assert first_block.text is not None
         assert response.usage is not None
         assert response.usage.input_tokens > 0
         assert response.usage.output_tokens > 0
@@ -54,7 +58,9 @@ class TestAnthropicMessages:
         )
 
         assert response is not None
-        assert response.content[0].text is not None
+        first_block = response.content[0]
+        assert isinstance(first_block, TextBlock)
+        assert first_block.text is not None
 
     def test_with_temperature(self, anthropic_client: Anthropic):
         response = anthropic_client.messages.create(
@@ -65,7 +71,9 @@ class TestAnthropicMessages:
         )
 
         assert response is not None
-        assert response.content[0].text is not None
+        first_block = response.content[0]
+        assert isinstance(first_block, TextBlock)
+        assert first_block.text is not None
 
 
 class TestAnthropicMultipleModels:
@@ -77,7 +85,9 @@ class TestAnthropicMultipleModels:
         )
 
         assert response is not None
-        assert response.content[0].text is not None
+        first_block = response.content[0]
+        assert isinstance(first_block, TextBlock)
+        assert first_block.text is not None
 
     def test_sequential_requests_same_model(self, anthropic_client: Anthropic):
         response1 = anthropic_client.messages.create(
@@ -92,8 +102,12 @@ class TestAnthropicMultipleModels:
             max_tokens=5,
         )
 
-        assert response1.content[0].text is not None
-        assert response2.content[0].text is not None
+        first_block1 = response1.content[0]
+        first_block2 = response2.content[0]
+        assert isinstance(first_block1, TextBlock)
+        assert isinstance(first_block2, TextBlock)
+        assert first_block1.text is not None
+        assert first_block2.text is not None
 
     def test_streaming_then_non_streaming(self, anthropic_client: Anthropic):
         with anthropic_client.messages.stream(
@@ -109,12 +123,14 @@ class TestAnthropicMultipleModels:
             messages=[{"role": "user", "content": "Say 'sync'"}],
             max_tokens=10,
         )
-        assert response.content[0].text is not None
+        first_block = response.content[0]
+        assert isinstance(first_block, TextBlock)
+        assert first_block.text is not None
 
 
 class TestAnthropicToolUse:
     def test_tool_definition_and_response(self, anthropic_client: Anthropic):
-        tools = [
+        tools: list[ToolParam] = [
             {
                 "name": "get_weather",
                 "description": "Get the current weather in a location",
@@ -138,14 +154,15 @@ class TestAnthropicToolUse:
 
         assert response is not None
         assert len(response.content) > 0
-        tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
+        tool_use_blocks = [b for b in response.content if isinstance(b, ToolUseBlock)]
         if tool_use_blocks:
             tool_use = tool_use_blocks[0]
             assert tool_use.name == "get_weather"
+            assert isinstance(tool_use.input, dict)
             assert "location" in tool_use.input
 
     def test_tool_choice_forced(self, anthropic_client: Anthropic):
-        tools = [
+        tools: list[ToolParam] = [
             {
                 "name": "calculate",
                 "description": "Perform a calculation",
@@ -167,7 +184,7 @@ class TestAnthropicToolUse:
             max_tokens=200,
         )
 
-        tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
+        tool_use_blocks = [b for b in response.content if isinstance(b, ToolUseBlock)]
         assert len(tool_use_blocks) > 0
         assert tool_use_blocks[0].name == "calculate"
 
@@ -193,7 +210,9 @@ class TestAnthropicVision:
 
         assert response is not None
         assert len(response.content) > 0
-        assert response.content[0].text is not None
+        first_block = response.content[0]
+        assert isinstance(first_block, TextBlock)
+        assert first_block.text is not None
 
     def test_image_base64_input(self, anthropic_client: Anthropic):
         image_data = urlopen(TEST_IMAGE_URL).read()
@@ -222,7 +241,9 @@ class TestAnthropicVision:
 
         assert response is not None
         assert len(response.content) > 0
-        assert response.content[0].text is not None
+        first_block = response.content[0]
+        assert isinstance(first_block, TextBlock)
+        assert first_block.text is not None
 
 
 class TestAnthropicMultiTurn:
@@ -239,8 +260,9 @@ class TestAnthropicMultiTurn:
         )
 
         assert response is not None
-        content = response.content[0].text.lower()
-        assert "alice" in content
+        first_block = response.content[0]
+        assert isinstance(first_block, TextBlock)
+        assert "alice" in first_block.text.lower()
 
 
 class TestAnthropicValidationErrors:
@@ -254,13 +276,14 @@ class TestAnthropicValidationErrors:
     def test_invalid_parameters_rejected(
         self, anthropic_client: Anthropic, invalid_param: str, value: float, expected_error: str
     ):
+        kwargs: dict[str, Any] = {
+            "model": "claude-3-haiku-20240307",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 10,
+            invalid_param: value,
+        }
         with pytest.raises(BadRequestError) as exc_info:
-            anthropic_client.messages.create(
-                model="claude-3-haiku-20240307",
-                messages=[{"role": "user", "content": "Hi"}],
-                max_tokens=10,
-                **{invalid_param: value},
-            )
+            anthropic_client.messages.create(**kwargs)
         assert expected_error in str(exc_info.value).lower()
 
     def test_empty_messages_rejected(self, anthropic_client: Anthropic):

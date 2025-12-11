@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import structlog
 from redis.asyncio import Redis
 
@@ -17,7 +19,7 @@ class RateLimiter:
 
     def __init__(
         self,
-        redis: Redis | None,
+        redis: Redis[bytes] | None,
         burst_limit: int,
         burst_window: int,
         sustained_limit: int,

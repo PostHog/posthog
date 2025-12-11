@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import time
 import uuid
@@ -86,11 +88,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-async def init_redis(url: str | None) -> Redis | None:
+async def init_redis(url: str | None) -> Redis[bytes] | None:
     if not url:
         return None
     try:
-        redis: Redis = Redis.from_url(url)
+        redis: Redis[bytes] = Redis.from_url(url)
         await redis.ping()
         return redis
     except Exception:

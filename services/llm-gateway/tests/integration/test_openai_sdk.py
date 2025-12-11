@@ -7,9 +7,11 @@ Run with: pytest tests/integration/test_openai_sdk.py -v
 
 import json
 import os
+from typing import Any
 
 import pytest
 from openai import BadRequestError, OpenAI
+from openai.types.chat import ChatCompletionToolChoiceOptionParam, ChatCompletionToolParam
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -119,7 +121,7 @@ class TestOpenAIMultipleModels:
 
 class TestOpenAIToolCalling:
     def test_tool_definition_and_response(self, openai_client: OpenAI):
-        tools = [
+        tools: list[ChatCompletionToolParam] = [
             {
                 "type": "function",
                 "function": {
@@ -151,12 +153,13 @@ class TestOpenAIToolCalling:
         assert choice.message is not None
         if choice.message.tool_calls:
             tool_call = choice.message.tool_calls[0]
+            assert hasattr(tool_call, "function")
             assert tool_call.function.name == "get_weather"
             args = json.loads(tool_call.function.arguments)
             assert "location" in args
 
     def test_tool_choice_required(self, openai_client: OpenAI):
-        tools = [
+        tools: list[ChatCompletionToolParam] = [
             {
                 "type": "function",
                 "function": {
@@ -173,16 +176,21 @@ class TestOpenAIToolCalling:
             }
         ]
 
+        tool_choice: ChatCompletionToolChoiceOptionParam = {"type": "function", "function": {"name": "calculate"}}
+
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": "What is 2+2?"}],
             tools=tools,
-            tool_choice={"type": "function", "function": {"name": "calculate"}},
+            tool_choice=tool_choice,
             max_tokens=100,
         )
 
-        assert response.choices[0].message.tool_calls is not None
-        assert response.choices[0].message.tool_calls[0].function.name == "calculate"
+        tool_calls = response.choices[0].message.tool_calls
+        assert tool_calls is not None
+        tool_call = tool_calls[0]
+        assert hasattr(tool_call, "function")
+        assert tool_call.function.name == "calculate"
 
 
 class TestOpenAIVision:
@@ -237,8 +245,9 @@ class TestOpenAIMultiTurn:
         )
 
         assert response is not None
-        content = response.choices[0].message.content.lower()
-        assert "alice" in content
+        content = response.choices[0].message.content
+        assert content is not None
+        assert "alice" in content.lower()
 
 
 class TestOpenAIJSONMode:
@@ -258,6 +267,7 @@ class TestOpenAIJSONMode:
 
         assert response is not None
         content = response.choices[0].message.content
+        assert content is not None
         parsed = json.loads(content)
         assert "greeting" in parsed
 
@@ -274,13 +284,14 @@ class TestOpenAIValidationErrors:
     def test_invalid_parameters_rejected(
         self, openai_client: OpenAI, invalid_param: str, value: float, expected_error: str
     ):
+        kwargs: dict[str, Any] = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 10,
+            invalid_param: value,
+        }
         with pytest.raises(BadRequestError) as exc_info:
-            openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": "Hi"}],
-                max_tokens=10,
-                **{invalid_param: value},
-            )
+            openai_client.chat.completions.create(**kwargs)
         assert expected_error in str(exc_info.value).lower()
 
     def test_empty_messages_rejected(self, openai_client: OpenAI):
