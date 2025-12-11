@@ -4,26 +4,26 @@ from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.kudosity.template_kudosity import template as template_kudosity
 
 
-def create_inputs(**kwargs):
-    inputs = {
-        "api_key": "test_api_key_123",
-        "sender": "Alerts",
-        "recipient": "+15555551234",
-        "message": "🚨 Alert: {event.properties.insight_name} is {event.properties.current_value} (threshold: {event.properties.threshold_value})",
-        "message_ref": "alert_{event.properties.alert_id}",
-        "track_links": False,
-        "debug": False,
-    }
-    inputs.update(kwargs)
-    return inputs
-
-
 class TestTemplateKudosity(BaseHogFunctionTemplateTest):
     template = template_kudosity
 
+    def _inputs(self, **kwargs):
+        inputs = {
+            "api_key": "test_api_key_123",
+            "sender": "Alerts",
+            "recipient": "+15555551234",
+            "track_links": False,
+            "debug": False,
+        }
+        inputs.update(kwargs)
+        return inputs
+
     def test_function_works(self):
         self.run_function(
-            inputs=create_inputs(),
+            inputs=self._inputs(
+                message="🚨 Alert: API Error Rate is 156 (threshold: 100)",
+                message_ref="alert_alert-123",
+            ),
             globals={
                 "event": {
                     "properties": {
@@ -57,7 +57,11 @@ class TestTemplateKudosity(BaseHogFunctionTemplateTest):
 
     def test_function_with_track_links_enabled(self):
         self.run_function(
-            inputs=create_inputs(track_links=True),
+            inputs=self._inputs(
+                track_links=True,
+                message="🚨 Alert: Conversion Rate is 3.2% (threshold: 5%)",
+                message_ref="alert_alert-456",
+            ),
             globals={
                 "event": {
                     "properties": {
@@ -81,20 +85,20 @@ class TestTemplateKudosity(BaseHogFunctionTemplateTest):
         )
 
     def test_function_requires_recipient(self):
-        self.run_function(inputs=create_inputs(recipient=""))
+        self.run_function(inputs=self._inputs(recipient=""))
 
         assert not self.get_mock_fetch_calls()
         assert self.get_mock_print_calls() == snapshot([("No recipient phone number set. Skipping...",)])
 
     def test_function_requires_message(self):
-        self.run_function(inputs=create_inputs(message=""))
+        self.run_function(inputs=self._inputs(message=""))
 
         assert not self.get_mock_fetch_calls()
         assert self.get_mock_print_calls() == snapshot([("No message set. Skipping...",)])
 
     def test_function_with_simple_message(self):
         self.run_function(
-            inputs=create_inputs(
+            inputs=self._inputs(
                 message="Simple alert message",
                 message_ref="",  # Optional field can be empty
             ),
@@ -111,7 +115,7 @@ class TestTemplateKudosity(BaseHogFunctionTemplateTest):
 
     def test_function_with_debug_mode(self):
         self.run_function(
-            inputs=create_inputs(debug=True, message="Test message"),
+            inputs=self._inputs(debug=True, message="Test message"),
             globals={"event": {"properties": {}}},
         )
 
