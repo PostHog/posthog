@@ -181,7 +181,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             cache.processingCache = cache.processingCache || { snapshots: {} }
 
             const processingMode = values.featureFlags[FEATURE_FLAGS.REPLAY_YIELDING_PROCESSING]
-            const enableYielding = processingMode === 'yielding' || processingMode === 'worker_and_yielding'
+            const enableYielding = processingMode === 'worker_and_yielding'
             const discardRawSnapshots = !!values.featureFlags[FEATURE_FLAGS.REPLAY_DISCARD_RAW_SNAPSHOTS]
 
             const result = await processAllSnapshots(
