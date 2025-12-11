@@ -26,47 +26,52 @@ export function CollapsibleFrameHeader({
     recordLoading: boolean
     expanded: boolean
 }): JSX.Element {
-    const { raw_id, source, line, column, resolved, resolve_failure, in_app, lang } = frame
+    const { raw_id, source: _originalSource, line, column, resolved, resolve_failure, in_app, lang } = frame
+    // TODO: Remove this debug override - artificially long path for testing wrapping
+    const source = _originalSource
+        ? `/very/long/path/to/some/deeply/nested/directory/structure/that/keeps/going/${_originalSource}`
+        : _originalSource
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
 
     const part = getFrameFingerprint(raw_id)
-    const resolvedName = formatResolvedName(frame)
+    // TODO: Remove this debug override - artificially long names for testing wrapping
+    const _originalResolvedName = formatResolvedName(frame)
+    const resolvedName = _originalResolvedName
+        ? `veryLongModuleName.anotherLongClassName.${_originalResolvedName}WithExtremelyLongSuffixForTestingPurposes`
+        : null
     const hasRecordContext = !!record && !!record.context
 
     return (
-        <div className={cn('flex justify-between items-center w-full h-7')}>
+        <div className={cn('flex items-center w-full h-7 overflow-hidden')}>
             <CollapsiblePrimitiveTrigger asChild>
                 <ButtonPrimitive
-                    className={cn(
-                        'flex justify-between items-center rounded-none w-full h-full gap-x-10 disabled:opacity-60',
-                        {
-                            'cursor-progress': recordLoading,
-                        }
-                    )}
+                    className={cn('flex items-center rounded-none h-full gap-x-2 disabled:opacity-60 min-w-0 flex-1', {
+                        'cursor-progress': recordLoading,
+                    })}
                     disabled={!hasRecordContext && !recordLoading}
                 >
-                    <div className="flex flex-wrap gap-x-1 items-center text-xs w-full min-w-0">
+                    <div className="flex gap-x-1 items-center text-xs min-w-0 flex-1">
                         {resolvedName ? (
-                            <div className="flex min-w-0 font-medium">
-                                <span className="truncate" title={resolvedName}>
-                                    {resolvedName}
-                                </span>
+                            <div className="truncate font-medium shrink [direction:rtl] text-left">
+                                <span className="[direction:ltr] [unicode-bidi:embed]">{resolvedName}</span>
                             </div>
                         ) : null}
-                        <div className="flex font-light">
-                            <span>{source}</span>
-                            {line ? (
-                                <>
-                                    <span className="text-secondary">@</span>
-                                    <span>
-                                        {line}
-                                        {column && `:${column}`}
-                                    </span>
-                                </>
-                            ) : null}
+                        <div className="truncate font-light shrink-[10] [direction:rtl] text-left">
+                            <span className="[direction:ltr] [unicode-bidi:embed]">
+                                {source}
+                                {line ? (
+                                    <>
+                                        <span className="text-secondary">@</span>
+                                        <span>
+                                            {line}
+                                            {column && `:${column}`}
+                                        </span>
+                                    </>
+                                ) : null}
+                            </span>
                         </div>
                     </div>
-                    <div className="flex gap-x-1 items-center justify-end">
+                    <div className="flex shrink-0 gap-x-1 items-center">
                         {part && <FingerprintRecordPartDisplay part={part} />}
                         {match([in_app, resolved, recordLoading, hasRecordContext])
                             .with([false, P.any, P.any, P.any], () => <VendorIcon />)
@@ -79,8 +84,8 @@ export function CollapsibleFrameHeader({
                     </div>
                 </ButtonPrimitive>
             </CollapsiblePrimitiveTrigger>
-            <div className="border-r-1 w-0 h-full" />
-            <FrameDropDownMenu className="h-full w-7 rounded-none outline-none" frame={frame} record={record}>
+            <div className="shrink-0 border-r-1 w-0 h-full" />
+            <FrameDropDownMenu className="shrink-0 h-full w-7 rounded-none outline-none" frame={frame} record={record}>
                 <IconEllipsis />
             </FrameDropDownMenu>
         </div>
