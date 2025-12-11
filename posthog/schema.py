@@ -1913,6 +1913,7 @@ class IntegrationFilter(BaseModel):
 
 
 class IntegrationKind(StrEnum):
+    SHOPIFY = "shopify"
     SLACK = "slack"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"

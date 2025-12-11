@@ -9,6 +9,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
+import { ShopifySetupModal } from 'scenes/integrations/shopify/ShopifySetupModal'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
@@ -63,7 +64,7 @@ export function IntegrationChoice({
         input.click()
     }
 
-    const handleNewDatabricksIntegration = (integrationId: number | undefined): void => {
+    const handleSimpleIntegrationModel = (integrationId: number | undefined): void => {
         if (integrationId) {
             onChange?.(integrationId)
         }
@@ -130,21 +131,30 @@ export function IntegrationChoice({
                                       },
                                   ],
                               }
-                            : {
-                                  items: [
-                                      {
-                                          to: api.integrations.authorizeUrl({
-                                              kind,
-                                              next: redirectUrl,
-                                          }),
-                                          disableClientSideRouting: true,
-                                          onClick: beforeRedirect,
-                                          label: integrationsOfKind?.length
-                                              ? `Connect to a different integration for ${kindName}`
-                                              : `Connect to ${kindName}`,
-                                      },
-                                  ],
-                              },
+                            : ['shopify'].includes(kind)
+                              ? {
+                                    items: [
+                                        {
+                                            label: 'Connect to Shopify',
+                                            onClick: () => openNewIntegrationModal('shopify'),
+                                        },
+                                    ],
+                                }
+                              : {
+                                    items: [
+                                        {
+                                            to: api.integrations.authorizeUrl({
+                                                kind,
+                                                next: redirectUrl,
+                                            }),
+                                            disableClientSideRouting: true,
+                                            onClick: beforeRedirect,
+                                            label: integrationsOfKind?.length
+                                                ? `Connect to a different integration for ${kindName}`
+                                                : `Connect to ${kindName}`,
+                                        },
+                                    ],
+                                },
                 {
                     items: [
                         {
@@ -188,9 +198,13 @@ export function IntegrationChoice({
             <DatabricksSetupModal
                 isOpen={newIntegrationModalKind === 'databricks'}
                 integration={integrationKind || undefined}
-                onComplete={handleNewDatabricksIntegration}
+                onComplete={handleSimpleIntegrationModel}
             />
             <GitLabSetupModal isOpen={newIntegrationModalKind === 'gitlab'} onComplete={closeNewIntegrationModal} />
+            <ShopifySetupModal
+                isOpen={newIntegrationModalKind === 'shopify'}
+                onComplete={handleSimpleIntegrationModel}
+            />
         </>
     )
 }

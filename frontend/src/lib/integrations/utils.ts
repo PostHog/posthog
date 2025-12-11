@@ -19,12 +19,14 @@ import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
 import IconReddit from 'public/services/reddit.png'
 import IconSalesforce from 'public/services/salesforce.png'
+import IconShopify from 'public/services/shopify.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
+    shopify: IconShopify,
     slack: IconSlack,
     salesforce: IconSalesforce,
     hubspot: IconHubspot,

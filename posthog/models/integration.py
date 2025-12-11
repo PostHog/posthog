@@ -39,6 +39,7 @@ from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_ACCESS_TOKEN_GRANT, SHOPIFY_ACCESS_TOKEN_URL
 
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
@@ -66,6 +67,7 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
+        SHOPIFY = "shopify"
         SLACK = "slack"
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
@@ -128,6 +130,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
+        if self.kind == "shopify":
+            return self.config.get("shop", self.integration_id) or "unknown shop"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
 
@@ -2045,4 +2049,67 @@ class DatabricksIntegration:
         except Exception:
             raise DatabricksIntegrationError(
                 f"Databricks integration error: could not connect to hostname '{server_hostname}'"
+            )
+
+
+class ShopifyIntegration:
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "shopify":
+            raise Exception("ShopifyIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def integration_from_shop(cls, team_id: int, shop: str, created_by: User | None = None) -> Integration:
+        # Validate that the shop exists by attempting to get an access token
+        access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(shop)
+        access_res = requests.post(
+            access_token_url,
+            data={
+                "client_id": settings.SHOPIFY_APP_CLIENT_ID,
+                "client_secret": settings.SHOPIFY_APP_CLIENT_SECRET,
+                "grant_type": SHOPIFY_ACCESS_TOKEN_GRANT,
+            },
+        )
+        if not access_res.ok:
+            if access_res.status_code == 404:
+                raise ValueError(f"Shopify store '{shop}' not found. Please verify the store name is correct.")
+            elif "application is not installed" in access_res.text:
+                raise ValueError(
+                    f"The PostHog data warehouse app is not installed on the Shopify store '{shop}'. Please install the app first."
+                )
+            else:
+                raise ValueError(f"Could not connect to Shopify store '{shop}': {access_res.status_code}")
+
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.SHOPIFY.value,
+            integration_id=shop,
+            defaults={
+                "config": {"shop": shop},
+                "created_by": created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @property
+    def shop(self):
+        return self.integration.config.get("shop")
+
+    def get_access_token(self):
+        access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(self.shop)
+        access_res = requests.post(
+            access_token_url,
+            data={
+                "client_id": settings.SHOPIFY_APP_CLIENT_ID,
+                "client_secret": settings.SHOPIFY_APP_CLIENT_SECRET,
+                "grant_type": SHOPIFY_ACCESS_TOKEN_GRANT,
+            },
+        )
+        if not access_res.ok:
+            raise ValueError(
+                f"Failed to get access token for Shopify integration: shop={self.shop} team={self.integration.team_id} error={access_res.status_code}"
             )
