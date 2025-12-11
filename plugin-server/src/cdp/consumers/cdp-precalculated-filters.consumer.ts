@@ -35,7 +35,6 @@ export type PersonPropertyFilterGlobals = {
 export type PreCalculatedEvent = {
     uuid: string // event uuid
     team_id: number
-    evaluation_timestamp: string
     person_id: string
     distinct_id: string
     condition: string // hash of the filter bytecode
@@ -232,13 +231,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
 
                     // Process each event for this team
                     for (const clickHouseEvent of teamEvents) {
-                        // Convert timestamp to ClickHouse DateTime64(6) format
-                        // Input: '2025-03-03T10:15:46.319000-08:00' -> Output: '2025-03-03 10:15:46.319000'
-                        const evaluationTimestamp = new Date(clickHouseEvent.timestamp)
-                            .toISOString()
-                            .replace('T', ' ')
-                            .replace('Z', '')
-
                         // Convert to filter globals for filter evaluation
                         const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
 
@@ -256,7 +248,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                                     payload: {
                                         uuid: filterGlobals.uuid,
                                         team_id: clickHouseEvent.team_id,
-                                        evaluation_timestamp: evaluationTimestamp,
                                         person_id: clickHouseEvent.person_id!,
                                         distinct_id: filterGlobals.distinct_id,
                                         condition: filter.conditionHash,
@@ -292,7 +283,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                                     payload: {
                                         person_id: clickHouseEvent.person_id!,
                                         team_id: clickHouseEvent.team_id,
-                                        evaluation_timestamp: evaluationTimestamp,
                                         condition: filter.conditionHash,
                                         matches: matches,
                                         source: `cohort_filter_${filter.conditionHash}`,

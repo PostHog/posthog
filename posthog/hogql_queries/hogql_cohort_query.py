@@ -809,7 +809,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 HAVING latest_matches = 1
             )
             WHERE person_id IN (
-                SELECT id FROM persons WHERE team_id = {team_id}
+                SELECT id FROM persons WHERE team_id = {team_id} AND is_deleted = 0
             )
         """
 

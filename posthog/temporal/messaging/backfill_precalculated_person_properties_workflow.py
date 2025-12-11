@@ -145,7 +145,6 @@ async def backfill_precalculated_person_properties_activity(
 
             # Evaluate each person against each filter
             events_to_produce = []
-            evaluation_timestamp = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
             for person in persons:
                 person_id = str(person["id"])
@@ -181,7 +180,6 @@ async def backfill_precalculated_person_properties_activity(
                     event = {
                         "person_id": person_id,
                         "team_id": inputs.team_id,
-                        "evaluation_timestamp": evaluation_timestamp,
                         "condition": filter_info.condition_hash,
                         "matches": matches,
                         "source": f"cohort_backfill_{inputs.cohort_id}",

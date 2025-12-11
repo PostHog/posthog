@@ -112,7 +112,6 @@ def KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL():
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    evaluation_timestamp DateTime64(6),
     person_id UUID,
     condition String,
     matches Bool,

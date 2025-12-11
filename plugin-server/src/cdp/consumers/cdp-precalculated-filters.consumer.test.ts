@@ -239,7 +239,6 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
             expect(preCalculatedEvent.payload).toMatchObject({
                 uuid: eventUuid,
                 team_id: team.id,
-                evaluation_timestamp: '2025-03-03 18:15:46.319',
                 person_id: personId,
                 distinct_id: distinctId,
                 condition: conditionHash,
