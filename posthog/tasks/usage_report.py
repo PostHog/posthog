@@ -1260,6 +1260,7 @@ def get_teams_with_exceptions_captured_in_period(
                 {lib_expression} = 'web', 'web',
                 {lib_expression} = 'js', 'web_lite',
                 {lib_expression} = 'posthog-node', 'node',
+                {lib_expression} = 'posthog-edge', 'node',
                 {lib_expression} = 'posthog-android', 'android',
                 {lib_expression} = 'posthog-flutter', 'flutter',
                 {lib_expression} = 'posthog-ios', 'ios',
