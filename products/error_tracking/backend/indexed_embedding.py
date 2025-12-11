@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 PARTITION BY toDate(inserted_at)
 ORDER BY (inserted_at, model_name, cityHash64(document_id))
 TTL inserted_at + INTERVAL 1 DAY
-SETTINGS index_granularity = 8192
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
 """.format(table_name=DOCUMENT_EMBEDDINGS_BUFFER_TABLE, extra_fields=KAFKA_COLUMNS_WITH_PARTITION)
 
 
