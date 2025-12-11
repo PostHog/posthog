@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import ClickhouseTestMixin, _create_action, _create_event, _create_person
 
 from posthog.schema import DateRange, EventPropertyFilter, EventsNode, FunnelsFilter, FunnelsQuery, PropertyOperator
 
@@ -15,16 +15,7 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors, funnel_test_factory
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action
 from posthog.test.test_journeys import journeys_for
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 class TestFunnelBreakdownUDF(

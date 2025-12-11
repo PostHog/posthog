@@ -66,7 +66,7 @@ from posthog.clickhouse.query_log_archive import (
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models import Action, Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -1259,6 +1259,14 @@ def _create_person(*args, **kwargs):
 
     persons_cache_tests.append(kwargs)
     return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
+
+
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    properties = kwargs.pop("properties", {})
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
+    return action
 
 
 class ClickhouseTestMixin(QueryMatchingTest):
