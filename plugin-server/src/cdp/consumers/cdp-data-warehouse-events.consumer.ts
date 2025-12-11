@@ -122,8 +122,6 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
         // Iterate over adding them to the list and updating their priority
         await Promise.all(
             possibleInvocations.map(async (item, index) => {
-                // Disable invocations for teams that don't have the addon (for now just metric them out..)
-
                 try {
                     const rateLimit = rateLimits[index][1]
                     if (rateLimit.isRateLimited) {
