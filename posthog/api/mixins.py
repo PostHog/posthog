@@ -90,6 +90,7 @@ def validated_request(
         @wraps(view_func)
         def wrapper(self, request: Request, *args, **kwargs) -> Response:
             validated_request = cast(ValidatedRequest, request)
+            validated_request.validated_query_data = {}
 
             if query_serializer is not None:
                 query_serializer_instance = query_serializer(data=request.query_params)

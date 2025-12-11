@@ -1135,8 +1135,34 @@ def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> N
     update_feature_flag_dashboard(feature_flag, old_key)
 
 
+class GroupsJSONField(serializers.CharField):
+    """
+    CharField that parses JSON object strings.
+    Matches legacy behavior of json.loads(request.GET.get("groups", "{}")).
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("default", "{}")
+        kwargs.setdefault("allow_blank", True)
+        kwargs.setdefault("help_text", "Groups for feature flag evaluation (JSON object string)")
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        if not value:
+            return {}
+        try:
+            parsed = json.loads(value)
+            if not isinstance(parsed, dict):
+                raise serializers.ValidationError("groups must be a JSON object")
+            return parsed
+        except (json.JSONDecodeError, ValueError):
+            raise serializers.ValidationError("Invalid JSON in groups parameter")
+
+
 class MyFlagsQuerySerializer(serializers.Serializer):
-    groups = serializers.JSONField(required=False, default=dict, help_text="Groups for feature flag evaluation")
+    groups = GroupsJSONField()
 
 
 class LocalEvaluationQuerySerializer(serializers.Serializer):
@@ -1154,7 +1180,7 @@ class LocalEvaluationQuerySerializer(serializers.Serializer):
 
 class EvaluationReasonsQuerySerializer(serializers.Serializer):
     distinct_id = serializers.CharField(required=True, help_text="User distinct ID")
-    groups = serializers.JSONField(required=False, default=dict, help_text="Groups for feature flag evaluation")
+    groups = GroupsJSONField()
 
 
 class ActivityQuerySerializer(serializers.Serializer):
@@ -1175,13 +1201,14 @@ class FlagEvaluationResultSerializer(serializers.Serializer):
 
 
 class EvaluationReasonsResponseSerializer(serializers.Serializer):
-    """Response serializer for evaluation_reasons endpoint - a dict of flag keys to evaluation results."""
+    """
+    Response for evaluation_reasons endpoint.
 
-    def to_representation(self, instance):
-        return instance
+    Structure: Dict[flag_key: str, FlagEvaluationResultSerializer]
+    See OpenApiExample for concrete shape.
+    """
 
-    def to_internal_value(self, data):
-        return data
+    pass
 
 
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
