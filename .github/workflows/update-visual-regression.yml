@@ -57,7 +57,8 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   BRANCH="${{ steps.validate.outputs.branch }}"
-                  if ! git ls-remote --heads origin "$BRANCH" | grep -q .; then
+                  # Use GitHub API - no checkout needed at this point
+                  if ! gh api "repos/${{ github.repository }}/branches/${BRANCH}" --silent 2>/dev/null; then
                     echo "::error::Branch '$BRANCH' does not exist"
                     exit 1
                   fi
