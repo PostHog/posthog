@@ -13,7 +13,7 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement } from '~/toolbar/utils'
-import { ProductTour } from '~/types'
+import { ProductTour, ProductTourStep, StepOrderVersion } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
 import { captureScreenshot, getElementMetadata } from './utils'
@@ -60,7 +60,7 @@ function tourToForm(tour: ProductTour): TourForm {
         id: tour.id,
         name: tour.name,
         steps: (tour.content?.steps ?? []).map((step) => ({
-            id: uuid(),
+            id: step.id || uuid(), // Preserve existing ID, generate new one only if missing
             selector: step.selector,
             content: step.content,
         })),
@@ -70,6 +70,36 @@ function tourToForm(tour: ProductTour): TourForm {
 function isToolbarElement(element: HTMLElement): boolean {
     const toolbar = document.getElementById(TOOLBAR_ID)
     return toolbar?.contains(element) ?? false
+}
+
+/** Check if steps have changed compared to the latest version in history */
+function hasStepsChanged(currentSteps: ProductTourStep[], history: StepOrderVersion[] | undefined): boolean {
+    if (!history || history.length === 0) {
+        return true // No history means we need to create the first version
+    }
+    const latestVersion = history[history.length - 1]
+    if (currentSteps.length !== latestVersion.steps.length) {
+        return true
+    }
+    return currentSteps.some((step, index) => step.id !== latestVersion.steps[index].id)
+}
+
+/** Create updated step order history, appending a new version if steps changed */
+function getUpdatedStepOrderHistory(
+    currentSteps: ProductTourStep[],
+    existingHistory: StepOrderVersion[] | undefined
+): StepOrderVersion[] {
+    const history = existingHistory ? [...existingHistory] : []
+
+    if (hasStepsChanged(currentSteps, history)) {
+        history.push({
+            id: uuid(),
+            steps: currentSteps,
+            created_at: new Date().toISOString(),
+        })
+    }
+
+    return history
 }
 
 export const productToursLogic = kea<productToursLogicType>([
@@ -267,11 +297,24 @@ export const productToursLogic = kea<productToursLogicType>([
             },
             submit: async (formValues) => {
                 const { id, name, steps } = formValues
-                // Strip element references from steps before saving
-                const stepsForApi = steps.map(({ selector, content }) => ({ selector, content }))
+                // Strip element references from steps before saving (element is a local-only DOM ref)
+                const stepsForApi = steps.map(({ element: _, ...step }) => step)
+
+                // Get existing step_order_history if updating an existing tour
+                const existingTour = id ? values.tours.find((t: ProductTour) => t.id === id) : null
+                const existingHistory = existingTour?.content?.step_order_history
+
+                // Update history if step order changed (or create initial version for new tours)
+                const stepOrderHistory = getUpdatedStepOrderHistory(stepsForApi, existingHistory)
+
                 const payload = {
                     name,
-                    content: { steps: stepsForApi },
+                    content: {
+                        // Preserve existing content fields (appearance, conditions) when updating
+                        ...existingTour?.content,
+                        steps: stepsForApi,
+                        step_order_history: stepOrderHistory,
+                    },
                 }
 
                 const isUpdate = !!id
