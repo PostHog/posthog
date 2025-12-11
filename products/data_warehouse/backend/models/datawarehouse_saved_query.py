@@ -129,6 +129,136 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
+    def setup_data_modeling_graph(self, dag_id: Optional[str] = None):
+        """Create or update Node and Edge objects for the data modeling graph.
+
+        This creates:
+        1. A Node for this saved query (view or matview)
+        2. Nodes for any parent tables that don't have nodes yet
+        3. Edges from parent nodes to this node
+
+        Args:
+            dag_id: The DAG to add this node to. If None and node exists, preserves existing dag_id.
+                   If None and node doesn't exist, defaults to "posthog".
+        """
+        from django.core.exceptions import ObjectDoesNotExist
+
+        from posthog.hogql.database.database import Database
+        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+        from posthog.hogql.errors import QueryError
+
+        from products.data_modeling.backend.models import Edge, Node, NodeType
+        from products.data_warehouse.backend.models.modeling import get_parents_from_model_query
+        from products.data_warehouse.backend.models.table import DataWarehouseTable
+
+        node_type = NodeType.MAT_VIEW if self.is_materialized else NodeType.VIEW
+
+        existing_node = Node.objects.filter(team=self.team, saved_query=self).first()
+        if dag_id is None:
+            dag_id = existing_node.dag_id if existing_node else "posthog"
+
+        logger.info(
+            "Setting up data modeling graph",
+            saved_query_id=str(self.id),
+            saved_query_name=self.name,
+            node_type=node_type,
+            dag_id=dag_id,
+        )
+
+        with transaction.atomic():
+            node, created = Node.objects.update_or_create(
+                team=self.team,
+                saved_query=self,
+                defaults={
+                    "dag_id": dag_id,
+                    "name": self.name,
+                    "type": node_type,
+                },
+            )
+            logger.info(
+                "Created/updated node",
+                node_id=str(node.id),
+                node_created=created,
+                saved_query_id=str(self.id),
+            )
+
+            if not created:
+                Edge.objects.filter(team=self.team, dag_id=dag_id, target=node).delete()
+
+            try:
+                parents = get_parents_from_model_query(self.query["query"])
+            except Exception:
+                logger.exception("Failed to parse query for parents", saved_query_id=str(self.id))
+                return
+
+            database = Database.create_for(team=self.team)
+
+            for parent_name in parents:
+                parent_node = None
+
+                try:
+                    parent_saved_query = (
+                        DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                        .filter(team=self.team, name=parent_name)
+                        .get()
+                    )
+                    parent_node, _ = Node.objects.get_or_create(
+                        team=self.team,
+                        saved_query=parent_saved_query,
+                        defaults={
+                            "dag_id": dag_id,
+                            "name": parent_saved_query.name,
+                            "type": NodeType.MAT_VIEW if parent_saved_query.is_materialized else NodeType.VIEW,
+                        },
+                    )
+                except ObjectDoesNotExist:
+                    pass
+
+                if parent_node is None:
+                    try:
+                        table = database.get_table(parent_name)
+                        if isinstance(table, HogQLDataWarehouseTable):
+                            if table.table_id:
+                                parent_table = (
+                                    DataWarehouseTable.objects.exclude(deleted=True)
+                                    .filter(team=self.team, id=table.table_id)
+                                    .get()
+                                )
+                            else:
+                                parent_table = (
+                                    DataWarehouseTable.objects.exclude(deleted=True)
+                                    .filter(team=self.team, name=table.name)
+                                    .get()
+                                )
+                            parent_node, _ = Node.objects.get_or_create(
+                                team=self.team,
+                                dag_id=dag_id,
+                                name=parent_table.name,
+                                defaults={"type": NodeType.TABLE},
+                            )
+                        else:
+                            parent_node, _ = Node.objects.get_or_create(
+                                team=self.team,
+                                dag_id=dag_id,
+                                name=parent_name,
+                                defaults={"type": NodeType.TABLE},
+                            )
+                    except (ObjectDoesNotExist, QueryError):
+                        parent_node, _ = Node.objects.get_or_create(
+                            team=self.team,
+                            dag_id=dag_id,
+                            name=parent_name,
+                            defaults={"type": NodeType.TABLE},
+                        )
+
+                if parent_node:
+                    Edge.objects.get_or_create(
+                        team=self.team,
+                        dag_id=dag_id,
+                        source=parent_node,
+                        target=node,
+                    )
+
     def schedule_materialization(self, unpause: bool = False):
         """
         It will schedule the saved query workflow to run at the configured frequency.

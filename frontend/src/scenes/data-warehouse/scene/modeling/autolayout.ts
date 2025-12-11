@@ -35,6 +35,7 @@ export const getFormattedNodes = async (nodes: ModelNode[], edges: Edge[]): Prom
         'elk.alignment': 'CENTER',
         'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
         'elk.padding': '[left=0, top=0, right=0, bottom=0]',
+        'elk.layered.crossingMinimization.forceNodeModelOrder': 'true',
     }
 
     const graph: ElkNode = {

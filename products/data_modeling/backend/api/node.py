@@ -178,6 +178,16 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"node_ids": list(node_ids)}, status=status.HTTP_200_OK)
 
+    @action(methods=["GET"], detail=False)
+    def dag_ids(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Get all distinct dag_ids for the team's nodes.
+        """
+        dag_ids = list(
+            Node.objects.filter(team_id=self.team_id).values_list("dag_id", flat=True).distinct().order_by("dag_id")
+        )
+        return response.Response({"dag_ids": dag_ids}, status=status.HTTP_200_OK)
+
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
         """

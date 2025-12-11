@@ -3977,7 +3977,9 @@ const api = {
         async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()
         },
-        async create(data: Partial<DataWarehouseSavedQuery> & { types: string[][] }): Promise<DataWarehouseSavedQuery> {
+        async create(
+            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; dag_id?: string }
+        ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQueries().create({ data })
         },
         async delete(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
@@ -3985,7 +3987,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; edited_history_id?: string }
+            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; edited_history_id?: string; dag_id?: string }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
@@ -4044,6 +4046,9 @@ const api = {
         },
         async materialize(nodeId: DataModelingNode['id']): Promise<void> {
             await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
+        },
+        async dagIds(): Promise<{ dag_ids: string[] }> {
+            return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
     },
 

@@ -7,7 +7,7 @@ import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
-import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -187,10 +187,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: true,
         loadUpstream: (modelId: string) => ({ modelId }),
         saveAsView: (materializeAfterSave = false, fromDraft?: string) => ({ fromDraft, materializeAfterSave }),
-        saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string) => ({
+        saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string, dagId?: string) => ({
             fromDraft,
             name,
             materializeAfterSave,
+            dagId,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
@@ -671,40 +672,58 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
+            let dagIds: string[] = []
+            try {
+                const response = await api.dataModelingNodes.dagIds()
+                dagIds = response.dag_ids
+            } catch {
+                // Silently fail - user can still save without selecting a DAG
+            }
+
+            const dagOptions = [
+                { value: '', label: 'None (standalone view)' },
+                ...dagIds.map((id) => ({ value: id, label: id })),
+            ]
+
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: values.activeTab?.name || '' },
+                initialValues: { viewName: values.activeTab?.name || '', dagId: '' },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
-                content: (isLoading) =>
+                content: (isLoading: boolean) =>
                     isLoading ? (
                         <div className="h-[37px] flex items-center">
                             <ViewEmptyState />
                         </div>
                     ) : (
-                        <LemonField name="viewName">
-                            <LemonInput
-                                data-attr="sql-editor-input-save-view-name"
-                                disabled={isLoading}
-                                placeholder="Please enter the name of the view"
-                                autoFocus
-                            />
-                        </LemonField>
+                        <div className="flex flex-col gap-2">
+                            <LemonField name="viewName" label="View name">
+                                <LemonInput
+                                    data-attr="sql-editor-input-save-view-name"
+                                    disabled={isLoading}
+                                    placeholder="Please enter the name of the view"
+                                    autoFocus
+                                />
+                            </LemonField>
+                            <LemonField name="dagId" label="Add to DAG (optional)">
+                                <LemonSelect options={dagOptions} placeholder="Select a DAG" fullWidth />
+                            </LemonField>
+                        </div>
                     ),
                 errors: {
-                    viewName: (name) =>
+                    viewName: (name: string) =>
                         !name
                             ? 'You must enter a name'
                             : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
                               ? 'Name must be valid'
                               : undefined,
                 },
-                onSubmit: async ({ viewName }) => {
-                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft)
+                onSubmit: async ({ viewName, dagId }) => {
+                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft, dagId || undefined)
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft }) => {
+        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, dagId }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
             const queryToSave = {
@@ -724,6 +743,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     name,
                     query: queryToSave,
                     types,
+                    dag_id: dagId,
                 })
 
                 // Saved queries are unique by team,name
@@ -735,6 +755,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         sync_frequency: '24hour',
                         types: [[]],
                         lifecycle: 'create',
+                        dag_id: dagId,
                     })
                 }
 

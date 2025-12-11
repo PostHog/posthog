@@ -71,6 +71,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
     soft_update = serializers.BooleanField(write_only=True, required=False, allow_null=True)
+    dag_id = serializers.CharField(write_only=True, required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -91,6 +92,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_history_id",
             "soft_update",
             "is_materialized",
+            "dag_id",
         ]
         read_only_fields = [
             "id",
@@ -106,6 +108,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
+            "dag_id": {"write_only": True},
         }
 
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
@@ -166,6 +169,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         validated_data["created_by"] = self.context["request"].user
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
+        dag_id = validated_data.pop("dag_id", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
         if not soft_update:
@@ -198,6 +202,12 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 # Later, after bugs and errors have been ironed out, we may tie these two
                 # closer together.
                 logger.exception("Failed to create model path when creating view %s", view.name)
+
+            try:
+                view.setup_data_modeling_graph(dag_id=dag_id)
+                logger.info("Successfully created data modeling graph for view %s", view.name)
+            except Exception:
+                logger.exception("Failed to create data modeling graph when creating view %s", view.name)
 
             team = Team.objects.get(id=view.team_id)
 
@@ -242,6 +252,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         was_sync_frequency_updated = False
 
         soft_update = validated_data.pop("soft_update", False)
+        dag_id = validated_data.pop("dag_id", None)
 
         with transaction.atomic():
             locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
@@ -305,6 +316,11 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 view.setup_model_paths()
             except Exception:
                 logger.exception("Failed to update model path when updating view %s", view.name)
+
+            try:
+                view.setup_data_modeling_graph(dag_id=dag_id)
+            except Exception:
+                logger.exception("Failed to update data modeling graph when updating view %s", view.name)
 
             team = Team.objects.get(id=view.team_id)
 
@@ -482,12 +498,30 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        from products.data_modeling.backend.models import Edge, Node
+
         instance: DataWarehouseSavedQuery = self.get_object()
 
         if instance.managed_viewset is not None:
             raise serializers.ValidationError(
                 "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
             )
+
+        try:
+            node = Node.objects.get(team_id=instance.team_id, saved_query=instance)
+            downstream_edges = Edge.objects.filter(team_id=instance.team_id, source=node)
+            if downstream_edges.exists():
+                downstream_names = list(
+                    Node.objects.filter(id__in=downstream_edges.values_list("target_id", flat=True)).values_list(
+                        "name", flat=True
+                    )
+                )
+                raise serializers.ValidationError(
+                    f"Cannot delete this view because it is used by other models in the data modeling graph: {', '.join(downstream_names)}. "
+                    "Please update or delete those models first."
+                )
+        except Node.DoesNotExist:
+            pass
 
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
