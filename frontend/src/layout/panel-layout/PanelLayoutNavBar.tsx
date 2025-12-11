@@ -14,6 +14,7 @@ import {
     IconHome,
     IconNewspaper,
     IconPeople,
+    IconSearch,
     IconShortcut,
     IconSidebarClose,
     IconSidebarOpen,
@@ -157,6 +158,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         return false
     }
 
+    function handleSearchClick(): void {
+        const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
+
+        if (mountedLogic) {
+            setTimeout(() => {
+                mountedLogic.actions.focusNewTabSearchInput()
+            }, 100)
+        }
+    }
+
     const navItems: {
         identifier: string
         label: string
@@ -174,6 +185,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             to: urls.projectRoot(),
             onClick: () => handleStaticNavbarItemClick(urls.projectRoot(), true),
             collapsedTooltip: 'Home',
+        },
+        {
+            identifier: 'Search',
+            label: 'Search',
+            icon: <IconSearch />,
+            to: urls.newTab(),
+            onClick: () => {
+                handleSearchClick()
+                handleStaticNavbarItemClick(urls.newTab(), true)
+            },
+            collapsedTooltip: 'Search',
         },
         ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
             ? [
@@ -484,12 +506,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         if (
                                             removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()
                                         ) {
-                                            const mountedLogic = activeTabId
-                                                ? newTabSceneLogic.findMounted({ tabId: activeTabId })
-                                                : null
-                                            if (mountedLogic) {
-                                                mountedLogic.actions.focusNewTabSearchInput()
-                                            }
+                                            handleSearchClick()
                                         } else {
                                             router.actions.push(urls.newTab())
                                         }
