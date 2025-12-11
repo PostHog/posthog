@@ -1,0 +1,731 @@
+#
+# Manual workflow to update visual regression screenshots on a branch.
+# This immediately commits updated screenshots without requiring approval.
+#
+name: Update Visual Regression Screenshots
+
+on:
+    workflow_dispatch:
+        inputs:
+            test_type:
+                description: 'Which tests to update'
+                required: true
+                default: 'both'
+                type: choice
+                options:
+                    - storybook
+                    - playwright
+                    - both
+            branch:
+                description: 'Branch to update (cannot be master or main)'
+                required: true
+                type: string
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    validate:
+        name: Validate inputs
+        runs-on: ubuntu-latest
+        outputs:
+            branch: ${{ steps.validate.outputs.branch }}
+        steps:
+            - name: Validate branch
+              id: validate
+              run: |
+                  BRANCH="${{ github.event.inputs.branch }}"
+
+                  # Security: Prevent updates to protected branches
+                  if [[ "$BRANCH" == "master" || "$BRANCH" == "main" ]]; then
+                    echo "::error::Cannot update screenshots on master/main branch"
+                    exit 1
+                  fi
+
+                  # Security: Prevent path traversal attempts
+                  if [[ "$BRANCH" == *".."* || "$BRANCH" == *"/"* && "$BRANCH" == "refs/"* ]]; then
+                    echo "::error::Invalid branch name"
+                    exit 1
+                  fi
+
+                  echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+                  echo "✅ Will update screenshots on branch: $BRANCH"
+
+            - name: Verify branch exists
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  BRANCH="${{ steps.validate.outputs.branch }}"
+                  if ! git ls-remote --heads origin "$BRANCH" | grep -q .; then
+                    echo "::error::Branch '$BRANCH' does not exist"
+                    exit 1
+                  fi
+                  echo "✅ Branch exists"
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STORYBOOK VISUAL REGRESSION
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    build-storybook:
+        name: Build Storybook
+        runs-on: depot-ubuntu-24.04-8
+        needs: validate
+        if: github.event.inputs.test_type == 'storybook' || github.event.inputs.test_type == 'both'
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.validate.outputs.branch }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.17.1
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+
+            - name: Build Storybook
+              env:
+                  NODE_OPTIONS: --max-old-space-size=32768
+              run: |
+                  bin/turbo --filter=@posthog/storybook prepare
+                  pnpm --filter=@posthog/storybook build --test
+
+            - name: Upload Storybook build artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
+                  retention-days: 1
+
+    storybook-visual-regression:
+        name: Storybook visual regression - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
+        runs-on: ubuntu-latest
+        needs: [validate, build-storybook]
+        if: github.event.inputs.test_type == 'storybook' || github.event.inputs.test_type == 'both'
+        timeout-minutes: 20
+        container:
+            image: mcr.microsoft.com/playwright:v1.45.0
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 1
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 2
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 3
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 4
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 5
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 6
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 7
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 8
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 9
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 10
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 11
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 12
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 13
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 14
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 15
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 16
+                    - browser: webkit
+                      shard_count: 3
+                      shard: 1
+                    - browser: webkit
+                      shard_count: 3
+                      shard: 2
+                    - browser: webkit
+                      shard_count: 3
+                      shard: 3
+        env:
+            NODE_OPTIONS: --max-old-space-size=16384
+            OPT_OUT_CAPTURE: 1
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.validate.outputs.branch }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.17.1
+                  cache: pnpm
+
+            - name: Get pnpm cache directory path
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@v4
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-regression-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-regression-
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+
+            - name: Install CI utilities with pnpm
+              run: pnpm install http-server wait-on -g
+
+            - name: Download Storybook build artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
+
+            - name: Serve Storybook in the background
+              run: |
+                  pnpm exec http-server common/storybook/dist --port 6006 --silent &
+                  pnpm wait-on http://127.0.0.1:6006 --timeout 60000
+                  echo "✅ Storybook is available at http://127.0.0.1:6006"
+
+            - name: Run @storybook/test-runner with update
+              env:
+                  HOME: /root
+                  STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
+              run: |
+                  # Run directly in update mode - this is a manual update workflow
+                  pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
+
+            - name: Configure global git diff log
+              run: git config --global --add safe.directory '*'
+
+            - name: Create snapshot patch
+              id: create-patch
+              if: always()
+              run: |
+                  if ! git rev-parse --git-dir > /dev/null 2>&1; then
+                    echo "Not in a git repository, skipping patch creation"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  if [ -z "$(git status --porcelain frontend/__snapshots__/)" ]; then
+                    echo "No snapshot changes"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "Snapshot changes detected:"
+                    git status --short frontend/__snapshots__/
+                    git add -N frontend/__snapshots__/
+                    mkdir -p /tmp/patches
+                    git diff --binary --full-index frontend/__snapshots__/ > /tmp/patches/shard-${{ matrix.browser }}-${{ matrix.shard }}.patch
+                    echo "Created patch file"
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Upload snapshot patch
+              if: steps.create-patch.outputs.has-changes == 'true'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: storybook-patch-${{ matrix.browser }}-${{ matrix.shard }}
+                  path: /tmp/patches/shard-${{ matrix.browser }}-${{ matrix.shard }}.patch
+                  retention-days: 1
+                  if-no-files-found: ignore
+
+    commit-storybook-snapshots:
+        name: Commit Storybook snapshots
+        runs-on: ubuntu-latest
+        needs: [validate, storybook-visual-regression]
+        if: always() && (github.event.inputs.test_type == 'storybook' || github.event.inputs.test_type == 'both') && needs.storybook-visual-regression.result != 'cancelled'
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.validate.outputs.branch }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  fetch-depth: 1
+
+            - name: Download snapshot patches
+              id: download-patches
+              continue-on-error: true
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: storybook-patch-*
+                  path: /tmp/snapshot-patches/
+                  merge-multiple: true
+
+            - name: Check for snapshot changes
+              id: check-snapshots
+              run: |
+                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/snapshot-patches/ ]; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "No snapshot patches found"
+                    exit 0
+                  fi
+
+                  PATCHES=$(find /tmp/snapshot-patches -name "*.patch" -type f -size +0c)
+                  if [ -z "$PATCHES" ]; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "Patch files empty - no snapshot changes"
+                  else
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                    echo "Snapshot changes detected in patches"
+                  fi
+
+            - name: Apply and commit snapshots
+              if: steps.check-snapshots.outputs.has-changes == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+              run: |
+                  git config --global --add safe.directory '*'
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  # Apply all patches
+                  echo "Applying snapshot patches..."
+                  for patch in /tmp/snapshot-patches/*.patch; do
+                    if [ -s "$patch" ]; then
+                      echo "Applying $patch"
+                      git apply --index "$patch"
+                    fi
+                  done
+
+                  # Count changes
+                  ADDED=$(git diff --cached --diff-filter=A --name-only frontend/__snapshots__/ | wc -l | tr -d ' ')
+                  MODIFIED=$(git diff --cached --diff-filter=M --name-only frontend/__snapshots__/ | wc -l | tr -d ' ')
+                  DELETED=$(git diff --cached --diff-filter=D --name-only frontend/__snapshots__/ | wc -l | tr -d ' ')
+                  TOTAL=$((ADDED + MODIFIED + DELETED))
+
+                  echo "📊 Storybook snapshot changes: +$ADDED ~$MODIFIED -$DELETED (total: $TOTAL)"
+
+                  if [ "$TOTAL" -gt 0 ]; then
+                    git add frontend/__snapshots__/ -A
+                    git commit -m "test(storybook): update UI snapshots [manual]"
+                    git push origin HEAD:"${{ needs.validate.outputs.branch }}"
+                    echo "✅ Committed and pushed Storybook snapshot changes"
+                  fi
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PLAYWRIGHT E2E VISUAL REGRESSION
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    playwright:
+        name: Playwright E2E tests
+        needs: validate
+        if: github.event.inputs.test_type == 'playwright' || github.event.inputs.test_type == 'both'
+        runs-on: depot-ubuntu-latest-16
+        timeout-minutes: 30
+        env:
+            SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+            REDIS_URL: redis://localhost
+            DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
+            PERSONS_DB_WRITER_URL: postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test
+            KAFKA_HOSTS: kafka:9092
+            DISABLE_SECURE_SSL_REDIRECT: 1
+            SECURE_COOKIES: 0
+            OPT_OUT_CAPTURE: 0
+            E2E_TESTING: 1
+            SKIP_SERVICE_VERSION_REQUIREMENTS: 1
+            EMAIL_HOST: email.test.posthog.net
+            SITE_URL: http://localhost:8000
+            NO_RESTART_LOOP: 1
+            OBJECT_STORAGE_ENABLED: 1
+            OBJECT_STORAGE_ENDPOINT: http://localhost:19000
+            OBJECT_STORAGE_ACCESS_KEY_ID: object_storage_root_user
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: object_storage_root_password
+            CELERY_METRICS_PORT: 8999
+            CLOUD_DEPLOYMENT: E2E
+            CLICKHOUSE_HOST: 'localhost'
+            CLICKHOUSE_SECURE: 'False'
+            CLICKHOUSE_VERIFY: 'False'
+            CLICKHOUSE_DATABASE: posthog_test
+            PGHOST: localhost
+            PGUSER: posthog
+            PGPASSWORD: posthog
+            PGPORT: 5432
+            OIDC_RSA_PRIVATE_KEY: ${{ secrets.OIDC_RSA_PRIVATE_KEY }}
+            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+            GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+            INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
+            AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
+            AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.validate.outputs.branch }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  clean: false
+
+            - name: Clean up data directories with container permissions
+              run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+
+            - name: Stop/Start stack with Docker Compose
+              shell: bash
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+
+                  (
+                    max_attempts=3
+                    attempt=1
+                    delay=5
+                    while [ $attempt -le $max_attempts ]; do
+                        echo "Attempt $attempt of $max_attempts to start stack..."
+                        if docker compose -f docker-compose.dev.yml down && \
+                          docker compose -f docker-compose.dev.yml up -d; then
+                            echo "Stack started successfully"
+                            exit 0
+                        fi
+                        echo "Failed to start stack on attempt $attempt"
+                        if [ $attempt -lt $max_attempts ]; then
+                            sleep_time=$((delay * 2 ** (attempt - 1)))
+                            echo "Waiting ${sleep_time} seconds before retry..."
+                            sleep $sleep_time
+                        fi
+                        attempt=$((attempt + 1))
+                    done
+                    echo "Failed to start stack after $max_attempts attempts"
+                    exit 1
+                  ) &
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: 3.12.12
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.9.9
+
+            - name: Determine if hogql-parser has changed compared to master
+              id: hogql-parser-diff
+              run: |
+                  git fetch --no-tags --prune --depth=1 origin master
+                  changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
+                  echo "changed=$changed" >> $GITHUB_OUTPUT
+
+            - name: Install SAML (python3-saml) dependencies
+              run: sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.17.1
+                  cache: pnpm
+
+            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
+
+            - name: Install plugin_transpiler
+              run: |
+                  pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/plugin-transpiler build
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install the working version of hogql-parser
+              if: steps.hogql-parser-diff.outputs.changed == 'true'
+              run: |
+                  sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
+                  curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  anltr_known_md5sum="c875c148991aacd043f733827644a76f"
+                  antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
+                  if [[ "$anltr_known_md5sum" != "$antlr_found_ms5sum" ]]; then
+                      echo "Unexpected MD5 sum of antlr4-source.zip!"
+                      exit 64
+                  fi
+                  unzip antlr4-source.zip -d antlr4-source && cd antlr4-source
+                  cmake .
+                  DESTDIR=out make install
+                  sudo cp -r out/usr/local/include/antlr4-runtime /usr/include/
+                  sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
+                  sudo ldconfig
+                  cd ..
+                  pip install ./common/hogql_parser
+
+            - name: Set up needed files
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/exporter.html
+                  ./bin/download-mmdb
+
+            - name: Get pnpm cache directory path
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@v4
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-playwright-
+
+            - name: Install package.json dependencies with pnpm
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Wait for services to be available
+              run: |
+                  bin/check_kafka_clickhouse_up
+                  bin/check_postgres_up
+
+            - name: Build frontend
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  pnpm --filter=@posthog/frontend build:products
+                  pnpm --filter=@posthog/frontend build
+
+            - name: Collect static files
+              run: |
+                  cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
+
+            - name: Create test database
+              run: |
+                  createdb posthog_e2e_test || echo "Database already exists"
+                  echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+                  echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
+            - name: Apply postgres and clickhouse migrations and setup dev
+              run: |
+                  python manage.py migrate_clickhouse &
+                  python manage.py migrate --noinput
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
+                  sqlx database create -D "$PERSONS_DATABASE_URL"
+                  sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
+                  python manage.py setup_dev
+                  wait
+
+            - name: Source celery queues
+              run: |
+                  source ./bin/celery-queues.env
+                  echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
+
+            - name: Start PostHog web & Celery worker
+              run: |
+                  python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 4 &> /tmp/server.log &
+
+            - name: Install Playwright browsers
+              run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
+
+            - name: Wait for PostHog to be ready
+              uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
+              with:
+                  resource: http://localhost:8000
+                  timeout: 180000
+                  interval: 2000
+                  verbose: true
+
+            - name: Run Playwright tests with --update-snapshots
+              run: |
+                  # Run directly with --update-snapshots - this is a manual update workflow
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=6 --update-snapshots
+
+            - name: Create screenshot patch
+              id: create-patch
+              if: always()
+              run: |
+                  if ! git rev-parse --git-dir > /dev/null 2>&1; then
+                    echo "Not in a git repository, skipping patch creation"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  if [ -z "$(git status --porcelain playwright/)" ]; then
+                    echo "No screenshot changes"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "Screenshot changes detected:"
+                    git status --short playwright/
+                    git add -N playwright/
+                    mkdir -p /tmp/patches
+                    git diff --binary --full-index playwright/ > /tmp/patches/playwright-patch.patch
+                    echo "Created patch file"
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Upload screenshot patch
+              if: steps.create-patch.outputs.has-changes == 'true'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: playwright-patch
+                  path: /tmp/patches/playwright-patch.patch
+                  retention-days: 1
+                  if-no-files-found: ignore
+
+            - name: Archive test artifacts
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: playwright-test-results
+                  path: |
+                      playwright/playwright-report/
+                      playwright/test-results/
+                      /tmp/celery.log
+                      /tmp/server.log
+                  retention-days: 7
+                  if-no-files-found: ignore
+
+    commit-playwright-snapshots:
+        name: Commit Playwright snapshots
+        runs-on: ubuntu-latest
+        needs: [validate, playwright]
+        if: always() && (github.event.inputs.test_type == 'playwright' || github.event.inputs.test_type == 'both') && needs.playwright.result != 'cancelled'
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ needs.validate.outputs.branch }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  fetch-depth: 1
+
+            - name: Download screenshot patches
+              id: download-patches
+              continue-on-error: true
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: playwright-patch
+                  path: /tmp/screenshot-patches/
+                  merge-multiple: true
+
+            - name: Check for screenshot changes
+              id: check-snapshots
+              run: |
+                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/screenshot-patches/ ]; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "No screenshot patches found"
+                    exit 0
+                  fi
+
+                  PATCHES=$(find /tmp/screenshot-patches -name "*.patch" -type f -size +0c)
+                  if [ -z "$PATCHES" ]; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "Patch files empty - no screenshot changes"
+                  else
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                    echo "Screenshot changes detected in patches"
+                  fi
+
+            - name: Apply and commit snapshots
+              if: steps.check-snapshots.outputs.has-changes == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+              run: |
+                  git config --global --add safe.directory '*'
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  # Apply all patches
+                  echo "Applying screenshot patches..."
+                  for patch in /tmp/screenshot-patches/*.patch; do
+                    if [ -s "$patch" ]; then
+                      echo "Applying $patch"
+                      git apply --index "$patch"
+                    fi
+                  done
+
+                  # Count changes
+                  ADDED=$(git diff --cached --diff-filter=A --name-only playwright/ | wc -l | tr -d ' ')
+                  MODIFIED=$(git diff --cached --diff-filter=M --name-only playwright/ | wc -l | tr -d ' ')
+                  DELETED=$(git diff --cached --diff-filter=D --name-only playwright/ | wc -l | tr -d ' ')
+                  TOTAL=$((ADDED + MODIFIED + DELETED))
+
+                  echo "📊 Playwright screenshot changes: +$ADDED ~$MODIFIED -$DELETED (total: $TOTAL)"
+
+                  if [ "$TOTAL" -gt 0 ]; then
+                    git add playwright/ -A
+                    git commit -m "test(e2e): update screenshots [manual]"
+                    git push origin HEAD:"${{ needs.validate.outputs.branch }}"
+                    echo "✅ Committed and pushed Playwright screenshot changes"
+                  fi
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SUMMARY
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    summary:
+        name: Update complete
+        runs-on: ubuntu-latest
+        needs: [validate, commit-storybook-snapshots, commit-playwright-snapshots]
+        if: always()
+        steps:
+            - name: Summary
+              run: |
+                  echo "## Visual Regression Screenshot Update Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Branch:** \`${{ needs.validate.outputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Test type:** ${{ github.event.inputs.test_type }}" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+
+                  if [ "${{ github.event.inputs.test_type }}" == "storybook" ] || [ "${{ github.event.inputs.test_type }}" == "both" ]; then
+                    echo "### Storybook" >> $GITHUB_STEP_SUMMARY
+                    if [ "${{ needs.commit-storybook-snapshots.result }}" == "success" ]; then
+                      echo "✅ Storybook snapshots updated successfully" >> $GITHUB_STEP_SUMMARY
+                    elif [ "${{ needs.commit-storybook-snapshots.result }}" == "skipped" ]; then
+                      echo "⏭️ Storybook update skipped" >> $GITHUB_STEP_SUMMARY
+                    else
+                      echo "❌ Storybook update failed" >> $GITHUB_STEP_SUMMARY
+                    fi
+                  fi
+
+                  if [ "${{ github.event.inputs.test_type }}" == "playwright" ] || [ "${{ github.event.inputs.test_type }}" == "both" ]; then
+                    echo "### Playwright" >> $GITHUB_STEP_SUMMARY
+                    if [ "${{ needs.commit-playwright-snapshots.result }}" == "success" ]; then
+                      echo "✅ Playwright screenshots updated successfully" >> $GITHUB_STEP_SUMMARY
+                    elif [ "${{ needs.commit-playwright-snapshots.result }}" == "skipped" ]; then
+                      echo "⏭️ Playwright update skipped" >> $GITHUB_STEP_SUMMARY
+                    else
+                      echo "❌ Playwright update failed" >> $GITHUB_STEP_SUMMARY
+                    fi
+                  fi
