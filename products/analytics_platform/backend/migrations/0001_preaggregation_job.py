@@ -47,10 +47,10 @@ class Migration(migrations.Migration):
             ],
             options={
                 "indexes": [
-                    models.Index(fields=["team", "query_hash"], name="posthog_pre_team_id_55b0ae_idx"),
-                    models.Index(fields=["team", "status"], name="posthog_pre_team_id_9e07ac_idx"),
+                    models.Index(fields=["team", "query_hash"], name="analytics_p_team_id_f37a89_idx"),
+                    models.Index(fields=["team", "status"], name="analytics_p_team_id_b17148_idx"),
                     models.Index(
-                        fields=["team", "time_range_start", "time_range_end"], name="posthog_pre_team_id_412e51_idx"
+                        fields=["team", "time_range_start", "time_range_end"], name="analytics_p_team_id_4e65a5_idx"
                     ),
                 ],
             },
