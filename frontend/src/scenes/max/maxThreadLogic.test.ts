@@ -16,6 +16,7 @@ import {
     AgentMode,
     AssistantMessage,
     AssistantMessageType,
+    HumanMessage,
     SlashCommandName,
 } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
@@ -560,6 +561,79 @@ describe('maxThreadLogic', () => {
                 }),
                 expect.any(Object)
             )
+        })
+    })
+
+    describe('parallel conversation isolation', () => {
+        it('only processes askMax for the active thread, not other mounted threads', async () => {
+            const streamSpy = mockStream()
+
+            // Create a second thread logic with a different conversation ID
+            const otherConversationId = 'other-conversation-id'
+            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, tabId: 'test' })
+            otherLogic.mount()
+
+            // maxLogicInstance is still set to MOCK_CONVERSATION_ID (the first logic's conversation)
+            // So the first logic should process askMax, but the second should not
+
+            // Call askMax - this should only be processed by the first logic (matching activeThreadKey)
+            await expectLogic(logic, () => {
+                logic.actions.askMax('test message')
+            })
+
+            // The stream should be called with the first conversation's ID
+            expect(streamSpy).toHaveBeenCalledTimes(1)
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    conversation: MOCK_CONVERSATION_ID,
+                    content: 'test message',
+                }),
+                expect.any(Object)
+            )
+
+            // The other logic should NOT have added the message to its thread
+            expect(otherLogic.values.threadRaw).toHaveLength(0)
+
+            // The first logic SHOULD have added the message to its thread
+            expect(logic.values.threadRaw).toHaveLength(1)
+            expect((logic.values.threadRaw[0] as HumanMessage).content).toBe('test message')
+
+            otherLogic.unmount()
+        })
+
+        it('switches which thread processes askMax when activeThreadKey changes', async () => {
+            const streamSpy = mockStream()
+
+            // Create a second thread logic with a different conversation ID
+            const otherConversationId = 'other-conversation-id'
+            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, tabId: 'test' })
+            otherLogic.mount()
+
+            // Now switch maxLogicInstance to point to the other conversation
+            maxLogicInstance.actions.setConversationId(otherConversationId)
+
+            // Call askMax on the other logic - now IT should process
+            await expectLogic(otherLogic, () => {
+                otherLogic.actions.askMax('message for other conversation')
+            })
+
+            // The stream should be called with the other conversation's ID
+            expect(streamSpy).toHaveBeenCalledTimes(1)
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    conversation: otherConversationId,
+                    content: 'message for other conversation',
+                }),
+                expect.any(Object)
+            )
+
+            // The other logic SHOULD have added the message
+            expect(otherLogic.values.threadRaw).toHaveLength(1)
+
+            // The first logic should NOT have added any message
+            expect(logic.values.threadRaw).toHaveLength(0)
+
+            otherLogic.unmount()
         })
     })
 
