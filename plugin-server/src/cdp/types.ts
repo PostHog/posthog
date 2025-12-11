@@ -359,7 +359,6 @@ export type HogFunctionTypeType =
     | 'internal_destination'
     | 'source_webhook'
     | 'site_destination'
-    | 'datawarehouse_destination'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
