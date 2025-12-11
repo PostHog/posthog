@@ -42,6 +42,8 @@ import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llm
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
+const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'session_start', 'session_end']
+
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
 const productColumnRenderers: Record<string, QueryContextColumn> = {
@@ -188,7 +190,7 @@ export function renderColumn(
         ) : (
             content
         )
-    } else if (key === 'timestamp' || key === 'created_at' || key === 'session_start' || key === 'session_end') {
+    } else if (DATETIME_KEYS.includes(key)) {
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         // TODO: remove after removing the old events table

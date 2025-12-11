@@ -49,7 +49,6 @@ function HedgehogStatus(): JSX.Element {
 
 interface TaskSessionViewProps {
     logs: string
-    loading: boolean
     isPolling: boolean
     run: TaskRun | null
 }
@@ -118,7 +117,7 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
     }
 }
 
-export function TaskSessionView({ logs, loading, isPolling, run }: TaskSessionViewProps): JSX.Element {
+export function TaskSessionView({ logs, isPolling, run }: TaskSessionViewProps): JSX.Element {
     const entries = useMemo(() => parseLogs(logs), [logs])
 
     const handleCopyLogs = (): void => {
@@ -128,19 +127,10 @@ export function TaskSessionView({ logs, loading, isPolling, run }: TaskSessionVi
         )
     }
 
-    if (loading && entries.length === 0) {
-        return (
-            <div className="flex items-center justify-center p-8">
-                <Spinner />
-            </div>
-        )
-    }
-
     if (entries.length === 0) {
         return (
             <div className="p-4 text-center text-muted">
                 <p>No logs available yet</p>
-                {isPolling && <p className="text-xs mt-2">Waiting for logs...</p>}
             </div>
         )
     }

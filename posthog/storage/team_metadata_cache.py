@@ -367,7 +367,9 @@ def cleanup_stale_expiry_tracking() -> int:
 
     if removed > 0:
         TOMBSTONE_COUNTER.labels(
-            namespace="team_metadata", operation="stale_expiry_tracking", component="team_metadata_cache"
+            namespace="team_metadata",
+            operation="stale_expiry_tracking",
+            component="team_metadata_cache",
         ).inc(removed)
 
     return removed
