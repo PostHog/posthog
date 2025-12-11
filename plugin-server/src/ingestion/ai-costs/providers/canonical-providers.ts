@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-08 10:03:27 UTC
+// Generated at: 2025-12-10 20:02:19 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -67,6 +67,7 @@ export type CanonicalProvider =
     | 'mancer-fp16'
     | 'mancer-fp8'
     | 'mancer-int4'
+    | 'mara'
     | 'minimax'
     | 'minimax-fp8'
     | 'mistral'
@@ -102,11 +103,12 @@ export type CanonicalProvider =
     | 'parasail-int8'
     | 'perplexity'
     | 'phala'
+    | 'relace-bf16'
     | 'relace-fp8'
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
-    | 'sambanova-standard'
+    | 'sambanova-high-throughput'
     | 'sambanova-turbo'
     | 'siliconflow-fp8'
     | 'streamlake-fp16'

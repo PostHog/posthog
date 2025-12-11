@@ -139,6 +139,7 @@ describe('PersonState.processEvent()', () => {
         jest.spyOn(personRepository, 'fetchPerson')
         jest.spyOn(personRepository, 'createPerson')
         jest.spyOn(personRepository, 'updatePerson')
+        jest.spyOn(personRepository, 'updatePersonsBatch')
 
         defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
     })
@@ -527,7 +528,8 @@ describe('PersonState.processEvent()', () => {
                 version: 0,
                 is_identified: false,
             })
-            expect(personRepository.updatePerson).toHaveBeenCalledTimes(1)
+            // Batch mode uses updatePersonsBatch instead of updatePerson
+            expect(personRepository.updatePersonsBatch).toHaveBeenCalledTimes(1)
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
@@ -1011,7 +1013,8 @@ describe('PersonState.processEvent()', () => {
             )
 
             expect(personRepository.fetchPerson).toHaveBeenCalledTimes(1)
-            expect(personRepository.updatePerson).toHaveBeenCalledTimes(1)
+            // Batch mode uses updatePersonsBatch instead of updatePerson
+            expect(personRepository.updatePersonsBatch).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -1028,7 +1031,8 @@ describe('PersonState.processEvent()', () => {
             )
 
             await personS.updateProperties()
-            expect(personRepository.updatePerson).toHaveBeenCalledTimes(1)
+            // No additional batch call since no changes
+            expect(personRepository.updatePersonsBatch).toHaveBeenCalledTimes(1)
         })
 
         it('handles race condition when person provided has been merged', async () => {
@@ -2668,6 +2672,7 @@ describe('PersonState.processEvent()', () => {
 
             jest.spyOn(personRepository, 'fetchPerson')
             jest.spyOn(personRepository, 'updatePerson')
+            jest.spyOn(personRepository, 'updatePersonsBatch')
         })
 
         afterEach(async () => {
@@ -2743,7 +2748,8 @@ describe('PersonState.processEvent()', () => {
                 is_identified: true,
             })
 
-            expect(personRepository.updatePerson).toHaveBeenCalledTimes(1)
+            // Batch mode uses updatePersonsBatch instead of updatePerson
+            expect(personRepository.updatePersonsBatch).toHaveBeenCalledTimes(1)
             expect(hub.db.kafkaProducer.queueMessages).toHaveBeenCalledTimes(2)
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())

@@ -1,5 +1,6 @@
 import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
@@ -8,6 +9,12 @@ import { PipelineResult, ok } from '../../../ingestion/pipelines/results'
 import { Person, Team } from '../../../types'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonsStore } from '../persons/persons-store'
+
+export const personlessDistinctIdCacheOperationsCounter = new Counter({
+    name: 'personless_distinct_id_cache_operations_total',
+    help: 'Number of cache hits and misses for the personless distinct ID inserted cache',
+    labelNames: ['operation'],
+})
 
 // Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
 // (team_id, distinct_id) pair. If we have, then we can skip the INSERT attempt.
@@ -53,7 +60,10 @@ export async function processPersonlessStep(
         // or not.
 
         const personlessDistinctIdCacheKey = `${team.id}|${distinctId}`
-        if (!PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(personlessDistinctIdCacheKey)) {
+        const cacheHit = PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(personlessDistinctIdCacheKey)
+        personlessDistinctIdCacheOperationsCounter.inc({ operation: cacheHit ? 'hit' : 'miss' })
+
+        if (!cacheHit) {
             const personIsMerged = await personsStore.addPersonlessDistinctId(team.id, distinctId)
 
             // We know the row is in PG now, and so future events for this Distinct ID can

@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
-use common_profiler::router::apply_pprof_routes;
 use futures::future::ready;
 use health::HealthRegistry;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
@@ -23,7 +22,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 
-common_profiler::used_with_profiling!();
+common_alloc::used!();
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
@@ -140,12 +139,6 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
             }),
         );
 
-    let router = if config.enable_pprof {
-        apply_pprof_routes(router)
-    } else {
-        router
-    };
-
     // Don't install metrics unless asked to
     // Installing a global recorder when capture is used as a library (during tests etc)
     // does not work well.
@@ -184,13 +177,23 @@ async fn main() -> Result<()> {
                 FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
             )
             .with_ansi(true)
-            .with_filter(EnvFilter::from_default_env())
+            .with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy()
+                    .add_directive("pyroscope=warn".parse().unwrap()),
+            )
             .boxed()
         } else {
             // production: use JSON format Loki/Grafana can extract useful filter tags from
             base.json()
                 .with_span_list(false)
-                .with_filter(EnvFilter::from_default_env())
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env_lossy()
+                        .add_directive("pyroscope=warn".parse().unwrap()),
+                )
                 .boxed()
         }
     };
@@ -213,6 +216,16 @@ async fn main() -> Result<()> {
         .with(log_layer)
         .with(otel_layer)
         .init();
+
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    // NOTE: Must be after tracing is initialized so logs are visible
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            tracing::warn!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
 
     info!("Starting Kafka Deduplicator service");
 

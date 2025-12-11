@@ -11,7 +11,6 @@ import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -106,6 +105,7 @@ import {
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
 } from './common'
+import { webAnalyticsHealthLogic } from './health'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
@@ -125,7 +125,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
+            webAnalyticsHealthLogic,
+            ['webAnalyticsHealthStatus'],
         ],
+        actions: [webAnalyticsHealthLogic, ['trackTabViewed']],
     })),
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
@@ -971,6 +974,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
                     canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                    canOpenModal: true,
                 })
 
                 const createTableTab = (
@@ -1029,7 +1033,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                             },
                             canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
-                            canOpenModal: false,
+                            canOpenModal: true,
                         }
                     }
 
@@ -1057,7 +1061,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             columns,
                         },
                         canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
-                        canOpenModal: false,
+                        canOpenModal: true,
                     }
                 }
 
@@ -1169,6 +1173,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenModal: false,
                     },
                     {
                         kind: 'tabs',
@@ -2339,6 +2344,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
 
         return {
+            setProductTab: ({ tab }) => {
+                if (tab === ProductTab.HEALTH) {
+                    actions.trackTabViewed()
+                }
+            },
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
             },
@@ -2353,20 +2363,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         actions.setConversionGoalWarning
                     ),
             ],
-            [teamLogic.actionTypes.updateCurrentTeam]: async (action) => {
-                const isPreAggregatedEnabled =
-                    values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    action?.modifiers?.useWebAnalyticsPreAggregatedTables
-                const hasConversionGoalPreAggFlag =
-                    values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]
-
-                if (isPreAggregatedEnabled && values.conversionGoal && !hasConversionGoalPreAggFlag) {
-                    actions.setConversionGoal(null)
-                    lemonToast.info(
-                        'Your conversion goal has been cleared as the new query engine does not support it (yet!)'
-                    )
-                }
-            },
         }
     }),
     afterMount(({ actions, values }) => {
