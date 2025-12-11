@@ -88,7 +88,7 @@ export function FeatureFlagVariantsForm({
         }
         return (
             <>
-                This flag is linked to {experimentLink}. Variants {action} after the experiment has been launched.
+                This flag is linked to {experimentLink}. Variant keys {action} after the experiment has been launched.
             </>
         )
     }
