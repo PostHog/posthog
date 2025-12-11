@@ -86,6 +86,7 @@ export type HogFunctionInvocationGlobals = {
         properties: Record<string, unknown>
         elements_chain: string
         timestamp: string
+        captured_at?: string | null
 
         /* Special fields in Hog */
         url: string
@@ -176,6 +177,8 @@ export type HogFunctionFilterGlobals = {
     group_4: {
         properties: Record<string, any>
     }
+
+    variables: Record<string, any> | undefined // For HogFlows, workflow-level variables
 }
 
 export type MetricLogSource = 'hog_function' | 'hog_flow'

@@ -44,11 +44,12 @@ class ConversionGoalsAggregator:
 
             # Transform the query to include a column for this specific conversion goal
             # and zero columns for all other conversion goals
+            # Note: base_query schema is: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
             enhanced_select = [
-                # Keep campaign, id, and source
-                base_query.select[0],  # campaign
-                base_query.select[1],  # id
-                base_query.select[2],  # source
+                # Keep campaign, id, and source (skip match_key at [0])
+                base_query.select[1],  # campaign
+                base_query.select[2],  # id
+                base_query.select[3],  # source
             ]
 
             # Add columns for all conversion goals (this one gets the actual value, others get 0)
@@ -56,7 +57,8 @@ class ConversionGoalsAggregator:
                 if p.index == processor.index:
                     # This is the current processor - use the actual conversion value
                     # Extract the expression from the alias to avoid double aliasing
-                    conversion_expr = base_query.select[3]
+                    # Position [4] is the conversion value (after match_key, campaign, id, source)
+                    conversion_expr = base_query.select[4]
                     if isinstance(conversion_expr, ast.Alias):
                         conversion_expr = conversion_expr.expr
                     enhanced_select.append(
@@ -110,6 +112,10 @@ class ConversionGoalsAggregator:
             ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
             ast.Alias(alias=self.config.id_field, expr=mapped_id_expr),
             ast.Alias(alias=self.config.source_field, expr=source_field_expr),
+            # match_key for conversion goals is always utm_campaign - UTM tracking has no campaign ID param.
+            # Users who prefer campaign_id matching must put IDs in their utm_campaign parameter.
+            # Ad adapters output their match_key based on team prefs; this enables the JOIN to work.
+            ast.Alias(alias=self.config.match_key_field, expr=mapped_campaign_expr),
         ]
 
         # Add each conversion goal as a summed column
@@ -130,6 +136,8 @@ class ConversionGoalsAggregator:
 
         # GROUP BY the mapped expressions (same expressions used in SELECT)
         # This ensures rows with the same mapped values are consolidated in a single pass
+        # Note: For conversion goals, match_key is derived from utm_campaign (same as mapped_campaign)
+        # since events don't have platform-specific campaign IDs
         final_query = ast.SelectQuery(
             select=final_select,
             select_from=ast.JoinExpr(table=union_query, alias=subquery_alias),
@@ -269,8 +277,14 @@ class ConversionGoalsAggregator:
 
         return mapped_campaign_expr, mapped_id_expr
 
-    def get_conversion_goal_columns(self) -> dict[str, ast.Alias]:
-        """Get the column mappings for accessing conversion goals from the unified CTE"""
+    def get_conversion_goal_columns(self, include_cost_per: bool = True) -> dict[str, ast.Alias]:
+        """Get the column mappings for accessing conversion goals from the unified CTE
+
+        Args:
+            include_cost_per: If True, include "Cost per conversion" columns that reference
+                campaign_costs CTE. Set to False for queries that don't join with
+                campaign_costs (e.g., non-integrated conversions).
+        """
         columns = {}
 
         for processor in self.processors:
@@ -285,37 +299,37 @@ class ConversionGoalsAggregator:
                     )
                 ),
             )
-
-            # Cost per conversion column
-            cost_per_goal_alias = ast.Alias(
-                alias=f"{self.config.cost_per_prefix} {goal_name}",
-                expr=ast.Call(
-                    name="round",
-                    args=[
-                        ast.ArithmeticOperation(
-                            left=ast.Field(
-                                chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field)
-                            ),
-                            op=ast.ArithmeticOperationOp.Div,
-                            right=ast.Call(
-                                name="nullif",
-                                args=[
-                                    ast.Field(
-                                        chain=self.config.get_unified_conversion_field_chain(
-                                            self.config.get_conversion_goal_column_name(processor.index)
-                                        )
-                                    ),
-                                    ast.Constant(value=0),
-                                ],
-                            ),
-                        ),
-                        ast.Constant(value=2),
-                    ],
-                ),
-            )
-
             columns[goal_name] = conversion_goal_alias
-            columns[f"{self.config.cost_per_prefix} {goal_name}"] = cost_per_goal_alias
+
+            # Cost per conversion column (only if requested and campaign_costs is available)
+            if include_cost_per:
+                cost_per_goal_alias = ast.Alias(
+                    alias=f"{self.config.cost_per_prefix} {goal_name}",
+                    expr=ast.Call(
+                        name="round",
+                        args=[
+                            ast.ArithmeticOperation(
+                                left=ast.Field(
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field)
+                                ),
+                                op=ast.ArithmeticOperationOp.Div,
+                                right=ast.Call(
+                                    name="nullif",
+                                    args=[
+                                        ast.Field(
+                                            chain=self.config.get_unified_conversion_field_chain(
+                                                self.config.get_conversion_goal_column_name(processor.index)
+                                            )
+                                        ),
+                                        ast.Constant(value=0),
+                                    ],
+                                ),
+                            ),
+                            ast.Constant(value=2),
+                        ],
+                    ),
+                )
+                columns[f"{self.config.cost_per_prefix} {goal_name}"] = cost_per_goal_alias
 
         return columns
 

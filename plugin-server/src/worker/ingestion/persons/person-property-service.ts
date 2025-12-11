@@ -71,7 +71,11 @@ export class PersonPropertyService {
         person.properties ||= {}
 
         // Compute property changes
-        const propertyUpdates = computeEventPropertyUpdates(this.context.event, person.properties)
+        const propertyUpdates = computeEventPropertyUpdates(
+            this.context.event,
+            person.properties,
+            this.context.updateAllProperties
+        )
 
         const otherUpdates: Partial<InternalPerson> = {}
         if (this.context.updateIsIdentified && !person.is_identified) {

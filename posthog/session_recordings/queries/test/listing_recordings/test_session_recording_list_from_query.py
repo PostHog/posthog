@@ -31,7 +31,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.constants import AvailableFeature
 from posthog.models import Person
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -41,7 +40,6 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
 )
-from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
     create_event,
@@ -825,24 +823,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         # without an event filter the recording is present, showing that the TTL was applied to the events table too
         # we want this to limit the amount of event data we query
         self._assert_query_matches_session_ids({}, [session_id_one])
-
-    @snapshot_clickhouse_queries
-    def test_ttl_days(self):
-        # hooby is 21 days
-        assert ttl_days(self.team) == 21
-
-        with self.is_cloud(True):
-            # free users are 30 days
-            with freeze_time("2023-09-01T12:00:01Z"):
-                assert ttl_days(self.team) == 30
-
-            self.team.organization.available_product_features = [
-                {"key": AvailableFeature.RECORDINGS_FILE_EXPORT, "name": AvailableFeature.RECORDINGS_FILE_EXPORT}
-            ]
-
-            # paid is 90 days
-            with freeze_time("2023-12-01T12:00:01Z"):
-                assert ttl_days(self.team) == 90
 
     @snapshot_clickhouse_queries
     def test_listing_ignores_future_replays(self):

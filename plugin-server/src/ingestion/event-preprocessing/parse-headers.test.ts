@@ -26,6 +26,7 @@ describe('createParseHeadersStep', () => {
                     token: 'test-token',
                     distinct_id: 'test-user',
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 },
             })
         )
@@ -47,6 +48,7 @@ describe('createParseHeadersStep', () => {
                 headers: {
                     token: 'test-token',
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 },
             })
         )
@@ -65,6 +67,7 @@ describe('createParseHeadersStep', () => {
                 ...input,
                 headers: {
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 },
             })
         )
@@ -83,6 +86,7 @@ describe('createParseHeadersStep', () => {
                 ...input,
                 headers: {
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 },
             })
         )
@@ -108,6 +112,7 @@ describe('createParseHeadersStep', () => {
                     token: 'second-token',
                     distinct_id: 'second-user',
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 },
             })
         )
@@ -120,6 +125,7 @@ describe('createParseHeadersStep', () => {
                     { token: Buffer.from('complex-token') },
                     { distinct_id: Buffer.from('complex-user') },
                     { timestamp: Buffer.from('2023-01-01T00:00:00Z') },
+                    { now: Buffer.from('2023-01-01T12:00:00Z') },
                 ],
             } as Pick<Message, 'headers'>,
         }
@@ -132,7 +138,9 @@ describe('createParseHeadersStep', () => {
                     token: 'complex-token',
                     distinct_id: 'complex-user',
                     timestamp: '2023-01-01T00:00:00Z',
+                    now: new Date('2023-01-01T12:00:00Z'),
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 },
             })
         )
@@ -158,6 +166,7 @@ describe('createParseHeadersStep', () => {
                     distinct_id: 'string-user',
                     timestamp: '2023-01-01T00:00:00Z',
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 },
             })
         )
@@ -183,6 +192,7 @@ describe('createParseHeadersStep', () => {
                     distinct_id: 'string-user',
                     timestamp: '2023-01-01T00:00:00Z',
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 },
             })
         )
@@ -210,9 +220,79 @@ describe('createParseHeadersStep', () => {
                     token: 'test-token',
                     distinct_id: 'test-user',
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 },
             })
         )
+    })
+
+    describe('session_id header', () => {
+        it('should parse session_id when present', async () => {
+            const input = {
+                message: {
+                    headers: [
+                        { token: Buffer.from('test-token') },
+                        { distinct_id: Buffer.from('test-user') },
+                        { session_id: Buffer.from('test-session-123') },
+                    ],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        distinct_id: 'test-user',
+                        session_id: 'test-session-123',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
+        it('should handle session_id with string value', async () => {
+            const input = {
+                message: {
+                    headers: [{ session_id: 'string-session-456' }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        session_id: 'string-session-456',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
+        it('should not include session_id when not present', async () => {
+            const input = {
+                message: {
+                    headers: [{ token: Buffer.from('test-token') }, { distinct_id: Buffer.from('test-user') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        distinct_id: 'test-user',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
     })
 
     describe('force_disable_person_processing header', () => {
@@ -229,6 +309,7 @@ describe('createParseHeadersStep', () => {
                     ...input,
                     headers: {
                         force_disable_person_processing: true,
+                        historical_migration: false,
                     },
                 })
             )
@@ -247,6 +328,7 @@ describe('createParseHeadersStep', () => {
                     ...input,
                     headers: {
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )
@@ -265,6 +347,7 @@ describe('createParseHeadersStep', () => {
                     ...input,
                     headers: {
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )
@@ -284,6 +367,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         token: 'test-token',
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )
@@ -302,6 +386,7 @@ describe('createParseHeadersStep', () => {
                     ...input,
                     headers: {
                         force_disable_person_processing: true,
+                        historical_migration: false,
                     },
                 })
             )
@@ -320,6 +405,7 @@ describe('createParseHeadersStep', () => {
                     ...input,
                     headers: {
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )
@@ -344,6 +430,199 @@ describe('createParseHeadersStep', () => {
                         token: 'test-token',
                         distinct_id: 'test-user',
                         force_disable_person_processing: true,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+    })
+
+    describe('now header', () => {
+        it('should parse now header when present', async () => {
+            const input = {
+                message: {
+                    headers: [{ now: Buffer.from('2023-01-01T12:00:00Z') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        now: new Date('2023-01-01T12:00:00Z'),
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
+        it('should handle now header with string value', async () => {
+            const input = {
+                message: {
+                    headers: [{ now: '2023-01-01T12:00:00Z' }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        now: new Date('2023-01-01T12:00:00Z'),
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
+        it('should handle now header with other headers', async () => {
+            const input = {
+                message: {
+                    headers: [
+                        { token: Buffer.from('test-token') },
+                        { timestamp: Buffer.from('2023-01-01T00:00:00Z') },
+                        { now: Buffer.from('2023-01-01T12:00:00Z') },
+                    ],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        timestamp: '2023-01-01T00:00:00Z',
+                        now: new Date('2023-01-01T12:00:00Z'),
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+    })
+
+    describe('historical_migration header', () => {
+        it('should parse historical_migration as true when value is "true"', async () => {
+            const input = {
+                message: {
+                    headers: [{ historical_migration: Buffer.from('true') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        force_disable_person_processing: false,
+                        historical_migration: true,
+                    },
+                })
+            )
+        })
+
+        it('should parse historical_migration as false when value is "false"', async () => {
+            const input = {
+                message: {
+                    headers: [{ historical_migration: Buffer.from('false') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
+        it('should parse historical_migration as false when value is not "true"', async () => {
+            const input = {
+                message: {
+                    headers: [{ historical_migration: Buffer.from('1') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
+        it('should parse historical_migration as false when header is missing', async () => {
+            const input = {
+                message: {
+                    headers: [{ token: Buffer.from('test-token') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                    },
+                })
+            )
+        })
+
+        it('should handle historical_migration with string values', async () => {
+            const input = {
+                message: {
+                    headers: [{ historical_migration: 'true' }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        force_disable_person_processing: false,
+                        historical_migration: true,
+                    },
+                })
+            )
+        })
+
+        it('should handle multiple headers including historical_migration', async () => {
+            const input = {
+                message: {
+                    headers: [
+                        { token: Buffer.from('test-token') },
+                        { distinct_id: Buffer.from('test-user') },
+                        { historical_migration: Buffer.from('true') },
+                        { force_disable_person_processing: Buffer.from('false') },
+                    ],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        distinct_id: 'test-user',
+                        force_disable_person_processing: false,
+                        historical_migration: true,
                     },
                 })
             )
@@ -365,6 +644,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         distinct_id: 'user\uFFFD123',
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )
@@ -384,6 +664,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         token: 'test\uFFFDtoken',
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )

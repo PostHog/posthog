@@ -105,6 +105,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "autocapture_exceptions_errors_to_ignore",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
+            "extra_settings",
             "secret_api_token",
             "secret_api_token_backup",
             "session_recording_opt_in",
@@ -178,6 +179,7 @@ TEAM_CONFIG_FIELDS = (
     "feature_flag_confirmation_enabled",
     "feature_flag_confirmation_message",
     "default_evaluation_environments_enabled",
+    "require_evaluation_environment_tags",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -737,6 +739,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             validated_data["session_replay_config"] = {
                 **instance.session_replay_config,
                 **validated_data["session_replay_config"],
+            }
+
+        # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
+            validated_data["modifiers"] = {
+                **(instance.modifiers or {}),
+                **validated_data["modifiers"],
             }
 
         updated_team = super().update(instance, validated_data)

@@ -45,6 +45,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
@@ -220,6 +221,18 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 detail=Detail(name=endpoint.name),
             )
 
+            # Report endpoint created event
+            report_user_action(
+                user=cast(User, request.user),
+                event="endpoint created",
+                properties={
+                    "endpoint_id": str(endpoint.id),
+                    "endpoint_name": endpoint.name,
+                    "query_kind": endpoint.query.get("kind") if isinstance(endpoint.query, dict) else None,
+                },
+                team=self.team,
+            )
+
             return Response(self._serialize_endpoint(endpoint), status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -376,11 +389,23 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint_id = str(endpoint.id)
+        endpoint_name = endpoint.name
 
         if endpoint.saved_query:
             self._disable_materialization(endpoint)
 
         endpoint.delete()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=endpoint_id,
+            scope="Endpoint",
+            activity="deleted",
+            detail=Detail(name=endpoint_name),
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _should_use_materialized_table(self, endpoint: Endpoint, data: EndpointRunRequest) -> bool:
@@ -655,6 +680,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_endpoints_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
         try:
+            tag_queries(product=Product.ENDPOINTS)
             data = EndpointLastExecutionTimesRequest.model_validate(request.data)
             names = data.names
             if not names:
@@ -747,3 +773,34 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return Response({"error": f"Version {version_number} not found"}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(self._serialize_endpoint_version(version_obj))
+
+    @extend_schema(
+        description="Get materialization status for an endpoint.",
+    )
+    @action(methods=["GET"], detail=True, url_path="materialization_status")
+    def materialization_status(self, request: Request, name=None, *args, **kwargs) -> Response:
+        """Get materialization status for an endpoint without fetching full endpoint data."""
+        endpoint = get_object_or_404(Endpoint.objects.select_related("saved_query"), team=self.team, name=name)
+
+        if endpoint.is_materialized and endpoint.saved_query:
+            sync_freq_str = None
+            if endpoint.saved_query.sync_frequency_interval:
+                sync_freq_str = sync_frequency_interval_to_sync_frequency(endpoint.saved_query.sync_frequency_interval)
+
+            result = {
+                "status": endpoint.materialization_status,
+                "can_materialize": True,
+                "last_materialized_at": (
+                    endpoint.last_materialized_at.isoformat() if endpoint.last_materialized_at else None
+                ),
+                "error": endpoint.materialization_error,
+                "sync_frequency": sync_freq_str,
+            }
+        else:
+            can_mat, reason = endpoint.can_materialize()
+            result = {
+                "can_materialize": can_mat,
+                "reason": reason if not can_mat else None,
+            }
+
+        return Response(result)

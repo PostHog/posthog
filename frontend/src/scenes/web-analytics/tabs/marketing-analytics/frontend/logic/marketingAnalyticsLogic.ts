@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl } from 'kea-router'
 
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -202,6 +202,17 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             interval,
         }),
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
+        // Internal action for URL sync - updates state without triggering actionToUrl
+        syncFromUrl: (params: {
+            dateFrom?: string | null
+            dateTo?: string | null
+            interval?: IntervalType
+            compare?: boolean
+            compare_to?: string
+            integrationSourceIds?: string[]
+            chartDisplayType?: ChartDisplayType
+            tileColumnSelection?: string
+        }) => ({ params }),
         showColumnConfigModal: true,
         hideColumnConfigModal: true,
         showConversionGoalModal: true,
@@ -231,6 +242,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             persistConfig,
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
+                syncFromUrl: (state, { params }) => {
+                    if (params.compare === undefined && params.compare_to === undefined) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        ...(params.compare !== undefined ? { compare: params.compare } : {}),
+                        ...(params.compare_to !== undefined ? { compare_to: params.compare_to } : {}),
+                    }
+                },
             },
         ],
         integrationFilter: [
@@ -238,6 +259,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             persistConfig,
             {
                 setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
+                syncFromUrl: (state, { params }) =>
+                    params.integrationSourceIds ? { integrationSourceIds: params.integrationSourceIds } : state,
             },
         ],
         dateFilter: [
@@ -286,6 +309,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
                     }
                 },
+                syncFromUrl: (state, { params }) => {
+                    if (params.dateFrom === undefined && params.dateTo === undefined && params.interval === undefined) {
+                        return state
+                    }
+                    const dateFrom = params.dateFrom ?? state.dateFrom
+                    const dateTo = params.dateTo ?? state.dateTo
+                    const interval = params.interval ?? state.interval
+                    return { dateFrom, dateTo, interval }
+                },
             },
         ],
         columnConfigModalVisible: [
@@ -307,6 +339,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             persistConfig,
             {
                 setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
+                syncFromUrl: (state, { params }) =>
+                    params.chartDisplayType !== undefined ? params.chartDisplayType : state,
             },
         ],
         tileColumnSelection: [
@@ -314,6 +348,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             persistConfig,
             {
                 setTileColumnSelection: (_, { column }) => column,
+                syncFromUrl: (state, { params }) =>
+                    params.tileColumnSelection !== undefined
+                        ? (params.tileColumnSelection as validColumnsForTiles)
+                        : state,
             },
         ],
     }),
@@ -615,21 +653,60 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             }),
         ],
     }),
-    actionToUrl(({ values }) => ({
-        setChartDisplayType: () => {
-            const searchParams = new URLSearchParams(window.location.search)
-            searchParams.set('chart_display_type', values.chartDisplayType)
-            return [window.location.pathname, searchParams.toString()]
-        },
-    })),
-    urlToAction(({ actions }) => ({
-        '*': (_, searchParams) => {
-            const chartDisplayType = searchParams.chart_display_type as ChartDisplayType | undefined
-            if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {
-                actions.setChartDisplayType(chartDisplayType)
+    actionToUrl(({ values }) => {
+        const buildUrl = (): [string, string] => {
+            const searchParams = new URLSearchParams()
+
+            // Date filters
+            if (values.dateFilter.dateFrom) {
+                searchParams.set('date_from', values.dateFilter.dateFrom)
             }
-        },
-    })),
+            if (values.dateFilter.dateTo) {
+                searchParams.set('date_to', values.dateFilter.dateTo)
+            }
+            if (values.dateFilter.interval) {
+                searchParams.set('interval', values.dateFilter.interval)
+            }
+
+            // Compare filter
+            if (values.compareFilter?.compare !== undefined) {
+                searchParams.set('compare', values.compareFilter.compare ? 'true' : 'false')
+            }
+            if (values.compareFilter?.compare_to) {
+                searchParams.set('compare_to', values.compareFilter.compare_to)
+            }
+
+            // Integration filter
+            if (values.integrationFilter?.integrationSourceIds?.length) {
+                searchParams.set('integration_sources', values.integrationFilter.integrationSourceIds.join(','))
+            }
+
+            // Chart display type
+            if (values.chartDisplayType) {
+                searchParams.set('chart_display_type', values.chartDisplayType)
+            }
+
+            // Tile column selection
+            if (values.tileColumnSelection) {
+                searchParams.set('tile_column', values.tileColumnSelection)
+            }
+
+            return [window.location.pathname, searchParams.toString()]
+        }
+
+        return {
+            setDates: buildUrl,
+            setInterval: buildUrl,
+            setDatesAndInterval: buildUrl,
+            setCompareFilter: buildUrl,
+            setIntegrationFilter: buildUrl,
+            setChartDisplayType: buildUrl,
+            setTileColumnSelection: buildUrl,
+            // Note: syncFromUrl is NOT mapped here - it's only for receiving URL changes
+        }
+    }),
+    // Note: We don't use urlToAction here to avoid sync loops.
+    // URL params are read once on mount in afterMount instead.
     listeners(({ actions, values }) => ({
         applyConversionGoal: () => {
             const goal = {
@@ -689,6 +766,48 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         },
     })),
     afterMount(({ actions }) => {
+        // Read URL params on initial mount (one-time sync from URL)
+        const searchParams = new URLSearchParams(window.location.search)
+        const params: Parameters<typeof actions.syncFromUrl>[0] = {}
+
+        const dateFrom = searchParams.get('date_from')
+        if (dateFrom) {
+            params.dateFrom = dateFrom
+        }
+        const dateTo = searchParams.get('date_to')
+        if (dateTo) {
+            params.dateTo = dateTo
+        }
+        const interval = searchParams.get('interval') as IntervalType | null
+        if (interval) {
+            params.interval = interval
+        }
+        const compare = searchParams.get('compare')
+        if (compare !== null) {
+            params.compare = compare === 'true'
+        }
+        const compareTo = searchParams.get('compare_to')
+        if (compareTo) {
+            params.compare_to = compareTo
+        }
+        const integrationSources = searchParams.get('integration_sources')
+        if (integrationSources) {
+            params.integrationSourceIds = integrationSources.split(',').filter(Boolean)
+        }
+        const chartDisplayType = searchParams.get('chart_display_type') as ChartDisplayType | null
+        if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {
+            params.chartDisplayType = chartDisplayType
+        }
+        const tileColumn = searchParams.get('tile_column')
+        if (tileColumn) {
+            params.tileColumnSelection = tileColumn
+        }
+
+        // Apply URL params if any were found
+        if (Object.keys(params).length > 0) {
+            actions.syncFromUrl(params)
+        }
+
         actions.loadSources(null)
     }),
 ])

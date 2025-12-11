@@ -8,6 +8,7 @@
 !common/plugin_transpiler/src
 !common/tailwind
 !dags
+!docs/onboarding
 !ee
 !frontend/@posthog
 !frontend/*.*

@@ -30,6 +30,7 @@ import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -241,9 +242,10 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                 }
             />
             <QuickSurveyModal
-                flag={featureFlag}
+                context={{ type: QuickSurveyType.FEATURE_FLAG, flag: featureFlag }}
+                info="This survey will display to all users in this feature flag, filtered by any conditions you specify below."
                 isOpen={isQuickSurveyModalOpen}
-                onClose={() => setIsQuickSurveyModalOpen(false)}
+                onCancel={() => setIsQuickSurveyModalOpen(false)}
             />
         </>
     )
@@ -341,10 +343,30 @@ export function OverViewTab({
             width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 const releaseText = groupFilters(featureFlag.filters, undefined, aggregationLabel)
-                return typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
-                    <LemonTag type="highlight">{releaseText}</LemonTag>
-                ) : (
-                    releaseText
+                const variants = featureFlag.filters?.multivariate?.variants
+                const isMultivariate = variants && variants.length > 0
+
+                return (
+                    <div className="space-y-1">
+                        <div>
+                            {typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
+                                <LemonTag type="highlight">{releaseText}</LemonTag>
+                            ) : (
+                                releaseText
+                            )}
+                        </div>
+                        {isMultivariate && (
+                            <div className="flex flex-wrap gap-1">
+                                {variants.map((variant) => (
+                                    <span key={variant.key}>
+                                        <LemonTag type="muted" size="small">
+                                            {variant.key}: {variant.rollout_percentage}%
+                                        </LemonTag>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 )
             },
         },
@@ -606,7 +628,7 @@ export function groupFilters(
             ) : (
                 <div className="flex items-center">
                     <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
-                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} />
+                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} compact />
                 </div>
             )
         } else if (rollout_percentage !== null) {

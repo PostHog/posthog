@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
-from clickhouse_driver.errors import ServerException
-
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.clickhouse.client import (
@@ -17,7 +15,6 @@ from posthog.clickhouse.client import (
     sync_execute,
 )
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
@@ -339,7 +336,6 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         Note I'm not really testing much complexity, I trust that those will
         come out as failures in other tests.
         """
-        from posthog.clickhouse.query_tagging import tag_queries
 
         # First add in the request information that should be added to the sql.
         # We check this to make sure it is not removed by the comment stripping
@@ -359,36 +355,6 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             # Make sure it still includes the "annotation" comment that includes
             # request routing information for debugging purposes
             self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
-
-    @patch("posthog.clickhouse.client.execute.get_client_from_pool")
-    def test_offline_workload_if_personal_api_key_and_retries_online(self, mock_get_client):
-        # Create mock clients
-        mock_client1 = MagicMock()
-        mock_client2 = MagicMock()
-
-        # First client raises 202 ServerException
-        mock_client1.__enter__.return_value.execute.side_effect = ServerException("Test error", code=202)
-
-        # Second client succeeds
-        mock_client2.__enter__.return_value.execute.return_value = "success"
-
-        # Return different clients on consecutive calls
-        mock_get_client.side_effect = [mock_client1, mock_client2]
-
-        # Execute query with personal_api_key access method
-        query = "SELECT 1"
-        # tag_queries = {"access_method": "personal_api_key"}
-        tag_queries(access_method="personal_api_key")
-        result = sync_execute(query)
-
-        # Verify first call was with OFFLINE workload
-        mock_get_client.assert_any_call(Workload.OFFLINE, None, False, ClickHouseUser.API)
-
-        # Verify second call was with ONLINE workload
-        mock_get_client.assert_any_call(Workload.ONLINE, None, False, ClickHouseUser.API)
-
-        # Verify final result
-        self.assertEqual(result, "success")
 
     @patch("posthog.clickhouse.client.execute_process_query")
     def test_query_deduplication_prevents_duplicate_execution(self, execute_process_query_mock):

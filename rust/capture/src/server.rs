@@ -192,6 +192,7 @@ where
         token_dropper,
         config.export_prometheus,
         config.capture_mode,
+        config.otel_service_name.clone(), // this matches k8s role label in prod deploy envs
         config.concurrency_limit,
         event_max_bytes,
         config.enable_historical_rerouting,

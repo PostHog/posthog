@@ -22,7 +22,7 @@ from posthog.schema import (
 from posthog.redis import get_async_client
 
 from ee.hogai.utils.types import AssistantOutput
-from ee.hogai.utils.types.base import AssistantMessageUnion
+from ee.hogai.utils.types.base import AssistantStreamedMessageUnion
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -65,7 +65,7 @@ class ConversationEvent(BaseModel):
 
 class MessageEvent(BaseModel):
     type: Literal[AssistantEventType.MESSAGE]
-    payload: AssistantMessageUnion
+    payload: AssistantStreamedMessageUnion
 
 
 class UpdateEvent(BaseModel):
@@ -122,7 +122,7 @@ class ConversationStreamSerializer:
         else:
             event_type, event_data = event
             if event_type == AssistantEventType.MESSAGE:
-                return self._serialize(self._to_message_event(cast(AssistantMessageUnion, event_data)))
+                return self._serialize(self._to_message_event(cast(AssistantStreamedMessageUnion, event_data)))
             elif event_type == AssistantEventType.CONVERSATION:
                 return self._serialize(self._to_conversation_event(cast(Conversation, event_data)))
             elif event_type == AssistantEventType.STATUS:
@@ -144,7 +144,7 @@ class ConversationStreamSerializer:
             ),
         }
 
-    def _to_message_event(self, message: AssistantMessageUnion) -> MessageEvent:
+    def _to_message_event(self, message: AssistantStreamedMessageUnion) -> MessageEvent:
         return MessageEvent(
             type=AssistantEventType.MESSAGE,
             payload=message,

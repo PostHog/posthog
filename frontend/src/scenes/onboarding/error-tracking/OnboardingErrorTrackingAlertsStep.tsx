@@ -58,7 +58,7 @@ export function OnboardingErrorTrackingAlertsStep({ stepKey }: { stepKey: Onboar
     }
 
     return (
-        <OnboardingStep title="Configure alerts" stepKey={stepKey} continueOverride={<></>} showSkip={!integration}>
+        <OnboardingStep title="Configure alerts" stepKey={stepKey} showContinue={false} showSkip={!integration}>
             <p>Get notified when a new issue occurs. Don't worry this can always be reconfigured later.</p>
             {integration === null ? (
                 <LemonTable

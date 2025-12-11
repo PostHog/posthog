@@ -55,6 +55,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             self.modifiers
             and self.modifiers.useWebAnalyticsPreAggregatedTables
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
+            and not self.query.includeAvgTimeOnPage
+            and not self.query.conversionGoal
         )
 
         if should_use_preaggregated:
@@ -66,6 +68,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 return self.to_main_query(self._counts_breakdown_value())
             elif self.query.includeScrollDepth and self.query.includeBounceRate:
                 return self.to_path_scroll_bounce_query()
+            elif self.query.includeAvgTimeOnPage:
+                return self.to_path_bounce_and_avg_time_query()
             elif self.query.includeBounceRate:
                 return self.to_path_bounce_query()
 
@@ -130,6 +134,138 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
                 order_by=order_by,
             )
+
+        return query
+
+    def to_path_bounce_and_avg_time_query(self) -> ast.SelectQuery:
+        if self.query.breakdownBy not in [WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE]:
+            raise NotImplementedError("Avg time on page is only supported for page breakdowns")
+
+        with self.timings.measure("stats_table_time_on_page_query"):
+            query = parse_select(
+                """
+SELECT
+    counts.breakdown_value AS "context.columns.breakdown_value",
+
+    tuple(counts.visitors, counts.previous_visitors) AS "context.columns.visitors",
+    tuple(counts.views, counts.previous_views) AS "context.columns.views",
+
+    tuple(
+        coalesce(time_on_page.avg_time_on_page, 0),
+        coalesce(time_on_page.previous_avg_time_on_page, 0)
+    ) AS "context.columns.avg_time_on_page",
+
+    tuple(
+        coalesce(bounce.bounce_rate, 0),
+        coalesce(bounce.previous_bounce_rate, 0)
+    ) AS "context.columns.bounce_rate"
+
+FROM (
+    SELECT
+        breakdown_value,
+        uniqIf(filtered_person_id, {current_period}) AS visitors,
+        uniqIf(filtered_person_id, {previous_period}) AS previous_visitors,
+        sumIf(filtered_pageview_count, {current_period}) AS views,
+        sumIf(filtered_pageview_count, {previous_period}) AS previous_views
+    FROM (
+        SELECT
+            any(person_id) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            {breakdown_value} AS breakdown_value,
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp
+        FROM events
+        WHERE and(
+            or(events.event = '$pageview', events.event = '$screen'),
+            {inside_periods},
+            {event_properties},
+            {session_properties},
+            {where_breakdown}
+        )
+        GROUP BY session_id, breakdown_value
+    )
+    GROUP BY breakdown_value
+) AS counts
+
+-- -----------------------------
+-- Join: Avg Time on Page
+-- -----------------------------
+LEFT JOIN (
+    SELECT
+        breakdown_value,
+        avgIf(avg_time, {current_period}) AS avg_time_on_page,
+        avgIf(avg_time, {previous_period}) AS previous_avg_time_on_page
+    FROM (
+        SELECT
+            {time_on_page_breakdown_value} AS breakdown_value,
+            avg(toFloat(events.properties.`$prev_pageview_duration`)) AS avg_time,
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp
+        FROM events
+        WHERE and(
+            or(events.event = '$pageview', events.event = '$pageleave', events.event = '$screen'),
+            breakdown_value IS NOT NULL,
+            {inside_periods},
+            {time_on_page_event_properties},
+            {session_properties}
+        )
+        GROUP BY session_id, breakdown_value
+    )
+    GROUP BY breakdown_value
+) AS time_on_page
+ON counts.breakdown_value = time_on_page.breakdown_value
+
+-- -----------------------------
+-- Join: Bounce Rate
+-- -----------------------------
+LEFT JOIN (
+    SELECT
+        breakdown_value,
+        avgIf(is_bounce, {current_period}) AS bounce_rate,
+        avgIf(is_bounce, {previous_period}) AS previous_bounce_rate
+    FROM (
+        SELECT
+            {bounce_breakdown_value} AS breakdown_value,
+            any(session.`$is_bounce`) AS is_bounce,
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp
+        FROM events
+        WHERE and(
+            or(events.event = '$pageview', events.event = '$screen'),
+            breakdown_value IS NOT NULL,
+            {inside_periods},
+            {bounce_event_properties},
+            {session_properties}
+        )
+        GROUP BY session_id, breakdown_value
+    )
+    GROUP BY breakdown_value
+) AS bounce
+ON counts.breakdown_value = bounce.breakdown_value
+""",
+                timings=self.timings,
+                placeholders={
+                    "breakdown_value": self._counts_breakdown_value(),
+                    "where_breakdown": self.where_breakdown(),
+                    "session_properties": self._session_properties(),
+                    "event_properties": self._event_properties(),
+                    "time_on_page_event_properties": self._event_properties_for_scroll(),
+                    "time_on_page_breakdown_value": self._scroll_prev_pathname_breakdown(),
+                    "bounce_event_properties": self._event_properties_for_bounce_rate(),
+                    "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
+                    "current_period": self._current_period_expression(),
+                    "previous_period": self._previous_period_expression(),
+                    "inside_periods": self._periods_expression(),
+                },
+            )
+        assert isinstance(query, ast.SelectQuery)
+
+        columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
+        query.order_by = self._order_by(columns)
+
+        fill_fraction = self._fill_fraction(query.order_by)
+        if fill_fraction:
+            query.select.append(fill_fraction)
 
         return query
 

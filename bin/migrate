@@ -54,9 +54,55 @@ echo "0" > $CLICKHOUSE_STATUS
 ) & # ClickHouse migrations can run in parallel to Postgres ones
 CLICKHOUSE_PID=$!
 
-# Run postgres migrations
-python manage.py migrate
-if [ $? -ne 0 ]; then
+# Run postgres migrations with retry logic
+# If POSTHOG_POSTGRES_DIRECT_HOST is set, use direct connection (bypasses PgBouncer)
+# which allows lock_timeout to be set in Django database OPTIONS
+MIGRATE_MAX_RETRIES=${MIGRATE_MAX_RETRIES:-10}
+MIGRATE_RETRY_DELAY=${MIGRATE_RETRY_DELAY:-3}
+MIGRATE_BACKOFF=${MIGRATE_BACKOFF:-2}
+
+MIGRATE_ATTEMPT=1
+MIGRATE_SUCCESS=false
+MIGRATE_START_TIME=$(date +%s.%N)
+
+# Build migrate command - use direct connection if available
+if [ -n "$POSTHOG_POSTGRES_DIRECT_HOST" ]; then
+    MIGRATE_CMD="python manage.py migrate --noinput --database=default_direct"
+    echo "[migrate] Using direct database connection (lock_timeout enabled)"
+else
+    MIGRATE_CMD="python manage.py migrate --noinput"
+fi
+
+while [ $MIGRATE_ATTEMPT -le $MIGRATE_MAX_RETRIES ]; do
+    echo "[migrate] Django migration attempt $MIGRATE_ATTEMPT/$MIGRATE_MAX_RETRIES"
+
+    if $MIGRATE_CMD; then
+        MIGRATE_SUCCESS=true
+        break
+    fi
+
+    echo "[migrate] Django migration failed"
+
+    if [ $MIGRATE_ATTEMPT -ge $MIGRATE_MAX_RETRIES ]; then
+        echo "[migrate] max retries reached, aborting"
+        break
+    fi
+
+    echo "[migrate] waiting ${MIGRATE_RETRY_DELAY}s before retry..."
+    sleep $MIGRATE_RETRY_DELAY
+
+    MIGRATE_RETRY_DELAY=$((MIGRATE_RETRY_DELAY * MIGRATE_BACKOFF))
+    MIGRATE_ATTEMPT=$((MIGRATE_ATTEMPT + 1))
+done
+
+MIGRATE_END_TIME=$(date +%s.%N)
+MIGRATE_DURATION=$(python3 -c "print($MIGRATE_END_TIME - $MIGRATE_START_TIME)")
+
+# Report migration metrics to pushgateway (if configured)
+if [ "$MIGRATE_SUCCESS" = "true" ]; then
+    python manage.py report_migration_metric --attempts=$MIGRATE_ATTEMPT --duration=$MIGRATE_DURATION --success || true
+else
+    python manage.py report_migration_metric --attempts=$MIGRATE_ATTEMPT --duration=$MIGRATE_DURATION || true
     echo "Error in postgres migrations, killing background process and exiting."
     kill $CLICKHOUSE_PID 2>/dev/null || true
     rm $CLICKHOUSE_STATUS

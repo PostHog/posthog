@@ -51,6 +51,7 @@ import {
     HelpType,
     InsightShortId,
     MultipleSurveyQuestion,
+    OnboardingStepKey,
     PersonType,
     QueryBasedInsightModel,
     type SDK,
@@ -104,14 +105,14 @@ export function getEventPropertiesForMetric(
     } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return {
             kind: NodeKind.ExperimentFunnelsQuery,
-            steps_count: metric.funnels_query.series.length,
-            filter_test_accounts: metric.funnels_query.filterTestAccounts,
+            steps_count: metric.funnels_query?.series?.length,
+            filter_test_accounts: metric.funnels_query?.filterTestAccounts,
         }
     }
     return {
         kind: NodeKind.ExperimentTrendsQuery,
-        series_kind: metric.count_query.series[0].kind,
-        filter_test_accounts: metric.count_query.filterTestAccounts,
+        series_kind: metric.count_query?.series?.[0]?.kind,
+        filter_test_accounts: metric.count_query?.filterTestAccounts,
     }
 }
 
@@ -605,7 +606,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
-        reportOnboardingStarted: (entryPoint: string) => ({ entryPoint }),
+        reportOnboardingStarted: (entrypoint: string) => ({ entrypoint }),
+        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey) => ({ stepKey }),
+        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey) => ({ stepKey }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
@@ -654,6 +657,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRevenueAnalyticsMRRBreakdownModalOpened: () => ({}),
         reportRevenueAnalyticsGoalConfigured: () => ({}),
         reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        reportWebAnalyticsHealthStatus: (props: {
+            has_pageviews: boolean
+            has_pageleaves: boolean
+            has_scroll_depth: boolean
+            has_web_vitals: boolean
+            has_authorized_urls: boolean
+            has_reverse_proxy: boolean
+            overall_status: string
+        }) => ({ props }),
+        reportWebAnalyticsHealthTabViewed: (props: {
+            overall_status: string
+            passed_count: number
+            warning_count: number
+            error_count: number
+        }) => ({ props }),
+        reportWebAnalyticsHealthSectionToggled: (props: { category: string; is_expanded: boolean }) => ({ props }),
+        reportWebAnalyticsHealthActionClicked: (props: {
+            check_id: string
+            category: string
+            status: string
+            is_urgent: boolean
+        }) => ({ props }),
+        reportWebAnalyticsHealthRefreshed: (props: { overall_status: string; passed_count: number }) => ({ props }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1501,9 +1527,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
-        reportOnboardingStarted: ({ entryPoint }) => {
+        reportOnboardingStarted: ({ entrypoint }) => {
             posthog.capture('onboarding started', {
-                entry_point: entryPoint,
+                entry_point: entrypoint,
+            })
+        },
+        reportOnboardingStepCompleted: ({ stepKey }) => {
+            posthog.capture('onboarding step completed', {
+                step_key: stepKey,
+            })
+        },
+        reportOnboardingStepSkipped: ({ stepKey }) => {
+            posthog.capture('onboarding step skipped', {
+                step_key: stepKey,
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
@@ -1616,6 +1652,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('revenue analytics test account filter updated', {
                 filter_test_accounts: filterTestAccounts,
             })
+        },
+        reportWebAnalyticsHealthStatus: ({ props }) => {
+            posthog.capture('web analytics health status', props)
+        },
+        reportWebAnalyticsHealthTabViewed: ({ props }) => {
+            posthog.capture('web analytics health tab viewed', props)
+        },
+        reportWebAnalyticsHealthSectionToggled: ({ props }) => {
+            posthog.capture('web analytics health section toggled', props)
+        },
+        reportWebAnalyticsHealthActionClicked: ({ props }) => {
+            posthog.capture('web analytics health action clicked', props)
+        },
+        reportWebAnalyticsHealthRefreshed: ({ props }) => {
+            posthog.capture('web analytics health refreshed', props)
         },
     })),
 ])

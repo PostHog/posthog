@@ -11,6 +11,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from celery import shared_task
+from posthoganalytics import new_context, tag
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
@@ -629,43 +630,56 @@ def send_error_tracking_issue_assigned(assignment_id: str, assigner_id: int) -> 
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], slug: str) -> None:
-    comment = Comment.objects.select_related("created_by", "team").get(id=comment_id)
+    with new_context():
+        tag("task", "send_discussions_mentioned")
 
-    if not is_email_available(with_absolute_urls=True):
-        return
+        comment = Comment.objects.select_related("created_by", "team").get(id=comment_id)
 
-    team = comment.team
-    commenter = comment.created_by
-    memberships_to_email = get_members_to_notify(team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
+        if not is_email_available(with_absolute_urls=True):
+            logger.warning("Skipping discussions mentioned email: email service not available")
+            return
 
-    if not memberships_to_email or not commenter:
-        return
+        team = comment.team
+        commenter = comment.created_by
+        memberships_to_email = get_members_to_notify(team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
 
-    # Filter the memberships list to only include users mentioned
-    memberships_to_email = [
-        membership
-        for membership in memberships_to_email
-        if (membership.user.id in mentioned_user_ids and membership.user != commenter)
-    ]
+        if not commenter:
+            logger.warning("Skipping discussions mentioned email: no commenter")
+            return
 
-    href = f"{settings.SITE_URL}{slug}"
+        if not memberships_to_email:
+            logger.warning("Skipping discussions mentioned email: no members mentioned")
+            return
 
-    campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=f"[Discussions]: {commenter.first_name} mentioned you in project '{team}'",
-        template_name="discussions_mentioned",
-        template_context={
-            "commenter": commenter,
-            "content": comment.content,
-            "team": team,
-            "href": href,
-        },
-    )
+        # Filter the memberships list to only include users mentioned
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user.id in mentioned_user_ids and membership.user != commenter)
+        ]
 
-    for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    message.send()
+        if not memberships_to_email:
+            logger.warning("Skipping discussions mentioned email: no valid recipients after filtering")
+            return
+
+        href = f"{settings.SITE_URL}{slug}"
+
+        campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"[Discussions]: {commenter.first_name} mentioned you in project '{team}'",
+            template_name="discussions_mentioned",
+            template_context={
+                "commenter": commenter,
+                "content": comment.content,
+                "team": team,
+                "href": href,
+            },
+        )
+
+        for membership in memberships_to_email:
+            message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

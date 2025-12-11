@@ -58,6 +58,11 @@ class VitallyRegionConfig(config.Config):
 
 
 @config.config
+class AshbySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class BigQuerySourceConfig(config.Config):
     key_file: BigQueryKeyFileConfig
     dataset_id: str
@@ -213,7 +218,8 @@ class SalesforceSourceConfig(config.Config):
 @config.config
 class ShopifySourceConfig(config.Config):
     shopify_store_id: str
-    shopify_access_token: str
+    shopify_client_id: str
+    shopify_client_secret: str
 
 
 @config.config
@@ -276,6 +282,7 @@ class ZendeskSourceConfig(config.Config):
 
 def get_config_for_source(source: ExternalDataSourceType):
     return {
+        ExternalDataSourceType.ASHBY: AshbySourceConfig,
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,

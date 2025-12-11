@@ -122,7 +122,7 @@ impl AggregateFunnelRow {
                     true
                 }
             })
-            .group_by(|e| e.timestamp);
+            .chunk_by(|e| e.timestamp);
 
         for (timestamp, events_with_same_timestamp) in &filtered_events {
             let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();

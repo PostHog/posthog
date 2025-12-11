@@ -12,6 +12,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     InCohortVia,
     MaterializationMode,
+    MaterializedColumnsOptimizationMode,
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
@@ -724,6 +725,43 @@ class _Printer(Visitor[str]):
     def visit_order_expr(self, node: ast.OrderExpr):
         return f"{self.visit(node.expr)} {node.order}"
 
+    def __optimize_in_with_string_values(
+        self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
+    ) -> str | None:
+        """
+        Optimizes an IN comparison against a list of values for property group bloom filter usage.
+        Returns the optimized expression string, or None if optimization is not possible.
+        """
+        # Bail on the optimisation if any value is not a Constant, is the empty string, is NULL, or is not a string
+        for v in values:
+            if not isinstance(v, ast.Constant):
+                return None
+            if v.value == "" or v.value is None or not isinstance(v.value, str):
+                return None
+
+        # IN with an empty set of values is always false
+        if len(values) == 0:
+            return "0"
+
+        # A problem we run into here is that an expression like
+        # in(events.properties_group_feature_flags['$feature/onboarding-use-case-selection'], ('control', 'test'))
+        # does not hit the bloom filter on the key, so we need to modify the expression so that it does
+
+        # If only one value, switch to equality operator. Expressions like this will hit the bloom filter for both keys and values:
+        # events.properties_group_feature_flags['$feature/onboarding-use-case-selection'] = 'control'
+        if len(values) == 1:
+            return f"equals({property_source.value_expr}, {self.visit(values[0])})"
+
+        # With transform_null_in=1 in SETTINGS (which we have by default), if there are several values, we need to
+        # include a check for whether the key exists to hit the keys bloom filter.
+        # Unlike the version WITHOUT mapKeys above, the following expression WILL hit the bloom filter:
+        # and(has(mapKeys(properties_group_feature_flags), '$feature/onboarding-use-case-selection'),
+        #     in(events.properties_group_feature_flags['$feature/onboarding-use-case-selection'], ('control', 'test')))
+        # Note that we could add a mapValues to this to use the values bloom filter
+        # TODO to profile whether we should add mapValues. Probably no for flags, yes for properties.
+        values_tuple = ", ".join(self.visit(v) for v in values)
+        return f"and({property_source.has_expr}, in({property_source.value_expr}, tuple({values_tuple})))"
+
     def __get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """
         Returns a printed expression corresponding to the provided compare operation, if one of the operands is part of
@@ -816,37 +854,15 @@ class _Printer(Visitor[str]):
 
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
-                    return "0"
-                elif node.right.value == "":
+                    # we can't optimize here, as the unoptimized version returns true if the key doesn't exist OR the value is null
+                    return None
+                if node.right.value == "":
                     # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
                     return f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(node.right)}))"
                 elif isinstance(node.right.type, ast.StringType):
-                    return f"in({property_source.value_expr}, {self.visit(node.right)})"
-            elif isinstance(node.right, ast.Tuple):
-                # If any of the values on the RHS are the empty string, we need to disambiguate it from the default
-                # value for missing keys. NULLs should also be dropped, but everything else we can directly compare
-                # (strings) can be passed through as-is
-                default_value_expr: ast.Constant | None = None
-                for expr in node.right.exprs[:]:
-                    if not isinstance(expr, ast.Constant):
-                        return None  # only optimize constants for now, see above
-                    if expr.value is None:
-                        node.right.exprs.remove(expr)
-                    elif expr.value == "":
-                        default_value_expr = expr
-                        node.right.exprs.remove(expr)
-                    elif not isinstance(expr.type, ast.StringType):
-                        return None
-                if len(node.right.exprs) > 0:
-                    # TODO: Check to see if it'd be faster to do equality comparison here instead?
-                    printed_expr = f"in({property_source.value_expr}, {self.visit(node.right)})"
-                    if default_value_expr is not None:
-                        printed_expr = f"or({printed_expr}, and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(default_value_expr)})))"
-                elif default_value_expr is not None:
-                    printed_expr = f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(default_value_expr)}))"
-                else:
-                    printed_expr = "0"
-                return printed_expr
+                    return f"equals({property_source.value_expr}, {self.visit(node.right)})"
+            elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
+                return self.__optimize_in_with_string_values(node.right.exprs, property_source)
             else:
                 # TODO: Alias types are not resolved here (similarly to equality operations above) so some expressions
                 # are not optimized that possibly could be if we took that additional step to determine whether or not
@@ -855,11 +871,79 @@ class _Printer(Visitor[str]):
 
         return None  # nothing to optimize
 
+    def __get_optimized_materialized_column_compare_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns an optimized printed expression for comparisons involving individually materialized columns.
+
+        When comparing a materialized column to a non-empty, non-null string constant, we can skip the
+        nullIf() wrapping that normally happens. This allows ClickHouse to use skip indexes on the
+        materialized column.
+
+        For example, instead of:
+            ifNull(equals(nullIf(nullIf(events.`mat_$feature_flag`, ''), 'null'), 'some_value'), 0)
+        We can emit:
+            equals(events.`mat_$feature_flag`, 'some_value')
+
+        This is safe because we know 'some_value' is neither empty string nor 'null', so the nullIf
+        checks are redundant for the comparison result.
+        """
+        if self.context.modifiers.materializedColumnsOptimizationMode != MaterializedColumnsOptimizationMode.OPTIMIZED:
+            return None
+
+        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return None
+
+        property_type: ast.PropertyType | None = None
+        constant_expr: ast.Constant | None = None
+
+        if isinstance(node.right, ast.Constant):
+            left_type = resolve_field_type(node.left)
+            if isinstance(left_type, ast.PropertyType):
+                property_type = left_type
+                constant_expr = node.right
+        elif isinstance(node.left, ast.Constant):
+            right_type = resolve_field_type(node.right)
+            if isinstance(right_type, ast.PropertyType):
+                property_type = right_type
+                constant_expr = node.left
+
+        if property_type is None or constant_expr is None:
+            return None
+
+        # Only optimize simple property access (not chained like properties.foo.bar)
+        if len(property_type.chain) != 1:
+            return None
+
+        # Only optimize for non-empty, non-null string constants
+        if not isinstance(constant_expr.value, str):
+            return None
+        if constant_expr.value == "" or constant_expr.value == "null":
+            return None
+
+        # Check if this property uses an individually materialized column (not a property group)
+        property_source = self.__get_materialized_property_source_for_property_type(property_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
+            return None
+
+        # Build the optimized comparison using the raw materialized column
+        materialized_column_sql = str(property_source)
+        constant_sql = self.visit(constant_expr)
+
+        if node.op == ast.CompareOperationOp.Eq:
+            return f"equals({materialized_column_sql}, {constant_sql})"
+        else:  # NotEq
+            return f"notEquals({materialized_column_sql}, {constant_sql})"
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
         if optimized_property_group_compare_operation := self.__get_optimized_property_group_compare_operation(node):
             return optimized_property_group_compare_operation
+
+        # If either side is an individually materialized column being compared to a string constant,
+        # we can skip the nullIf wrapping to allow skip index usage.
+        if optimized_materialized_column_compare := self.__get_optimized_materialized_column_compare_operation(node):
+            return optimized_materialized_column_compare
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
@@ -1464,7 +1548,7 @@ class _Printer(Visitor[str]):
                     survey_id = node.args[0]
                     if not isinstance(survey_id, ast.Constant):
                         raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
-                    return filter_survey_sent_events_by_unique_submission(survey_id.value)
+                    return filter_survey_sent_events_by_unique_submission(survey_id.value, self.context.team_id)
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:
@@ -1636,7 +1720,7 @@ class _Printer(Visitor[str]):
                     is_nullable=materialized_column.is_nullable,
                 )
 
-            if self.context.modifiers.propertyGroupsMode in (
+            if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
             ):

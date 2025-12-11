@@ -28,6 +28,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
     actions({
         open: true,
         openFixedRange: true,
+        openFixedRangeWithTime: true,
         openDateToNow: true,
         openFixedDate: true,
         close: true,
@@ -53,6 +54,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             {
                 open: () => DateFilterView.QuickList,
                 openFixedRange: () => DateFilterView.FixedRange,
+                openFixedRangeWithTime: () => DateFilterView.FixedRangeWithTime,
                 openDateToNow: () => DateFilterView.DateToNow,
                 openFixedDate: () => DateFilterView.FixedDate,
             },
@@ -62,6 +64,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             {
                 open: () => true,
                 openFixedRange: () => true,
+                openFixedRangeWithTime: () => true,
                 openDateToNow: () => true,
                 openFixedDate: () => true,
                 setDate: (_, { keepPopoverOpen }) => keepPopoverOpen,
@@ -108,6 +111,11 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         isFixedRange: [
             (s) => [s.dateFrom, s.dateTo],
             (dateFrom, dateTo) => !!(dateFrom && dateTo && dayjs(dateFrom).isValid() && dayjs(dateTo).isValid()),
+        ],
+        isFixedRangeWithTime: [
+            (s) => [s.isFixedRange, s.dateFromHasTimePrecision, s.dateToHasTimePrecision],
+            (isFixedRange, dateFromHasTimePrecision, dateToHasTimePrecision) =>
+                isFixedRange && (dateFromHasTimePrecision || dateToHasTimePrecision),
         ],
         isDateToNow: [
             (s) => [s.dateFrom, s.dateTo, (_, p) => p.isFixedDateMode],

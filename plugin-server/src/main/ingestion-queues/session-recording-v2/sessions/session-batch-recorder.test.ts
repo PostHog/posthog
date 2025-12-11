@@ -208,6 +208,7 @@ describe('SessionBatchRecorder', () => {
         message: {
             distinct_id: distinctId,
             session_id: sessionId,
+            token: null,
             eventsByWindowId: {
                 window1: events,
             },

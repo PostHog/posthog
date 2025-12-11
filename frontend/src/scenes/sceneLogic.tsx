@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -45,6 +45,8 @@ import { AccessControlLevel, OnboardingStepKey } from '~/types'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
+import { parseCouponCampaign } from './coupons/utils'
+import { getOnboardingEntryUrl } from './onboarding/utils'
 import { organizationLogic } from './organizationLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
@@ -1171,18 +1173,17 @@ export const sceneLogic = kea<sceneLogicType>([
                                     getRelativeNextPath(params.searchParams.next, location) ??
                                     removeProjectIdIfPresent(location.pathname)
 
-                                // Default to false (products page) if feature flags haven't loaded yet
-                                const useUseCaseSelection =
-                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
-
-                                if (useUseCaseSelection) {
-                                    router.actions.replace(
-                                        urls.useCaseSelection(),
-                                        nextUrl ? { next: nextUrl } : undefined
-                                    )
-                                } else {
-                                    router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
+                                // Check if user is coming from a coupon campaign link
+                                const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                                if (campaign) {
+                                    router.actions.replace(urls.onboardingCoupon(campaign), { next: nextUrl })
+                                    return
                                 }
+
+                                router.actions.replace(
+                                    getOnboardingEntryUrl(values.featureFlags),
+                                    nextUrl ? { next: nextUrl } : undefined
+                                )
                                 return
                             }
 

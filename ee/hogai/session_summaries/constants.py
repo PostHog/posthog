@@ -15,6 +15,11 @@ MAX_SESSIONS_TO_SUMMARIZE = 100  # Maximum number of sessions to summarize at on
 HALLUCINATED_EVENTS_MIN_RATIO = 0.15  # If more than 15% of events in the summary hallucinated, fail the summarization
 # Minimum number of sessions to use group summary logic (find patterns) instead of summarizing them separately
 GROUP_SUMMARIES_MIN_SESSIONS = 5
+# Don't include events that are happened before or after the replay started, or at the very start/end,
+# as we can't verify them with videos confidently,iterate if we find a better way to generate Replay videos
+SESSION_EVENTS_REPLAY_CUTOFF_MS = 5000
+# Minimum session duration to have any event survive the cutoff filter (must be > 2x cutoff)
+MIN_SESSION_DURATION_FOR_SUMMARY_MS = 2 * SESSION_EVENTS_REPLAY_CUTOFF_MS + 1
 
 # Temporal
 SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 60 * 24  # How long to store the DB data in Redis within Temporal jobs

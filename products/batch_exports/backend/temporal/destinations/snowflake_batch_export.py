@@ -804,12 +804,17 @@ class SnowflakeClient:
             else:
                 raise
 
+        record_batch_field_names = [field.name.lower() for field in table.fields]
+        fields = (
+            SnowflakeDestinationField(metadata.name, FIELD_ID_TO_NAME[metadata.type_code], metadata.is_nullable)  # type: ignore[arg-type]
+            for metadata in metadata
+            # Only include fields that are present in the record batch schema
+            if metadata.name.lower() in record_batch_field_names
+        )
+
         return SnowflakeTable.from_snowflake_table(
             table.name,
-            fields=(
-                SnowflakeDestinationField(metadata.name, FIELD_ID_TO_NAME[metadata.type_code], metadata.is_nullable)  # type: ignore[arg-type]
-                for metadata in metadata
-            ),
+            fields=fields,
             parents=table.parents,
             primary_key=table.primary_key,
             version_key=table.version_key,
