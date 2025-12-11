@@ -2,20 +2,15 @@ import './PlayerInspectorList.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { BaseIcon, IconCheck } from '@posthog/icons'
+import { BaseIcon, IconCheck, IconEllipsis } from '@posthog/icons'
 
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import {
-    SettingsBar,
-    SettingsButton,
-    SettingsMenu,
-    SettingsToggle,
-} from 'scenes/session-recordings/components/PanelSettings'
+import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { InspectorListItemConsole, playerInspectorLogic } from './playerInspectorLogic'
+import { playerInspectorLogic } from './playerInspectorLogic'
 
 function HideProperties(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -112,38 +107,29 @@ function ShowOnlyMatching(): JSX.Element {
     )
 }
 
-function CopyConsole(): JSX.Element {
+function MoreMenu(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
-    const { allItemsByItemType } = useValues(inspectorLogic)
+    const { hasConsoleLogs, getFormattedConsoleLogs } = useValues(inspectorLogic)
 
-    const consoleItems = allItemsByItemType['console'] as InspectorListItemConsole[] | undefined
-    const hasConsoleLogs = (consoleItems?.length ?? 0) > 0
-
-    const handleCopy = (): void => {
-        if (!consoleItems?.length) {
-            return
+    const handleCopyConsoleLogs = (): void => {
+        const formattedLogs = getFormattedConsoleLogs()
+        if (formattedLogs) {
+            void copyToClipboard(formattedLogs, 'console logs')
         }
-
-        const formattedLogs = consoleItems
-            .map((item) => {
-                const timestamp = item.timestamp.format('HH:mm:ss.SSS')
-                const level = item.data.level.toUpperCase().padEnd(5)
-                const content = item.data.content
-                return `[${timestamp}] ${level} ${content}`
-            })
-            .join('\n')
-
-        void copyToClipboard(formattedLogs, 'console logs')
     }
 
     return (
-        <SettingsButton
-            title="Copy all console logs to clipboard"
-            label="Copy console logs"
-            onClick={handleCopy}
-            disabledReason={hasConsoleLogs ? undefined : 'There are no console logs to copy'}
+        <SettingsMenu
+            items={[
+                {
+                    label: 'Copy console logs',
+                    onClick: handleCopyConsoleLogs,
+                    disabledReason: hasConsoleLogs ? undefined : 'There are no console logs to copy',
+                },
+            ]}
+            icon={<IconEllipsis />}
         />
     )
 }
@@ -154,7 +140,9 @@ export function PlayerInspectorBottomSettings(): JSX.Element {
             <SyncScrolling />
             <ShowOnlyMatching />
             <HideProperties />
-            <CopyConsole />
+            <div className="ml-auto">
+                <MoreMenu />
+            </div>
         </SettingsBar>
     )
 }
