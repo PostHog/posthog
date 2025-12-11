@@ -254,7 +254,7 @@ class TestQueryPatternDetection(BaseTest):
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         assert _is_daily_unique_persons_pageviews_query(node, context)
 
-    def test_with_single_bound_date_range(self):
+    def test_with_single_bound_date_range_not_supported(self):
         """Test query with only a start date (no end date)."""
         query = """
             SELECT uniqExact(person_id)
@@ -266,7 +266,7 @@ class TestQueryPatternDetection(BaseTest):
         node = self._parse_select(query)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         # Should match and infer end date
-        assert _is_daily_unique_persons_pageviews_query(node, context)
+        assert _is_daily_unique_persons_pageviews_query(node, context) is None
 
     def test_with_single_breakdown(self):
         """Test query with one breakdown dimension."""
