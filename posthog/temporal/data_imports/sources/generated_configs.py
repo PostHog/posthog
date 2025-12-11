@@ -218,7 +218,8 @@ class SalesforceSourceConfig(config.Config):
 @config.config
 class ShopifySourceConfig(config.Config):
     shopify_store_id: str
-    shopify_access_token: str
+    shopify_client_id: str
+    shopify_client_secret: str
 
 
 @config.config

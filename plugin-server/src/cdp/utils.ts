@@ -65,6 +65,12 @@ export function convertToHogFunctionInvocationGlobals(
         ? event.timestamp
         : clickHouseTimestampToISO(event.timestamp)
 
+    const eventCapturedAt = event.captured_at
+        ? DateTime.fromISO(event.captured_at).isValid
+            ? event.captured_at
+            : clickHouseTimestampToISO(event.captured_at)
+        : null
+
     const context: HogFunctionInvocationGlobals = {
         project: {
             id: team.id,
@@ -78,6 +84,7 @@ export function convertToHogFunctionInvocationGlobals(
             distinct_id: event.distinct_id,
             properties,
             timestamp: eventTimestamp,
+            captured_at: eventCapturedAt,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
         },
         person,
@@ -160,6 +167,7 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
             distinct_id: data.event.distinct_id,
             properties: properties,
             timestamp: data.event.timestamp,
+            captured_at: null, // Not applicable for internal events
             url: data.event.url ?? '',
         },
         person,

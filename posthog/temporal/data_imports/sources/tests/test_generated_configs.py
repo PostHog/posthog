@@ -258,9 +258,12 @@ def test_stripe_config():
 
 
 def test_shopify_config():
-    config = ShopifySourceConfig.from_dict({"shopify_store_id": "store_id", "shopify_access_token": "access_token"})
+    config = ShopifySourceConfig.from_dict(
+        {"shopify_store_id": "store_id", "shopify_client_id": "client_id", "shopify_client_secret": "client_secret"}
+    )
     assert config.shopify_store_id == "store_id"
-    assert config.shopify_access_token == "access_token"
+    assert config.shopify_client_id == "client_id"
+    assert config.shopify_client_secret == "client_secret"
 
 
 def test_temporal_config():

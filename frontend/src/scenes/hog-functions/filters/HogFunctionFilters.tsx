@@ -295,6 +295,7 @@ export function HogFunctionFilters({
                                         }
                                         buttonCopy={isDataWarehouse ? 'Add table matcher' : 'Add event matcher'}
                                         excludedProperties={excludedProperties}
+                                        allowNonCapturedEvents
                                     />
                                 </>
                             ) : null}

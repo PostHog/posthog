@@ -34,7 +34,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Customer analytics',
             intents: [ProductKey.CUSTOMER_ANALYTICS],
-            category: 'Unreleased',
+            category: 'Analytics',
             iconType: 'cohort',
             href: urls.customerAnalytics(),
             tags: ['alpha'],

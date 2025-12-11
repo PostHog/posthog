@@ -33,12 +33,13 @@ func ServedHandler(stats *events.Stats) func(c echo.Context) error {
 	}
 }
 
-func StatsHandler(stats *events.Stats) func(c echo.Context) error {
+func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c echo.Context) error {
 	return func(c echo.Context) error {
 
 		type resp struct {
-			UsersOnProduct int    `json:"users_on_product,omitempty"`
-			Error          string `json:"error,omitempty"`
+			UsersOnProduct   int    `json:"users_on_product,omitempty"`
+			ActiveRecordings int    `json:"active_recordings,omitempty"`
+			Error            string `json:"error,omitempty"`
 		}
 
 		_, token, err := auth.GetAuthClaims(c.Request().Header)
@@ -46,15 +47,19 @@ func StatsHandler(stats *events.Stats) func(c echo.Context) error {
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
 
-		store := stats.GetExistingStoreForToken(token)
-		if store == nil {
-			resp := resp{
-				Error: "no stats",
-			}
-			return c.JSON(http.StatusOK, resp)
+		userStore := stats.GetExistingStoreForToken(token)
+		sessionStore := sessionStats.GetExistingStoreForToken(token)
+
+		if userStore == nil && sessionStore == nil {
+			return c.JSON(http.StatusOK, resp{Error: "no stats"})
 		}
-		siteStats := resp{
-			UsersOnProduct: store.Len(),
+
+		siteStats := resp{}
+		if userStore != nil {
+			siteStats.UsersOnProduct = userStore.Len()
+		}
+		if sessionStore != nil {
+			siteStats.ActiveRecordings = sessionStore.Len()
 		}
 		return c.JSON(http.StatusOK, siteStats)
 	}

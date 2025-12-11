@@ -200,12 +200,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Database',
             label: 'Data warehouse',
             icon: <IconDatabaseBolt />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Database')
-                }
-            },
-            showChevron: true,
+            to: urls.sqlEditor(),
+            onClick: () => handleStaticNavbarItemClick(urls.sqlEditor(), true),
             collapsedTooltip: ['Open data warehouse', 'Close data warehouse'],
             documentationUrl: 'https://posthog.com/docs/data-warehouse/sql',
         },

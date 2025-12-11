@@ -1,1 +1,1 @@
-0932_add_session_ids_to_restriction_config
+0938_add_redirect_to_dlq_restriction_type
