@@ -8,43 +8,28 @@ export interface UseAIDataResult {
     isLoading: boolean
 }
 
-interface EventWithProperties {
-    id?: string
-    uuid?: string
-    properties?: {
-        $ai_input?: unknown
-        $ai_output?: unknown
-        $ai_output_choices?: unknown
-        $ai_input_state?: unknown
-        $ai_output_state?: unknown
-        $ai_error?: unknown
-    }
+export interface EventData {
+    uuid: string
+    input: unknown
+    output: unknown
 }
 
-export function useAIData(event: EventWithProperties | null | undefined): UseAIDataResult {
+export function useAIData(eventData: EventData | undefined): UseAIDataResult {
     const { aiDataCache, isEventLoading } = useValues(llmAnalyticsAIDataLogic)
     const { loadAIDataForEvent } = useActions(llmAnalyticsAIDataLogic)
 
-    const eventId = event?.id || event?.uuid || ''
-    const input = event?.properties?.$ai_input
-    const output = event?.properties?.$ai_output_choices
-
-    if (!eventId || (input === undefined && output === undefined)) {
-        return {
-            input,
-            output,
-            isLoading: false,
-        }
+    if (!eventData) {
+        return { input: undefined, output: undefined, isLoading: false }
     }
 
-    const cached = aiDataCache[eventId]
-    const loading = isEventLoading(eventId)
+    const cached = aiDataCache[eventData.uuid]
+    const loading = isEventLoading(eventData.uuid)
 
-    if (!cached && !loading && (input !== undefined || output !== undefined)) {
+    if (!cached && !loading) {
         loadAIDataForEvent({
-            eventId,
-            input,
-            output,
+            eventId: eventData.uuid,
+            input: eventData.input,
+            output: eventData.output,
         })
     }
 

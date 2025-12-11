@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 
 import duckdb
+import deltalake
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -36,7 +37,6 @@ from posthog.temporal.data_imports.metrics import (
     get_ducklake_copy_data_imports_finished_metric,
     get_ducklake_copy_data_imports_verification_metric,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
@@ -181,7 +181,8 @@ async def prepare_data_imports_ducklake_metadata_activity(
         source_type = schema.source.source_type
         source_table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
 
-        partition_column = _detect_data_imports_partition_column(schema)
+        # Get partition column from Delta metadata (source of truth)
+        partition_column = _detect_data_imports_partition_column(source_table_uri)
 
         model_list.append(
             DuckLakeCopyDataImportsMetadata(
@@ -237,21 +238,52 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
             logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
 
 
-def _detect_data_imports_partition_column(schema: ExternalDataSchema) -> str | None:
-    """Detect partition column name for data imports tables.
+def _detect_data_imports_partition_column(table_uri: str) -> str | None:
+    """Detect partition column from Delta metadata (source of truth)."""
+    if not table_uri:
+        return None
+    partition_columns = _fetch_delta_partition_columns(table_uri)
+    return partition_columns[0] if partition_columns else None
 
-    Returns the configured partition column name. Actual column existence and type
-    are verified at verification time by fetching the Delta schema directly.
 
-    Checks:
-    1. Schema partitioning config (partitioning_keys)
-    2. _ph_partition_key (standard data imports partition key)
-    """
-    if schema.partitioning_enabled and schema.partitioning_keys:
-        return schema.partitioning_keys[0]
+def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
+    """Fetch partition columns from Delta table metadata."""
+    options = _get_delta_storage_options()
+    try:
+        delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=options)
+    except Exception as exc:
+        LOGGER.bind(table_uri=table_uri).debug("Delta partition detection failed to open table", error=str(exc))
+        return []
 
-    # Fall back to standard partition key
-    return PARTITION_KEY
+    try:
+        metadata = delta_table.metadata()
+    except Exception as exc:
+        LOGGER.bind(table_uri=table_uri).debug("Delta partition detection failed to read metadata", error=str(exc))
+        return []
+
+    partition_columns = getattr(metadata, "partition_columns", None) or []
+    return [column for column in partition_columns if column]
+
+
+def _get_delta_storage_options() -> dict[str, str]:
+    """Build storage options for deltalake library."""
+    options: dict[str, str] = {
+        "aws_access_key_id": getattr(settings, "AIRBYTE_BUCKET_KEY", "") or "",
+        "aws_secret_access_key": getattr(settings, "AIRBYTE_BUCKET_SECRET", "") or "",
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
+
+    region = getattr(settings, "AIRBYTE_BUCKET_REGION", "") or ""
+    if region:
+        options["region_name"] = region
+        options["AWS_DEFAULT_REGION"] = region
+
+    endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or ""
+    if endpoint:
+        options["endpoint_url"] = endpoint
+        options["AWS_ALLOW_HTTP"] = "true"
+
+    return {key: value for key, value in options.items() if value}
 
 
 def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:

@@ -119,9 +119,6 @@ pub struct Config {
     #[envconfig(default = "1800")] // 30 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
-    #[envconfig(default = "900")] // 15 minutes in seconds
-    pub checkpoint_cleanup_interval_secs: u64,
-
     #[envconfig(default = "1")] // delete local checkpoints older than this
     pub max_checkpoint_retention_hours: u32,
 
@@ -308,11 +305,6 @@ impl Config {
     /// Get checkpoint interval as Duration
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_secs(self.checkpoint_interval_secs)
-    }
-
-    /// Get local stale checkpoint cleanup scan interval as Duration
-    pub fn checkpoint_cleanup_interval(&self) -> Duration {
-        Duration::from_secs(self.checkpoint_cleanup_interval_secs)
     }
 
     pub fn checkpoint_gate_interval(&self) -> Duration {

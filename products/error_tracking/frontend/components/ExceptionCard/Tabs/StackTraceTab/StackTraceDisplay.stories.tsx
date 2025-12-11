@@ -91,6 +91,14 @@ export function GenericDisplayWithNonErrorPromiseRejection(): JSX.Element {
     )
 }
 
+export function GenericDisplayWithLongFrames(): JSX.Element {
+    return (
+        <ExceptionLogicWrapper eventName="node_long_frame" showAllFrames={true}>
+            <StackTraceGenericDisplay />
+        </ExceptionLogicWrapper>
+    )
+}
+
 ///////////////////// Text stacktraces
 
 export function TextDisplayEmpty(): JSX.Element {

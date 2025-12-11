@@ -1,18 +1,111 @@
 import json
+import random
+import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.ai.base import AgentBaseWorkflow
 
+from products.slack_app.backend.slack_thread import SlackThreadContext
+
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
 
 logger = structlog.get_logger(__name__)
+mrkdown_converter = SlackMarkdownConverter()
+
+THINKING_MESSAGES = [
+    "Booping",
+    "Crunching",
+    "Digging",
+    "Fetching",
+    "Inferring",
+    "Indexing",
+    "Juggling",
+    "Noodling",
+    "Peeking",
+    "Percolating",
+    "Poking",
+    "Pondering",
+    "Scanning",
+    "Scrambling",
+    "Sifting",
+    "Sniffing",
+    "Spelunking",
+    "Tinkering",
+    "Unraveling",
+    "Decoding",
+    "Trekking",
+    "Sorting",
+    "Trimming",
+    "Mulling",
+    "Surfacing",
+    "Rummaging",
+    "Scouting",
+    "Scouring",
+    "Threading",
+    "Hunting",
+    "Swizzling",
+    "Grokking",
+    "Hedging",
+    "Scheming",
+    "Unfurling",
+    "Puzzling",
+    "Dissecting",
+    "Stacking",
+    "Snuffling",
+    "Hashing",
+    "Clustering",
+    "Teasing",
+    "Cranking",
+    "Merging",
+    "Snooping",
+    "Rewiring",
+    "Bundling",
+    "Linking",
+    "Mapping",
+    "Tickling",
+    "Flicking",
+    "Hopping",
+    "Rolling",
+    "Zipping",
+    "Twisting",
+    "Blooming",
+    "Sparking",
+    "Nesting",
+    "Looping",
+    "Wiring",
+    "Snipping",
+    "Zoning",
+    "Tracing",
+    "Warping",
+    "Twinkling",
+    "Flipping",
+    "Priming",
+    "Snagging",
+    "Scuttling",
+    "Framing",
+    "Sharpening",
+    "Flibbertigibbeting",
+    "Kerfuffling",
+    "Dithering",
+    "Discombobulating",
+    "Rambling",
+    "Befuddling",
+    "Waffling",
+    "Muckling",
+    "Hobnobbing",
+    "Galumphing",
+    "Puttering",
+    "Whiffling",
+    "Thinking",
+]
 
 SLACK_CONVERSATION_WORKFLOW_TIMEOUT = 60 * 60  # 60 minutes - coding tasks can take a while
 SLACK_CONVERSATION_ACTIVITY_RETRY_INTERVAL = 1  # 1 second
@@ -30,6 +123,7 @@ class SlackConversationRunnerWorkflowInputs:
     channel: str
     thread_ts: str
     initial_message_ts: str
+    user_message_ts: str | None
     messages: list[dict[str, Any]]
     conversation_id: str
 
@@ -97,10 +191,14 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     )
     if not membership or not membership.user:
         logger.error("slack_conversation_no_user", team_id=inputs.team_id)
-        await _update_slack_message(
+        if inputs.user_message_ts:
+            await _remove_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hourglass_flowing_sand")
+            await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "x")
+        await _delete_slack_message(integration, inputs.channel, inputs.initial_message_ts)
+        await _post_slack_message(
             integration,
             inputs.channel,
-            inputs.initial_message_ts,
+            inputs.thread_ts,
             "Sorry, I couldn't process your request - no team user found.",
         )
         return
@@ -124,24 +222,53 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         defaults={"team": team, "user": user, "type": "slack"},
     )
 
+    # Create Slack thread context for task workflows to post updates
+    slack_thread_context = SlackThreadContext(
+        integration_id=inputs.integration_id,
+        channel=inputs.channel,
+        thread_ts=inputs.thread_ts,
+    )
+
     assistant = ChatAgentRunner(
         team,
         conversation,
         new_message=human_message,
         user=user,
         is_new_conversation=True,
+        slack_thread_context=slack_thread_context,
     )
+
+    # Build conversation URL for the "View in PostHog" button
+    conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={inputs.conversation_id}"
+
+    # Start background task to update the "working on it" message with thinking messages
+    async def update_thinking_message():
+        while True:
+            await asyncio.sleep(3)
+            thinking_message = f"{random.choice(THINKING_MESSAGES)}..."
+            await _update_slack_message(
+                integration, inputs.channel, inputs.initial_message_ts, thinking_message, conversation_url
+            )
+
+    thinking_task = asyncio.create_task(update_thinking_message())
 
     # Collect all messages from the stream
     assistant_messages: list[AssistantMessage] = []
     artifact_messages: list[ArtifactMessage] = []
 
-    async for _event_type, message in assistant.astream():
-        if isinstance(message, AssistantMessage):
-            assistant_messages.append(message)
-        elif isinstance(message, ArtifactMessage):
-            artifact_messages.append(message)
-        activity.heartbeat()
+    try:
+        async for _event_type, message in assistant.astream():
+            if isinstance(message, AssistantMessage):
+                assistant_messages.append(message)
+            elif isinstance(message, ArtifactMessage):
+                artifact_messages.append(message)
+            activity.heartbeat()
+    finally:
+        thinking_task.cancel()
+        try:
+            await thinking_task
+        except asyncio.CancelledError:
+            pass
 
     # Get the final response from the last AssistantMessage
     final_response = assistant_messages[-1].content if assistant_messages else None
@@ -165,15 +292,19 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         queries_section = "\n\nQueries:\n" + "\n".join(f"- <{url}|{title}>" for title, url in generated_queries)
         final_response += queries_section
 
-    # Build conversation URL for the "View in PostHog" button
-    conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={inputs.conversation_id}"
+    # Replace loading reaction with checkmark on user's message
+    if inputs.user_message_ts:
+        await _remove_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hourglass_flowing_sand")
+        await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "white_check_mark")
 
-    # Update the initial Slack message with the final response
+    # Post the final response as a new message, then delete the initial "working on it" message
+    # (new messages trigger notifications, updates don't)
+    # We post first so that if posting fails, the user still sees the "working on it" message
     if final_response:
-        await _update_slack_message(
+        await _post_slack_message(
             integration,
             inputs.channel,
-            inputs.initial_message_ts,
+            inputs.thread_ts,
             final_response,
             conversation_url=conversation_url,
         )
@@ -184,33 +315,25 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
             thread_ts=inputs.thread_ts,
         )
     else:
-        await _update_slack_message(
+        await _post_slack_message(
             integration,
             inputs.channel,
-            inputs.initial_message_ts,
+            inputs.thread_ts,
             "Sorry, I couldn't generate a response. Please try again.",
             conversation_url=conversation_url,
         )
 
+    await _delete_slack_message(integration, inputs.channel, inputs.initial_message_ts)
 
-async def _update_slack_message(
-    integration: "Integration",
-    channel: str,
-    ts: str,
-    text: str,
-    conversation_url: str | None = None,
-) -> None:
-    """Helper to update a Slack message."""
-    from posthog.models.integration import SlackIntegration
 
-    # Split text into separate blocks per paragraph to avoid Slack's "See more..." truncation
+def _build_slack_message_blocks(text: str, conversation_url: str | None = None) -> list[dict]:
+    """Build Slack message blocks from text."""
     blocks: list[dict] = []
 
-    # Split on double newlines (paragraph boundaries)
-    paragraphs = text.split("\n\n")
-
+    mrkdwn_text = mrkdown_converter.convert(text)
+    paragraphs = mrkdwn_text.split("\n\n")
     for para in paragraphs:
-        if para.strip():  # Skip empty paragraphs
+        if para.strip():
             blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": para}})
 
     if conversation_url:
@@ -227,8 +350,87 @@ async def _update_slack_message(
             }
         )
 
+    return blocks
+
+
+async def _post_slack_message(
+    integration: "Integration",
+    channel: str,
+    thread_ts: str,
+    text: str,
+    conversation_url: str | None = None,
+) -> None:
+    """Helper to post a new Slack message in a thread."""
+    from posthog.models.integration import SlackIntegration
+
+    blocks = _build_slack_message_blocks(text, conversation_url)
+    slack = SlackIntegration(integration)
+    try:
+        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
+    except Exception as e:
+        logger.exception("slack_message_post_failed", error=str(e))
+
+
+async def _update_slack_message(
+    integration: "Integration",
+    channel: str,
+    ts: str,
+    text: str,
+    conversation_url: str | None = None,
+) -> None:
+    """Helper to update a Slack message."""
+    from posthog.models.integration import SlackIntegration
+
+    blocks = _build_slack_message_blocks(text, conversation_url)
     slack = SlackIntegration(integration)
     try:
         slack.client.chat_update(channel=channel, ts=ts, text=text, blocks=blocks)
     except Exception as e:
         logger.exception("slack_message_update_failed", error=str(e))
+
+
+async def _delete_slack_message(
+    integration: "Integration",
+    channel: str,
+    ts: str,
+) -> None:
+    """Helper to delete a Slack message."""
+    from posthog.models.integration import SlackIntegration
+
+    slack = SlackIntegration(integration)
+    try:
+        slack.client.chat_delete(channel=channel, ts=ts)
+    except Exception as e:
+        logger.exception("slack_message_delete_failed", error=str(e))
+
+
+async def _add_slack_reaction(
+    integration: "Integration",
+    channel: str,
+    timestamp: str,
+    name: str,
+) -> None:
+    """Helper to add a reaction to a Slack message."""
+    from posthog.models.integration import SlackIntegration
+
+    slack = SlackIntegration(integration)
+    try:
+        slack.client.reactions_add(channel=channel, timestamp=timestamp, name=name)
+    except Exception as e:
+        logger.exception("slack_reaction_add_failed", error=str(e))
+
+
+async def _remove_slack_reaction(
+    integration: "Integration",
+    channel: str,
+    timestamp: str,
+    name: str,
+) -> None:
+    """Helper to remove a reaction from a Slack message."""
+    from posthog.models.integration import SlackIntegration
+
+    slack = SlackIntegration(integration)
+    try:
+        slack.client.reactions_remove(channel=channel, timestamp=timestamp, name=name)
+    except Exception as e:
+        logger.exception("slack_reaction_remove_failed", error=str(e))

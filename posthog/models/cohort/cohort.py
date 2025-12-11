@@ -23,6 +23,7 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
@@ -571,7 +572,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         finally:
             # Always update the count and cohort state, even if processing failed
             try:
-                count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
+                # Use the write database to avoid replication lag from under-representing the count after inserting
+                count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id, using_database=db_write)
                 self.count = count
             except Exception as count_err:
                 # If count calculation fails, log the error but don't override the processing error
@@ -612,9 +614,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             cohort_person.delete()
             remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
 
-            # Update count
+            # Update count - use write database to avoid replication lag after delete
             try:
-                count = get_static_cohort_size(cohort_id=self.id, team_id=team_id)
+                count = get_static_cohort_size(cohort_id=self.id, team_id=team_id, using_database=PERSONS_DB_FOR_WRITE)
                 self.count = count
                 self.save(update_fields=["count"])
             except Exception as count_err:
@@ -726,7 +728,10 @@ def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
         person_uuid = instance.person_id
 
         cohort = Cohort.objects.get(id=cohort_id)
-        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
+        # Use write database to avoid replication lag after delete
+        cohort.count = get_static_cohort_size(
+            cohort_id=cohort.id, team_id=cohort.team_id, using_database=PERSONS_DB_FOR_WRITE
+        )
         cohort.save(update_fields=["count"])
 
         logger.info(

@@ -33,7 +33,7 @@ export class IngestionWarningHandlingBatchPipeline<
                         resultWithContext.context.team.id,
                         warning.type,
                         warning.details,
-                        { alwaysSend: warning.alwaysSend }
+                        { key: warning.key, alwaysSend: warning.alwaysSend }
                     )
                 )
 

@@ -39,6 +39,9 @@ export function Elements(): JSX.Element {
         hoverElementRect: productToursHoverRect,
         selectedElementRect: productToursSelectedRect,
         isEditingStep,
+        tourForm,
+        inspectingElement,
+        editingModalStep,
     } = useValues(productToursLogic)
 
     const shiftPressed = useShiftKeyPressed(refreshClickmap)
@@ -73,14 +76,47 @@ export function Elements(): JSX.Element {
                 <ScrollDepth />
                 {activeToolbarMode === 'heatmap' && <HeatmapCanvas context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
-                {productToursInspecting && isEditingStep && productToursSelectedRect ? (
+                {/* Product tours: show highlights with step numbers for all selected steps */}
+                {tourForm?.steps?.map(
+                    (step: { id: string; selector: string; element?: HTMLElement }, index: number) => {
+                        const element = step.element || (step.selector ? document.querySelector(step.selector) : null)
+                        if (!element) {
+                            return null
+                        }
+                        const domRect = element.getBoundingClientRect()
+                        const rect = {
+                            x: domRect.x,
+                            y: domRect.y,
+                            width: domRect.width,
+                            height: domRect.height,
+                            top: domRect.top,
+                            left: domRect.left,
+                            right: domRect.right,
+                            bottom: domRect.bottom,
+                        }
+                        const isActive = inspectingElement === index
+
+                        return (
+                            <ElementHighlight key={step.id} rect={rect} isSelected={isActive} stepNumber={index + 1} />
+                        )
+                    }
+                )}
+
+                {/* Product tours: hover highlight when inspecting */}
+                {productToursInspecting && !isEditingStep && productToursHoverRect && (
+                    <ElementHighlight rect={productToursHoverRect} />
+                )}
+
+                {/* Product tours: selected element highlight + editor */}
+                {productToursInspecting && isEditingStep && productToursSelectedRect && (
                     <>
-                        <ElementHighlight rect={productToursSelectedRect} />
+                        <ElementHighlight rect={productToursSelectedRect} isSelected />
                         <StepEditor rect={productToursSelectedRect} />
                     </>
-                ) : productToursInspecting && productToursHoverRect ? (
-                    <ElementHighlight rect={productToursHoverRect} />
-                ) : null}
+                )}
+
+                {/* Product tours: modal step editor (no element) */}
+                {productToursInspecting && editingModalStep && <StepEditor />}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
                     return (
