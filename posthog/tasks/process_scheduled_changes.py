@@ -62,7 +62,25 @@ def is_unrecoverable_error(exception: Exception) -> bool:
 
 
 def compute_next_run(current: datetime, interval: str) -> datetime:
-    """Compute the next scheduled run time based on recurrence interval."""
+    """
+    Compute the next scheduled run time based on recurrence interval.
+
+    Uses relativedelta for reliable date arithmetic:
+    - Daily: adds exactly 1 day
+    - Weekly: adds exactly 7 days
+    - Monthly: adds 1 month, handling month-end edge cases
+      (e.g., Jan 31 + 1 month = Feb 28/29, not Mar 3)
+
+    Args:
+        current: The current scheduled_at datetime
+        interval: One of 'daily', 'weekly', 'monthly'
+
+    Returns:
+        The next scheduled datetime
+
+    Raises:
+        ValueError: If interval is not a recognized value
+    """
     if interval == "daily":
         return current + relativedelta(days=1)
     elif interval == "weekly":
@@ -95,11 +113,18 @@ def process_scheduled_changes() -> None:
 
                     # Handle recurring vs one-time schedules
                     if scheduled_change.is_recurring and scheduled_change.recurrence_interval:
-                        # Compute next run time instead of marking as executed
-                        scheduled_change.scheduled_at = compute_next_run(
+                        # Compute next run time, handling delayed execution
+                        next_run = compute_next_run(
                             scheduled_change.scheduled_at,
                             scheduled_change.recurrence_interval,
                         )
+                        # If task execution was delayed and next_run is still in the past, skip ahead
+                        # to avoid immediate re-trigger or missed executions piling up
+                        now = timezone.now()
+                        while next_run <= now:
+                            next_run = compute_next_run(next_run, scheduled_change.recurrence_interval)
+                        scheduled_change.scheduled_at = next_run
+                        scheduled_change.last_executed_at = now
                         scheduled_change.save()
                     else:
                         # One-time schedule: mark as completed
