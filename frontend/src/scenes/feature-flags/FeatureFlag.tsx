@@ -1555,6 +1555,9 @@ function FeatureFlagRollout({
                                     onRemoveVariant={removeVariant}
                                     onDistributeEqually={distributeVariantsEqually}
                                     canEditVariant={canEditVariant}
+                                    hasExperiment={hasExperiment ?? false}
+                                    experimentId={experiment?.id}
+                                    experimentName={experiment?.name}
                                     isDraftExperiment={isDraftExperiment}
                                     onVariantChange={(index, field, value) => {
                                         const currentVariants = [...variants]

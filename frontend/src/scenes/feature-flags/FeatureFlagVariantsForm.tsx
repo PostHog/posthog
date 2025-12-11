@@ -6,9 +6,11 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link'
 import { alphabet } from 'lib/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
+import { urls } from 'scenes/urls'
 
 import { FeatureFlagGroupType, MultivariateFlagVariant, Survey } from '~/types'
 
@@ -23,6 +25,8 @@ export interface FeatureFlagVariantsFormProps {
     onDistributeEqually?: () => void
     canEditVariant?: (index: number) => boolean
     hasExperiment?: boolean
+    experimentId?: number
+    experimentName?: string
     isDraftExperiment?: boolean
     readOnly?: boolean
     onViewRecordings?: (variantKey: string) => void
@@ -49,6 +53,8 @@ export function FeatureFlagVariantsForm({
     onDistributeEqually,
     canEditVariant = () => true,
     hasExperiment = false,
+    experimentId,
+    experimentName,
     isDraftExperiment = false,
     readOnly = false,
     onViewRecordings,
@@ -60,6 +66,32 @@ export function FeatureFlagVariantsForm({
 }: FeatureFlagVariantsFormProps): JSX.Element {
     const variantRolloutSum = variants.reduce((sum, variant) => sum + (variant.rollout_percentage || 0), 0)
     const areVariantRolloutsValid = variantRolloutSum === 100
+
+    const experimentLink = experimentId ? (
+        <Link target="_blank" to={urls.experiment(experimentId)}>
+            {experimentName ?? 'an experiment'}
+        </Link>
+    ) : (
+        'an experiment'
+    )
+
+    const experimentDisabledReason = (action: string, controlOnly = false): React.ReactElement | undefined => {
+        if (!hasExperiment || (isDraftExperiment && !controlOnly)) {
+            return undefined
+        }
+        if (isDraftExperiment) {
+            return (
+                <>
+                    This flag is linked to {experimentLink}. The control variant {action}.
+                </>
+            )
+        }
+        return (
+            <>
+                This flag is linked to {experimentLink}. Variants {action} after the experiment has been launched.
+            </>
+        )
+    }
 
     const getSurveyButtonText = (variantKey: string): string => {
         const survey = getSurveyForFeatureFlagVariant(variantKey, surveys)
@@ -186,9 +218,7 @@ export function FeatureFlagVariantsForm({
                                 spellCheck={false}
                                 disabledReason={
                                     !canEditVariant(index)
-                                        ? isDraftExperiment
-                                            ? 'Cannot modify the control variant in an experiment.'
-                                            : 'Cannot modify variants in a flag with a launched experiment.'
+                                        ? experimentDisabledReason('cannot be modified', true)
                                         : undefined
                                 }
                                 value={variant.key}
@@ -261,9 +291,7 @@ export function FeatureFlagVariantsForm({
                                 onClick={() => onRemoveVariant(index)}
                                 disabledReason={
                                     !canEditVariant(index)
-                                        ? isDraftExperiment
-                                            ? 'Cannot delete the control variant from an experiment.'
-                                            : 'Cannot delete variants from a feature flag that is part of a launched experiment.'
+                                        ? experimentDisabledReason('cannot be deleted', true)
                                         : undefined
                                 }
                                 tooltipPlacement="top-end"
@@ -286,11 +314,7 @@ export function FeatureFlagVariantsForm({
                         focusVariantKeyField(newIndex)
                     }}
                     icon={<IconPlus />}
-                    disabledReason={
-                        hasExperiment && !isDraftExperiment
-                            ? 'Cannot add variants to a feature flag that is part of a launched experiment. To update variants, reset the experiment to draft.'
-                            : undefined
-                    }
+                    disabledReason={experimentDisabledReason('cannot be added')}
                     tooltipPlacement="top-start"
                     center
                 >
