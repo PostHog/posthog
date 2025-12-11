@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
-import { convertToDataWarehouseEventToHogFunctionInvocationGlobals } from '../../cdp/utils'
+import { convertDataWarehouseEventToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -393,9 +393,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
                         return
                     }
 
-                    events.push(
-                        convertToDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.hub.SITE_URL)
-                    )
+                    events.push(convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.hub.SITE_URL))
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()

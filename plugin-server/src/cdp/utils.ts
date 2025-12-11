@@ -86,7 +86,7 @@ export function convertToHogFunctionInvocationGlobals(
     return context
 }
 
-export function convertToDataWarehouseEventToHogFunctionInvocationGlobals(
+export function convertDataWarehouseEventToHogFunctionInvocationGlobals(
     event: CdpDataWarehouseEvent,
     team: Team,
     siteUrl: string
