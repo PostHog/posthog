@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
+
 import structlog
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity, workflow
@@ -380,7 +382,6 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
 
 def _absolutize_markdown_links(text: str) -> str:
     """Prepend SITE_URL to absolute-path Markdown links (e.g. [text](/path) -> [text](https://example.com/path))."""
-    from django.conf import settings
 
     def replace_link(match: re.Match) -> str:
         link_text = match.group(1)
