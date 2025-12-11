@@ -20,6 +20,7 @@ from posthog.api import (
     github,
     hog_function_template,
     playwright_setup,
+    push_subscription,
     remote_config,
     report,
     router,
@@ -229,6 +230,8 @@ urlpatterns = [
     path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
+    # SDK endpoints
+    opt_slash_path("sdk/push_subscriptions/register", push_subscription.sdk_push_subscription_register),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
