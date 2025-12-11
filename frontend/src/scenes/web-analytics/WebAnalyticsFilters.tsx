@@ -69,6 +69,8 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     } = useValues(webAnalyticsLogic)
     const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
     if (featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
         return <CondensedFilterBar tabs={tabs} />
     }
