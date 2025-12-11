@@ -101,6 +101,15 @@ EMBEDDING_MODELS_1 = [
     "text-embedding-3-large-3072",
 ]
 
+# If you want to add a new model or dimensionality you need to:
+# - Add the new models to a new list like the one above
+# - Create a new list like EMBEDDING_TABLES_1
+# - Add that new list to EMBEDDING_TABLES full-list, so all the HOGQL modelling is automatically updated
+# And then write a migration (similar to 0187_model_specific_embedding_tables) that:
+# - Drop the buffer-table-filling MV
+# - Create the new tables and MVs for the new model-specific tables
+# - Re-creates the buffer-table-filling MV
+
 
 # Helper functions for pausing/resuming the entire embedding system
 def drop_kafka_to_buffer_mv_sql() -> str:
