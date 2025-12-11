@@ -4,6 +4,7 @@ from typing import cast
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     snapshot_clickhouse_queries,
@@ -25,20 +26,11 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.action import Action
 from posthog.models.filters import Filter
 from posthog.models.property_definition import PropertyDefinition
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 class TestFunnelUnorderedStepsBreakdown(

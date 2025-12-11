@@ -1,26 +1,23 @@
 from datetime import datetime, timedelta
 
 from freezegun.api import freeze_time
-from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    ClickhouseTestMixin,
+    _create_action,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 
 from django.test.client import Client
 
 from posthog.api.test.test_stickiness import get_stickiness_time_series_ok, stickiness_test_factory
-from posthog.models.action import Action
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group.util import create_group
 from posthog.queries.util import get_earliest_timestamp
 from posthog.test.test_journeys import journeys_for
 
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    event_name = kwargs.pop("event_name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": event_name}])
-    return action
 
 
 def get_people_from_url_ok(client: Client, url: str):
