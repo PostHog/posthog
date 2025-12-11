@@ -78,6 +78,16 @@ async fn index() -> &'static str {
     "capture"
 }
 
+async fn readiness(
+    axum::extract::State(state): axum::extract::State<State>,
+) -> axum::http::StatusCode {
+    if state.is_mirror_deploy && std::path::Path::new("/tmp/shutdown").exists() {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    } else {
+        axum::http::StatusCode::OK
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
@@ -221,7 +231,7 @@ pub fn router<
 
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(index))
+        .route("/_readiness", get(readiness))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     let recordings_router = Router::new()
