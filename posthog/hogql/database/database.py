@@ -71,7 +71,7 @@ from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
 )
-from posthog.hogql.database.schema.logs import LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -191,6 +191,7 @@ class Database(BaseModel):
             "document_embeddings": TableNode(name="document_embeddings", table=DocumentEmbeddingsTable()),
             "pg_embeddings": TableNode(name="pg_embeddings", table=PgEmbeddingsTable()),
             "logs": TableNode(name="logs", table=LogsTable()),
+            "log_attributes": TableNode(name="log_attributes", table=LogAttributesTable()),
             "logs_kafka_metrics": TableNode(name="logs_kafka_metrics", table=LogsKafkaMetricsTable()),
             "numbers": TableNode(name="numbers", table=NumbersTable()),
             "system": SystemTables(),  # This is a `TableNode` already, refer to implementation

@@ -11,6 +11,7 @@ from django.utils import timezone
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Survey, Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
+from posthog.models.person.person import Person, PersonDistinctId
 
 
 class MultipleChoiceTemplate(TypedDict):
@@ -140,22 +141,48 @@ OPEN_RESPONSES = {
     ],
 }
 
-SAMPLE_DISTINCT_IDS = [
-    "user_demo_001",
-    "user_demo_002",
-    "user_demo_003",
-    "user_demo_004",
-    "user_demo_005",
-    "user_demo_006",
-    "user_demo_007",
-    "user_demo_008",
-    "user_demo_009",
-    "user_demo_010",
-]
+
+class PersonData:
+    """Holds person data for event generation."""
+
+    def __init__(self, distinct_id: str, person_uuid: str, properties: dict, created_at: Any):
+        self.distinct_id = distinct_id
+        self.person_uuid = person_uuid
+        self.properties = properties
+        self.created_at = created_at
 
 
 class Command(BaseCommand):
     help = "Generate random surveys for development purposes"
+
+    def get_real_persons(self, team: Team, limit: int = 50) -> list[PersonData]:
+        """Fetch real persons from the database that were created by demo data generation."""
+        persons_data: list[PersonData] = []
+
+        # Query persons with their distinct IDs
+        persons = (
+            Person.objects.filter(team_id=team.id)
+            .prefetch_related("persondistinctid_set")
+            .order_by("-created_at")[:limit]
+        )
+
+        for person in persons:
+            distinct_ids = PersonDistinctId.objects.filter(person=person, team_id=team.id).values_list(
+                "distinct_id", flat=True
+            )
+
+            if distinct_ids:
+                # Use the first distinct_id for the person
+                persons_data.append(
+                    PersonData(
+                        distinct_id=distinct_ids[0],
+                        person_uuid=str(person.uuid),
+                        properties=person.properties or {},
+                        created_at=person.created_at,
+                    )
+                )
+
+        return persons_data
 
     def add_arguments(self, parser):
         parser.add_argument("count", type=int, help="Number of surveys to generate")
@@ -356,7 +383,7 @@ class Command(BaseCommand):
         self,
         event_name: str,
         properties: dict[str, Any],
-        distinct_id: str,
+        person_data: PersonData,
         timestamp: Any,
         team: Team,
         index: int,
@@ -367,6 +394,11 @@ class Command(BaseCommand):
         # person_created_at and group*_created_at are DateTime64 (seconds) - no microseconds
         ts_str_no_micro = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
         zero_date = "1970-01-01 00:00:00"
+
+        # Format person_created_at from the real person data
+        person_created_at_str = zero_date
+        if person_data.created_at:
+            person_created_at_str = person_data.created_at.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
 
         insert = """(
             %(uuid_{i})s,
@@ -401,11 +433,11 @@ class Command(BaseCommand):
             f"properties_{index}": json.dumps(properties),
             f"timestamp_{index}": ts_str,
             f"team_id_{index}": team.id,
-            f"distinct_id_{index}": distinct_id,
+            f"distinct_id_{index}": person_data.distinct_id,
             f"elements_chain_{index}": "",
-            f"person_id_{index}": str(uuid.uuid4()),
-            f"person_properties_{index}": "{}",
-            f"person_created_at_{index}": zero_date,
+            f"person_id_{index}": person_data.person_uuid,
+            f"person_properties_{index}": json.dumps(person_data.properties),
+            f"person_created_at_{index}": person_created_at_str,
             f"group0_properties_{index}": "",
             f"group1_properties_{index}": "",
             f"group2_properties_{index}": "",
@@ -424,13 +456,21 @@ class Command(BaseCommand):
         return insert, params
 
     def generate_survey_responses(
-        self, survey: Survey, team: Team, num_responses: int, days_back: int
+        self, survey: Survey, team: Team, num_responses: int, days_back: int, persons_data: list[PersonData]
     ) -> tuple[int, int, int]:
         """Generate survey response events for a survey.
 
         Inserts directly into ClickHouse for immediate availability.
         Returns tuple of (sent_count, shown_count, dismissed_count).
         """
+        if not persons_data:
+            self.stdout.write(
+                self.style.WARNING(
+                    "No persons found in the database. Run 'hogli dev:demo-data' first to generate persons."
+                )
+            )
+            return 0, 0, 0
+
         now = timezone.now()
         sent_count = 0
         shown_count = 0
@@ -444,7 +484,7 @@ class Command(BaseCommand):
         event_index = 0
 
         for i in range(total_shown):
-            distinct_id = random.choice(SAMPLE_DISTINCT_IDS)
+            person_data = random.choice(persons_data)
             # Spread events over the specified time range
             timestamp = now - timedelta(
                 days=random.randint(0, days_back),
@@ -459,7 +499,7 @@ class Command(BaseCommand):
                     "$survey_id": str(survey.id),
                     "$survey_name": survey.name,
                 },
-                distinct_id=distinct_id,
+                person_data=person_data,
                 timestamp=timestamp,
                 team=team,
                 index=event_index,
@@ -490,7 +530,7 @@ class Command(BaseCommand):
                 insert, event_params = self._build_event_row(
                     event_name="survey sent",
                     properties=response_properties,
-                    distinct_id=distinct_id,
+                    person_data=person_data,
                     timestamp=timestamp + timedelta(seconds=random.randint(5, 120)),
                     team=team,
                     index=event_index,
@@ -507,7 +547,7 @@ class Command(BaseCommand):
                         "$survey_id": str(survey.id),
                         "$survey_name": survey.name,
                     },
-                    distinct_id=distinct_id,
+                    person_data=person_data,
                     timestamp=timestamp + timedelta(seconds=random.randint(2, 30)),
                     team=team,
                     index=event_index,
@@ -553,13 +593,38 @@ class Command(BaseCommand):
         total_shown = 0
         total_dismissed = 0
 
+        # Fetch real persons from the database if responses are requested
+        persons_data: list[PersonData] = []
+        if num_responses > 0:
+            persons_data = self.get_real_persons(team, limit=100)
+            if persons_data:
+                self.stdout.write(
+                    self.style.SUCCESS(f"Found {len(persons_data)} persons in the database to use for responses")
+                )
+            else:
+                self.stdout.write(
+                    self.style.WARNING(
+                        "No persons found in the database. Run 'hogli dev:demo-data' first to generate persons."
+                    )
+                )
+
         for _ in range(count):
             survey_data = self.generate_random_survey(team.id, user.id)
             survey = Survey.objects.create(**survey_data)
+
+            # Backdate created_at so that generated events (spread over days_back days) fall within
+            # the survey's timestamp filter (which uses created_at as the start date)
+            if num_responses > 0:
+                backdated_created_at = timezone.now() - timedelta(days=days_back + 1)
+                Survey.objects.filter(id=survey.id).update(created_at=backdated_created_at)
+                survey.refresh_from_db()
+
             self.stdout.write(self.style.SUCCESS(f'Created survey "{survey.name}" (ID: {survey.id})'))
 
-            if num_responses > 0:
-                sent, shown, dismissed = self.generate_survey_responses(survey, team, num_responses, days_back)
+            if num_responses > 0 and persons_data:
+                sent, shown, dismissed = self.generate_survey_responses(
+                    survey, team, num_responses, days_back, persons_data
+                )
                 total_sent += sent
                 total_shown += shown
                 total_dismissed += dismissed

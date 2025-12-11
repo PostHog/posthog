@@ -6629,7 +6629,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("ETag", response.headers)
-        self.assertTrue(response.headers["ETag"].startswith('"'))
+        self.assertTrue(response.headers["ETag"].startswith('W/"'))
         self.assertTrue(response.headers["ETag"].endswith('"'))
         self.assertIn("Cache-Control", response.headers)
         self.assertEqual(response.headers["Cache-Control"], "private, must-revalidate")
@@ -6851,8 +6851,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         etag = response1.headers["ETag"]
-        # ETag is returned with quotes, e.g., '"abc123"'
-        self.assertTrue(etag.startswith('"') and etag.endswith('"'))
+        # ETag is returned as weak ETag, e.g., 'W/"abc123"'
+        self.assertTrue(etag.startswith('W/"') and etag.endswith('"'))
 
         # Client sends ETag with quotes (standard format) - should match
         response2 = self.client.get(
@@ -6885,8 +6885,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         etag = response1.headers["ETag"]
-        # Strip quotes to get raw ETag value
-        raw_etag = etag.strip('"')
+        # Strip weak ETag prefix and quotes to get raw ETag value (W/"abc123" -> abc123)
+        raw_etag = etag.removeprefix('W/"').removesuffix('"')
 
         # Client sends ETag without quotes (non-standard but should work)
         response2 = self.client.get(

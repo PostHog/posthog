@@ -2,8 +2,11 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadContext
 
 import structlog
 import posthoganalytics
@@ -70,6 +73,7 @@ class BaseAgentRunner(ABC):
     _billing_context: Optional[MaxBillingContext]
     _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
     _stream_processor: AssistantStreamProcessorProtocol
+    _slack_thread_context: Optional["SlackThreadContext"]
     """The stream processor that processes dispatcher actions and message chunks."""
 
     def __init__(
@@ -91,6 +95,7 @@ class BaseAgentRunner(ABC):
         initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
         callback_handler: Optional[BaseCallbackHandler] = None,
         stream_processor: AssistantStreamProcessorProtocol,
+        slack_thread_context: Optional["SlackThreadContext"] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -142,6 +147,7 @@ class BaseAgentRunner(ABC):
         self._initial_state = initial_state
         # Initialize the stream processor with node configuration
         self._stream_processor = stream_processor
+        self._slack_thread_context = slack_thread_context
 
     @abstractmethod
     def get_initial_state(self) -> AssistantMaxGraphState:
@@ -296,6 +302,7 @@ class BaseAgentRunner(ABC):
                 "team": self._team,
                 "user": self._user,
                 "billing_context": self._billing_context,
+                "slack_thread_context": self._slack_thread_context,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).
                 "sdk_metadata": {
                     "assistant_mode": self._mode.value,

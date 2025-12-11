@@ -1,0 +1,21 @@
+@mixin edit-button-wrapper-size-variables {
+    &--xsmall {
+        max-width: 1.5rem; // max-w-6
+    }
+
+    &--small {
+        max-width: 1.75rem; // max-w-7
+    }
+
+    &--medium {
+        max-width: 2rem; // max-w-8
+    }
+
+    &--large {
+        max-width: 2.25rem; // max-w-9
+    }
+}
+
+.LemonInputSelect__edit-button-wrapper {
+    @include edit-button-wrapper-size-variables;
+}

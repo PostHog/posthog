@@ -43,8 +43,6 @@ export function VirtualizedLogsList({
     hasMoreLogsToLoad = false,
     onLoadMore,
 }: VirtualizedLogsListProps): JSX.Element {
-    const { togglePinLog, userSetCursorIndex } = useActions(logsViewerLogic)
-    const { pinnedLogs, cursorIndex } = useValues(logsViewerLogic)
     const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic)
     const { setContainerWidth } = useActions(virtualizedLogsListLogic)
     const listRef = useRef<List>(null)
@@ -63,6 +61,30 @@ export function VirtualizedLogsList({
         []
     )
 
+    const { pinnedLogs, expandedLogIds, cursorIndex, recomputeRowHeightsRequest } = useValues(logsViewerLogic)
+    const { togglePinLog, toggleExpandLog, userSetCursorIndex } = useActions(logsViewerLogic)
+
+    // Handle recompute requests from child components (via the logic)
+    const lastRecomputeTimestampRef = useRef<number>(0)
+    useEffect(() => {
+        if (recomputeRowHeightsRequest && recomputeRowHeightsRequest.timestamp > lastRecomputeTimestampRef.current) {
+            lastRecomputeTimestampRef.current = recomputeRowHeightsRequest.timestamp
+            const { logIds } = recomputeRowHeightsRequest
+            if (logIds) {
+                for (const logId of logIds) {
+                    const rowIndex = dataSource.findIndex((log) => log.uuid === logId)
+                    if (rowIndex !== -1) {
+                        cache.clear(rowIndex, 0)
+                        listRef.current?.recomputeRowHeights(rowIndex)
+                    }
+                }
+            } else {
+                cache.clearAll()
+                listRef.current?.recomputeRowHeights()
+            }
+        }
+    }, [recomputeRowHeightsRequest, dataSource, cache])
+
     // Clear cache when container width changes (affects message column width and thus row heights)
     useEffect(() => {
         if (containerWidth > 0) {
@@ -78,8 +100,13 @@ export function VirtualizedLogsList({
         }
     }, [loading, dataSource.length, cache])
 
+    // Scroll to cursor when it changes (but not when data length changes from pagination)
+    const prevCursorIndexRef = useRef<number | null>(cursorIndex)
     useEffect(() => {
-        if (cursorIndex !== null && dataSource.length > 0) {
+        const cursorChanged = cursorIndex !== prevCursorIndexRef.current
+        prevCursorIndexRef.current = cursorIndex
+
+        if (cursorChanged && cursorIndex !== null && dataSource.length > 0) {
             listRef.current?.scrollToRow(cursorIndex)
             // Double scroll after two animation frames to ensure row measurement is complete
             let raf1: number | null = null
@@ -113,6 +140,7 @@ export function VirtualizedLogsList({
         (rowWidth?: number) =>
             ({ index, key, style, parent }: ListRowProps): JSX.Element => {
                 const log = dataSource[index]
+                const isExpanded = !!expandedLogIds[log.uuid]
 
                 return (
                     <CellMeasurer cache={cache} columnIndex={0} key={key} parent={parent} rowIndex={index}>
@@ -124,13 +152,16 @@ export function VirtualizedLogsList({
                             >
                                 <LogRow
                                     log={log}
+                                    logIndex={index}
                                     isAtCursor={index === cursorIndex}
+                                    isExpanded={isExpanded}
                                     pinned={!!pinnedLogs[log.uuid]}
                                     showPinnedWithOpacity={showPinnedWithOpacity}
                                     wrapBody={wrapBody}
                                     prettifyJson={prettifyJson}
                                     tzLabelFormat={tzLabelFormat}
                                     onTogglePin={togglePinLog}
+                                    onToggleExpand={() => toggleExpandLog(log.uuid)}
                                     onSetCursor={() => userSetCursorIndex(index)}
                                     rowWidth={rowWidth}
                                 />
@@ -142,6 +173,7 @@ export function VirtualizedLogsList({
         [
             dataSource,
             cursorIndex,
+            expandedLogIds,
             pinnedLogs,
             cache,
             showPinnedWithOpacity,
@@ -149,6 +181,7 @@ export function VirtualizedLogsList({
             prettifyJson,
             tzLabelFormat,
             togglePinLog,
+            toggleExpandLog,
             userSetCursorIndex,
         ]
     )

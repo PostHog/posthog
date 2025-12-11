@@ -1,30 +1,50 @@
-# DuckLake Data Modeling Verification
+# DuckLake Copy Verification
 
-This document summarizes the automated checks executed after every DuckLake data modeling copy. Each copy finishes by running `verify_ducklake_copy_activity` in `posthog/temporal/data_modeling/ducklake_copy_workflow.py`, which issues direct DuckDB comparisons between the Parquet source and the freshly created DuckLake table. The YAML in `data_modeling.yaml` adds configurable SQL checks (for example, a row-count delta), while the workflow code enforces structural comparisons (schema, partitions, key cardinality, null ratios) that are derived from each saved query’s metadata. Together they catch schema drift or data loss before the workflow completes.
+This document summarizes the automated checks executed after every DuckLake copy workflow. Both workflows (data modeling and data imports) run verification activities that issue direct DuckDB comparisons between the Delta source and the freshly created DuckLake table. YAML config files add configurable SQL checks (for example, a row-count delta), while the workflow code enforces structural comparisons (schema and partitions). Together they catch schema drift or data loss before the workflow completes.
+
+| Workflow      | Verification Activity                                                                                                  | Config File          |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| Data Modeling | `verify_ducklake_copy_activity` in `posthog/temporal/data_modeling/ducklake_copy_workflow.py`                          | `data_modeling.yaml` |
+| Data Imports  | `verify_data_imports_ducklake_copy_activity` in `posthog/temporal/data_imports/ducklake_copy_data_imports_workflow.py` | `data_imports.yaml`  |
 
 ## How verification works
 
-1. `prepare_data_modeling_ducklake_metadata_activity` enriches each model with metadata derived from the `DataWarehouseSavedQuery.columns` definition so we know **what** to compare:
-   - `partition_column`: primary partition column reported by the Delta table metadata
-   - `key_columns`: inferred IDs (`person_id`, `distinct_id`, etc.) for distinct-count checks
-   - `non_nullable_columns`: any column that is not declared as `Nullable(...)`
-2. `verify_ducklake_copy_activity` (see `posthog/temporal/data_modeling/ducklake_copy_workflow.py`) materializes the DuckLake table, executes the SQL queries from `data_modeling.yaml`, and then issues the built-in comparisons below directly in DuckDB. Any failure stops the workflow.
+Both workflows follow the same pattern:
+
+1. **Metadata preparation** enriches each model with metadata so we know **what** to compare:
+   - `partition_column`: primary partition column (from Delta metadata)
+
+2. **Verification activity** executes the SQL queries from the YAML config, then issues the built-in comparisons directly in DuckDB. Any failure stops the workflow.
+
+### Data Modeling specifics
+
+- Metadata derived from `DataWarehouseSavedQuery.columns`
+- Partition column detected from Delta table metadata
+
+### Data Imports specifics
+
+- Metadata derived from `ExternalDataSchema` and its associated `DataWarehouseTable.columns`
+- Partition column detected from Delta table metadata
 
 ## Built-in checks
 
-| Check                            | Description                                                                                                                                             |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model.schema_hash`              | Reads the Delta source schema via DuckDB, reads the DuckLake table schema, hashes both, and fails if hashes differ. Prevents silent schema drift.       |
-| `model.partition_counts`         | When a partition column is available, compares daily row counts between the source Delta table and DuckLake. Any partition mismatch fails verification. |
-| `model.key_cardinality.<column>` | For each inferred key column, compares `COUNT(DISTINCT column)` between Delta and DuckLake to catch dropped/duplicate identifiers.                      |
-| `model.null_ratio.<column>`      | Ensures DuckLake null counts for columns marked non-nullable match the Delta source so we only fail when DuckLake drifts.                               |
-| `row_count_delta_vs_ducklake`    | Defined in `data_modeling.yaml`: compares total row counts using parameterized SQL.                                                                     |
+Both workflows run the same types of checks, but with different prefixes:
+
+| Check Type       | Data Modeling            | Data Imports                    | Description                                                                                                                           |
+| ---------------- | ------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Schema hash      | `model.schema_hash`      | `data_imports.schema_hash`      | Compares Delta source schema with DuckLake table schema. Fails if they differ. Prevents silent schema drift.                          |
+| Partition counts | `model.partition_counts` | `data_imports.partition_counts` | When a partition column is available, compares row counts per partition between source and DuckLake. Any mismatch fails verification. |
+
+Additionally, YAML-defined checks (like `row_count_delta_vs_ducklake`) can be configured per workflow in the respective YAML files.
 
 ## Customizing checks
 
-- Add or update parameterized verifications by editing `posthog/ducklake/verification/data_modeling.yaml`. The YAML file feeds into `DuckLakeCopyVerificationQuery` objects (see `posthog/ducklake/verification/config.py`), which are passed unchanged into `verify_ducklake_copy_activity`. The workflow renders the SQL, binds any listed parameters, and records the single numeric value returned by the query.
+- Add or update parameterized verifications by editing the appropriate YAML file:
+  - `posthog/ducklake/verification/data_modeling.yaml` for data modeling workflow
+  - `posthog/ducklake/verification/data_imports.yaml` for data imports workflow
+- Each YAML file feeds into `DuckLakeCopyVerificationQuery` objects (see `posthog/ducklake/verification/config.py`), which are passed to the verification activity. The workflow renders the SQL, binds any listed parameters, and records the single numeric value returned by the query.
 - Each query may declare both an `expected` value and a `tolerance`. During runtime the workflow compares the observed value to `expected` and considers the query passing when `abs(observed - expected) <= tolerance`. If you omit either field, the runtime defaults to `0.0`, so set a tolerance whenever you expect minor drift.
-- Built-in checks (schema hash, partition counts, key-cardinality, null ratios) are intentionally hardcoded in `posthog/temporal/data_modeling/ducklake_copy_workflow.py` and always run after the YAML queries. They rely on metadata detected from each saved query, so changing their behavior still requires Python changes today.
+- Built-in checks (schema hash, partition counts) are intentionally hardcoded in the workflow files and always run after the YAML queries. They rely on metadata detected from each model, so changing their behavior still requires Python changes today.
 
 ### Per-model configuration
 

@@ -40,7 +40,7 @@ from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature
 from posthog.helpers.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     encrypt_flag_payloads,
-    get_decrypted_flag_payloads,
+    get_decrypted_flag_payloads_protected,
 )
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import FeatureFlag, Tag
@@ -373,12 +373,19 @@ class FeatureFlagSerializer(
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    CREATION_CONTEXT_CHOICES = (
+        "feature_flags",
+        "experiments",
+        "surveys",
+        "early_access_features",
+        "web_experiments",
+        "product_tours",
+    )
     creation_context = serializers.ChoiceField(
         choices=CREATION_CONTEXT_CHOICES,
         write_only=True,
         required=False,
-        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
+        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _should_create_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=True)
@@ -965,7 +972,9 @@ class FeatureFlagSerializer(
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key
         if instance.has_encrypted_payloads:
-            instance.filters["payloads"] = get_decrypted_flag_payloads(request, instance.filters.get("payloads", {}))
+            instance.filters["payloads"] = get_decrypted_flag_payloads_protected(
+                request, instance.filters.get("payloads", {})
+            )
 
         return instance
 
@@ -1238,7 +1247,9 @@ def _evaluate_flags_with_fallback(
         # My plan is to roll this out, let it bake for a bit, monitor if this tombstone metric is hit, and then remove this fallback.
         # TODO remove this fallback once we're confident that the proxying works great.
         TOMBSTONE_COUNTER.labels(
-            namespace="feature_flag", operation="proxy_to_flags_service", component="python_fallback"
+            namespace="feature_flags",
+            operation="proxy_to_flags_service",
+            component="python_fallback",
         ).inc()
         logger.warning(f"Failed to proxy to flags service, falling back to Python: {e}")
 
@@ -1518,7 +1529,7 @@ class FeatureFlagViewSet(
 
             # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
             if feature_flag.get("has_encrypted_payloads", False):
-                feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads(
+                feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
                     request, feature_flag["filters"]["payloads"]
                 )
 
@@ -1537,7 +1548,7 @@ class FeatureFlagViewSet(
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         if feature_flag_data.get("has_encrypted_payloads", False):
-            feature_flag_data["filters"]["payloads"] = get_decrypted_flag_payloads(
+            feature_flag_data["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
                 request, feature_flag_data["filters"]["payloads"]
             )
 
@@ -1805,7 +1816,7 @@ class FeatureFlagViewSet(
             # Return 304 Not Modified if client's ETag matches
             if not modified and etag:
                 response = Response(status=status.HTTP_304_NOT_MODIFIED)
-                response["ETag"] = f'"{etag}"'
+                response["ETag"] = f'W/"{etag}"'
                 response["Cache-Control"] = "private, must-revalidate"
                 return response
 
@@ -1822,7 +1833,7 @@ class FeatureFlagViewSet(
 
             response = Response(response_data)
             if etag:
-                response["ETag"] = f'"{etag}"'
+                response["ETag"] = f'W/"{etag}"'
                 response["Cache-Control"] = "private, must-revalidate"
             return response
 
@@ -2048,9 +2059,11 @@ class FeatureFlagViewSet(
             return Response(payloads.get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
-        # user has access to the flag. However get_decrypted_flag_payloads will also check the authentication
+        # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication
         # method used to make the request as it is used in non-protected endpoints.
-        decrypted_flag_payloads = get_decrypted_flag_payloads(request, feature_flag.filters.get("payloads", {}))
+        decrypted_flag_payloads = get_decrypted_flag_payloads_protected(
+            request, feature_flag.filters.get("payloads", {})
+        )
 
         count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
         increment_request_count(self.team.pk, count, FlagRequestType.REMOTE_CONFIG)

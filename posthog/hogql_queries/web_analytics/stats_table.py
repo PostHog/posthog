@@ -56,6 +56,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             and self.modifiers.useWebAnalyticsPreAggregatedTables
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
             and not self.query.includeAvgTimeOnPage
+            and not self.query.conversionGoal
         )
 
         if should_use_preaggregated:

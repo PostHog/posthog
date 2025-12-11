@@ -1,3 +1,4 @@
+use common_continuous_profiling::ContinuousProfilingConfig;
 use common_cookieless::CookielessConfig;
 use common_types::TeamId;
 use envconfig::Envconfig;
@@ -144,6 +145,9 @@ impl FromStr for FlagDefinitionsRateLimits {
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     #[envconfig(default = "127.0.0.1:3001")]
     pub address: SocketAddr,
 
@@ -153,10 +157,10 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub read_database_url: String,
 
-    #[envconfig(default = "")]
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog_persons")]
     pub persons_write_database_url: String,
 
-    #[envconfig(default = "")]
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog_persons")]
     pub persons_read_database_url: String,
 
     #[envconfig(default = "1000")]
@@ -506,6 +510,7 @@ impl Config {
 
     pub fn default_test_config() -> Self {
         Self {
+            continuous_profiling: ContinuousProfilingConfig::default(),
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
             redis_url: "redis://localhost:6379/".to_string(),
             redis_reader_url: "".to_string(),

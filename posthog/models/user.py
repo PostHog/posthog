@@ -388,7 +388,7 @@ class User(AbstractUser, UUIDTClassicModel):
         from ee.billing.billing_manager import BillingManager  # avoid circular import
 
         if is_cloud() and get_cached_instance_license() is not None:
-            BillingManager(get_cached_instance_license()).update_billing_organization_users(organization)
+            BillingManager(get_cached_instance_license(), self).update_billing_organization_users(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (
