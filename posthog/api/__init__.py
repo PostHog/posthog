@@ -6,6 +6,7 @@ from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
+from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 
@@ -905,6 +906,20 @@ register_grandfathered_environment_nested_viewset(
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
 
 projects_router.register(r"feed", feed.FeedViewSet, "project_feed", ["project_id"])
+
+projects_router.register(
+    r"change_requests",
+    approval_api.ChangeRequestViewSet,
+    "project_change_requests",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"approval_policies",
+    approval_api.ApprovalPolicyViewSet,
+    "project_approval_policies",
+    ["team_id"],
+)
 
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
