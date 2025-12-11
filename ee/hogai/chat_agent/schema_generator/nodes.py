@@ -159,7 +159,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             artifact_id=artifact.short_id,
             source=ArtifactSource.ARTIFACT,
             content_type=ArtifactContentType.VISUALIZATION,
-            parent_tool_call_id=state.root_tool_call_id,
         )
 
         return PartialAssistantState(

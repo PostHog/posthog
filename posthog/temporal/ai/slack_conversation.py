@@ -308,29 +308,13 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     # Get the final response from the last AssistantMessage
     final_response = assistant_messages[-1].content if assistant_messages else None
 
-    # Build a mapping of tool_call_id to title from create_insight tool calls
-    tool_call_titles: dict[str, str] = {}
-    for assistant_message in assistant_messages:
-        if assistant_message.tool_calls:
-            for tool_call in assistant_message.tool_calls:
-                # Check for both create_insight and create_and_query_insight tool names
-                if tool_call.name in ("create_insight", "create_and_query_insight") and "title" in tool_call.args:
-                    tool_call_titles[tool_call.id] = tool_call.args["title"]
     # Build query URLs from ArtifactMessages with VisualizationArtifactContent
     generated_queries: list[tuple[str, str]] = []  # (title, url)
-    viz_artifact_messages = [msg for msg in artifact_messages if isinstance(msg.content, VisualizationArtifactContent)]
-    for viz_idx, viz_msg in enumerate(viz_artifact_messages):
-        # Type assertion: we filtered for VisualizationArtifactContent above
-        if not isinstance(viz_msg.content, VisualizationArtifactContent):
-            continue
-        viz = viz_msg.content
-
-        # Get title from the tool call that created this artifact, or from the viz content name, or default to "Query N"
-        title = (
-            tool_call_titles.get(viz_msg.parent_tool_call_id or "")  # Try tool call title first
-            or viz.name  # Then viz content name
-            or f"Query {viz_idx + 1}"  # Finally default
-        )
+    viz_artifacts: list[VisualizationArtifactContent] = [
+        msg.content for msg in artifact_messages if isinstance(msg.content, VisualizationArtifactContent)
+    ]
+    for viz_idx, viz in enumerate(viz_artifacts):
+        title = f"Query {viz_idx + 1}"  # TODO: Use actual query title
         if isinstance(viz.query, AssistantHogQLQuery):
             query_url = f"{settings.SITE_URL}/project/{team.id}/sql?open_query={quote(viz.query.query)}"
         else:
@@ -340,7 +324,7 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
 
     # Append queries section if any were generated
     if final_response and generated_queries:
-        queries_section = "\n\nQueries:\n" + "\n".join(f"- <{url}|{title}>" for title, url in generated_queries)
+        queries_section = "\n\nSources:\n" + "\n".join(f"- <{url}|{title}>" for title, url in generated_queries)
         final_response += queries_section
 
     # Replace loading reaction with checkmark on user's message
