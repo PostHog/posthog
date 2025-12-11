@@ -97,6 +97,7 @@ function calculatePosition(
 export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
     const { editingStep, selectedElement, dataAttributes, inspectingElement } = useValues(productToursLogic)
     const { confirmStep, cancelStep, removeStep } = useActions(productToursLogic)
+
     const [richEditor, setRichEditor] = useState<ToolbarEditor | null>(null)
     const editorRef = useRef<HTMLDivElement>(null)
     const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
