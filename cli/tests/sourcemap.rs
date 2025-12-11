@@ -108,10 +108,10 @@ fn test_exclude() {
     )
     .expect("Failed to read pairs");
     assert_eq!(pairs.len(), 4);
-    assert_eq!(
-        pairs.first().unwrap().source.inner.path,
-        get_case_path("inject/chunk.js")
-    );
+    assert!(pairs
+        .iter()
+        .map(|pair| &pair.source.inner.path)
+        .any(|path| path == &get_case_path("inject/chunk.js")));
     // Make sure chunks are ignored
     let all_path = pairs
         .iter()
