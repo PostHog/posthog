@@ -142,10 +142,16 @@ export const organizationLogic = kea<organizationLogicType>([
                 currentOrganization?.is_active === false ? currentOrganization.is_not_active_reason : null,
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
             if (currentOrganization) {
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
+            }
+        },
+        [router.actionTypes.locationChanged]: ({ pathname }) => {
+            // Redirect to deactivated page if organization is inactive (client-side navigation)
+            if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
+                router.actions.replace(urls.organizationDeactivated())
             }
         },
         createOrganizationSuccess: () => {

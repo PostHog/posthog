@@ -809,12 +809,14 @@ class ActiveOrganizationMiddleware:
     Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
     """
 
+    _IGNORED_PATHS = ("/logout", "/api", "/admin")
+
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         # Skip middleware for static assets, logout, and org switching endpoints
-        if request.path.startswith("/static/") or request.path.startswith("/logout") or request.path.startswith("/api"):
+        if any(request.path.startswith(path) for path in self._IGNORED_PATHS):
             return self.get_response(request)
 
         if not request.user.is_authenticated or request.user.is_anonymous:
