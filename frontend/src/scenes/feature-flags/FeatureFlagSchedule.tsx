@@ -115,14 +115,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 if (payload.operation === ScheduledChangeOperationType.UpdateStatus) {
                     const isEnabled = payload.value
                     return (
-                        <div className="inline-flex items-center gap-2">
-                            <LemonTag type={isEnabled ? 'success' : 'default'} className="uppercase">
-                                {isEnabled ? 'Enable' : 'Disable'}
-                            </LemonTag>
-                            {scheduledChange.is_recurring && scheduledChange.recurrence_interval && (
-                                <LemonTag type="highlight">{scheduledChange.recurrence_interval}</LemonTag>
-                            )}
-                        </div>
+                        <LemonTag type={isEnabled ? 'success' : 'default'} className="uppercase">
+                            {isEnabled ? 'Enable' : 'Disable'}
+                        </LemonTag>
                     )
                 } else if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
                     const releaseText = groupFilters(payload.value, undefined, aggregationLabel)
@@ -159,11 +154,28 @@ export default function FeatureFlagSchedule(): JSX.Element {
             title: 'Scheduled at',
             dataIndex: 'scheduled_at',
             render: function Render(_, scheduledChange: ScheduledChangeType) {
-                const formattedDate = dayjs(scheduledChange.scheduled_at).format(DAYJS_FORMAT)
+                const scheduledAt = dayjs(scheduledChange.scheduled_at)
+                const formattedDate = scheduledAt.format(DAYJS_FORMAT)
+                const timeStr = scheduledAt.format('h:mm A')
+
                 if (scheduledChange.is_recurring && scheduledChange.recurrence_interval) {
+                    let recurringDescription: string
+                    switch (scheduledChange.recurrence_interval) {
+                        case RecurrenceInterval.Daily:
+                            recurringDescription = `Every day at ${timeStr}`
+                            break
+                        case RecurrenceInterval.Weekly:
+                            recurringDescription = `Every ${scheduledAt.format('dddd')} at ${timeStr}`
+                            break
+                        case RecurrenceInterval.Monthly:
+                            recurringDescription = `Monthly on the ${scheduledAt.format('Do')} at ${timeStr}`
+                            break
+                        default:
+                            recurringDescription = `Every ${scheduledChange.recurrence_interval}`
+                    }
                     return (
                         <Tooltip title={`Next: ${formattedDate}`}>
-                            <span>Every {scheduledChange.recurrence_interval}</span>
+                            <span>{recurringDescription}</span>
                         </Tooltip>
                     )
                 }
@@ -267,22 +279,10 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 granularity="minute"
                             />
                         </div>
-                    </div>
-
-                    <div className="deprecated-space-y-4">
                         {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
-                            <>
-                                <div className="border rounded p-4">
-                                    <LemonCheckbox
-                                        id="flag-enabled-checkbox"
-                                        label="Enable feature flag"
-                                        onChange={(value) => {
-                                            setSchedulePayload(null, value)
-                                        }}
-                                        checked={schedulePayload.active}
-                                    />
-                                </div>
-                                <div className="border rounded p-4">
+                            <div>
+                                <div className="font-semibold leading-6 h-6 mb-1">Repeat</div>
+                                <div className="flex items-center gap-2">
                                     <LemonCheckbox
                                         id="recurring-checkbox"
                                         label="Repeat this change"
@@ -290,21 +290,34 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         checked={isRecurring}
                                     />
                                     {isRecurring && (
-                                        <div className="mt-3">
-                                            <LemonSelect
-                                                placeholder="Select interval"
-                                                value={recurrenceInterval}
-                                                onChange={setRecurrenceInterval}
-                                                options={[
-                                                    { value: RecurrenceInterval.Daily, label: 'Daily' },
-                                                    { value: RecurrenceInterval.Weekly, label: 'Weekly' },
-                                                    { value: RecurrenceInterval.Monthly, label: 'Monthly' },
-                                                ]}
-                                            />
-                                        </div>
+                                        <LemonSelect
+                                            placeholder="Select interval"
+                                            value={recurrenceInterval}
+                                            onChange={setRecurrenceInterval}
+                                            options={[
+                                                { value: RecurrenceInterval.Daily, label: 'Daily' },
+                                                { value: RecurrenceInterval.Weekly, label: 'Weekly' },
+                                                { value: RecurrenceInterval.Monthly, label: 'Monthly' },
+                                            ]}
+                                        />
                                     )}
                                 </div>
-                            </>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="deprecated-space-y-4">
+                        {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
+                            <div className="border rounded p-4">
+                                <LemonCheckbox
+                                    id="flag-enabled-checkbox"
+                                    label="Enable feature flag"
+                                    onChange={(value) => {
+                                        setSchedulePayload(null, value)
+                                    }}
+                                    checked={schedulePayload.active}
+                                />
+                            </div>
                         )}
                         {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
                             <FeatureFlagReleaseConditions
