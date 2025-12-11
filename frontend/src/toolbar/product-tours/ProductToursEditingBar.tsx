@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconCheck, IconMagicWand, IconPlus, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -23,97 +23,28 @@ const BAR_HEIGHT = 56
 
 export function ProductToursEditingBar(): JSX.Element | null {
     const { theme } = useValues(toolbarLogic)
-    const {
-        selectedTourId,
-        tourForm,
-        inspectingElement,
-        aiGenerating,
-        aiGenerationStep,
-        aiGoal,
-        isSelectingElements,
-        stepCount,
-    } = useValues(productToursLogic)
-    const {
-        selectTour,
-        editStep,
-        removeStep,
-        inspectForElementWithIndex,
-        saveTour,
-        generateWithAI,
-        finishSelectionAndCreate,
-    } = useActions(productToursLogic)
+    const { selectedTourId, tourForm, tourFormErrors, inspectingElement, aiGenerating, aiGenerationStep, stepCount } =
+        useValues(productToursLogic)
+    const { selectTour, editStep, removeStep, inspectForElementWithIndex, saveTour, generateWithAI, setTourFormValue } =
+        useActions(productToursLogic)
 
     const themeProps = { theme } as { theme?: string }
     const steps = tourForm?.steps || []
     const generationStatus = GENERATION_STATUS[aiGenerationStep] || ''
 
-    // Show bar during selection mode OR when editing a tour
-    const shouldShowBar = isSelectingElements || selectedTourId !== null
-
     useEffect(() => {
-        if (shouldShowBar) {
+        if (selectedTourId !== null) {
             document.body.style.marginTop = `${BAR_HEIGHT}px`
             return () => {
                 document.body.style.marginTop = ''
             }
         }
-    }, [shouldShowBar])
+    }, [selectedTourId])
 
-    if (!shouldShowBar) {
+    if (selectedTourId === null) {
         return null
     }
 
-    // Selection mode UI
-    if (isSelectingElements) {
-        return (
-            <div
-                className="fixed top-0 left-0 right-0 flex items-center gap-3 px-4 bg-bg-light border-b shadow-lg pointer-events-auto"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ zIndex: 2147483019, height: BAR_HEIGHT }}
-                onClick={(e) => e.stopPropagation()}
-                {...themeProps}
-            >
-                {/* Left: Goal reminder */}
-                <div className="flex-1 flex items-center gap-2">
-                    <span className="text-sm font-medium">Goal:</span>
-                    <span className="text-sm text-muted truncate max-w-md">{aiGoal || 'Not set'}</span>
-                </div>
-
-                {/* Center: Selected elements count */}
-                <div className="flex items-center gap-2">
-                    {steps.map((_step: TourStep, index: number) => (
-                        <div
-                            key={_step.id}
-                            className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold toolbar-animate-pop"
-                        >
-                            {index + 1}
-                        </div>
-                    ))}
-                    {stepCount === 0 && (
-                        <span className="text-muted text-sm">Click elements on the page to select them...</span>
-                    )}
-                </div>
-
-                {/* Right: Actions */}
-                <div className="flex items-center gap-2">
-                    <LemonButton size="small" type="secondary" icon={<IconX />} onClick={() => selectTour(null)}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        icon={<IconMagicWand />}
-                        onClick={finishSelectionAndCreate}
-                        disabledReason={stepCount === 0 ? 'Select at least one element' : undefined}
-                    >
-                        Create Tour ({stepCount} {stepCount === 1 ? 'step' : 'steps'})
-                    </LemonButton>
-                </div>
-            </div>
-        )
-    }
-
-    // Editing mode UI (like Product Fruits)
     return (
         <div
             className="fixed top-0 left-0 right-0 flex items-center gap-3 px-4 bg-bg-light border-b shadow-lg pointer-events-auto"
@@ -124,11 +55,21 @@ export function ProductToursEditingBar(): JSX.Element | null {
         >
             {/* Left: Tour name */}
             <div className="flex items-center gap-2">
-                <span className="text-sm font-medium truncate max-w-48">{tourForm?.name || '(no name)'}</span>
+                <LemonInput
+                    size="small"
+                    placeholder="Tour name"
+                    value={tourForm?.name || ''}
+                    onChange={(value) => setTourFormValue('name', value)}
+                    status={tourFormErrors?.name ? 'danger' : undefined}
+                    className="w-48"
+                />
             </div>
 
             {/* Center: Step buttons (like Product Fruits) */}
             <div className="flex-1 flex items-center justify-center gap-1">
+                {stepCount === 0 && (
+                    <span className="text-muted text-sm">Click an element on the page to add a step</span>
+                )}
                 {steps.map((step: TourStep, index: number) => {
                     const isActive = inspectingElement === index
                     return (
@@ -197,9 +138,11 @@ export function ProductToursEditingBar(): JSX.Element | null {
                             ? 'Wait for generation'
                             : stepCount === 0
                               ? 'Add at least one step'
-                              : !tourForm?.name
-                                ? 'Generate content first'
-                                : undefined
+                              : tourFormErrors?.name
+                                ? String(tourFormErrors.name)
+                                : !tourForm?.name
+                                  ? 'Enter a tour name'
+                                  : undefined
                     }
                 >
                     Save
