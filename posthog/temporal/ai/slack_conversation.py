@@ -3,7 +3,7 @@ import json
 import random
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -271,9 +271,14 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
 
     # Start background task to update the "working on it" message with thinking messages
     async def update_thinking_message():
+        start_time = datetime.now()
         while True:
             await asyncio.sleep(3)
             thinking_message = f"I'm {random.choice(THINKING_MESSAGES).lower()}..."
+            # After a longer period, add a note to the thinking message, so that the user doesn't feel like we're stuck
+            elapsed_seconds = (datetime.now() - start_time).total_seconds()
+            if elapsed_seconds >= 120:
+                thinking_message += " (This is taking a little longer, hang tight.)"
             await _update_slack_message(
                 integration, inputs.channel, inputs.initial_message_ts, thinking_message, conversation_url
             )
