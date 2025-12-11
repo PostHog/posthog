@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -179,7 +180,8 @@ class TestLLMPromptAPI(APIBaseTest):
         assert len(results) == 1
         assert results[0]["name"] == "active-prompt"
 
-    def test_fetch_prompt_by_name_succeeds(self):
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_fetch_prompt_by_name_succeeds(self, mock_feature_enabled):
         prompt = LLMPrompt.objects.create(
             team=self.team,
             name="test-prompt",
@@ -194,13 +196,15 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["name"] == "test-prompt"
         assert response.json()["prompt"] == "You are a helpful assistant."
 
-    def test_fetch_prompt_by_name_not_found(self):
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_fetch_prompt_by_name_not_found(self, mock_feature_enabled):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/non-existent/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "not found" in response.json()["detail"].lower()
 
-    def test_fetch_deleted_prompt_by_name_returns_not_found(self):
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_fetch_deleted_prompt_by_name_returns_not_found(self, mock_feature_enabled):
         LLMPrompt.objects.create(
             team=self.team,
             name="deleted-prompt",
@@ -213,7 +217,8 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_fetch_prompt_by_name_other_team_not_accessible(self):
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_fetch_prompt_by_name_other_team_not_accessible(self, mock_feature_enabled):
         from posthog.models import Team
 
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -254,3 +259,17 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "valid-name_123"
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_fetch_prompt_by_name_returns_403_when_feature_flag_disabled(self, mock_feature_enabled):
+        LLMPrompt.objects.create(
+            team=self.team,
+            name="test-prompt",
+            prompt="You are a helpful assistant.",
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/test-prompt/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "This feature is not available."

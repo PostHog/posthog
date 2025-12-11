@@ -1,5 +1,6 @@
 import re
 
+import posthoganalytics
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -104,6 +105,20 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
         required_scopes=["llm_prompt:read"],
     )
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        if not posthoganalytics.feature_enabled(
+            "llm-analytics-prompts",
+            str(self.team.uuid),
+            groups={"organization": str(self.organization.id), "project": str(self.team.uuid)},
+            group_properties={
+                "organization": {"id": str(self.organization.id)},
+                "project": {"id": str(self.team.uuid)},
+            },
+        ):
+            return Response(
+                {"detail": "This feature is not available."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         try:
             prompt = LLMPrompt.objects.get(
                 team=self.team,
