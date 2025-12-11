@@ -30,6 +30,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.approvals.decorators import approval_gate
+from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature, FlagRequestType
 from posthog.date_util import thirty_days_ago
@@ -848,6 +850,7 @@ class FeatureFlagSerializer(
 
         return instance
 
+    @approval_gate(["feature_flag.enable", "feature_flag.disable"])
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         # This is a workaround to ensure update works when called from a scheduled task.
@@ -1257,6 +1260,7 @@ def _evaluate_flags_with_fallback(
 
 
 class FeatureFlagViewSet(
+    ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,

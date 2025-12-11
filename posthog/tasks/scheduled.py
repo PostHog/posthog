@@ -7,6 +7,7 @@ from celery import Celery
 from celery.canvas import Signature
 from celery.schedules import crontab
 
+from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
@@ -462,4 +463,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_surveys_cache.s(),
         name="sync all surveys cache",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="0"),
+        validate_pending_change_requests.s(),
+        name="validate pending change requests",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="5"),
+        expire_old_change_requests.s(),
+        name="expire old change requests",
     )
