@@ -257,3 +257,26 @@ fn test_upload_set() {
     assert_eq!(upload_set.chunk_id, source_chunk_id);
     assert_ne!(upload_set.chunk_id, sourcemap_chunk_id);
 }
+
+#[test]
+fn test_file_selection() {
+    // This does not work with glob patterns
+    let res = read_pairs(
+        vec![get_case_path("paths")],
+        vec![],
+        vec!["**/[locale]/(app)/[...not_found]/index.js".to_string()],
+        &None,
+    );
+    assert!(res.is_err());
+
+    // But should work with file paths
+    let res = read_pairs(
+        vec![get_case_path(
+            "paths/[locale]/(app)/[...not_found]/index.js",
+        )],
+        vec![],
+        vec![],
+        &None,
+    );
+    assert!(res.is_ok());
+}
