@@ -540,6 +540,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.DirectQuery]: {
+        name: 'Direct query',
+        description: 'Execute SQL directly against external databases.',
+        icon: IconTableChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {

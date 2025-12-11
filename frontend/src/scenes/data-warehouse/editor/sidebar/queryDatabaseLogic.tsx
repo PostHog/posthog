@@ -127,16 +127,18 @@ const createTableNode = (
 
     const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
     const isPostHogTable = 'type' in table && table.type === 'posthog'
+    const isDirectQueryTable = 'is_direct_query' in table && table.is_direct_query === true
 
     return {
         id: tableId,
         name: table.name,
         type: 'node',
-        icon: isPostHogTable ? <IconDocument /> : <IconDatabase />,
+        icon: isPostHogTable ? <IconDocument /> : isDirectQueryTable ? <IconBolt /> : <IconDatabase />,
         record: {
             type: 'table',
             table: table,
             row_count: table.row_count,
+            is_direct_query: isDirectQueryTable,
             ...(matches && { searchMatches: matches }),
         },
         children: tableChildren,

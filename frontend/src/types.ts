@@ -4937,6 +4937,7 @@ export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
     prefix: string
     payload: Record<string, any>
+    query_only?: boolean
 }
 export interface ExternalDataSource {
     id: string

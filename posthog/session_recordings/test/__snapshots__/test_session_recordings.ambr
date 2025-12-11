@@ -440,6 +440,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -500,6 +501,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -539,6 +541,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -563,6 +566,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -591,6 +595,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -1088,6 +1093,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -1148,6 +1154,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -1187,6 +1194,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -1211,6 +1219,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -1239,6 +1248,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -1717,6 +1727,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -1777,6 +1788,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -1816,6 +1828,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -1840,6 +1853,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -1868,6 +1882,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -2805,6 +2820,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -2865,6 +2881,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -2904,6 +2921,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -2928,6 +2946,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -2956,6 +2975,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -3403,6 +3423,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -3463,6 +3484,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -3502,6 +3524,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -3526,6 +3549,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -3554,6 +3578,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -3990,6 +4015,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -4050,6 +4076,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -4089,6 +4116,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -4113,6 +4141,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -4141,6 +4170,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -4575,6 +4605,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -4635,6 +4666,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -4674,6 +4706,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -4698,6 +4731,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -4726,6 +4760,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -4897,6 +4932,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -4957,6 +4993,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -4996,6 +5033,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -5020,6 +5058,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -5048,6 +5087,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -5497,6 +5537,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -5557,6 +5598,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -5596,6 +5638,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -5620,6 +5663,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -5648,6 +5692,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -6100,6 +6145,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -6247,6 +6293,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -6286,6 +6333,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -6310,6 +6358,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -6338,6 +6387,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -6801,6 +6851,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -6861,6 +6912,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -6900,6 +6952,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -6924,6 +6977,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -6952,6 +7006,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -7906,6 +7961,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -8333,6 +8389,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -8786,6 +8843,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -9237,6 +9295,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -9265,6 +9324,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -9766,6 +9826,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -9826,6 +9887,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -9865,6 +9927,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -9889,6 +9952,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -9917,6 +9981,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -10362,6 +10427,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -10422,6 +10488,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -10461,6 +10528,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -10485,6 +10553,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -10513,6 +10582,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -10956,6 +11026,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -11016,6 +11087,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -11076,6 +11148,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -11115,6 +11188,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -11139,6 +11213,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -11167,6 +11242,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -11442,6 +11518,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -11624,6 +11701,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -11684,6 +11762,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -11723,6 +11802,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -11747,6 +11827,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -11775,6 +11856,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -11868,6 +11950,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -12213,6 +12296,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -12273,6 +12357,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -12312,6 +12397,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -12336,6 +12422,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -12364,6 +12451,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -12385,6 +12473,7 @@
          "posthog_datawarehousetable"."format",
          "posthog_datawarehousetable"."team_id",
          "posthog_datawarehousetable"."url_pattern",
+         "posthog_datawarehousetable"."is_direct_query",
          "posthog_datawarehousetable"."queryable_folder",
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
@@ -12413,6 +12502,7 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."query_only",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")

@@ -18,10 +18,12 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { DatabaseSelector } from './DatabaseSelector'
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { FixErrorButton } from './components/FixErrorButton'
+import { directQueryLogic } from './directQueryLogic'
 import { draftsLogic } from './draftsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 
@@ -108,6 +110,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                         Data warehouse
                     </LemonButton>
                 ) : null}
+                <DatabaseSelector />
                 <RunButton />
                 <LemonDivider vertical />
                 {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
@@ -287,10 +290,18 @@ function RunButton(): JSX.Element {
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
     const { metadata, queryInput, isSourceQueryLastRun } = useValues(multitabEditorLogic)
+    const { selectedDatabase, queryResultLoading } = useValues(directQueryLogic)
+    const { executeDirectQuery, clearQueryResult } = useActions(directQueryLogic)
 
+    const isDirectQuery = selectedDatabase !== 'hogql'
+    const isLoading = isDirectQuery ? queryResultLoading : responseLoading
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
 
     const [iconColor, tooltipContent] = useMemo(() => {
+        if (isDirectQuery) {
+            return ['var(--success)', 'Run query against external database']
+        }
+
         if (isSourceQueryLastRun) {
             return ['var(--primary)', 'No changes to run']
         }
@@ -304,24 +315,32 @@ function RunButton(): JSX.Element {
             : undefined
 
         return ['var(--warning)', tooltipContent]
-    }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun])
+    }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun, isDirectQuery])
+
+    const handleRun = (): void => {
+        if (isLoading) {
+            if (!isDirectQuery) {
+                cancelQuery()
+            }
+            // For direct queries, we don't have cancel support yet
+        } else if (isDirectQuery) {
+            clearQueryResult()
+            executeDirectQuery(selectedDatabase, queryInput ?? '')
+        } else {
+            runQuery()
+        }
+    }
 
     return (
         <LemonButton
             data-attr="sql-editor-run-button"
-            onClick={() => {
-                if (responseLoading) {
-                    cancelQuery()
-                } else {
-                    runQuery()
-                }
-            }}
-            icon={responseLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
+            onClick={handleRun}
+            icon={isLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
             type="tertiary"
             size="xsmall"
             tooltip={tooltipContent}
         >
-            {responseLoading ? 'Cancel' : 'Run'}
+            {isLoading ? 'Cancel' : 'Run'}
         </LemonButton>
     )
 }

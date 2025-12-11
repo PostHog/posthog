@@ -156,16 +156,35 @@ export const QueryDatabase = (): JSX.Element => {
 
                 // Show menu for tables
                 if (item.record?.type === 'table') {
+                    const isDirectQuery = item.record?.is_direct_query === true
+                    const sourceId = item.record?.table?.source?.id
+                    const sourcePrefix = item.record?.table?.source?.prefix
+
                     return (
                         <DropdownMenuGroup>
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    sceneLogic.actions.newTab(urls.sqlEditor(`SELECT * FROM ${item.name}`))
+                                    if (isDirectQuery && sourceId) {
+                                        sceneLogic.actions.newTab(
+                                            urls.sqlEditor(
+                                                `SELECT * FROM ${item.name}`,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                sourceId,
+                                                sourcePrefix || ''
+                                            )
+                                        )
+                                    } else {
+                                        sceneLogic.actions.newTab(urls.sqlEditor(`SELECT * FROM ${item.name}`))
+                                    }
                                 }}
                             >
-                                <ButtonPrimitive menuItem>Query</ButtonPrimitive>
+                                <ButtonPrimitive menuItem>{isDirectQuery ? 'Query (Direct)' : 'Query'}</ButtonPrimitive>
                             </DropdownMenuItem>
                             <DropdownMenuItem
                                 asChild

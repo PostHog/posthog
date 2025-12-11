@@ -48,6 +48,7 @@ import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewEmptyState } from './ViewLoadingState'
+import { directQueryLogic } from './directQueryLogic'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
@@ -137,6 +138,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['user'],
             draftsLogic,
             ['drafts'],
+            directQueryLogic,
+            ['sources'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -161,6 +164,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
             endpointLogic,
             ['setIsUpdateMode', 'setSelectedEndpointName'],
+            directQueryLogic,
+            ['setSelectedDatabase', 'loadSources'],
         ],
     })),
     actions(() => ({
@@ -233,6 +238,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             activeTab,
             queryInput,
             viewId,
+        }),
+        // Direct query actions for query-only data sources
+        setDirectQuerySource: (sourceId: string | null, tablePrefix: string | null) => ({
+            sourceId,
+            tablePrefix,
         }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
@@ -380,6 +390,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             null as string | null,
             {
                 setHoveredNode: (_, { nodeId }) => nodeId,
+            },
+        ],
+        // Direct query state for query-only data sources
+        directQuerySource: [
+            null as { sourceId: string; tablePrefix: string } | null,
+            {
+                setDirectQuerySource: (_, { sourceId, tablePrefix }) =>
+                    sourceId && tablePrefix ? { sourceId, tablePrefix } : null,
             },
         ],
     })),
@@ -669,6 +687,31 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 key: values.dataLogicKey,
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
+        },
+        setDirectQuerySource: async ({ sourceId }) => {
+            // When setting a direct query source, also update directQueryLogic
+            // so the RunButton knows to use the direct query path
+            if (sourceId) {
+                // Wait for sources to load first - they may not be loaded yet
+                // especially when navigating to a URL with a direct_query_source param
+                let sources = values.sources
+                if (sources.length === 0) {
+                    // Sources not loaded yet, wait for them
+                    sources = await directQueryLogic.asyncActions.loadSources()
+                }
+
+                // Validate that the source exists in the loaded sources
+                const sourceExists = sources.some((s) => s.id === sourceId)
+                if (sourceExists) {
+                    actions.setSelectedDatabase(sourceId)
+                } else {
+                    // Source not found, fall back to HogQL
+                    console.warn(`Direct query source not found: ${sourceId}, falling back to HogQL`)
+                    actions.setSelectedDatabase('hogql')
+                }
+            } else {
+                actions.setSelectedDatabase('hogql')
+            }
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
             LemonDialog.openForm({
@@ -1224,6 +1267,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
+
+                    // Set direct query source if provided
+                    if (searchParams.direct_query_source) {
+                        // Load sources first, then set the direct query source
+                        // This ensures the dropdown can find and display the source correctly
+                        void directQueryLogic.asyncActions.loadSources().then(() => {
+                            actions.setDirectQuerySource(
+                                searchParams.direct_query_source,
+                                searchParams.direct_query_prefix || null
+                            )
+                        })
+                    }
                 } else if (hashParams.q && values.queryInput === null) {
                     // only when opening the tab
                     actions.createTab(hashParams.q)
