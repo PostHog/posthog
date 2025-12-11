@@ -53,52 +53,82 @@ func GetDockerComposeCommand() (string, []string) {
 func DockerComposeStop() error {
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "-f", "docker-compose.yml", "stop")
-	exec.Command(cmd, fullArgs...).Run() // Ignore errors, stack might not be running
+	RunCommand(cmd, fullArgs...) // Ignore errors, stack might not be running
 	return nil
 }
 
 func DockerComposeDown() error {
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "-f", "docker-compose.yml", "down")
-	return exec.Command(cmd, fullArgs...).Run()
+	_, err := RunCommand(cmd, fullArgs...)
+	return err
 }
 
 func DockerComposePull() error {
+	logger := GetLogger()
+	logger.WriteString("Pulling Docker images (this may take a while)...\n")
+
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "-f", "docker-compose.yml", "pull")
-	return exec.Command(cmd, fullArgs...).Run()
+	_, err := RunCommand(cmd, fullArgs...)
+	if err == nil {
+		logger.WriteString("All images pulled successfully\n")
+	}
+	return err
 }
 
 func DockerComposeUp() error {
+	logger := GetLogger()
+	logger.WriteString("Starting PostHog containers...\n")
+
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "-f", "docker-compose.yml", "up", "-d", "--no-build", "--pull", "always")
-	return exec.Command(cmd, fullArgs...).Run()
+	_, err := RunCommand(cmd, fullArgs...)
+	if err == nil {
+		logger.WriteString("Containers started\n")
+	}
+	return err
 }
 
 func DockerComposeUpDB() error {
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "-f", "docker-compose.yml", "up", "-d", "db")
-	return exec.Command(cmd, fullArgs...).Run()
+	_, err := RunCommand(cmd, fullArgs...)
+	return err
 }
 
 func RunAsyncMigrationsCheck() error {
+	logger := GetLogger()
+	logger.WriteString("Checking async migrations...\n")
+
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "run", "asyncmigrationscheck")
-	return exec.Command("sudo", append([]string{"-E", cmd}, fullArgs...)...).Run()
+	sudoArgs := append([]string{"-E", cmd}, fullArgs...)
+	_, err := RunCommand("sudo", sudoArgs...)
+	return err
 }
 
 // WaitForHealth waits for PostHog to be healthy
 func WaitForHealth(timeout time.Duration) error {
+	logger := GetLogger()
+	logger.WriteString("Waiting for PostHog to start...\n")
+
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 5 * time.Second}
+	attempt := 0
 
 	for time.Now().Before(deadline) {
+		attempt++
 		resp, err := client.Get("http://localhost/_health")
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == 200 {
+				logger.WriteString("PostHog is healthy!\n")
 				return nil
 			}
+			logger.WriteString(fmt.Sprintf("Health check %d: status %d\n", attempt, resp.StatusCode))
+		} else {
+			logger.WriteString(fmt.Sprintf("Health check %d: waiting...\n", attempt))
 		}
 		time.Sleep(5 * time.Second)
 	}

@@ -15,6 +15,8 @@ const (
 )
 
 func DownloadGeoIP() error {
+	logger := GetLogger()
+
 	// Create share directory
 	if err := os.MkdirAll(shareDir, 0755); err != nil {
 		return fmt.Errorf("failed to create share directory: %w", err)
@@ -22,6 +24,7 @@ func DownloadGeoIP() error {
 
 	// Check if already exists
 	if FileExists(mmdbFile) {
+		logger.WriteString("GeoIP database already exists\n")
 		return nil
 	}
 
@@ -31,11 +34,13 @@ func DownloadGeoIP() error {
 	}
 
 	// Download and decompress
+	logger.WriteString("Downloading GeoIP database...\n")
 	cmd := exec.Command("sh", "-c",
 		fmt.Sprintf("curl -L '%s' --http1.1 | brotli --decompress --output=%s", geoIPURL, mmdbFile))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to download GeoIP database: %w", err)
 	}
+	logger.WriteString("GeoIP database downloaded\n")
 
 	// Create JSON metadata file
 	jsonContent := fmt.Sprintf(`{"date": "%s"}`, time.Now().Format("2006-01-02"))

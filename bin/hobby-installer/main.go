@@ -69,7 +69,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, nil
+		// Forward to current step model - fall through to the step's Update
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":

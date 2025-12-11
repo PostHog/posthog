@@ -11,25 +11,36 @@ import (
 const posthogRepoURL = "https://github.com/PostHog/posthog.git"
 
 func ClonePostHog() error {
+	logger := GetLogger()
+
 	if DirExists("posthog") {
-		return nil // Already cloned
+		logger.WriteString("PostHog repository already exists\n")
+		return nil
 	}
 
-	_, err := RunCommand("git", "clone", posthogRepoURL)
+	logger.WriteString("Cloning PostHog repository...\n")
+	_, err := RunCommand("git", "clone", "--filter=blob:none", posthogRepoURL)
+	if err == nil {
+		logger.WriteString("Repository cloned successfully\n")
+	}
 	return err
 }
 
 // Updates the existing PostHog repository to the latest version
 func UpdatePostHog() error {
+	logger := GetLogger()
+
 	if !DirExists("posthog") {
 		return ClonePostHog()
 	}
 
+	logger.WriteString("Fetching latest changes...\n")
 	_, err := RunCommandWithDir("posthog", "git", "fetch", "--prune")
 	if err != nil {
 		return err
 	}
 
+	logger.WriteString("Pulling updates...\n")
 	_, err = RunCommandWithDir("posthog", "git", "pull")
 	return err
 }
