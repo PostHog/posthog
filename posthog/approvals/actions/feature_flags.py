@@ -25,10 +25,7 @@ class FeatureFlagActionBase(BaseAction):
         intent_data: dict[str, Any],
         context: Optional[dict[str, Any]] = None,
     ) -> tuple[bool, Optional[dict[str, Any]]]:
-        if cls.endpoint_serializer_class is None:
-            return True, None
-
-        data_to_validate = intent_data["full_request_data"]
+        data_to_validate = intent_data.get("full_request_data", intent_data.get("desired_state", {}))
         instance = context.get("instance") if context else None
 
         serializer = cls.endpoint_serializer_class(
@@ -77,12 +74,11 @@ class FeatureFlagActionBase(BaseAction):
         if not team:
             return False
 
-        return cls._is_production_environment(team)
+        return True
 
     @classmethod
     def extract_intent(cls, request, view, *args, **kwargs) -> dict[str, Any]:
         flag = cls._get_instance(view, *args, **kwargs)
-        team = cls._get_team(view)
 
         desired_state = {}
         for field in cls.intent_fields:
@@ -92,18 +88,13 @@ class FeatureFlagActionBase(BaseAction):
         return {
             "flag_id": flag.id,
             "flag_key": flag.key,
-            "current_state": {
-                "active": flag.active,
-                "rollout_percentage": cls._get_rollout_percentage(flag),
-                "filters": flag.filters,
-            },
+            "current_state": {"active": flag.active},
             "desired_state": desired_state,
             "full_request_data": dict(request.data),
             "preconditions": {
                 "version": flag.version,
                 "updated_at": flag.updated_at.isoformat() if flag.updated_at else None,
             },
-            "environment": "production" if cls._is_production_environment(team) else "other",
         }
 
     @classmethod
@@ -152,21 +143,6 @@ class FeatureFlagActionBase(BaseAction):
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         """Subclasses provide action-specific display data."""
         pass
-
-    @staticmethod
-    def _is_production_environment(_team) -> bool:
-        return True
-
-    @staticmethod
-    def _get_rollout_percentage(flag) -> int:
-        if not flag.filters or "groups" not in flag.filters:
-            return 0
-
-        groups = flag.filters.get("groups", [])
-        if not groups:
-            return 0
-
-        return groups[0].get("rollout_percentage", 0)
 
 
 class EnableFeatureFlagAction(FeatureFlagActionBase):

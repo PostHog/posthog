@@ -89,7 +89,7 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
         return PolicyEngine().get_policy(self.action_key, self.team, self.organization)
 
-    def get_action_class(self) -> Optional["BaseAction"]:
+    def get_action_class(self) -> Optional[type["BaseAction"]]:
         """Get the action class for this change request from the registry."""
         from posthog.approvals.actions.registry import get_action
 

@@ -36,25 +36,28 @@ def validate_pending_change_requests() -> dict[str, Any]:
                 )
                 continue
 
-            action = action_class(
-                project_id=change_request.project_id,
-                user_id=change_request.created_by_id,
-            )
+            # Build context for validation
+            base_context = {
+                "team": change_request.team,
+                "team_id": change_request.team_id,
+                "organization": change_request.organization,
+            }
+            context = action_class.prepare_context(change_request, base_context)
 
-            result = action.validate(change_request.intent)
+            is_valid, validation_errors = action_class.validate_intent(change_request.intent, context)
 
-            if result.is_valid:
+            if is_valid:
                 change_request.validation_status = ValidationStatus.VALID
                 change_request.validation_errors = None
                 validated_count += 1
             else:
                 change_request.validation_status = ValidationStatus.INVALID
-                change_request.validation_errors = result.errors
+                change_request.validation_errors = validation_errors
                 invalidated_count += 1
                 logger.info(
                     "validate_pending_change_requests.invalidated",
                     change_request_id=str(change_request.id),
-                    errors=result.errors,
+                    errors=validation_errors,
                 )
 
             change_request.validated_at = timezone.now()

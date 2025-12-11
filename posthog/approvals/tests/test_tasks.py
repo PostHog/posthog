@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -24,7 +26,7 @@ class TestValidatePendingChangeRequests(BaseTest):
             },
             intent_display={"description": "Enable feature flag"},
             policy_snapshot={"quorum": 1, "users": [self.user.id]},
-            expires_at=timezone.now() + timezone.timedelta(hours=24),
+            expires_at=timezone.now() + timedelta(hours=24),
         )
 
     def test_validation_skips_non_pending_requests(self):
@@ -51,7 +53,7 @@ class TestExpireOldChangeRequests(BaseTest):
             intent={"desired_state": {"active": True}},
             intent_display={"description": "Enable feature flag"},
             policy_snapshot={"quorum": 1, "users": [self.user.id]},
-            expires_at=timezone.now() - timezone.timedelta(hours=1),
+            expires_at=timezone.now() - timedelta(hours=1),
         )
 
     def test_expire_task_expires_old_requests(self):
@@ -63,7 +65,7 @@ class TestExpireOldChangeRequests(BaseTest):
         self.assertEqual(self.expired_request.state, "expired")
 
     def test_expire_task_skips_future_requests(self):
-        self.expired_request.expires_at = timezone.now() + timezone.timedelta(hours=1)
+        self.expired_request.expires_at = timezone.now() + timedelta(hours=1)
         self.expired_request.save()
 
         result = expire_old_change_requests()
