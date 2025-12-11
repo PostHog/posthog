@@ -318,11 +318,15 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     generated_queries: list[tuple[str, str]] = []  # (title, url)
     viz_artifact_messages = [msg for msg in artifact_messages if isinstance(msg.content, VisualizationArtifactContent)]
     for viz_idx, viz_msg in enumerate(viz_artifact_messages):
+        # Type assertion: we filtered for VisualizationArtifactContent above
+        if not isinstance(viz_msg.content, VisualizationArtifactContent):
+            continue
         viz = viz_msg.content
+
         # Get title from the tool call that created this artifact, or from the viz content name, or default to "Query N"
         title = (
-            tool_call_titles.get(viz_msg.parent_tool_call_id)  # Try tool call title first
-            or (viz.name if hasattr(viz, "name") and viz.name else None)  # Then viz content name
+            tool_call_titles.get(viz_msg.parent_tool_call_id or "")  # Try tool call title first
+            or viz.name  # Then viz content name
             or f"Query {viz_idx + 1}"  # Finally default
         )
         if isinstance(viz.query, AssistantHogQLQuery):
