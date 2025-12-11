@@ -25,8 +25,16 @@ export function ProductToursEditingBar(): JSX.Element | null {
     const { theme } = useValues(toolbarLogic)
     const { selectedTourId, tourForm, tourFormErrors, inspectingElement, aiGenerating, aiGenerationStep, stepCount } =
         useValues(productToursLogic)
-    const { selectTour, editStep, removeStep, inspectForElementWithIndex, saveTour, generateWithAI, setTourFormValue } =
-        useActions(productToursLogic)
+    const {
+        selectTour,
+        editStep,
+        removeStep,
+        inspectForElementWithIndex,
+        saveTour,
+        generateWithAI,
+        setTourFormValue,
+        addModalStep,
+    } = useActions(productToursLogic)
 
     const themeProps = { theme } as { theme?: string }
     const steps = tourForm?.steps || []
@@ -100,8 +108,9 @@ export function ProductToursEditingBar(): JSX.Element | null {
                     size="small"
                     type="secondary"
                     icon={<IconPlus />}
-                    onClick={() => inspectForElementWithIndex(steps.length)}
+                    onClick={() => addModalStep()}
                     disabled={aiGenerating}
+                    tooltip="Add modal step (not attached to element)"
                 />
             </div>
 
