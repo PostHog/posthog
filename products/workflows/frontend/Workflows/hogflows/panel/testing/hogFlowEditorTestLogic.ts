@@ -153,12 +153,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     }
 
                     try {
+                        // Fetch multiple events so we can cycle through them
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [values.matchingFilters],
                             select: ['*', 'person'],
                             after: '-30d',
-                            limit: 1,
+                            limit: 10, // Get 10 events to cycle through
                             orderBy: ['timestamp DESC'],
                             modifiers: {
                                 // NOTE: We always want to show events with the person properties at the time the event was created as that is what the function will see
@@ -181,8 +182,21 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         // Found matching events
                         actions.setNoMatchingEvents(false)
 
-                        const event = response.results[0][0]
-                        const person = response.results[0][1]
+                        // Pick a different event than the current one if possible
+                        let resultIndex = 0
+                        if (values.sampleGlobals?.event?.uuid && response.results.length > 1) {
+                            // Find the index of the current event
+                            const currentIndex = response.results.findIndex(
+                                (result) => result[0].uuid === values.sampleGlobals?.event?.uuid
+                            )
+                            // Pick the next event in the list, cycling back to the start if needed
+                            if (currentIndex !== -1) {
+                                resultIndex = (currentIndex + 1) % response.results.length
+                            }
+                        }
+
+                        const event = response.results[resultIndex][0]
+                        const person = response.results[resultIndex][1]
 
                         const globals = {
                             event: {
