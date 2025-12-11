@@ -31,6 +31,40 @@ export interface HogflowTestInvocation {
     mock_async_functions: boolean
 }
 
+const createExampleEvent = (teamId?: number, workflowName?: string | null): CyclotronJobInvocationGlobals => ({
+    event: {
+        uuid: uuid(),
+        distinct_id: uuid(),
+        timestamp: dayjs().toISOString(),
+        elements_chain: '',
+        url: `${window.location.origin}/project/${teamId || 1}/events/`,
+        event: '$pageview',
+        properties: {
+            $current_url: window.location.href.split('#')[0],
+            $browser: 'Chrome',
+            this_is_an_example_event: true,
+        },
+    },
+    person: {
+        id: uuid(),
+        properties: {
+            email: 'example@posthog.com',
+        },
+        name: 'Example person',
+        url: `${window.location.origin}/person/${uuid()}`,
+    },
+    groups: {},
+    project: {
+        id: teamId || 1,
+        name: 'Default project',
+        url: `${window.location.origin}/project/${teamId || 1}`,
+    },
+    source: {
+        name: workflowName ?? 'Unnamed',
+        url: window.location.href.split('#')[0],
+    },
+})
+
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'actions', 'workflowTestLogic', key]),
     props({} as WorkflowLogicProps),
@@ -50,6 +84,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setSampleGlobals: (globals?: string | null) => ({ globals }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
+        setNoMatchingEvents: (noMatchingEvents: boolean) => ({ noMatchingEvents }),
         cancelSampleGlobalsLoading: true,
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
         setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
@@ -72,6 +107,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             {
                 loadSampleGlobals: () => null,
                 setSampleGlobalsError: (_, { error }) => error,
+            },
+        ],
+        noMatchingEvents: [
+            false as boolean,
+            {
+                loadSampleGlobals: () => false,
+                setNoMatchingEvents: (_, { noMatchingEvents }) => noMatchingEvents,
             },
         ],
         fetchCancelled: [
@@ -110,15 +152,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         return null
                     }
 
-                    const errorMessage =
-                        'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
-
                     try {
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [values.matchingFilters],
                             select: ['*', 'person'],
-                            after: '-7d',
+                            after: '-30d',
                             limit: 1,
                             orderBy: ['timestamp DESC'],
                             modifiers: {
@@ -130,8 +169,17 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const response = await performQuery(query)
 
                         if (!response?.results?.[0]) {
-                            throw new Error(errorMessage)
+                            // No matching events found, fall back to example event
+                            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+                            actions.setSampleGlobalsError(
+                                'No events match these filters in the last 30 days. Using an example $pageview event instead.'
+                            )
+                            actions.setNoMatchingEvents(true)
+                            return exampleGlobals
                         }
+
+                        // Found matching events
+                        actions.setNoMatchingEvents(false)
 
                         const event = response.results[0][0]
                         const person = response.results[0][1]
@@ -169,7 +217,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         return globals
                     } catch (e: any) {
                         if (!e.message?.includes('breakpoint')) {
-                            actions.setSampleGlobalsError(e.message ?? errorMessage)
+                            actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
                         }
                         return null
                     }
@@ -322,41 +370,23 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         cancelSampleGlobalsLoading: () => {
             // Just mark as cancelled - we'll ignore any results that come back
         },
+        setSelectedNodeId: () => {
+            // When we switch back to a trigger node, reset the no matching events flag
+            // so we can try loading again
+            if (values.noMatchingEvents) {
+                actions.setNoMatchingEvents(false)
+            }
+        },
     })),
 
     afterMount(({ actions, values }) => {
-        actions.loadSampleGlobalsSuccess({
-            event: {
-                uuid: uuid(),
-                distinct_id: uuid(),
-                timestamp: dayjs().toISOString(),
-                elements_chain: '',
-                url: `${window.location.origin}/project/1/events/`,
-                event: '$pageview',
-                properties: {
-                    $current_url: window.location.href.split('#')[0],
-                    $browser: 'Chrome',
-                    this_is_an_example_event: true,
-                },
-            },
-            person: {
-                id: uuid(),
-                properties: {
-                    email: 'example@posthog.com',
-                },
-                name: 'Example person',
-                url: `${window.location.origin}/person/${uuid()}`,
-            },
-            groups: {},
-            project: {
-                id: 1,
-                name: 'Default project',
-                url: `${window.location.origin}/project/1`,
-            },
-            source: {
-                name: values.workflow.name ?? 'Unnamed',
-                url: window.location.href.split('#')[0],
-            },
-        })
+        // If we can load actual events (i.e., trigger is configured), load them automatically
+        if (values.shouldLoadSampleGlobals) {
+            actions.loadSampleGlobals()
+        } else {
+            // Only use example event if we can't load actual events
+            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+            actions.loadSampleGlobalsSuccess(exampleGlobals)
+        }
     }),
 ])

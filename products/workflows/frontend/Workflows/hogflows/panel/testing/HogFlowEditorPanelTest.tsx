@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconInfo, IconPlayFilled, IconRedo, IconTestTube } from '@posthog/icons'
 import {
@@ -42,10 +42,13 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
     const { workflow, selectedNode } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
+    const [eventPanelOpen, setEventPanelOpen] = useState<string[]>(['event'])
 
     const {
         sampleGlobals,
         sampleGlobalsLoading,
+        sampleGlobalsError,
+        noMatchingEvents,
         isTestInvocationSubmitting,
         testResult,
         shouldLoadSampleGlobals,
@@ -61,6 +64,11 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
     useEffect(() => {
         setTestResult(null)
     }, [selectedNode?.id, setTestResult])
+
+    // Ensure event panel is open when component mounts or becomes visible
+    useEffect(() => {
+        setEventPanelOpen(['event'])
+    }, [])
 
     if (!selectedNode) {
         return (
@@ -164,6 +172,9 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                 <div className="flex-0">
                     <LemonCollapse
                         embedded
+                        multiple
+                        activeKeys={eventPanelOpen}
+                        onChange={setEventPanelOpen}
                         panels={[
                             {
                                 key: 'event',
@@ -180,6 +191,11 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                 content: (
                                     <div>
                                         <div className="bg-surface-secondary">
+                                            {sampleGlobalsError && (
+                                                <LemonBanner type="info" className="mb-2">
+                                                    {sampleGlobalsError}
+                                                </LemonBanner>
+                                            )}
                                             <div className="flex gap-2 items-center">
                                                 <ProfilePicture name={display} />
                                                 <div className="flex-1">
@@ -201,11 +217,17 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                                 <LemonButton
                                                     type="secondary"
                                                     onClick={() => loadSampleGlobals()}
-                                                    tooltip="Find the last event matching the trigger event filters, and use it to populate the globals for a test run."
+                                                    tooltip={
+                                                        noMatchingEvents
+                                                            ? 'No events match the current filters. Try adjusting your trigger filters.'
+                                                            : 'Find the last event matching the trigger event filters, and use it to populate the globals for a test run.'
+                                                    }
                                                     disabledReason={
                                                         !shouldLoadSampleGlobals
                                                             ? 'Must configure trigger event'
-                                                            : undefined
+                                                            : noMatchingEvents
+                                                              ? 'No matching events found - adjust your trigger filters'
+                                                              : undefined
                                                     }
                                                     icon={<IconRedo />}
                                                     size="small"
@@ -217,7 +239,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                             {/* Event Properties */}
                                             {sampleGlobals && (
                                                 <>
-                                                    <div className="text-sm">
+                                                    <div className="text-sm mt-2">
                                                         Here are all the global variables you can use in your workflow:
                                                     </div>
                                                     <div className="flex-col gap-2 my-3 max-h-48 overflow-auto">
