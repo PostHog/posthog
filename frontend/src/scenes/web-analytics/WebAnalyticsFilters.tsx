@@ -154,7 +154,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                             : []),
                         ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
                     ],
-                    footer: showProposedURLForm ? <AddAuthorizedUrlForm /> : <AddSuggetedAuthorizedUrlList />,
+                    footer: showProposedURLForm ? <AddAuthorizedUrlForm /> : <AddSuggestedAuthorizedUrlList />,
                 },
             ]}
         />
@@ -258,7 +258,7 @@ const AddAuthorizedUrlForm = (): JSX.Element => {
     )
 }
 
-const AddSuggetedAuthorizedUrlList = (): JSX.Element => {
+const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
     const { urlSuggestions } = useValues(webAnalyticsLogic)
     const { addAuthorizedUrl, newAuthorizedUrl } = useActions(webAnalyticsLogic)
 
