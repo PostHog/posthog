@@ -21,12 +21,7 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
-import {
-    counterHogFunctionStateOnEvent,
-    counterParseError,
-    counterQuotaLimited,
-    counterRateLimited,
-} from './cdp-events.consumer'
+import { counterHogFunctionStateOnEvent, counterParseError, counterQuotaLimited, counterRateLimited } from './metrics'
 
 export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpDatawarehouseEventsConsumer'
