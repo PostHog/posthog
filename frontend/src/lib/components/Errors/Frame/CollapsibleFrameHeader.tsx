@@ -1,6 +1,8 @@
+import './CollapsibleFrameHeader.scss'
+
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconBox, IconEllipsis, IconSpinner, IconWarning } from '@posthog/icons'
@@ -32,41 +34,43 @@ export function CollapsibleFrameHeader({
     const part = getFrameFingerprint(raw_id)
     const resolvedName = formatResolvedName(frame)
     const hasRecordContext = !!record && !!record.context
+    const sourceRef = useRef<HTMLSpanElement>(null)
+    const sourceContent = formatSourceLine(source, line, column)
+
+    useEffect(() => {
+        // Is sourceRef is scrollable scroll to the end and add scrollable attribute
+        if (sourceRef.current && sourceRef.current.scrollWidth > sourceRef.current.clientWidth) {
+            let delta = sourceRef.current.scrollWidth - sourceRef.current.clientWidth
+            sourceRef.current.scrollBy({ left: delta + 10 })
+            sourceRef.current.setAttribute('scrollable', 'true')
+        }
+    }, [sourceRef, sourceContent])
 
     return (
-        <div className={cn('flex justify-between items-center w-full h-7')}>
+        <div className={cn('flex w-full h-7')}>
             <CollapsiblePrimitiveTrigger asChild>
                 <ButtonPrimitive
                     className={cn(
-                        'flex justify-between items-center rounded-none w-full h-full gap-x-10 disabled:opacity-60',
+                        'collapsible-frame-header flex justify-start items-center rounded-none h-full disabled:opacity-60 grow max-w-[calc(100%-30px)] text-xs p-0',
                         {
                             'cursor-progress': recordLoading,
                         }
                     )}
                     disabled={!hasRecordContext && !recordLoading}
                 >
-                    <div className="flex flex-wrap gap-x-1 items-center text-xs w-full min-w-0">
-                        {resolvedName ? (
-                            <div className="flex min-w-0 font-medium">
-                                <span className="truncate" title={resolvedName}>
-                                    {resolvedName}
-                                </span>
-                            </div>
-                        ) : null}
-                        <div className="flex font-light">
-                            <span>{source}</span>
-                            {line ? (
-                                <>
-                                    <span className="text-secondary">@</span>
-                                    <span>
-                                        {line}
-                                        {column && `:${column}`}
-                                    </span>
-                                </>
-                            ) : null}
-                        </div>
-                    </div>
-                    <div className="flex gap-x-1 items-center justify-end">
+                    {resolvedName && (
+                        <span className="font-medium frame-function ps-1" title={resolvedName}>
+                            {resolvedName}
+                        </span>
+                    )}
+                    <span
+                        ref={sourceRef}
+                        className="font-light frame-source frame-source-fade px-1"
+                        title={sourceContent!}
+                    >
+                        {sourceContent}
+                    </span>
+                    <div className="gap-x-1 frame-icons pr-1">
                         {part && <FingerprintRecordPartDisplay part={part} />}
                         {match([in_app, resolved, recordLoading, hasRecordContext])
                             .with([false, P.any, P.any, P.any], () => <VendorIcon />)
@@ -79,10 +83,11 @@ export function CollapsibleFrameHeader({
                     </div>
                 </ButtonPrimitive>
             </CollapsiblePrimitiveTrigger>
-            <div className="border-r-1 w-0 h-full" />
-            <FrameDropDownMenu className="h-full w-7 rounded-none outline-none" frame={frame} record={record}>
-                <IconEllipsis />
-            </FrameDropDownMenu>
+            <div className="border-l-1 shrink-0 w-7">
+                <FrameDropDownMenu className="h-full w-7 rounded-none outline-none " frame={frame} record={record}>
+                    <IconEllipsis />
+                </FrameDropDownMenu>
+            </div>
         </div>
     )
 }
@@ -143,4 +148,18 @@ function UnresolvedIcon({ resolve_failure }: { resolve_failure: string | null })
             <IconWarning className="text-secondary" fontSize={15} />
         </Tooltip>
     )
+}
+
+const formatSourceLine = (source: string | null, line: number | null, column: number | null): string | undefined => {
+    if (!source) {
+        return undefined
+    }
+    let content = `${source}`
+    if (line) {
+        content += `@${line}`
+        if (column) {
+            content += `:${column}`
+        }
+    }
+    return content
 }
