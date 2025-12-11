@@ -4,7 +4,7 @@ import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -33,7 +33,7 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { formatDate } from 'lib/utils'
+import { DATE_TIME_FORMAT_WITHOUT_SECONDS, formatDate, formatDateTime } from 'lib/utils'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { ANY_VARIANT, variantOptions } from 'scenes/settings/environment/ReplayTriggers'
@@ -68,7 +68,143 @@ import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
-import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
+import { DataCollectionType, SurveyEditSection, SurveyEndType, SurveyStartType, surveyLogic } from './surveyLogic'
+
+function SurveyLaunchSchedule(): JSX.Element {
+    const { survey, startType, endType } = useValues(surveyLogic)
+    const { setSurveyValue, setStartType, setEndType } = useActions(surveyLogic)
+    const [startDateVisible, setStartDateVisible] = useState(false)
+    const [endDateVisible, setEndDateVisible] = useState(false)
+    const surveyStartDateTimeOptions: LemonRadioOption<SurveyStartType>[] = [
+        {
+            value: 'manual',
+            label: 'When I click Launch',
+        },
+        {
+            value: 'datetime',
+            label: 'At a chosen date and time',
+        },
+    ]
+    const surveyEndDateTimeOptions: LemonRadioOption<SurveyEndType>[] = [
+        {
+            value: 'manual',
+            label: 'When I click Stop',
+        },
+        {
+            value: 'datetime',
+            label: 'At a chosen date and time',
+        },
+    ]
+
+    const dateRangeError = survey.scheduled_start_datetime >= survey.scheduled_end_datetime
+    const showDateRangeError = dateRangeError && survey.scheduled_start_datetime && survey.scheduled_end_datetime
+
+    // if we're editing an existing survey we need to initialize the form with the saved values
+    // open question: is there a better way to do this using redux?
+    useEffect(() => {
+        if (survey.scheduled_start_datetime) {
+            setStartType('datetime')
+        }
+        if (survey.scheduled_end_datetime) {
+            setEndType('datetime')
+        }
+    }, [])
+
+    return (
+        <>
+            <div>
+                <h3>
+                    When would you like to <b>launch</b> this survey?
+                </h3>
+                <LemonField.Pure error={showDateRangeError && 'Make sure end date is after start date'}>
+                    <LemonRadio
+                        value={startType}
+                        options={surveyStartDateTimeOptions}
+                        onChange={(newValue: SurveyStartType) => {
+                            if (newValue == 'manual') {
+                                setSurveyValue('scheduled_start_datetime', null)
+                            }
+                            if (newValue == 'datetime' && !survey.scheduled_start_datetime) {
+                                setSurveyValue('scheduled_start_datetime', dayjs().toISOString())
+                            }
+                            setStartType(newValue)
+                        }}
+                    />
+                </LemonField.Pure>
+            </div>
+            {startType === 'datetime' && (
+                <div className="ml-5 mt-2">
+                    <Popover
+                        actionable
+                        overlay={
+                            <LemonCalendarSelect
+                                value={dayjs(survey.scheduled_start_datetime)}
+                                selectionPeriod="upcoming"
+                                onChange={(value) => {
+                                    setSurveyValue('scheduled_start_datetime', value.toISOString())
+                                    setStartDateVisible(false)
+                                }}
+                                granularity="minute"
+                                onClose={() => setStartDateVisible(false)}
+                            />
+                        }
+                        visible={startDateVisible}
+                        onClickOutside={() => setStartDateVisible(false)}
+                    >
+                        <LemonButton type="secondary" onClick={() => setStartDateVisible(!startDateVisible)}>
+                            {formatDateTime(dayjs(survey.scheduled_start_datetime), DATE_TIME_FORMAT_WITHOUT_SECONDS)}
+                        </LemonButton>
+                    </Popover>
+                </div>
+            )}
+            <div className="mt-4">
+                <h3>
+                    When would you like to <b>stop</b> this survey?
+                </h3>
+                <LemonField.Pure error={showDateRangeError && 'Make sure end date is after start date'}>
+                    <LemonRadio
+                        value={endType}
+                        options={surveyEndDateTimeOptions}
+                        onChange={(newValue: SurveyEndType) => {
+                            if (newValue == 'manual') {
+                                setSurveyValue('scheduled_end_datetime', null)
+                            }
+                            if (newValue == 'datetime' && !survey.scheduled_end_datetime) {
+                                setSurveyValue('scheduled_end_datetime', dayjs().toISOString())
+                            }
+                            setEndType(newValue)
+                        }}
+                    />
+                </LemonField.Pure>
+            </div>
+            {endType === 'datetime' && (
+                <div className="ml-5 mt-2">
+                    <Popover
+                        actionable
+                        overlay={
+                            <LemonCalendarSelect
+                                value={dayjs(survey.scheduled_end_datetime)}
+                                selectionPeriod="upcoming"
+                                onChange={(value) => {
+                                    setSurveyValue('scheduled_end_datetime', value.toISOString())
+                                    setEndDateVisible(false)
+                                }}
+                                granularity="minute"
+                                onClose={() => setEndDateVisible(false)}
+                            />
+                        }
+                        visible={endDateVisible}
+                        onClickOutside={() => setEndDateVisible(false)}
+                    >
+                        <LemonButton type="secondary" onClick={() => setEndDateVisible(!endDateVisible)}>
+                            {formatDateTime(dayjs(survey.scheduled_end_datetime), DATE_TIME_FORMAT_WITHOUT_SECONDS)}
+                        </LemonButton>
+                    </Popover>
+                </div>
+            )}
+        </>
+    )
+}
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -1271,6 +1407,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 key: SurveyEditSection.CompletionConditions,
                                 header: 'Completion conditions',
                                 content: <SurveyCompletionConditions />,
+                            },
+                            {
+                                key: SurveyEditSection.Scheduling,
+                                header: 'Launch schedule',
+                                content: <SurveyLaunchSchedule />,
                             },
                         ]}
                     />

@@ -104,16 +104,29 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                             )
                         })}
                     </SurveyOption>
-                    {(survey.start_date || survey.end_date) && (
+                    {(survey.start_date ||
+                        survey.end_date ||
+                        survey.scheduled_start_datetime ||
+                        survey.scheduled_end_datetime) && (
                         <div className="flex gap-16">
                             {survey.start_date && (
                                 <SurveyOption label="Start date">
                                     <TZLabel time={survey.start_date} />
                                 </SurveyOption>
                             )}
+                            {survey.scheduled_start_datetime && !survey.start_date && (
+                                <SurveyOption label="Scheduled start date">
+                                    <TZLabel time={survey.scheduled_start_datetime} />
+                                </SurveyOption>
+                            )}
                             {survey.end_date && (
                                 <SurveyOption label="End date">
                                     <TZLabel time={survey.end_date} />
+                                </SurveyOption>
+                            )}
+                            {survey.scheduled_end_datetime && !survey.end_date && (
+                                <SurveyOption label="Scheduled end date">
+                                    <TZLabel time={survey.scheduled_end_datetime} />
                                 </SurveyOption>
                             )}
                         </div>

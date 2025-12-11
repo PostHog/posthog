@@ -295,4 +295,4 @@ To get some practical test data into your brand-new instance of PostHog, run `DE
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
-You can now change PostHog in any way you want. See [Project structure](/handbook/engineering/project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
+You can now change PostHog in any way you want. To commit changes, create a new branch based on `master` for your intended change, and develop away.

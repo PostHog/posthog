@@ -41,7 +41,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
-from posthog.models import Action
+from posthog.models import Action, ScheduledChange
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
@@ -182,6 +182,8 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "created_by",
             "start_date",
             "end_date",
+            "scheduled_start_datetime",
+            "scheduled_end_datetime",
             "archived",
             "responses_limit",
             "feature_flag_keys",
@@ -251,6 +253,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "created_by",
             "start_date",
             "end_date",
+            "scheduled_start_datetime",
+            "scheduled_end_datetime",
             "archived",
             "responses_limit",
             "iteration_count",
@@ -555,6 +559,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if errors:
                 raise serializers.ValidationError(errors)
 
+        # Validate scheduled start date is before scheduled end date
+        # this is also enforced in the UI. double-check it here.
+        scheduled_start_datetime = data.get("scheduled_start_datetime")
+        scheduled_end_datetime = data.get("scheduled_end_datetime")
+        if scheduled_start_datetime and scheduled_end_datetime and scheduled_start_datetime >= scheduled_end_datetime:
+            raise serializers.ValidationError("Scheduled launch time must be before scheduled end time.")
+
         return data
 
     def create(self, validated_data):
@@ -577,6 +588,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
+        self._add_launch_schedules(
+            instance, validated_data["scheduled_start_datetime"], validated_data["scheduled_end_datetime"]
+        )
 
         team = Team.objects.get(id=self.context["team_id"])
         log_activity(
@@ -730,6 +744,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._add_user_survey_interacted_filters(instance, end_date)
         self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
+        self._add_launch_schedules(
+            instance, validated_data["scheduled_start_datetime"], validated_data["scheduled_end_datetime"]
+        )
+
         return instance
 
     def _add_internal_response_sampling_filters(self, instance: Survey):
@@ -752,6 +770,31 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             None, sampling_filters, instance.name, bool(instance.start_date), flag_name_suffix="-sampling"
         )
         instance.save()
+
+    def _add_launch_schedules(self, instance: Survey, start_datetime: str | None, end_datetime: str | None) -> None:
+        # delete previous schedules. we could potentially score scheduled change IDs as a foreign key on the survey so we can CRUD instead of delete/create
+        ScheduledChange.objects.filter(model_name="Survey", record_id=instance.id).delete()
+
+        # create new schedule changes
+        if start_datetime:
+            ScheduledChange.objects.create(
+                model_name="Survey",
+                record_id=instance.id,
+                scheduled_at=start_datetime,
+                created_by_id=self.context["request"].user.id,
+                team_id=self.context["team_id"],
+                payload={"launch": True},
+            )
+
+        if end_datetime:
+            ScheduledChange.objects.create(
+                model_name="Survey",
+                record_id=instance.id,
+                scheduled_at=end_datetime,
+                created_by_id=self.context["request"].user.id,
+                team_id=self.context["team_id"],
+                payload={"end": True},
+            )
 
     def _associate_actions(self, instance: Survey, conditions):
         if conditions is None:

@@ -167,7 +167,7 @@ export default function HomePage(): JSX.Element {
                             </svg>
                         </div>
                         <p className="text-base-content/60 text-sm">
-                            © 2024 Hedgebox. All rights reserved. Made with 🌵.
+                            © 2026 Hedgebox. All rights reserved. Made with 🌵.
                         </p>
                     </div>
                 </div>

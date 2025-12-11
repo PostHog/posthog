@@ -171,6 +171,8 @@ export interface NewSurvey
         | 'questions'
         | 'start_date'
         | 'end_date'
+        | 'scheduled_start_datetime'
+        | 'scheduled_end_datetime'
         | 'linked_flag'
         | 'targeting_flag'
         | 'archived'

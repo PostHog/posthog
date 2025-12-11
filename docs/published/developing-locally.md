@@ -73,6 +73,8 @@ This is the recommended option for most developers.
 
 3. Install [OrbStack](https://orbstack.dev/) – a more performant Docker Desktop alternative – with `brew install orbstack`. Go to OrbStack settings and set the memory usage limit to **at least 4 GB** (or 8 GB if you can afford it) + the CPU usage limit to at least 4 cores (i.e. 400%). You'll want to use Brex for the license if you work at PostHog.
 
+   > Note: If you're on Apple Silicon, [install OrbStack without brew](https://orbstack.dev/download).
+
 4. Continue with [cloning the repository](#cloning-the-repository).
 
 #### Ubuntu
@@ -120,6 +122,8 @@ To get PostHog running in a dev environment:
    brew install flox
    ```
 
+   > Note: If you're on Apple Silicon, [install flox directly](https://flox.dev/docs/install-flox/install/#__tabbed_1_1).
+
 2. From the root of the repository, activate the environment. (On first activation, you'll be prompted if you'd like the environment to be activated automatically using `direnv`.)
 
    ```bash
@@ -130,11 +134,17 @@ To get PostHog running in a dev environment:
 
    > Note on app dependencies: Python requirements get updated every time the environment is activated (`uv sync` is lightning fast). JS dependencies only get installed if `node_modules/` is not present (`pnpm install` still takes a couple lengthy seconds). Dependencies for other languages currently don't get auto-installed.
 
-3. After successful environment activation, just look at its welcome message in the terminal. It contains all the commands for running the stack. Run those commands in the suggested order.
+3. Start PostHog.
 
-This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
+   ```bash
+   hogli start
+   ```
 
-You can now change PostHog in any way you want. See [Project structure](/handbook/engineering/project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
+   > Note: if this is your first time running PostHog, watch the `migrate-postgres` process logs until it is complete before proceeding. Nothing else will work without the correct data model. If any of the processes are down with a non-zero exit code (i.e. `DOWN (1)`), restart them.
+
+4. Open the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>
+
+You can now change PostHog in any way you want. To commit changes, create a new branch based on `master` for your intended change, and develop away.
 
 ### Manual setup
 
@@ -185,6 +195,9 @@ If you get `Configuration property "enable.ssl.certificate.verification" not sup
 
 **pyproject.toml parse warnings**
 When running `uv sync`, you may see a `Failed to parse` warning related to `pyproject.toml`. This is usually harmless – if you see the `Activate with:` line at the end, your environment was created successfully.
+
+**Browser content-type errors**
+If you try to load any non-core products (i.e. tracing, surveys) into the browser and see that the home page HTML is getting returned instead of the javascript, you'll need to run `cd frontend && ./bin/copy-posthog-js` to ensure the non-core product javascript is available in the `/static/` directory.
 
 ## Option 2: Developing with Codespaces
 

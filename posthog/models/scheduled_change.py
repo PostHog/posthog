@@ -8,6 +8,7 @@ from posthog.models.utils import RootTeamMixin
 class ScheduledChange(RootTeamMixin, models.Model):
     class AllowedModels(models.TextChoices):
         FEATURE_FLAG = "FeatureFlag", "feature flag"
+        SURVEY = "Survey", "survey"
 
     # Keep in sync with frontend/src/types.ts RecurrenceInterval enum
     class RecurrenceInterval(models.TextChoices):

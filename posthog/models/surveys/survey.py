@@ -1,7 +1,7 @@
 import json
 import uuid
-from datetime import timedelta
-from typing import TYPE_CHECKING
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
@@ -13,8 +13,10 @@ from dateutil.rrule import DAILY, rrule
 from django_deprecate_fields import deprecate_field
 
 from posthog.models import Action
+from posthog.models.feature_flag.feature_flag import AbstractBaseUser
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.integration import HttpRequest
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.storage.hypercache import HyperCache
 
@@ -200,6 +202,8 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     )
     start_date = models.DateTimeField(null=True)
     end_date = models.DateTimeField(null=True)
+    scheduled_start_datetime = models.DateTimeField(null=True)
+    scheduled_end_datetime = models.DateTimeField(null=True)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
     # It's not a strict limit as it's enforced in a periodic task
@@ -272,6 +276,51 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             },
             should_delete=False,
         )
+
+    def scheduled_changes_dispatcher(
+        self, payload, user: Optional[AbstractBaseUser] = None, scheduled_change_id: Optional[int] = None
+    ):
+        from posthog.api.survey import SurveySerializer
+
+        if "launch" not in payload and "end" not in payload:
+            raise Exception(f"Invalid payload")
+
+        # Store scheduled change context on the instance for activity logging
+        if scheduled_change_id is not None:
+            self._scheduled_change_context = {"scheduled_change_id": scheduled_change_id}
+
+        http_request = HttpRequest()
+        # We kind of cheat here set the request user to the user who created the scheduled change
+        # It's not the correct type, but it matches enough to get the job done
+        http_request.user = user or self.created_by  # type: ignore
+        http_request.method = "PATCH"  # This is a partial update, not a new creation
+        context = {
+            "request": http_request,
+            "team_id": self.team_id,
+            "project_id": self.team.project_id,
+        }
+
+        serializer_data = {}
+        if payload.get("launch"):
+            # this survey is already running, nothing to do here.
+            # do we want to restart the survey if its already ended?
+            if self.start_date and not self.end_date:
+                return
+
+            serializer_data["start_date"] = datetime.now()
+            serializer_data["end_date"] = None
+        elif payload.get("end"):
+            # this survey is not running, nothing to do here.
+            if self.end_date:
+                return
+
+            serializer_data["end_date"] = datetime.now()
+        else:
+            raise Exception(f"Unrecognized payload: {payload}")
+
+        serializer = SurveySerializer(self, data=serializer_data, context=context, partial=True)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
 
 
 def update_response_sampling_limits(sender, instance, **kwargs):

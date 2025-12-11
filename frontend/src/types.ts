@@ -3321,6 +3321,8 @@ export interface Survey extends WithAccessControl {
     created_by: UserBasicType | null
     start_date: string | null
     end_date: string | null
+    scheduled_start_datetime: string | null
+    scheduled_end_datetime: string | null
     archived: boolean
     remove_targeting_flag?: boolean
     responses_limit: number | null

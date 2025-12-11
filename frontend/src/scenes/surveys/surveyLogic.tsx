@@ -194,6 +194,10 @@ export interface QuestionResultsReady {
 
 export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
 
+export type SurveyStartType = 'manual' | 'datetime'
+
+export type SurveyEndType = 'manual' | 'datetime'
+
 export interface SurveyDateRange {
     date_from: string | null
     date_to: string | null
@@ -532,6 +536,12 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         setDataCollectionType: (dataCollectionType: DataCollectionType) => ({
             dataCollectionType,
+        }),
+        setStartType: (startType: SurveyStartType) => ({
+            startType,
+        }),
+        setEndType: (endType: SurveyEndType) => ({
+            endType,
         }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         deleteBranchingLogic: true,
@@ -1155,6 +1165,18 @@ export const surveyLogic = kea<surveyLogicType>([
             'until_stopped' as DataCollectionType,
             {
                 setDataCollectionType: (_, { dataCollectionType }) => dataCollectionType,
+            },
+        ],
+        startType: [
+            'manual' as SurveyStartType,
+            {
+                setStartType: (_, { startType }) => startType,
+            },
+        ],
+        endType: [
+            'manual' as SurveyEndType,
+            {
+                setEndType: (_, { endType }) => endType,
             },
         ],
         propertyFilters: [
