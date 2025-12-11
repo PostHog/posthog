@@ -51,7 +51,6 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
         sampleGlobalsLoading,
         sampleGlobalsError,
         noMatchingEvents,
-        canTryExtendedSearch,
         isTestInvocationSubmitting,
         testResult,
         shouldLoadSampleGlobals,
@@ -198,24 +197,9 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                     <div>
                                         <div className="bg-surface-secondary">
                                             {sampleGlobalsError && (
-                                                <div>
-                                                    <LemonBanner type="info" className="mb-2">
-                                                        {sampleGlobalsError}
-                                                    </LemonBanner>
-                                                    {canTryExtendedSearch && (
-                                                        <div className="mb-2 text-center">
-                                                            <LemonButton
-                                                                type="primary"
-                                                                onClick={() =>
-                                                                    loadSampleGlobals({ extendedSearch: true })
-                                                                }
-                                                                loading={sampleGlobalsLoading}
-                                                            >
-                                                                Try searching last 30 days (slower)
-                                                            </LemonButton>
-                                                        </div>
-                                                    )}
-                                                </div>
+                                                <LemonBanner type="info" className="mb-2">
+                                                    {sampleGlobalsError}
+                                                </LemonBanner>
                                             )}
                                             <div className="flex gap-2 items-center">
                                                 <ProfilePicture name={display} />
