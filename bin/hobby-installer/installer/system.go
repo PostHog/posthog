@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -32,10 +33,13 @@ func GenerateEncryptionKey() (string, error) {
 
 // Run a shell command and return output as a string
 func RunCommand(name string, args ...string) (string, error) {
+	log := GetLogger()
+	log.WriteString(fmt.Sprintf("$ %s %s\n", name, strings.Join(args, " ")))
+
 	cmd := exec.Command(name, args...)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = io.MultiWriter(&stdout, log)
+	cmd.Stderr = io.MultiWriter(&stderr, log)
 	err := cmd.Run()
 	if err != nil {
 		return "", fmt.Errorf("%s: %s", err.Error(), stderr.String())
@@ -45,11 +49,14 @@ func RunCommand(name string, args ...string) (string, error) {
 
 // Run a command in a specific directory
 func RunCommandWithDir(dir string, name string, args ...string) (string, error) {
+	log := GetLogger()
+	log.WriteString(fmt.Sprintf("$ cd %s && %s %s\n", dir, name, strings.Join(args, " ")))
+
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = io.MultiWriter(&stdout, log)
+	cmd.Stderr = io.MultiWriter(&stderr, log)
 	err := cmd.Run()
 	if err != nil {
 		return "", fmt.Errorf("%s: %s", err.Error(), stderr.String())

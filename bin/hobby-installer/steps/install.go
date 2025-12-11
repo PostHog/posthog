@@ -53,6 +53,8 @@ type InstallModel struct {
 	version     string
 	domain      string
 	err         error
+	width       int
+	height      int
 }
 
 type stepResultMsg struct {
@@ -114,8 +116,13 @@ func (m InstallModel) runStep(step installStep) tea.Cmd {
 				err = installer.UpdatePostHog()
 				detail = "updated"
 			} else {
-				err = installer.ClonePostHog()
-				detail = "cloned"
+				// Check if already installed
+				if installer.DirExists("posthog") {
+					err = fmt.Errorf("PostHog is already installed. Use 'Upgrade' instead")
+				} else {
+					err = installer.ClonePostHog()
+					detail = "cloned"
+				}
 			}
 
 		case installStepCheckout:
@@ -199,6 +206,11 @@ func (m InstallModel) runStep(step installStep) tea.Cmd {
 
 func (m InstallModel) Update(msg tea.Msg) (InstallModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -297,6 +309,10 @@ func (m InstallModel) View() string {
 		footer = "\n" + ui.ErrorStyle.Render("✗ Installation failed: "+m.err.Error())
 	}
 
+	// Always show log panel
+	logLines := installer.GetLogger().GetLines(5)
+	logPanel := ui.RenderLogPanel(logLines, 100, 7)
+
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		ui.TitleStyle.Render(title),
@@ -305,6 +321,8 @@ func (m InstallModel) View() string {
 		"",
 		lipgloss.JoinVertical(lipgloss.Left, lines...),
 		footer,
+		"",
+		logPanel,
 	)
 
 	return lipgloss.NewStyle().

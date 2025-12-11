@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/posthog/posthog/bin/hobby-installer/installer"
 	"github.com/posthog/posthog/bin/hobby-installer/steps"
 	"github.com/posthog/posthog/bin/hobby-installer/ui"
 )
@@ -18,6 +19,11 @@ type model struct {
 }
 
 func initialModel() model {
+	// Seed some demo logs
+	logger := installer.GetLogger()
+	logger.WriteString("PostHog Hobby Installer Demo\n")
+	logger.WriteString("Starting system checks...\n")
+
 	return model{
 		checks: steps.NewChecksModel(),
 	}
@@ -32,7 +38,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, nil
+		// Forward to checks model - fall through
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q", "esc":

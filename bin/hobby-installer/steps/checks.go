@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/posthog/posthog/bin/hobby-installer/installer"
 	"github.com/posthog/posthog/bin/hobby-installer/ui"
 )
 
@@ -35,6 +36,8 @@ type ChecksModel struct {
 	spinner spinner.Model
 	done    bool
 	allGood bool
+	width   int
+	height  int
 }
 
 type checkResultMsg struct {
@@ -94,35 +97,52 @@ func (m ChecksModel) runCheck(index int) tea.Cmd {
 }
 
 func (m ChecksModel) checkDocker() checkResultMsg {
+	logger := installer.GetLogger()
+	logger.WriteString("Checking for Docker...\n")
+
 	_, err := exec.LookPath("docker")
 	if err != nil {
+		logger.WriteString("✗ Docker not found in PATH\n")
 		return checkResultMsg{index: 0, passed: false, detail: "Docker not found in PATH"}
 	}
 
+	logger.WriteString("$ docker info\n")
 	cmd := exec.Command("docker", "info")
 	if err := cmd.Run(); err != nil {
+		logger.WriteString("✗ Docker daemon not running\n")
 		return checkResultMsg{index: 0, passed: false, detail: "Docker daemon not running"}
 	}
 
+	logger.WriteString("✓ Docker is running\n")
 	return checkResultMsg{index: 0, passed: true, detail: "Docker is running"}
 }
 
 func (m ChecksModel) checkDockerCompose() checkResultMsg {
+	logger := installer.GetLogger()
+	logger.WriteString("Checking for Docker Compose...\n")
+
 	// Check for docker-compose or docker compose
 	_, err := exec.LookPath("docker-compose")
 	if err == nil {
+		logger.WriteString("✓ docker-compose available\n")
 		return checkResultMsg{index: 1, passed: true, detail: "docker-compose available"}
 	}
 
+	logger.WriteString("$ docker compose version\n")
 	cmd := exec.Command("docker", "compose", "version")
 	if err := cmd.Run(); err == nil {
+		logger.WriteString("✓ docker compose available\n")
 		return checkResultMsg{index: 1, passed: true, detail: "docker compose available"}
 	}
 
+	logger.WriteString("✗ Docker Compose not found\n")
 	return checkResultMsg{index: 1, passed: false, detail: "Docker Compose not found"}
 }
 
 func (m ChecksModel) checkMemory() checkResultMsg {
+	logger := installer.GetLogger()
+	logger.WriteString("Checking system memory...\n")
+
 	// Try to get memory info (Linux-specific, will be run on Ubuntu)
 	scale := int64(1024 * 1024) // Linux command will return KiB
 	cmd := exec.Command("sh", "-c", "grep MemTotal /proc/meminfo | awk '{print $2}'")
@@ -131,16 +151,19 @@ func (m ChecksModel) checkMemory() checkResultMsg {
 	if err != nil || string(out) == "" {
 		// On macOS during development, use sysctl
 		scale = int64(1024 * 1024 * 1024) // macOS command will return bytes (B)
+		logger.WriteString("$ sysctl -n hw.memsize\n")
 		cmd = exec.Command("sysctl", "-n", "hw.memsize")
 		out, err = cmd.Output()
 
 		if err != nil || string(out) == "" {
+			logger.WriteString("⚠ Could not check memory\n")
 			return checkResultMsg{index: 2, passed: true, warning: true, detail: "Could not check memory"}
 		}
 	}
 
 	memKB, _ := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
 	memGB := memKB / scale
+	logger.WriteString(fmt.Sprintf("Memory: %dGB\n", memGB))
 
 	if memGB < 8 {
 		return checkResultMsg{index: 2, passed: true, warning: true, detail: fmt.Sprintf("%dGB (8GB+ recommended)", memGB)}
@@ -149,9 +172,13 @@ func (m ChecksModel) checkMemory() checkResultMsg {
 }
 
 func (m ChecksModel) checkDiskSpace() checkResultMsg {
+	logger := installer.GetLogger()
+	logger.WriteString("$ df -h .\n")
+
 	cmd := exec.Command("df", "-h", ".")
 	out, err := cmd.Output()
 	if err != nil {
+		logger.WriteString("⚠ Could not check disk space\n")
 		return checkResultMsg{index: 3, passed: true, warning: true, detail: "Could not check disk space"}
 	}
 
@@ -163,6 +190,7 @@ func (m ChecksModel) checkDiskSpace() checkResultMsg {
 	fields := strings.Fields(lines[1])
 	if len(fields) >= 4 {
 		available := fields[3]
+		logger.WriteString(fmt.Sprintf("Disk available: %s\n", available))
 		return checkResultMsg{index: 3, passed: true, detail: fmt.Sprintf("%s available", available)}
 	}
 
@@ -170,16 +198,26 @@ func (m ChecksModel) checkDiskSpace() checkResultMsg {
 }
 
 func (m ChecksModel) checkNetwork() checkResultMsg {
+	logger := installer.GetLogger()
+	logger.WriteString("$ curl -s https://github.com\n")
+
 	cmd := exec.Command("curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--connect-timeout", "5", "https://github.com")
 	out, err := cmd.Output()
 	if err != nil || strings.TrimSpace(string(out)) != "200" {
+		logger.WriteString("✗ Cannot reach github.com\n")
 		return checkResultMsg{index: 4, passed: false, detail: "Cannot reach github.com"}
 	}
+	logger.WriteString("✓ Connected to github.com\n")
 	return checkResultMsg{index: 4, passed: true, detail: "Connected"}
 }
 
 func (m ChecksModel) Update(msg tea.Msg) (ChecksModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -279,6 +317,10 @@ func (m ChecksModel) View() string {
 		}
 	}
 
+	// Always show log panel
+	logLines := installer.GetLogger().GetLines(5)
+	logPanel := ui.RenderLogPanel(logLines, 100, 7)
+
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		ui.TitleStyle.Render("System Requirements Check"),
@@ -287,6 +329,8 @@ func (m ChecksModel) View() string {
 		"",
 		strings.Join(checkLines, "\n"),
 		footer,
+		"",
+		logPanel,
 	)
 
 	return lipgloss.NewStyle().
