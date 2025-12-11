@@ -1,1 +1,1 @@
-0940_scheduledchange_is_recurring_and_more
+0940_scheduledchange_recurring_fields
