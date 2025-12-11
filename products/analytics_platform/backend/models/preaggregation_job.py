@@ -35,3 +35,10 @@ class PreaggregationJob(CreatedMetaFields, UUIDModel):
             models.Index(fields=["team", "status"]),
             models.Index(fields=["team", "time_range_start", "time_range_end"]),
         ]
+
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(time_range_start__lt=models.F("time_range_end")),
+                name="time_range_start_before_end",
+            ),
+        ]

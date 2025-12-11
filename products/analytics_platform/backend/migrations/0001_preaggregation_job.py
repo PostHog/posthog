@@ -53,6 +53,12 @@ class Migration(migrations.Migration):
                         fields=["team", "time_range_start", "time_range_end"], name="analytics_p_team_id_4e65a5_idx"
                     ),
                 ],
+                "constraints": [
+                    models.CheckConstraint(
+                        check=models.Q(time_range_start__lt=models.F("time_range_end")),
+                        name="time_range_start_before_end",
+                    ),
+                ],
             },
         ),
     ]
