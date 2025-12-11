@@ -12,6 +12,8 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.ai.base import AgentBaseWorkflow
 
+from products.slack_app.backend.slack_thread import SlackThreadContext
+
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
 
@@ -220,12 +222,20 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         defaults={"team": team, "user": user, "type": "slack"},
     )
 
+    # Create Slack thread context for task workflows to post updates
+    slack_thread_context = SlackThreadContext(
+        integration_id=inputs.integration_id,
+        channel=inputs.channel,
+        thread_ts=inputs.thread_ts,
+    )
+
     assistant = ChatAgentRunner(
         team,
         conversation,
         new_message=human_message,
         user=user,
         is_new_conversation=True,
+        slack_thread_context=slack_thread_context,
     )
 
     # Build conversation URL for the "View in PostHog" button

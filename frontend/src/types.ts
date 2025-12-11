@@ -3248,6 +3248,7 @@ export interface ProductTourContent {
     conditions?: {
         url?: string
         urlMatchType?: 'exact' | 'contains' | 'regex'
+        selector?: string
     }
 }
 
@@ -3259,6 +3260,7 @@ export interface ProductTour {
     feature_flag_key: string | null
     targeting_flag_filters: FeatureFlagFilters | null
     content: ProductTourContent
+    auto_launch: boolean
     start_date: string | null
     end_date: string | null
     created_at: string
@@ -6091,8 +6093,6 @@ export enum OnboardingStepKey {
     PRODUCT_CONFIGURATION = 'configure',
     REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
-    DASHBOARD_TEMPLATE = 'dashboard_template',
-    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
     SESSION_REPLAY = 'session_replay',
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',

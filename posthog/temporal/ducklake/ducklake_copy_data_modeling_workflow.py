@@ -2,7 +2,6 @@ import re
 import json
 import datetime as dt
 import dataclasses
-from typing import Any
 
 from django.conf import settings
 
@@ -31,7 +30,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_modeling.metrics import (
+from posthog.temporal.ducklake.metrics import (
     get_ducklake_copy_data_modeling_finished_metric,
     get_ducklake_copy_data_modeling_verification_metric,
 )
@@ -55,9 +54,6 @@ class DuckLakeCopyModelMetadata:
     table_name: str
     verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
     partition_column: str | None = None
-    partition_column_type: str | None = None
-    key_columns: list[str] = dataclasses.field(default_factory=list)
-    non_nullable_columns: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -139,15 +135,16 @@ async def prepare_data_modeling_ducklake_metadata_activity(
     model_list: list[DuckLakeCopyModelMetadata] = []
 
     for model in inputs.models:
-        saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.select_related("team").get)(
+        # Django: only for semantic naming (not stored in Delta)
+        saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.only("id", "name").get)(
             id=model.saved_query_id
         )
 
         normalized_name = saved_query.normalized_name or saved_query.name
-        saved_query_columns = saved_query.columns or await database_sync_to_async(saved_query.get_columns)()
-        partition_column, partition_column_type = _detect_partition_column(saved_query_columns, model.table_uri)
-        key_columns = _detect_key_columns(saved_query_columns)
-        non_nullable_columns = _detect_non_nullable_columns(saved_query_columns)
+
+        # Get partition column name from Delta metadata
+        partition_column = _detect_partition_column_name(model.table_uri)
+
         model_list.append(
             DuckLakeCopyModelMetadata(
                 model_label=model.model_label,
@@ -162,9 +159,6 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 table_name=_sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
                 verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
                 partition_column=partition_column,
-                partition_column_type=partition_column_type,
-                key_columns=key_columns,
-                non_nullable_columns=non_nullable_columns,
             )
         )
 
@@ -183,7 +177,7 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
         conn = duckdb.connect()
         alias = "ducklake_dev"
         try:
-            _configure_source_storage(conn, logger)
+            _configure_s3_secrets(conn)
             configure_connection(conn, config, install_extension=True)
             _ensure_ducklake_bucket_exists(config)
             _attach_ducklake_catalog(conn, config, alias=alias)
@@ -224,7 +218,7 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
         results: list[DuckLakeCopyVerificationResult] = []
 
         try:
-            _configure_source_storage(conn, logger)
+            _configure_s3_secrets(conn)
             configure_connection(conn, config, install_extension=True)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
@@ -330,9 +324,6 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
             partition_result = _run_partition_verification(conn, ducklake_table, inputs)
             if partition_result:
                 results.append(partition_result)
-
-            results.extend(_run_key_cardinality_verifications(conn, ducklake_table, inputs))
-            results.extend(_run_non_nullable_verifications(conn, ducklake_table, inputs))
         finally:
             conn.close()
 
@@ -438,21 +429,29 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
         get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)
 
 
-def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
+def _get_source_credentials() -> tuple[str, str, str, str]:
+    """Get source bucket credentials (access_key, secret_key, region, endpoint)."""
+    return (
+        settings.AIRBYTE_BUCKET_KEY or "",
+        settings.AIRBYTE_BUCKET_SECRET or "",
+        getattr(settings, "AIRBYTE_BUCKET_REGION", "") or "",
+        getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or "",
+    )
+
+
+def _configure_s3_secrets(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("INSTALL httpfs")
     conn.execute("LOAD httpfs")
     conn.execute("INSTALL delta")
     conn.execute("LOAD delta")
 
-    access_key = settings.AIRBYTE_BUCKET_KEY
-    secret_key = settings.AIRBYTE_BUCKET_SECRET
-    region = getattr(settings, "AIRBYTE_BUCKET_REGION", "")
+    access_key, secret_key, region, endpoint = _get_source_credentials()
 
-    endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or ""
     normalized_endpoint = ""
     use_ssl = True
     if endpoint:
         normalized_endpoint, use_ssl = _normalize_object_storage_endpoint(endpoint)
+
     secret_parts = ["TYPE S3"]
     if access_key:
         secret_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
@@ -464,7 +463,41 @@ def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
         secret_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
     secret_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
     secret_parts.append("URL_STYLE 'path'")
-    conn.execute(f"CREATE OR REPLACE SECRET ducklake_minio ({', '.join(secret_parts)})")
+    secret_parts.append(f"SCOPE '{ducklake_escape(settings.BUCKET_URL)}'")
+    conn.execute(f"CREATE OR REPLACE SECRET ducklake_source ({', '.join(secret_parts)})")
+
+    # Destination bucket secret
+    config = get_config()
+    dest_bucket = f"s3://{config['DUCKLAKE_BUCKET']}/"
+    dest_region = config.get("DUCKLAKE_BUCKET_REGION", "us-east-1")
+    if settings.USE_LOCAL_SETUP:
+        # Local dev: DuckLake bucket credentials, scoped to destination bucket
+        dest_access_key = config.get("DUCKLAKE_S3_ACCESS_KEY", "")
+        dest_secret_key = config.get("DUCKLAKE_S3_SECRET_KEY", "")
+
+        dest_parts = ["TYPE S3"]
+        if dest_access_key:
+            dest_parts.append(f"KEY_ID '{ducklake_escape(dest_access_key)}'")
+        if dest_secret_key:
+            dest_parts.append(f"SECRET '{ducklake_escape(dest_secret_key)}'")
+        if dest_region:
+            dest_parts.append(f"REGION '{ducklake_escape(dest_region)}'")
+        if normalized_endpoint:
+            dest_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
+        dest_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
+        dest_parts.append("URL_STYLE 'path'")
+        dest_parts.append(f"SCOPE '{ducklake_escape(dest_bucket)}'")
+        conn.execute(f"CREATE OR REPLACE SECRET ducklake_dest ({', '.join(dest_parts)})")
+    else:
+        # Production: credential chain (IRSA), scoped to destination bucket
+        conn.execute(f"""
+            CREATE OR REPLACE SECRET ducklake_dest (
+                TYPE S3,
+                PROVIDER CREDENTIAL_CHAIN,
+                REGION '{ducklake_escape(dest_region)}',
+                SCOPE '{ducklake_escape(dest_bucket)}'
+            )
+        """)
 
 
 def _normalize_object_storage_endpoint(endpoint: str) -> tuple[str, bool]:
@@ -523,38 +556,15 @@ def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     return cleaned[:63]
 
 
-def _detect_partition_column(columns: dict[str, Any], table_uri: str) -> tuple[str | None, str | None]:
-    partition_column = _detect_partition_column_from_delta(columns, table_uri)
-    if partition_column:
-        metadata = columns.get(partition_column)
-        column_type = _extract_column_type(metadata)
-        return partition_column, column_type or None
-
-    LOGGER.warning(
-        "Unable to detect partition column from Delta metadata - skipping partition verification.",
-        table_uri=table_uri,
-    )
-    # TODO: Emit a metric for detection failures to track missing partition coverage.
-    return None, None
-
-
-def _detect_partition_column_from_delta(columns: dict[str, Any], table_uri: str) -> str | None:
+def _detect_partition_column_name(table_uri: str) -> str | None:
+    """Detect partition column name from Delta metadata."""
     if not table_uri:
         return None
 
     partition_columns = _fetch_delta_partition_columns(table_uri)
-    if not partition_columns:
-        return None
 
-    normalized_mapping = {name.lower(): name for name in columns.keys()}
-    for candidate in partition_columns:
-        normalized = normalized_mapping.get(candidate.lower())
-        if normalized:
-            return normalized
-        if candidate:
-            return candidate
-
-    return None
+    # Return the first partition column
+    return partition_columns[0] if partition_columns else None
 
 
 def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
@@ -576,18 +586,18 @@ def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
 
 
 def _get_delta_storage_options() -> dict[str, str]:
+    access_key, secret_key, region, endpoint = _get_source_credentials()
+
     options: dict[str, str] = {
-        "aws_access_key_id": getattr(settings, "AIRBYTE_BUCKET_KEY", "") or "",
-        "aws_secret_access_key": getattr(settings, "AIRBYTE_BUCKET_SECRET", "") or "",
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
-    region = getattr(settings, "AIRBYTE_BUCKET_REGION", "") or ""
     if region:
         options["region_name"] = region
         options["AWS_DEFAULT_REGION"] = region
 
-    endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or ""
     if endpoint:
         options["endpoint_url"] = endpoint
         options["AWS_ALLOW_HTTP"] = "true"
@@ -595,32 +605,13 @@ def _get_delta_storage_options() -> dict[str, str]:
     return {key: value for key, value in options.items() if value}
 
 
-def _detect_key_columns(columns: dict[str, Any]) -> list[str]:
-    detected: list[str] = []
-    for name in columns.keys():
-        lowered = name.lower()
-        if lowered.endswith("_id"):
-            detected.append(name)
-    return detected
-
-
-def _detect_non_nullable_columns(columns: dict[str, Any]) -> list[str]:
-    result: list[str] = []
-    for name, metadata in columns.items():
-        column_type = _extract_column_type(metadata)
-        if not column_type.lower().startswith("nullable("):
-            result.append(name)
-    return result
-
-
-def _extract_column_type(metadata: Any) -> str:
-    if isinstance(metadata, dict):
-        value = metadata.get("type")
-        if isinstance(value, str):
-            return value
-    if isinstance(metadata, str):
-        return metadata
-    return ""
+def _get_column_type_from_schema(schema: list[tuple[str, str]], column_name: str) -> str | None:
+    """Get a column's type from a schema list, case-insensitive."""
+    normalized_name = column_name.lower()
+    for name, col_type in schema:
+        if name.lower() == normalized_name:
+            return col_type
+    return None
 
 
 def _is_datetime_column_type(column_type: str | None) -> bool:
@@ -673,7 +664,18 @@ def _run_partition_verification(
     if not partition_column:
         return None
 
-    bucket_expr = _build_partition_bucket_expression(partition_column, inputs.model.partition_column_type)
+    # Fetch partition column type from Delta schema at verification time
+    source_schema = _fetch_delta_schema(conn, inputs.model.source_table_uri)
+    partition_column_type = _get_column_type_from_schema(source_schema, partition_column)
+    if partition_column_type is None:
+        return DuckLakeCopyVerificationResult(
+            name="model.partition_counts",
+            passed=False,
+            description="Ensure partition counts match between source and DuckLake.",
+            error=f"Partition column '{partition_column}' not found in Delta schema",
+        )
+
+    bucket_expr = _build_partition_bucket_expression(partition_column, partition_column_type)
     sql = f"""
         WITH source AS (
             SELECT {bucket_expr} AS bucket, count(*) AS cnt
@@ -732,106 +734,6 @@ def _build_partition_bucket_expression(column_name: str, column_type: str | None
     if _is_datetime_column_type(column_type):
         return f"date_trunc('day', {column_expr})"
     return column_expr
-
-
-def _run_key_cardinality_verifications(
-    conn: duckdb.DuckDBPyConnection,
-    ducklake_table: str,
-    inputs: DuckLakeCopyActivityInputs,
-) -> list[DuckLakeCopyVerificationResult]:
-    results: list[DuckLakeCopyVerificationResult] = []
-    if not inputs.model.key_columns:
-        return results
-
-    for column in inputs.model.key_columns:
-        column_expr = _quote_identifier(column)
-        sql = f"""
-            SELECT
-                (SELECT COUNT(DISTINCT {column_expr}) FROM delta_scan(?)) AS source_count,
-                (SELECT COUNT(DISTINCT {column_expr}) FROM {ducklake_table}) AS ducklake_count
-        """
-        try:
-            row = conn.execute(sql, [inputs.model.source_table_uri]).fetchone()
-            if row is None:
-                raise ValueError(f"Key cardinality query for {column} returned no rows")
-        except Exception as exc:
-            results.append(
-                DuckLakeCopyVerificationResult(
-                    name=f"model.key_cardinality.{column}",
-                    passed=False,
-                    description=f"Validate key cardinality for {column}.",
-                    error=str(exc),
-                )
-            )
-            continue
-
-        source_count = float(row[0] or 0)
-        ducklake_count = float(row[1] or 0)
-        diff = abs(source_count - ducklake_count)
-        passed = diff == 0
-        results.append(
-            DuckLakeCopyVerificationResult(
-                name=f"model.key_cardinality.{column}",
-                passed=passed,
-                description=f"Validate key cardinality for {column}.",
-                expected_value=0.0,
-                observed_value=diff,
-                tolerance=0.0,
-                error=None if passed else f"source={source_count}, ducklake={ducklake_count}",
-            )
-        )
-
-    return results
-
-
-def _run_non_nullable_verifications(
-    conn: duckdb.DuckDBPyConnection,
-    ducklake_table: str,
-    inputs: DuckLakeCopyActivityInputs,
-) -> list[DuckLakeCopyVerificationResult]:
-    results: list[DuckLakeCopyVerificationResult] = []
-    if not inputs.model.non_nullable_columns:
-        return results
-
-    source_uri = inputs.model.source_table_uri
-    for column in inputs.model.non_nullable_columns:
-        column_expr = _quote_identifier(column)
-        source_sql = f"SELECT COUNT(*) FROM delta_scan(?) WHERE {column_expr} IS NULL"
-        ducklake_sql = f"SELECT COUNT(*) FROM {ducklake_table} WHERE {column_expr} IS NULL"
-        try:
-            source_row = conn.execute(source_sql, [source_uri]).fetchone()
-            ducklake_row = conn.execute(ducklake_sql).fetchone()
-            if source_row is None or ducklake_row is None:
-                raise ValueError(f"Null ratio query for {column} returned no rows")
-        except Exception as exc:
-            results.append(
-                DuckLakeCopyVerificationResult(
-                    name=f"model.null_ratio.{column}",
-                    passed=False,
-                    description=f"Ensure null ratio matches for {column}.",
-                    error=str(exc),
-                )
-            )
-            continue
-
-        source_nulls = float(source_row[0] or 0)
-        ducklake_nulls = float(ducklake_row[0] or 0)
-        passed = ducklake_nulls == source_nulls
-        results.append(
-            DuckLakeCopyVerificationResult(
-                name=f"model.null_ratio.{column}",
-                passed=passed,
-                description=f"Ensure null ratio matches for {column}.",
-                expected_value=source_nulls,
-                observed_value=ducklake_nulls,
-                tolerance=0.0,
-                error=None
-                if passed
-                else f"{column} null mismatch (source={int(source_nulls)}, ducklake={int(ducklake_nulls)})",
-            )
-        )
-
-    return results
 
 
 def _diff_schema(source_schema: list[tuple[str, str]], ducklake_schema: list[tuple[str, str]]) -> list[str]:
