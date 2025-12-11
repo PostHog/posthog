@@ -42,6 +42,7 @@ class ArtifactManager(AssistantContextMixin):
         artifact_id: str,
         source: ArtifactSource = ArtifactSource.ARTIFACT,
         content_type: ArtifactContentType = ArtifactContentType.VISUALIZATION,
+        parent_tool_call_id: str | None = None,
     ) -> ArtifactRefMessage:
         """Create an artifact message."""
         return ArtifactRefMessage(
@@ -49,6 +50,7 @@ class ArtifactManager(AssistantContextMixin):
             artifact_id=artifact_id,
             source=source,
             id=str(uuid4()),
+            parent_tool_call_id=parent_tool_call_id,
         )
 
     async def create(
@@ -212,6 +214,7 @@ class ArtifactManager(AssistantContextMixin):
             artifact_id=message.artifact_id,
             source=message.source,
             content=content,
+            parent_tool_call_id=message.parent_tool_call_id,
         )
 
     async def _afetch_artifact_contents(self, artifact_ids: list[str]) -> dict[str, VisualizationArtifactContent]:
@@ -219,11 +222,15 @@ class ArtifactManager(AssistantContextMixin):
         if not artifact_ids:
             return {}
         artifacts = AgentArtifact.objects.filter(short_id__in=artifact_ids, team=self._team)
-        return {
-            artifact.short_id: VisualizationArtifactContent.model_validate(artifact.data)
-            async for artifact in artifacts
-            if artifact.type == AgentArtifact.Type.VISUALIZATION
-        }
+        result = {}
+        async for artifact in artifacts:
+            if artifact.type == AgentArtifact.Type.VISUALIZATION:
+                content = VisualizationArtifactContent.model_validate(artifact.data)
+                # Include the artifact name in the content if not already present
+                if not content.name and artifact.name:
+                    content.name = artifact.name
+                result[artifact.short_id] = content
+        return result
 
     async def _afetch_insight_contents(self, insight_ids: list[str]) -> dict[str, VisualizationArtifactContent]:
         """Batch fetch insight contents from the database."""
