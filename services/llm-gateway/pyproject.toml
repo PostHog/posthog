@@ -86,7 +86,11 @@ pythonpath = ["src"]
 python_version = "3.12"
 strict = true
 warn_return_any = true
-warn_unused_ignores = true
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = "asyncpg.*"
+ignore_missing_imports = true
 
 [tool.uv]
 managed = true

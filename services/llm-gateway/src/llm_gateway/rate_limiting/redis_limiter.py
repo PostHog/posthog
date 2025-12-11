@@ -43,7 +43,7 @@ class RateLimiter:
         if self.redis is None:
             return True
 
-        current = await self.redis.incr(key)
+        current: int = await self.redis.incr(key)
         if current == 1:
             await self.redis.expire(key, window)
         return current <= limit

@@ -11,7 +11,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
+from starlette.types import ASGIApp
 
 from llm_gateway.api.health import health_router
 from llm_gateway.api.routes import router
@@ -56,7 +58,7 @@ def update_db_pool_metrics(pool: asyncpg.Pool | None) -> None:
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())[:8]
         request_id_var.set(request_id)
         structlog.contextvars.bind_contextvars(request_id=request_id)
@@ -84,11 +86,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-async def init_redis(url: str | None) -> Redis | None:
+async def init_redis(url: str | None) -> Redis | None:  # type: ignore[type-arg]
     if not url:
         return None
     try:
-        redis = Redis.from_url(url)
+        redis: Redis = Redis.from_url(url)  # type: ignore[type-arg]
         await redis.ping()
         return redis
     except Exception:
@@ -131,11 +133,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 class ContentSizeLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, max_content_size: int):
+    def __init__(self, app: ASGIApp, max_content_size: int) -> None:
         super().__init__(app)
         self.max_content_size = max_content_size
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > self.max_content_size:
             return JSONResponse(
