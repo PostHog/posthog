@@ -114,7 +114,8 @@ function PlayerWrapper({
                               }
                             : undefined
                     }
-                playNextRecording={onPlayNextRecording}/>
+                    playNextRecording={onPlayNextRecording}
+                />
             ) : (
                 <div className="mt-20">
                     <EmptyMessage
