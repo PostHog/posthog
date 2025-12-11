@@ -32,6 +32,8 @@ class ScheduledChange(RootTeamMixin, models.Model):
     )
     # Tracks when a recurring schedule last executed successfully (for audit/debugging)
     last_executed_at = models.DateTimeField(null=True, blank=True)
+    # Optional end date for recurring schedules - stops recurring after this date
+    end_date = models.DateTimeField(null=True, blank=True)
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -382,6 +382,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
         setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
+        setEndDate: (endDate: dayjs.Dayjs | null) => ({ endDate }),
         stopRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
         resumeRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
         setAccessDeniedToFeatureFlag: true,
@@ -695,6 +696,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as RecurrenceInterval | null,
             {
                 setRecurrenceInterval: (_, { interval }) => interval,
+                // Reset when recurring is disabled or operation changes
+                setIsRecurring: (state, { isRecurring }) => (isRecurring ? state : null),
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
+            },
+        ],
+        endDate: [
+            null as dayjs.Dayjs | null,
+            {
+                setEndDate: (_, { endDate }) => endDate,
                 // Reset when recurring is disabled or operation changes
                 setIsRecurring: (state, { isRecurring }) => (isRecurring ? state : null),
                 setScheduledChangeOperation: (state, { changeType }) =>
@@ -1129,6 +1140,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         scheduled_at: scheduleDateMarker.toISOString(),
                         is_recurring: values.isRecurring,
                         recurrence_interval: values.recurrenceInterval,
+                        end_date: values.endDate?.toISOString() || null,
                     }
 
                     return await api.featureFlags.createScheduledChange(currentProjectId, data)

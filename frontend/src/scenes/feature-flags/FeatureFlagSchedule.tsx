@@ -79,6 +79,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         schedulePayloadErrors,
         isRecurring,
         recurrenceInterval,
+        endDate,
     } = useValues(featureFlagLogic)
     const {
         deleteScheduledChange,
@@ -88,6 +89,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         createScheduledChange,
         setIsRecurring,
         setRecurrenceInterval,
+        setEndDate,
         stopRecurringScheduledChange,
         resumeRecurringScheduledChange,
     } = useActions(featureFlagLogic)
@@ -192,8 +194,11 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     }
 
                     // Active recurring: show pattern with next run in tooltip
+                    const endDateStr = scheduledChange.end_date
+                        ? `\nEnds: ${dayjs(scheduledChange.end_date).format('MMMM D, YYYY')}`
+                        : ''
                     return (
-                        <Tooltip title={`Next: ${formattedDate}`}>
+                        <Tooltip title={`Next: ${formattedDate}${endDateStr}`}>
                             <span>{recurringDescription}</span>
                         </Tooltip>
                     )
@@ -287,7 +292,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 <div>
                     <h3 className="l3">Add a scheduled change</h3>
                     <div className="mb-6">Automatically change flag properties at a future point in time.</div>
-                    <div className="inline-flex gap-10 mb-8">
+                    <div className="flex flex-wrap gap-x-10 gap-y-4 mb-8">
                         <div>
                             <div className="font-semibold leading-6 h-6 mb-1">Change type</div>
                             <LemonSelect<ScheduledChangeOperationType>
@@ -346,6 +351,19 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         />
                                     )}
                                 </div>
+                            </div>
+                        )}
+                        {isRecurring && (
+                            <div className="w-50">
+                                <div className="font-semibold leading-6 h-6 mb-1">End date (optional)</div>
+                                <LemonCalendarSelectInput
+                                    value={endDate}
+                                    onChange={(value) => setEndDate(value)}
+                                    placeholder="No end date"
+                                    selectionPeriod="upcoming"
+                                    granularity="day"
+                                    clearable
+                                />
                             </div>
                         )}
                     </div>

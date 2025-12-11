@@ -129,9 +129,16 @@ def process_scheduled_changes() -> None:
                         now = timezone.now()
                         while next_run <= now:
                             next_run = compute_next_run(next_run, scheduled_change.recurrence_interval)
-                        scheduled_change.scheduled_at = next_run
-                        scheduled_change.last_executed_at = now
-                        scheduled_change.save()
+
+                        # Check if end_date has passed - if so, mark as completed
+                        if scheduled_change.end_date and next_run > scheduled_change.end_date:
+                            scheduled_change.executed_at = now
+                            scheduled_change.last_executed_at = now
+                            scheduled_change.save()
+                        else:
+                            scheduled_change.scheduled_at = next_run
+                            scheduled_change.last_executed_at = now
+                            scheduled_change.save()
                     else:
                         # One-time schedule: mark as completed
                         scheduled_change.executed_at = timezone.now()

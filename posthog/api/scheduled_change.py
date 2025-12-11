@@ -29,6 +29,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "is_recurring",
             "recurrence_interval",
             "last_executed_at",
+            "end_date",
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at", "last_executed_at"]
 
