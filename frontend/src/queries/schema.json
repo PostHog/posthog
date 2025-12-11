@@ -19833,6 +19833,10 @@
                     "description": "Name of the event.",
                     "type": "string"
                 },
+                "name": {
+                    "description": "Optional display name for this event.",
+                    "type": "string"
+                },
                 "properties": {
                     "description": "Optional property filters for this event only.",
                     "items": {
