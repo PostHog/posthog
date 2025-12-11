@@ -758,13 +758,22 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
-    tabs.push({
-        key: 'prompts',
-        label: 'Prompts',
-        content: <LLMPromptsScene />,
-        link: combineUrl(urls.llmAnalyticsPrompts(), searchParams).url,
-        'data-attr': 'prompts-tab',
-    })
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS]) {
+        tabs.push({
+            key: 'prompts',
+            label: (
+                <>
+                    Prompts{' '}
+                    <LemonTag className="ml-1" type="completion">
+                        Alpha
+                    </LemonTag>
+                </>
+            ),
+            content: <LLMPromptsScene />,
+            link: combineUrl(urls.llmAnalyticsPrompts(), searchParams).url,
+            'data-attr': 'prompts-tab',
+        })
+    }
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>

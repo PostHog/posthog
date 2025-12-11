@@ -5,6 +5,15 @@ from posthog.models.utils import UUIDModel
 
 
 class LLMPrompt(UUIDModel):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=models.Q(deleted=False),
+                name="unique_llm_prompt_name_per_team",
+            )
+        ]
+
     name = models.CharField(max_length=255)
 
     # The prompt content as JSON (currently a string, may expand to array of objects)

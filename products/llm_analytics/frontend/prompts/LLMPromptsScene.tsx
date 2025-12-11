@@ -5,6 +5,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -52,15 +53,6 @@ export function LLMPromptsScene(): JSX.Element {
             },
         },
         {
-            title: 'Version',
-            dataIndex: 'version',
-            key: 'version',
-            width: '10%',
-            render: function renderVersion(version) {
-                return <span className="text-muted">v{version}</span>
-            },
-        },
-        {
             title: 'Created by',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
@@ -91,7 +83,23 @@ export function LLMPromptsScene(): JSX.Element {
 
                                 <LemonButton
                                     status="danger"
-                                    onClick={() => deletePrompt(prompt.id)}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Delete prompt?',
+                                            description:
+                                                'This action cannot be undone. If you have any code currently fetching this prompt, it will no longer be able to retrieve it.',
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                type: 'primary',
+                                                status: 'danger',
+                                                onClick: () => deletePrompt(prompt.id),
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'secondary',
+                                            },
+                                        })
+                                    }}
                                     data-attr={`prompt-item-${prompt.id}-dropdown-delete`}
                                     fullWidth
                                 >
