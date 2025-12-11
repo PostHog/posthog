@@ -2682,8 +2682,12 @@ email@example.org,
             new_cohort.is_calculating, "is_calculating should be True while async duplication is in progress"
         )
 
-        # Verify the async task was called
+        # Verify the async task was called with correct parameters
         mock_insert_cohort.assert_called_once()
+        call_args = mock_insert_cohort.call_args
+        self.assertEqual(call_args[0][0], new_cohort_id)  # cohort_id
+        self.assertEqual(call_args[0][1]["from_cohort_id"], cohort.pk)  # filter_data contains source cohort
+        self.assertEqual(call_args[0][2], self.team.pk)  # team_id
 
     def test_duplicating_dynamic_cohort_as_dynamic(self):
         _create_person(
