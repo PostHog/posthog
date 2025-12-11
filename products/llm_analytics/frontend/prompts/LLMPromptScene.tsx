@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -115,31 +115,46 @@ export function LLMPromptScene(): JSX.Element {
 }
 
 function PromptEditForm(): JSX.Element {
-    const { promptForm, promptFormErrors } = useValues(llmPromptLogic)
+    const { promptForm, promptFormErrors, promptVariables } = useValues(llmPromptLogic)
     const { setPromptFormValue } = useActions(llmPromptLogic)
 
     return (
         <div className="space-y-4 max-w-3xl">
             <LemonField.Pure
                 label="Name"
-                help="This name is used to fetch the prompt from your code. It must be unique."
+                help="This name is used to fetch the prompt from your code. It must be unique. Only letters, numbers, hyphens (-), and underscores (_) are allowed."
                 error={promptFormErrors?.name}
             >
                 <LemonInput
                     value={promptForm.name}
                     onChange={(value) => setPromptFormValue('name', value)}
-                    placeholder="Enter prompt name"
+                    placeholder="my-prompt-name"
                     fullWidth
                 />
             </LemonField.Pure>
 
-            <LemonField.Pure label="Prompt" error={promptFormErrors?.prompt}>
+            <LemonField.Pure
+                label="Prompt"
+                help="Use {{variable_name}} to define variables that will be replaced when fetching the prompt from your backend."
+                error={promptFormErrors?.prompt}
+            >
                 <LemonTextArea
                     value={promptForm.prompt}
                     onChange={(value) => setPromptFormValue('prompt', value)}
-                    placeholder="Enter your prompt content..."
+                    placeholder="You are a helpful assistant for {{company_name}}. Help the user with their question about {{topic}}."
                     minRows={10}
                 />
+
+                {promptVariables.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 mt-2">
+                        <span className="text-xs text-secondary">Variables to be replaced:</span>
+                        {promptVariables.map((v: string) => (
+                            <LemonTag key={v} type="highlight" size="small">
+                                {v}
+                            </LemonTag>
+                        ))}
+                    </div>
+                )}
             </LemonField.Pure>
         </div>
     )

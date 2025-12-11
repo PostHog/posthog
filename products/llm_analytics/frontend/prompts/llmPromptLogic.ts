@@ -67,6 +67,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
                 if (!formValues.name?.trim()) {
                     errors.name = 'Name is required'
+                } else if (!/^[a-zA-Z0-9_-]+$/.test(formValues.name)) {
+                    errors.name = 'Only letters, numbers, hyphens (-), and underscores (_) are allowed'
                 }
 
                 if (!formValues.prompt?.trim()) {
@@ -124,6 +126,20 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         shouldDisplaySkeleton: [
             (s) => [s.prompt, s.promptLoading],
             (prompt, promptLoading) => !prompt && promptLoading,
+        ],
+
+        promptVariables: [
+            (s) => [s.promptForm],
+            (promptForm: PromptFormValues): string[] => {
+                const matches = promptForm.prompt.match(/\{\{([^}]+)\}\}/g)
+
+                if (!matches) {
+                    return []
+                }
+
+                const variables = matches.map((match: string) => match.slice(2, -2).trim())
+                return [...new Set(variables)]
+            },
         ],
 
         breadcrumbs: [

@@ -1,9 +1,15 @@
-from rest_framework import serializers, viewsets
+import re
+
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.llm_prompt import LLMPrompt
+from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 
 class LLMPromptSerializer(serializers.ModelSerializer):
@@ -28,6 +34,15 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def validate_name(self, value: str) -> str:
+        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+            raise serializers.ValidationError(
+                "Only letters, numbers, hyphens (-) and underscores (_) are allowed.",
+                code="invalid_name",
+            )
+
+        return value
 
     def validate(self, data):
         team = self.context["get_team"]()
@@ -69,9 +84,37 @@ class LLMPromptSerializer(serializers.ModelSerializer):
 
 
 class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "llm_prompt"
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(deleted=False)
+
+    def get_throttles(self):
+        if self.action == "get_by_name":
+            return [BurstRateThrottle(), SustainedRateThrottle()]
+
+        return super().get_throttles()
+
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"name/(?P<prompt_name>[^/]+)",
+        required_scopes=["llm_prompt:read"],
+    )
+    def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        try:
+            prompt = LLMPrompt.objects.get(
+                team=self.team,
+                name=prompt_name,
+                deleted=False,
+            )
+        except LLMPrompt.DoesNotExist:
+            return Response(
+                {"detail": f"Prompt with name '{prompt_name}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = self.get_serializer(prompt)
+        return Response(serializer.data)
