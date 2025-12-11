@@ -1223,7 +1223,7 @@ class MyFlagsResponseSerializer(serializers.Serializer):
 
 
 class LocalEvaluationResponseSerializer(serializers.Serializer):
-    flags = serializers.ListSerializer(child=MinimalFeatureFlagSerializer())
+    flags: serializers.ListSerializer = serializers.ListSerializer(child=MinimalFeatureFlagSerializer())
     group_type_mapping = serializers.DictField(child=serializers.CharField())
     cohorts = serializers.DictField(
         child=serializers.JSONField(),
