@@ -3,7 +3,6 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -19,7 +18,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
-import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import {
     BatchExportConfigurationClearChangesButton,
@@ -217,11 +215,7 @@ export function BatchExportSceneContent({
             ? {
                   label: 'Logs',
                   key: 'logs',
-                  content: (
-                      <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
-                          <LogsViewer sourceType="batch_exports" sourceId={id} instanceLabel="run" />
-                      </FlaggedFeature>
-                  ),
+                  content: <LogsViewer sourceType="batch_exports" sourceId={id} instanceLabel="run" />,
               }
             : null,
         id
