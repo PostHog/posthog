@@ -443,7 +443,7 @@ class AISustainedRateThrottle(UserRateThrottle):
 
 class LLMGatewayBurstRateThrottle(UserRateThrottle):
     scope = "llm_gateway_burst"
-    rate = "2000/minute"
+    rate = "1000/minute"
 
 
 class LLMGatewaySustainedRateThrottle(UserRateThrottle):
