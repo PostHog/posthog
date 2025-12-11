@@ -1149,6 +1149,10 @@ class GroupsJSONField(serializers.CharField):
         super().__init__(**kwargs)
 
     def to_internal_value(self, data):
+        # Handle case where data is already a dict (from previous parsing or direct assignment)
+        if isinstance(data, dict):
+            return data
+
         value = super().to_internal_value(data)
         if not value:
             return {}
@@ -1767,6 +1771,9 @@ class FeatureFlagViewSet(
             return Response([])
 
         groups = request.validated_query_data.get("groups", {})
+        # Ensure groups is always a dict, not a string
+        if isinstance(groups, str):
+            groups = json.loads(groups) if groups else {}
 
         distinct_id = request.user.distinct_id
         if not distinct_id:
@@ -2047,6 +2054,9 @@ class FeatureFlagViewSet(
     def evaluation_reasons(self, request: request.Request, **kwargs):
         distinct_id = request.validated_query_data["distinct_id"]
         groups = request.validated_query_data.get("groups", {})
+        # Ensure groups is always a dict, not a string
+        if isinstance(groups, str):
+            groups = json.loads(groups) if groups else {}
 
         result = _evaluate_flags_with_fallback(
             team=self.team,
