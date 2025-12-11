@@ -112,17 +112,13 @@ func (m InstallModel) runStep(step installStep) tea.Cmd {
 			detail = "git ready"
 
 		case installStepClone:
-			if m.isUpgrade {
+			// Auto-detect: if posthog dir exists, update; otherwise clone
+			if installer.DirExists("posthog") {
 				err = installer.UpdatePostHog()
 				detail = "updated"
 			} else {
-				// Check if already installed
-				if installer.DirExists("posthog") {
-					err = fmt.Errorf("PostHog is already installed. Use 'Upgrade' instead")
-				} else {
-					err = installer.ClonePostHog()
-					detail = "cloned"
-				}
+				err = installer.ClonePostHog()
+				detail = "cloned"
 			}
 
 		case installStepCheckout:
@@ -133,7 +129,8 @@ func (m InstallModel) runStep(step installStep) tea.Cmd {
 			}
 
 		case installStepEnv:
-			if m.isUpgrade {
+			// Auto-detect: if .env exists, update; otherwise create
+			if installer.FileExists(".env") {
 				err = installer.UpdateEnvForUpgrade(m.version)
 				detail = "updated"
 			} else {
@@ -181,7 +178,9 @@ func (m InstallModel) runStep(step installStep) tea.Cmd {
 			detail = "images pulled"
 
 		case installStepAsyncMigrations:
-			if m.isUpgrade {
+			// Only run async migrations check if this is an upgrade (volumes exist)
+			hasPostgres, hasClickhouse := installer.CheckDockerVolumes()
+			if hasPostgres || hasClickhouse {
 				err = installer.RunAsyncMigrationsCheck()
 				detail = "checked"
 			} else {
@@ -242,14 +241,17 @@ func (m InstallModel) Update(msg tea.Msg) (InstallModel, tea.Cmd) {
 		m.currentStep = nextStep
 		m.steps[int(nextStep)].status = installRunning
 
-		// Skip async migrations for new installs
-		if nextStep == installStepAsyncMigrations && !m.isUpgrade {
-			m.steps[int(nextStep)].status = installSkipped
-			m.steps[int(nextStep)].detail = "new install"
-			nextStep++
-			if nextStep < installStepDone {
-				m.currentStep = nextStep
-				m.steps[int(nextStep)].status = installRunning
+		// Skip async migrations for new installs (no existing volumes)
+		if nextStep == installStepAsyncMigrations {
+			hasPostgres, hasClickhouse := installer.CheckDockerVolumes()
+			if !hasPostgres && !hasClickhouse {
+				m.steps[int(nextStep)].status = installSkipped
+				m.steps[int(nextStep)].detail = "new install"
+				nextStep++
+				if nextStep < installStepDone {
+					m.currentStep = nextStep
+					m.steps[int(nextStep)].status = installRunning
+				}
 			}
 		}
 
@@ -297,10 +299,7 @@ func (m InstallModel) View() string {
 		lines = append(lines, line)
 	}
 
-	title := "Installing PostHog"
-	if m.isUpgrade {
-		title = "Upgrading PostHog"
-	}
+	title := "Setting up PostHog"
 
 	var footer string
 	if m.currentStep == installStepDone {

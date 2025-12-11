@@ -143,14 +143,12 @@ func (m model) advanceStep(msg steps.StepCompleteMsg) (tea.Model, tea.Cmd) {
 
 	case stepVersion:
 		m.posthogVersion = msg.Data.(string)
-		if m.mode == modeUpgrade {
-			// For upgrades, check if domain already exists in .env
-			if existingDomain := m.domain.GetExistingDomain(); existingDomain != "" {
-				m.posthogDomain = existingDomain
-				m.step = stepChecks
-				m.checks = steps.NewChecksModel()
-				return m, m.checks.Init()
-			}
+		// Skip domain step if .env already has a domain configured
+		if existingDomain := m.domain.GetExistingDomain(); existingDomain != "" {
+			m.posthogDomain = existingDomain
+			m.step = stepChecks
+			m.checks = steps.NewChecksModel()
+			return m, m.checks.Init()
 		}
 		m.step = stepDomain
 		m.domain = steps.NewDomainModel()
