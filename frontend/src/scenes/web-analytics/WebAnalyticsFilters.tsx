@@ -27,11 +27,9 @@ import { webAnalyticsLogic } from './webAnalyticsLogic'
 export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
-        preAggregatedEnabled,
         isPathCleaningEnabled,
     } = useValues(webAnalyticsLogic)
     const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <FilterBar
@@ -54,9 +52,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                 <>
                     <WebAnalyticsCompareFilter />
 
-                    {(!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]) && (
-                        <WebConversionGoal />
-                    )}
+                    <WebConversionGoal />
                     <TableSortingIndicator />
 
                     <WebVitalsPercentileToggle />

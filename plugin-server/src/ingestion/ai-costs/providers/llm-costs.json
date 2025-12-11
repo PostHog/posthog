@@ -1434,8 +1434,8 @@
                 "completion_token": 4e-7
             },
             "novita-fp8": {
-                "prompt_token": 2.8e-7,
-                "completion_token": 4.2e-7
+                "prompt_token": 2.69e-7,
+                "completion_token": 4e-7
             },
             "siliconflow-fp8": {
                 "prompt_token": 2.7e-7,
@@ -2631,8 +2631,8 @@
         "model": "meta-llama/llama-4-maverick",
         "cost": {
             "default": {
-                "prompt_token": 1.36e-7,
-                "completion_token": 6.8e-7,
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7,
                 "image": 0.0006684
             },
             "deepinfra-base": {
@@ -2653,8 +2653,8 @@
                 "completion_token": 6e-7
             },
             "novita-fp8": {
-                "prompt_token": 1.36e-7,
-                "completion_token": 6.8e-7,
+                "prompt_token": 1.6e-7,
+                "completion_token": 7.2e-7,
                 "image": 0.0006684
             },
             "parasail-fp8": {
@@ -3741,6 +3741,19 @@
             "nextbit-int4": {
                 "prompt_token": 0.000001,
                 "completion_token": 0.00000175
+            }
+        }
+    },
+    {
+        "model": "nex-agi/deepseek-v3.1-nex-n1:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "siliconflow-fp8": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
@@ -5011,12 +5024,12 @@
         "model": "opengvlab/internvl3-78b",
         "cost": {
             "default": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 6e-7
+                "prompt_token": 1e-7,
+                "completion_token": 3.9e-7
             },
             "chutes-bf16": {
-                "prompt_token": 1.5e-7,
-                "completion_token": 6e-7
+                "prompt_token": 1e-7,
+                "completion_token": 3.9e-7
             }
         }
     },
@@ -5801,8 +5814,8 @@
                 "completion_token": 0.0000018
             },
             "novita-fp8": {
-                "prompt_token": 2.9e-7,
-                "completion_token": 0.0000012
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000013
             },
             "siliconflow-fp8": {
                 "prompt_token": 2.5e-7,
