@@ -22,8 +22,6 @@
         scrollbar-width: none;
 
         &[scrollable] {
-            /* WebKit */
-            mask-image: linear-gradient(to right, transparent, black 1em);
             mask-image: linear-gradient(to right, transparent, black 1em);
         }
     }

@@ -38,7 +38,7 @@ export function CollapsibleFrameHeader({
     const sourceContent = formatSourceLine(source, line, column)
 
     useEffect(() => {
-        // Is sourceRef is scrollable scroll to the end and add scrollable attribute
+        // If sourceRef is scrollable scroll to the end and add scrollable attribute
         if (sourceRef.current && sourceRef.current.scrollWidth > sourceRef.current.clientWidth) {
             let delta = sourceRef.current.scrollWidth - sourceRef.current.clientWidth
             sourceRef.current.scrollBy({ left: delta + 10 })
@@ -63,11 +63,7 @@ export function CollapsibleFrameHeader({
                             {resolvedName}
                         </span>
                     )}
-                    <span
-                        ref={sourceRef}
-                        className="font-light frame-source frame-source-fade px-1"
-                        title={sourceContent!}
-                    >
+                    <span ref={sourceRef} className="font-light frame-source px-1" title={sourceContent!}>
                         {sourceContent}
                     </span>
                     <div className="gap-x-1 frame-icons pr-1">
@@ -84,7 +80,7 @@ export function CollapsibleFrameHeader({
                 </ButtonPrimitive>
             </CollapsiblePrimitiveTrigger>
             <div className="border-l-1 shrink-0 w-7">
-                <FrameDropDownMenu className="h-full w-7 rounded-none outline-none " frame={frame} record={record}>
+                <FrameDropDownMenu className="h-full w-7 rounded-none outline-none" frame={frame} record={record}>
                     <IconEllipsis />
                 </FrameDropDownMenu>
             </div>

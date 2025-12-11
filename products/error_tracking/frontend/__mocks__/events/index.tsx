@@ -62,7 +62,7 @@ export function ExceptionLogicWrapper({
             setShowAllFrames(showAllFrames)
             // Fetch and set all frames
         }
-    }, [showAllFrames])
+    }, [showAllFrames, setShowAllFrames])
 
     return (
         <BindLogic logic={exceptionCardLogic} props={exceptionCardProps}>
