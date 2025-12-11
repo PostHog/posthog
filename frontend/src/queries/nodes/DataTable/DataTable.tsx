@@ -864,6 +864,7 @@ export function DataTable({
                                         <InsightEmptyState
                                             heading={context?.emptyStateHeading}
                                             detail={context?.emptyStateDetail}
+                                            icon={context?.emptyStateIcon}
                                         />
                                     )
                                 }
