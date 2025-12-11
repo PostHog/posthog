@@ -156,7 +156,7 @@ class TestPatternDetection(BaseTest):
         context = HogQLContext(team_id=self.team.pk, team=self.team)
 
         # Test case: timestamp >= '2024-01-01' AND timestamp < '2024-02-01'
-        where_exprs = [
+        where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value="2024-01-01 00:00:00"),

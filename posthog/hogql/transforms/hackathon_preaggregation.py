@@ -556,7 +556,7 @@ class Transformer(CloningVisitor):
         if end_dt.hour == 23 and end_dt.minute == 59:
             end_date_for_query = end_date_for_query + timedelta(days=1)
 
-        where_conditions = [
+        where_conditions: list[ast.Expr] = [
             ast.CompareOperation(
                 left=ast.Field(chain=["time_window_start"]),
                 right=ast.Constant(value=start_dt.date()),
