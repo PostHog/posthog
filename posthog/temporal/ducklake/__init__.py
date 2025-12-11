@@ -14,15 +14,15 @@ from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
     verify_ducklake_copy_activity,
 )
 
-WORKFLOWS = [DuckLakeCopyDataImportsWorkflow, DuckLakeCopyDataModelingWorkflow, DucklakeCompactionWorkflow]
+WORKFLOWS = [DucklakeCompactionWorkflow, DuckLakeCopyDataImportsWorkflow, DuckLakeCopyDataModelingWorkflow]
 ACTIVITIES = [
-    ducklake_copy_data_imports_gate_activity,
-    prepare_data_imports_ducklake_metadata_activity,
     copy_data_imports_to_ducklake_activity,
-    verify_data_imports_ducklake_copy_activity,
-    prepare_data_modeling_ducklake_metadata_activity,
-    ducklake_copy_workflow_gate_activity,
     copy_data_modeling_model_to_ducklake_activity,
-    verify_ducklake_copy_activity,
+    ducklake_copy_data_imports_gate_activity,
+    ducklake_copy_workflow_gate_activity,
+    prepare_data_imports_ducklake_metadata_activity,
+    prepare_data_modeling_ducklake_metadata_activity,
     run_ducklake_compaction,
+    verify_data_imports_ducklake_copy_activity,
+    verify_ducklake_copy_activity,
 ]
