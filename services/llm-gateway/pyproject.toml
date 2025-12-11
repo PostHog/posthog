@@ -35,6 +35,7 @@ dev = [
     "openai>=1.50.0",
     "anthropic>=0.40.0",
     "fakeredis==2.23.3",
+    "asyncpg-stubs>=0.30.0",
 ]
 
 [build-system]
@@ -86,11 +87,7 @@ pythonpath = ["src"]
 python_version = "3.12"
 strict = true
 warn_return_any = true
-warn_unused_ignores = false
-
-[[tool.mypy.overrides]]
-module = "asyncpg.*"
-ignore_missing_imports = true
+warn_unused_ignores = true
 
 [tool.uv]
 managed = true

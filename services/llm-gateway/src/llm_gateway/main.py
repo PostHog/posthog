@@ -86,11 +86,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-async def init_redis(url: str | None) -> Redis | None:  # type: ignore[type-arg]
+async def init_redis(url: str | None) -> Redis | None:
     if not url:
         return None
     try:
-        redis: Redis = Redis.from_url(url)  # type: ignore[type-arg]
+        redis: Redis = Redis.from_url(url)
         await redis.ping()
         return redis
     except Exception:
