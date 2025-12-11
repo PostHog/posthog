@@ -169,21 +169,6 @@ class DocumentEmbeddingsTable(LazyTable):
             )
         else:
             raise ValueError(f"Invalid model name: {model_name}")
-            # Fall back to union view (no FINAL since it's a view)
-            table_name = "raw_document_embeddings"
-
-            # Build select expressions
-            exprs = []
-            for name, chain in requested_fields.items():
-                exprs.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])))
-
-            return ast.SelectQuery(
-                select=exprs,
-                select_from=ast.JoinExpr(
-                    table=ast.Field(chain=[table_name]),
-                    table_final=False,  # Can't use FINAL on views
-                ),
-            )
 
     def to_printed_clickhouse(self, context: HogQLContext):
         raise NotImplementedError("LazyTables cannot be printed to ClickHouse SQL")
