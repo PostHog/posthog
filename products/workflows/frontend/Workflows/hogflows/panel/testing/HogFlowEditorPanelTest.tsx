@@ -58,6 +58,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
         nextActionId,
         eventPanelOpen,
         eventSelectorOpen,
+        lastSearchedEventName,
     } = useValues(hogFlowEditorTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -206,9 +207,17 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                                         <div className="mb-2 text-center">
                                                             <LemonButton
                                                                 type="primary"
-                                                                onClick={() =>
-                                                                    loadSampleGlobals({ extendedSearch: true })
-                                                                }
+                                                                onClick={() => {
+                                                                    if (shouldLoadSampleGlobals) {
+                                                                        loadSampleGlobals({ extendedSearch: true })
+                                                                    } else {
+                                                                        // For non-event triggers, reload with the last searched event name
+                                                                        loadSampleEventByName(
+                                                                            lastSearchedEventName || '$pageview',
+                                                                            true
+                                                                        )
+                                                                    }
+                                                                }}
                                                                 loading={sampleGlobalsLoading}
                                                             >
                                                                 Try searching last 30 days (slower)

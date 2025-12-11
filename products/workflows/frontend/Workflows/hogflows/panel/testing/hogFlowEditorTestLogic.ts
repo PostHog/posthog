@@ -134,6 +134,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
         setEventPanelOpen: (eventPanelOpen: string[]) => ({ eventPanelOpen }),
         setEventSelectorOpen: (eventSelectorOpen: boolean) => ({ eventSelectorOpen }),
+        setLastSearchedEventName: (eventName: string | null) => ({ eventName }),
     }),
     reducers({
         testResult: [
@@ -205,6 +206,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             {
                 setEventSelectorOpen: (_, { eventSelectorOpen }) => eventSelectorOpen,
                 loadSampleEventByNameSuccess: () => false, // Close selector after loading
+            },
+        ],
+        lastSearchedEventName: [
+            null as string | null,
+            {
+                setLastSearchedEventName: (_, { eventName }) => eventName,
+                loadSampleEventByName: (_, { eventName }) => eventName, // Store the event name when searching
             },
         ],
     }),
@@ -321,16 +329,23 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const response = await performQuery(query)
 
                         if (!response?.results?.[0]) {
-                            // No matching events found
-                            const timePeriod = extendedSearch ? '30' : '7'
-                            const exampleGlobals = createExampleEvent(
-                                values.workflow.team_id,
-                                values.workflow.name,
-                                eventName
-                            )
-                            actions.setSampleGlobalsError(
-                                `No "${eventName}" events found in the last ${timePeriod} days. Using an example event instead.`
-                            )
+                            // No matching events found, use standard example event
+                            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+
+                            if (extendedSearch) {
+                                // Extended search (30 days) also failed
+                                actions.setSampleGlobalsError(
+                                    `No "${eventName}" events found in the last 30 days. Using an example $pageview event instead.`
+                                )
+                                actions.setCanTryExtendedSearch(false)
+                            } else {
+                                // First search (7 days) failed, allow extended search
+                                actions.setSampleGlobalsError(
+                                    `No "${eventName}" events found in the last 7 days. Using an example $pageview event instead.`
+                                )
+                                actions.setCanTryExtendedSearch(true)
+                            }
+
                             return exampleGlobals
                         }
 
@@ -338,6 +353,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const person = response.results[0][1]
 
                         actions.setSampleGlobalsError(null)
+                        actions.setCanTryExtendedSearch(false)
                         return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
                     } catch {
                         actions.setSampleGlobalsError('Failed to load event. Please try again.')
