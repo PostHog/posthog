@@ -1,7 +1,7 @@
 # LLM Gateway
-  
+
 A standalone microservice for proxying LLM requests to Anthropic and OpenAI APIs using unified endpoints.
-  
+
 ## Configuration
 
 All environment variables are prefixed with `LLM_GATEWAY_` - you can find them in `src/llm_gateway/config.py`
