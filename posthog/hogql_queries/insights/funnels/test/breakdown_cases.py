@@ -2738,12 +2738,12 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
     return TestFunnelBreakdown
 
 
-def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType, FunnelPerson):
+def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdownGroup(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             filter = Filter(data=filter, team=self.team)
             person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
+            _, serialized_result, _ = PseudoFunnelActors(person_filter, self.team).get_actors()
 
             return [val["id"] for val in serialized_result]
 
