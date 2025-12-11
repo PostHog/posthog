@@ -17,7 +17,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -382,7 +382,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
         setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
-        setEndDate: (endDate: dayjs.Dayjs | null) => ({ endDate }),
+        setEndDate: (endDate: Dayjs | null) => ({ endDate }),
         stopRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
         resumeRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
         setAccessDeniedToFeatureFlag: true,
@@ -703,7 +703,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         endDate: [
-            null as dayjs.Dayjs | null,
+            null as Dayjs | null,
             {
                 setEndDate: (_, { endDate }) => endDate,
                 // Reset when recurring is disabled or operation changes
