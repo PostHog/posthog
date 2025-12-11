@@ -16,6 +16,7 @@ import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/de
 import {
     ActionsNode,
     AnalyticsQueryResponseBase,
+    AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
     DataWarehouseNode,
@@ -107,7 +108,7 @@ export const legacyEntityToNode = (
     entity: ActionFilter | DataWarehouseFilter,
     includeProperties: boolean,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode | DataWarehouseNode | GroupNode => {
+): AnyEntityNode | GroupNode => {
     let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode | GroupNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
@@ -223,12 +224,25 @@ export const exlusionEntityToNode = (
     }
 }
 
-export const actionsAndEventsToSeries = (
+type FilterTypeActionsAndEventsWithGroups = FilterTypeActionsAndEvents & { groups: ActionFilter[] }
+type FilterTypeActionsAndEventsWithoutGroups = Omit<FilterTypeActionsAndEvents, 'groups'> & { groups?: undefined }
+
+export function actionsAndEventsToSeries(
+    filters: FilterTypeActionsAndEventsWithGroups,
+    includeProperties: boolean,
+    includeMath: MathAvailability
+): (AnyEntityNode | GroupNode)[]
+export function actionsAndEventsToSeries(
+    filters: FilterTypeActionsAndEventsWithoutGroups,
+    includeProperties: boolean,
+    includeMath: MathAvailability
+): AnyEntityNode[]
+export function actionsAndEventsToSeries(
     { actions, events, data_warehouse, new_entity, groups }: FilterTypeActionsAndEvents,
     includeProperties: boolean,
     includeMath: MathAvailability
-): (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[] => {
-    const series: any = [
+): (AnyEntityNode | GroupNode)[] {
+    const series: (AnyEntityNode | GroupNode)[] = [
         ...(actions || []),
         ...(events || []),
         ...(data_warehouse || []),

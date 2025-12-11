@@ -5,10 +5,7 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import {
-    FilterTypeActionsAndEvents,
-    actionsAndEventsToSeries,
-} from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import type {
     ActionsNode,
     BreakdownFilter,
@@ -237,7 +234,7 @@ const getFunnelSeries = (funnelMetric: ExperimentFunnelMetric): (EventsNode | Ac
             actions,
             events,
             data_warehouse: [], // Data warehouse not supported in funnels
-        } as FilterTypeActionsAndEvents,
+        } as any,
         true, // includeProperties
         MathAvailability.None // No math for funnels
     ).filter((series) => series.kind === NodeKind.EventsNode || series.kind === NodeKind.ActionsNode) as (

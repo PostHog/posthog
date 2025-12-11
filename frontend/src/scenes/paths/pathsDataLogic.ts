@@ -11,14 +11,7 @@ import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import {
-    AnyEntityNode,
-    InsightActorsQuery,
-    InsightVizNode,
-    NodeKind,
-    PathsLink,
-    PathsQuery,
-} from '~/queries/schema/schema-general'
+import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
 import { isPathsQuery } from '~/queries/utils'
 import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -168,12 +161,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 kind: NodeKind.InsightVizNode,
                 source: {
                     kind: NodeKind.FunnelsQuery,
-                    // actionsAndEventsToSeries can return GroupNode, but we're only passing events here (no groups)
-                    series: actionsAndEventsToSeries(
-                        { events: events.reverse() },
-                        true,
-                        MathAvailability.None
-                    ) as AnyEntityNode[],
+                    series: actionsAndEventsToSeries({ events: events.reverse() }, true, MathAvailability.None),
                     dateRange: {
                         date_from: values.dateRange?.date_from,
                     },

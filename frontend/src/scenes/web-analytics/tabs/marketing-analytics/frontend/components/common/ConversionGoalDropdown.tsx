@@ -95,7 +95,7 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                         },
                         true,
                         MathAvailability.All
-                    ) as (EventsNode | ActionsNode | DataWarehouseNode)[]
+                    )
 
                     const firstSerie = series[0] || value
 
