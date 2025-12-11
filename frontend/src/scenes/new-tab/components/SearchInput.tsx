@@ -49,6 +49,7 @@ interface SearchInputProps<T = string> {
 export interface SearchInputHandle {
     focus: () => void
     getInputRef: () => React.RefObject<HTMLInputElement>
+    triggerPulse: () => void
 }
 
 export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(function SearchInput<T = string>(
@@ -75,6 +76,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
     const [expandedTags, setExpandedTags] = useState(false)
     const [isFocused, setIsFocused] = useState(false)
+    const [pulseKey, setPulseKey] = useState(0)
     const isExplorerActive = !!explorerBreadcrumbs?.length && !!onExitExplorer
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
@@ -88,6 +90,12 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
             },
             getInputRef: () => inputRef,
+            triggerPulse: () => {
+                setPulseKey((prev) => prev + 1)
+                if (inputRef.current) {
+                    inputRef.current.focus()
+                }
+            },
         }),
         []
     )
@@ -312,13 +320,14 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     return (
         <div className="relative w-full">
             <div
+                key={`search-input-${pulseKey}`}
                 className={cn(
                     textInputVariants({
                         variant: 'default',
                         size: 'lg',
+                        showFocusPulse: isFocused,
                     }),
-                    'flex flex-wrap gap-1 focus-within:border-secondary items-center rounded-lg py-1',
-                    isFocused && 'animate-input-focus-pulse'
+                    'flex flex-wrap gap-1 focus-within:border-secondary items-center rounded-lg py-1'
                 )}
             >
                 {onExitExplorer ? (

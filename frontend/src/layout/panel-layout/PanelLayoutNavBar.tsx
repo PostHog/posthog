@@ -15,7 +15,6 @@ import {
     IconNewspaper,
     IconPeople,
     IconSearch,
-    IconShortcut,
     IconSidebarClose,
     IconSidebarOpen,
     IconToolbar,
@@ -163,7 +162,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
         if (mountedLogic) {
             setTimeout(() => {
-                mountedLogic.actions.focusNewTabSearchInput()
+                mountedLogic.actions.triggerSearchPulse()
             }, 100)
         }
     }
@@ -219,6 +218,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
         {
+            identifier: 'Products',
+            label: 'All apps',
+            icon: <IconApps />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Products')
+                }
+            },
+            showChevron: true,
+            collapsedTooltip: ['Open products', 'Close products'],
+        },
+        {
             identifier: 'Database',
             label: 'Data warehouse',
             icon: <IconDatabaseBolt />,
@@ -246,7 +257,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'People',
-            label: 'People',
+            label: 'People & groups',
             icon: <IconPeople />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -254,7 +265,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            collapsedTooltip: ['Open people', 'Close people'],
+            collapsedTooltip: ['Open people & groups', 'Close people & groups'],
             documentationUrl: 'https://posthog.com/docs/data/persons',
         },
         {
@@ -268,30 +279,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             },
             showChevron: true,
             collapsedTooltip: ['Open project tree', 'Close project tree'],
-        },
-        {
-            identifier: 'Shortcuts',
-            label: 'Shortcuts',
-            icon: <IconShortcut />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Shortcuts')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open shortcuts', 'Close shortcuts'],
-        },
-        {
-            identifier: 'Products',
-            label: 'All apps',
-            icon: <IconApps />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Products')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open products', 'Close products'],
         },
     ].filter(Boolean)
 
