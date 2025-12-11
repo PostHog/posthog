@@ -6,7 +6,6 @@ import { Spinner } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
@@ -80,12 +79,8 @@ const OnboardingWrapper = ({
         scope: RestrictionScope.Organization,
     })
 
-    // Enabling on storybook to allow for testing of the onboarding flow
-    // We can't easily test this using the mocks we usually have because the tech isn't here yet
-    const shouldShowAIConsentStep =
-        useFeatureFlag('ONBOARDING_AI_CONSENT_STEP', 'test') || inStorybook() || inStorybookTestRunner()
-    const shouldShowTellUsMoreStep =
-        useFeatureFlag('ONBOARDING_TELL_US_MORE_STEP', 'test') || inStorybook() || inStorybookTestRunner()
+    const shouldShowAIConsentStep = useFeatureFlag('ONBOARDING_AI_CONSENT_STEP', 'test')
+    const shouldShowTellUsMoreStep = useFeatureFlag('ONBOARDING_TELL_US_MORE_STEP', 'test')
 
     useEffect(() => {
         let steps = []
