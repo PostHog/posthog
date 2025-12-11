@@ -4,7 +4,6 @@ from typing import cast
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    _create_action,
     _create_event,
     _create_person,
     snapshot_clickhouse_queries,
@@ -35,12 +34,7 @@ FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 class TestFunnelUnorderedStepsBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(  # type: ignore
-        FunnelOrderType.UNORDERED,
-        PseudoFunnelActors,
-        _create_action,
-        _create_person,
-    ),
+    funnel_breakdown_test_factory(FunnelOrderType.UNORDERED),
 ):
     maxDiff = None
 

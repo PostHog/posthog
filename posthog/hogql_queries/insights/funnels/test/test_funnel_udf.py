@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin, _create_action, _create_event, _create_person
+from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 
 from posthog.schema import DateRange, EventPropertyFilter, EventsNode, FunnelsFilter, FunnelsQuery, PropertyOperator
 
@@ -20,12 +20,7 @@ from posthog.test.test_journeys import journeys_for
 
 class TestFunnelBreakdownUDF(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(  # type: ignore
-        FunnelOrderType.ORDERED,
-        PseudoFunnelActors,
-        _create_action,
-        _create_person,
-    ),
+    funnel_breakdown_test_factory(FunnelOrderType.ORDERED),
 ):
     maxDiff = None
     pass
