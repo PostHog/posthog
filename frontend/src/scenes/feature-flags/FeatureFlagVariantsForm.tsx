@@ -187,8 +187,8 @@ export function FeatureFlagVariantsForm({
                                 disabledReason={
                                     !canEditVariant(index)
                                         ? isDraftExperiment
-                                            ? 'Cannot modify the control variant in an experiment'
-                                            : 'Cannot modify variants in a flag with a launched experiment'
+                                            ? 'Cannot modify the control variant in an experiment.'
+                                            : 'Cannot modify variants in a flag with a launched experiment.'
                                         : undefined
                                 }
                                 value={variant.key}
