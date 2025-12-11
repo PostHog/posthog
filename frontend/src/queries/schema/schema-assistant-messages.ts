@@ -13,6 +13,7 @@ import {
 import {
     FunnelsQuery,
     HogQLQuery,
+    QuerySchema,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMRRQuery,
@@ -173,24 +174,20 @@ export type AnyAssistantGeneratedQuery =
     | AssistantRetentionQuery
     | AssistantHogQLQuery
 
-/**
- * The union type with all supported base queries for the assistant.
- */
-export type AnyAssistantSupportedQuery =
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | HogQLQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsTopCustomersQuery
-
 export interface VisualizationItem {
     /** @default '' */
     query: string
     plan?: string
-    answer: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    answer:
+        | AnyAssistantGeneratedQuery
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
     initiator?: string
 }
 
@@ -272,7 +269,7 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
 
 export interface VisualizationArtifactContent {
     content_type: ArtifactContentType.Visualization
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    query: AnyAssistantGeneratedQuery | QuerySchema
     name?: string | null
     description?: string | null
 }

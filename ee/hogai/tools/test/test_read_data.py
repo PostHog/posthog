@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from posthog.schema import (
     ArtifactMessage,
     ArtifactSource,
+    AssistantToolCallMessage,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
     VisualizationArtifactContent,
@@ -15,7 +16,7 @@ from posthog.schema import (
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.read_data import ReadDataTool
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import NodePath
+from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
 
 
 class TestReadDataTool(BaseTest):
@@ -248,11 +249,14 @@ class TestReadDataTool(BaseTest):
 
             # First message is ArtifactRefMessage
             artifact_ref = artifact.messages[0]
+            assert isinstance(artifact_ref, ArtifactRefMessage)
             assert artifact_ref.artifact_id == "abc123"
             assert artifact_ref.source == ArtifactSource.INSIGHT
 
             # Second message is the tool call message with results
             tool_call_msg = artifact.messages[1]
+            assert isinstance(tool_call_msg, AssistantToolCallMessage)
+            assert tool_call_msg.content is not None
             assert "Test Insight" in tool_call_msg.content
             assert "Formatted results" in tool_call_msg.content
 

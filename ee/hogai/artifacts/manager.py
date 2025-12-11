@@ -18,7 +18,7 @@ from posthog.models import Insight, User
 from posthog.models.team import Team
 
 from ee.hogai.core.mixins import AssistantContextMixin
-from ee.hogai.utils.supported_queries import SUPPORTED_QUERY_MODEL_BY_KIND
+from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 from ee.models.assistant import AgentArtifact
 
@@ -280,12 +280,8 @@ class ArtifactManager(AssistantContextMixin):
             if not query:
                 continue
             # Validate and convert dict to model
-            query_kind = query.get("kind") if isinstance(query, dict) else None
-            if not query_kind or query_kind not in SUPPORTED_QUERY_MODEL_BY_KIND:
-                continue
             try:
-                QueryModel = SUPPORTED_QUERY_MODEL_BY_KIND[query_kind]
-                query_obj = QueryModel.model_validate(query)
+                query_obj = validate_assistant_query(query)
                 result[insight.short_id] = VisualizationArtifactContent(
                     query=query_obj,
                     name=insight.name or insight.derived_name,
