@@ -190,26 +190,3 @@ class TestTeam(BaseTest):
         subsequent = Team.objects.increment_id_sequence()
 
         self.assertEqual(subsequent, initial + 1)
-
-
-class TestTeamManagerInactiveOrganization(TestCase):
-    def setUp(self):
-        super().setUp()
-        cache.clear()
-        self.active_org = Organization.objects.create(name="Active Org", is_active=True)
-        self.inactive_org = Organization.objects.create(name="Inactive Org", is_active=False)
-        self.null_is_active_org = Organization.objects.create(name="Null Org", is_active=None)
-
-        self.active_team = Team.objects.create(
-            organization=self.active_org, api_token="active_token", secret_api_token="active_secret"
-        )
-        self.inactive_team = Team.objects.create(
-            organization=self.inactive_org, api_token="inactive_token", secret_api_token="inactive_secret"
-        )
-        self.null_team = Team.objects.create(
-            organization=self.null_is_active_org, api_token="null_token", secret_api_token="null_secret"
-        )
-
-    def tearDown(self):
-        super().tearDown()
-        cache.clear()

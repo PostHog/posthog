@@ -365,24 +365,6 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert res.status_code == 302
         assert res.headers["Location"] == f"/project/{self.team.pk}/home?t=1"
 
-    def test_project_unchanged_when_accessing_project_in_inactive_org(self):
-        inactive_org = create_organization(name="Inactive Org")
-        inactive_org.is_active = False
-        inactive_org.save()
-        inactive_team = create_team(organization=inactive_org, name="Inactive Team")
-        self.user.organizations.add(inactive_org)
-
-        dashboard = Dashboard.objects.create(team=inactive_team)
-
-        response_app = self.client.get(f"/dashboard/{dashboard.id}")
-        response_users_api = self.client.get(f"/api/users/@me/")
-        response_users_api_data = response_users_api.json()
-        self.user.refresh_from_db()
-
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)
-
 
 @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
 class TestPostHogTokenCookieMiddleware(APIBaseTest):

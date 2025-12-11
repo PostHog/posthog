@@ -200,7 +200,6 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_uid",
     "social_core.pipeline.social_auth.auth_allowed",
     "ee.api.authentication.social_auth_allowed",
-    "ee.api.authentication.check_organization_active",
     "social_core.pipeline.social_auth.social_user",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",
