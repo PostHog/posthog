@@ -18,9 +18,9 @@ POSTHOG_TEAM_ID = 2
 
 
 # Mostly here to help with mocks for testing
-def capture_event(event_name, *, distinct_id: str, properties: dict[str, Any]) -> None:
+def capture_event(event: str, *, distinct_id: str, properties: dict[str, Any]) -> None:
     posthoganalytics.capture(
-        event_name,
+        event,
         distinct_id=distinct_id,
         properties=properties,
     )
