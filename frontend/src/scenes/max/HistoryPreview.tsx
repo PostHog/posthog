@@ -43,10 +43,10 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                 </>
             ) : (
                 conversationHistory.slice(0, 3).map((conversation) => (
-                    <span className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2">
                         <Link
                             key={conversation.id}
-                            className="text-sm flex items-center gap-2 text-primary hover:text-accent-hover active:text-accent-active justify-between"
+                            className="grow text-sm text-primary hover:text-accent-hover active:text-accent-active"
                             to={urls.ai(conversation.id)}
                             onClick={(e) => {
                                 if (sidePanel) {
@@ -61,13 +61,6 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                                     <LemonTag>Deep research</LemonTag>
                                 )}
                             </div>
-                            {conversation.status === ConversationStatus.InProgress ? (
-                                <Spinner className="h-4 w-4" />
-                            ) : (
-                                <span className="text-secondary whitespace-nowrap">
-                                    {formatConversationDate(conversation.updated_at)}
-                                </span>
-                            )}
                         </Link>
 
                         {conversation.slack_thread_key && (
@@ -78,13 +71,20 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                                         conversation.slack_workspace_domain
                                     )}
                                     target="_blank"
-                                    className="flex items-center gap-1"
+                                    className="flex items-center gap-1 text-primary hover:text-accent-hover active:text-accent-active"
                                     onClick={(e) => e.stopPropagation()}
                                     tooltip="This chat was started in Slack"
                                 >
                                     Slack thread <IconExternal />
                                 </Link>
                             </LemonTag>
+                        )}
+                        {conversation.status === ConversationStatus.InProgress ? (
+                            <Spinner className="h-4 w-4" />
+                        ) : (
+                            <span className="text-right text-secondary whitespace-nowrap cursor-default">
+                                {formatConversationDate(conversation.updated_at)}
+                            </span>
                         )}
                     </span>
                 ))

@@ -150,7 +150,7 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
         if user_message_ts:
             slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="hourglass_flowing_sand")
 
-        thinking_message = f"{random.choice(THINKING_MESSAGES)}..."
+        thinking_message = f"I'm {random.choice(THINKING_MESSAGES).lower()}..."
 
         # Build blocks for the initial message - only include "View chat in PostHog" if we have an existing conversation
         initial_blocks: list[dict] = [
