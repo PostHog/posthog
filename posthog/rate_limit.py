@@ -443,14 +443,14 @@ class AISustainedRateThrottle(UserRateThrottle):
 
 class LLMGatewayBurstRateThrottle(UserRateThrottle):
     scope = "llm_gateway_burst"
-    rate = "500/minute"
+    rate = "2000/minute"
 
 
 class LLMGatewaySustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
     # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_gateway_sustained"
-    rate = "10000/hour"
+    rate = "20000/hour"
 
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):
