@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use num_cpus;
 use once_cell::sync::Lazy;
 use rocksdb::{
     checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
@@ -64,7 +63,10 @@ pub fn block_based_table_factory() -> BlockBasedOptions {
 }
 
 fn rocksdb_options() -> Options {
-    let num_threads = std::cmp::max(2, num_cpus::get()); // Avoid setting to 0 or 1
+    // Use std::thread::available_parallelism() which is cgroup-aware (respects container CPU limits)
+    let num_threads = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(2);
 
     let mut opts = Options::default();
     opts.create_if_missing(true);
@@ -114,7 +116,7 @@ fn rocksdb_options() -> Options {
 
     // Parallelism - limit background jobs to reduce I/O contention
     // With many partitions, too many background jobs can overwhelm disk
-    let max_bg_jobs = std::cmp::min(num_threads as i32, 4);
+    let max_bg_jobs = std::cmp::min(num_threads as i32, 2);
     opts.increase_parallelism(max_bg_jobs);
     opts.set_max_background_jobs(max_bg_jobs);
 
@@ -323,6 +325,8 @@ impl RocksDbStore {
     /// Update database metrics (size, SST file count, etc.)
     /// This should be called periodically to emit current database state
     pub fn update_db_metrics(&self, cf_name: &str) -> Result<()> {
+        let cf = self.get_cf_handle(cf_name)?;
+
         // Update database size metric with column family label
         let db_size = self.get_db_size(cf_name)?;
         self.metrics
@@ -336,6 +340,17 @@ impl RocksDbStore {
             .gauge(ROCKSDB_SST_FILES_COUNT_GAUGE)
             .with_label("column_family", cf_name)
             .set(sst_files.len() as f64);
+
+        // Update estimated key count metric
+        if let Ok(Some(estimate_keys)) = self
+            .db
+            .property_int_value_cf(&cf, "rocksdb.estimate-num-keys")
+        {
+            self.metrics
+                .gauge(ROCKSDB_ESTIMATE_NUM_KEYS_GAUGE)
+                .with_label("column_family", cf_name)
+                .set(estimate_keys as f64);
+        }
 
         Ok(())
     }

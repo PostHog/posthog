@@ -5,8 +5,6 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 
 from django.test import override_settings
 
-from parameterized import parameterized
-
 from posthog.schema import (
     EventsNode,
     ExperimentMetricMathType,
@@ -25,10 +23,9 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_basic_retention_calculation(self, name, use_new_query_builder):
+    def test_basic_retention_calculation(self):
         """
         Test basic retention metric: users who signed up and returned within 7 days.
 
@@ -36,7 +33,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         # Create a retention metric:
@@ -173,10 +170,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 8)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 6)  # 6 completed
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_window_boundaries(self, name, use_new_query_builder):
+    def test_retention_window_boundaries(self):
         """
         Test that retention window boundaries are enforced correctly.
 
@@ -187,7 +183,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -299,10 +295,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 7)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 4)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_first_seen_vs_last_seen(self, name, use_new_query_builder):
+    def test_retention_first_seen_vs_last_seen(self):
         """
         Test start_handling: FIRST_SEEN vs LAST_SEEN for recurring start events.
 
@@ -311,7 +306,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -461,10 +456,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_last.denominator_sum_squares, 2)
         self.assertEqual(test_last.numerator_denominator_sum_product, 2)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_with_conversion_window(self, name, use_new_query_builder):
+    def test_retention_with_conversion_window(self):
         """
         Test retention metric with conversion window limiting start event search.
 
@@ -473,7 +467,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -595,16 +589,15 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 2)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_no_completion_events(self, name, use_new_query_builder):
+    def test_retention_no_completion_events(self):
         """
         Test retention when users never complete (0% retention rate).
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -696,10 +689,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 4)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 0)  # 0 completed
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_multiple_variants(self, name, use_new_query_builder):
+    def test_retention_multiple_variants(self):
         """
         Test retention metric with multiple experiment variants (control + multiple tests).
         """
@@ -722,7 +714,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"

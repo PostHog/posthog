@@ -33,10 +33,6 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
-import {
-    ConversionRateInputType,
-    EventConfig,
-} from 'scenes/experiments/RunningTimeCalculator/runningTimeCalculatorLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -48,6 +44,7 @@ import type {
     CustomerAnalyticsConfig,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
+    DataWarehouseSavedQueryOrigin,
     DatabaseSchemaField,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
@@ -80,6 +77,11 @@ import { QueryContext } from '~/queries/types'
 
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+
+export enum ConversionRateInputType {
+    MANUAL = 'manual',
+    AUTOMATIC = 'automatic',
+}
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -278,6 +280,7 @@ export enum AccessControlResourceType {
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
+    ProductTour = 'product_tour',
     Experiment = 'experiment',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
@@ -861,7 +864,10 @@ export enum PropertyFilterType {
     /** Feature flag dependency */
     Flag = 'flag',
     Log = 'log',
+    LogAttribute = 'log_attribute',
+    LogResourceAttribute = 'log_resource_attribute',
     WorkflowVariable = 'workflow_variable',
+    Empty = 'empty',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -939,8 +945,13 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export type LogPropertyFilterType =
+    | PropertyFilterType.Log
+    | PropertyFilterType.LogAttribute
+    | PropertyFilterType.LogResourceAttribute
+
 export interface LogPropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Log
+    type: LogPropertyFilterType
     operator: PropertyOperator
 }
 
@@ -965,7 +976,7 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
 }
 
 export interface EmptyPropertyFilter {
-    type?: never
+    type?: PropertyFilterType.Empty
     value?: never
     operator?: never
     key?: never
@@ -1061,9 +1072,9 @@ export type EncodedRecordingSnapshot = {
 // this way if we want to reference one of the valid string values for SnapshotSourceType
 // we have a strongly typed way to do it
 export const SnapshotSourceType = {
-    blob: 'blob',
-    file: 'file',
     blob_v2: 'blob_v2',
+    blob_v2_lts: 'blob_v2_lts',
+    file: 'file',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
@@ -1077,26 +1088,20 @@ export interface SessionRecordingSnapshotSource {
 
 export type SessionRecordingSnapshotParams = (
     | {
-          source: 'blob'
-          blob_key?: string
-      }
-    | {
-          source: 'blob_v2'
+          source: 'blob_v2_lts'
           blob_key?: string
       }
     | {
           source: 'blob_v2'
           start_blob_key?: string
           end_blob_key?: string
+          blob_key?: string
       }
 ) & {
     decompress?: false
 }
 
 export interface SessionRecordingSnapshotSourceResponse {
-    // v1 loaded each source separately
-    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'> | 'processed'
-    // with v2 we can load multiple sources at once
     sources?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]
     snapshots?: RecordingSnapshot[]
     // we process snapshots to make them rrweb vanilla playable
@@ -3227,6 +3232,41 @@ export interface ConsolidatedSurveyResults {
 export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
+// Product Tours
+export interface ProductTourStep {
+    selector: string
+    /** Rich text content in tiptap JSONContent format */
+    content: Record<string, any> | null
+    position?: 'top' | 'bottom' | 'left' | 'right'
+}
+
+export interface ProductTourContent {
+    steps: ProductTourStep[]
+    appearance?: Record<string, any>
+    conditions?: {
+        url?: string
+        urlMatchType?: 'exact' | 'contains' | 'regex'
+        selector?: string
+    }
+}
+
+export interface ProductTour {
+    id: string
+    name: string
+    description: string
+    internal_targeting_flag: FeatureFlagBasicType | null
+    feature_flag_key: string | null
+    targeting_flag_filters: FeatureFlagFilters | null
+    content: ProductTourContent
+    auto_launch: boolean
+    start_date: string | null
+    end_date: string | null
+    created_at: string
+    created_by: UserBasicType | null
+    updated_at: string
+    archived: boolean
+}
+
 export interface Survey extends WithAccessControl {
     /** UUID */
     id: string
@@ -3261,6 +3301,8 @@ export interface Survey extends WithAccessControl {
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
     _create_in_folder?: string | null
+    headline_summary?: string | null
+    headline_response_count?: number | null
 }
 
 export enum SurveyMatchType {
@@ -3807,6 +3849,8 @@ export enum PropertyDefinitionType {
     Meta = 'meta',
     Resource = 'resource',
     Log = 'log',
+    LogAttribute = 'log_attribute',
+    LogResourceAttribute = 'log_resource_attribute',
     FlagValue = 'flag_value',
     WorkflowVariable = 'workflow_variable',
 }
@@ -3919,17 +3963,11 @@ export interface Experiment {
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
-        /**
-         * This is the state of the Running Time Calculator modal, while
-         * minimum_detectable_effect, recommended_running_time, and recommended_sample_size
-         * are the results of the Running Time Calculator.
-         */
         exposure_estimate_config?: {
-            eventFilter: EventConfig | null
-            metric: ExperimentMetric | null
             conversionRateInputType: ConversionRateInputType
-            manualConversionRate: number | null
-            uniqueUsers: number | null
+            manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+            manualBaselineValue?: number
+            manualExposureRate?: number
         } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number
@@ -4600,6 +4638,7 @@ export type APIScopeObject =
     | 'action'
     | 'access_control'
     | 'activity_log'
+    | 'alert'
     | 'annotation'
     | 'batch_export'
     | 'cohort'
@@ -4626,6 +4665,7 @@ export type APIScopeObject =
     | 'organization_member'
     | 'person'
     | 'plugin'
+    | 'product_tour'
     | 'project'
     | 'property_definition'
     | 'query'
@@ -4837,6 +4877,7 @@ export interface DataWarehouseSavedQuery {
     downstream_dependency_count?: number
     created_at?: string
     run_history?: DataWarehouseSavedQueryRunHistory[]
+    origin?: DataWarehouseSavedQueryOrigin
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -5966,6 +6007,7 @@ export interface DataWarehouseActivityRecord {
     finished_at: string | null
     latest_error: string | null
     workflow_run_id?: string
+    origin?: DataWarehouseSavedQueryOrigin | null
 }
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
@@ -6049,8 +6091,6 @@ export enum OnboardingStepKey {
     PRODUCT_CONFIGURATION = 'configure',
     REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
-    DASHBOARD_TEMPLATE = 'dashboard_template',
-    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
     SESSION_REPLAY = 'session_replay',
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',

@@ -30,6 +30,7 @@ import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
+import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { StatusIndicator } from '../../components/Indicators'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -37,6 +38,7 @@ import { Metadata } from '../../components/IssueMetadata'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
+import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -66,44 +68,46 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     }, [issueId])
 
     return (
-        <ErrorTrackingSetupPrompt>
-            <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
-                    {issue && (
-                        <>
-                            <div className="px-4">
-                                <SceneTitleSection
-                                    canEdit
-                                    name={issue.name}
-                                    onNameChange={updateName}
-                                    description={null}
-                                    resourceType={{ type: 'error_tracking' }}
-                                    actions={
-                                        <div className="flex items-center gap-1">
-                                            <StatusIndicator status={issue.status} withTooltip />
-                                            <IssueAssigneeSelect
-                                                assignee={issue.assignee}
-                                                onChange={updateAssignee}
-                                                disabled={issue.status != 'active'}
-                                            />
-                                            <IssueStatusButton status={issue.status} onChange={updateStatus} />
-                                        </div>
-                                    }
-                                />
-                            </div>
-                            <ErrorTrackingIssueScenePanel issue={issue} />
-
-                            <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
-                                <div className="flex flex-1 h-full w-full">
-                                    <LeftHandColumn />
-                                    <RightHandColumn />
+        <StyleVariables>
+            <ErrorTrackingSetupPrompt>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
+                    <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
+                        {issue && (
+                            <>
+                                <div className="px-4">
+                                    <SceneTitleSection
+                                        canEdit
+                                        name={issue.name}
+                                        onNameChange={updateName}
+                                        description={null}
+                                        resourceType={{ type: 'error_tracking' }}
+                                        actions={
+                                            <div className="flex items-center gap-1">
+                                                <StatusIndicator status={issue.status} withTooltip />
+                                                <IssueAssigneeSelect
+                                                    assignee={issue.assignee}
+                                                    onChange={updateAssignee}
+                                                    disabled={issue.status != 'active'}
+                                                />
+                                                <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                            </div>
+                                        }
+                                    />
                                 </div>
-                            </div>
-                        </>
-                    )}
+                                <ErrorTrackingIssueScenePanel issue={issue} />
+
+                                <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
+                                    <div className="flex flex-1 h-full w-full">
+                                        <LeftHandColumn />
+                                        <RightHandColumn />
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </BindLogic>
                 </BindLogic>
-            </BindLogic>
-        </ErrorTrackingSetupPrompt>
+            </ErrorTrackingSetupPrompt>
+        </StyleVariables>
     )
 }
 
@@ -114,13 +118,14 @@ const RightHandColumn = (): JSX.Element => {
     return (
         <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px]">
             <PostHogSDKIssueBanner event={selectedEvent} />
-
             <ExceptionCard
-                issue={issue ?? undefined}
-                issueLoading={issueLoading}
+                issueId={issue?.id ?? 'no-issue'}
+                loading={issueLoading || initialEventLoading}
                 event={selectedEvent ?? undefined}
-                eventLoading={initialEventLoading}
                 label={tagRenderer(selectedEvent)}
+                renderStackTraceActions={() => {
+                    return issue ? <StackTraceActions issue={issue} /> : null
+                }}
             />
         </div>
     )
@@ -148,12 +153,12 @@ const LeftHandColumn = (): JSX.Element => {
                 width: desiredSize ?? '30%',
                 minWidth: 320,
             }}
-            className="flex flex-col relative bg-surface-primary"
+            className="flex flex-col h-full relative bg-surface-primary"
         >
             <TabsPrimitive
                 value={category}
                 onValueChange={(value) => setCategory(value as ErrorTrackingIssueSceneCategory)}
-                className="flex flex-col min-h-0"
+                className="flex flex-col flex-1 min-h-0"
             >
                 <div>
                     <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
@@ -182,10 +187,8 @@ const LeftHandColumn = (): JSX.Element => {
                 <TabsPrimitiveContent value="exceptions" className="h-full min-h-0">
                     <ExceptionsTab />
                 </TabsPrimitiveContent>
-                <TabsPrimitiveContent value="breakdowns">
-                    <BreakdownsSearchBar />
-                    <MiniBreakdowns />
-                    <BreakdownsChart />
+                <TabsPrimitiveContent value="breakdowns" className="flex-1 min-h-0">
+                    <BreakdownsTab />
                 </TabsPrimitiveContent>
                 {hasTasks && (
                     <TabsPrimitiveContent value="autofix">
@@ -232,6 +235,15 @@ const ExceptionsTab = (): JSX.Element => {
                     }}
                 />
             </Metadata>
+        </div>
+    )
+}
+const BreakdownsTab = (): JSX.Element => {
+    return (
+        <div className="flex flex-col h-full">
+            <BreakdownsSearchBar />
+            <MiniBreakdowns />
+            <BreakdownsChart />
         </div>
     )
 }
