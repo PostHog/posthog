@@ -172,7 +172,7 @@ class TestStrictFunnelGroupBreakdown(
 
 class TestFunnelStrictStepsConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     maxDiff = None
 
