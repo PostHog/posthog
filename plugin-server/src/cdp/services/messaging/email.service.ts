@@ -8,6 +8,7 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { Hub } from '../../../types'
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
+import { addPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
 
 export class EmailService {
@@ -132,8 +133,11 @@ export class EmailService {
     ): Promise<void> {
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
+        const htmlWithTrackingAndPreheader = params.preheader
+            ? addPreheaderToEmail(htmlWithTracking, params.preheader)
+            : htmlWithTracking
 
-        const sendEmailParams = {
+        const sendEmailParams: AWS.SES.SendEmailRequest = {
             Source: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
             Destination: {
                 ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
@@ -145,7 +149,7 @@ export class EmailService {
                 },
                 Body: {
                     Html: {
-                        Data: htmlWithTracking,
+                        Data: htmlWithTrackingAndPreheader,
                         Charset: 'UTF-8',
                     },
                     Text: {
@@ -156,6 +160,10 @@ export class EmailService {
             },
             ConfigurationSetName: 'posthog-messaging', // This triggers the SNS notifications for email tracking
             Tags: [{ Name: 'ph_id', Value: trackingCode }],
+        }
+
+        if (params.replyTo) {
+            sendEmailParams.ReplyToAddresses = params.replyTo.split(',').map((addr) => addr.trim())
         }
 
         try {
