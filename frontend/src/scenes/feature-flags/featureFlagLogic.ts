@@ -70,6 +70,7 @@ import {
     PropertyOperator,
     QueryBasedInsightModel,
     RecordingUniversalFilters,
+    RecurrenceInterval,
     RolloutConditionType,
     ScheduledChangeOperationType,
     ScheduledChangeType,
@@ -379,6 +380,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             payloads?: Record<string, any> | null
         ) => ({ filters, active, errors, variants, payloads }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
+        setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
+        setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
@@ -675,6 +678,25 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ScheduledChangeOperationType.AddReleaseCondition as ScheduledChangeOperationType,
             {
                 setScheduledChangeOperation: (_, { changeType }) => changeType,
+            },
+        ],
+        isRecurring: [
+            false,
+            {
+                setIsRecurring: (_, { isRecurring }) => isRecurring,
+                // Reset when operation changes away from UpdateStatus
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : false,
+            },
+        ],
+        recurrenceInterval: [
+            null as RecurrenceInterval | null,
+            {
+                setRecurrenceInterval: (_, { interval }) => interval,
+                // Reset when recurring is disabled or operation changes
+                setIsRecurring: (state, { isRecurring }) => (isRecurring ? state : null),
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
             },
         ],
     }),
@@ -1103,6 +1125,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             value: payloadValue,
                         },
                         scheduled_at: scheduleDateMarker.toISOString(),
+                        is_recurring: values.isRecurring,
+                        recurrence_interval: values.recurrenceInterval,
                     }
 
                     return await api.featureFlags.createScheduledChange(currentProjectId, data)
@@ -1302,6 +1326,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
+                actions.setIsRecurring(false)
+                actions.setRecurrenceInterval(null)
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
             }

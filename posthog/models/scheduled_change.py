@@ -9,6 +9,11 @@ class ScheduledChange(RootTeamMixin, models.Model):
     class AllowedModels(models.TextChoices):
         FEATURE_FLAG = "FeatureFlag", "feature flag"
 
+    class RecurrenceInterval(models.TextChoices):
+        DAILY = "daily", "daily"
+        WEEKLY = "weekly", "weekly"
+        MONTHLY = "monthly", "monthly"
+
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     record_id = models.CharField(max_length=200)
     model_name = models.CharField(max_length=100, choices=AllowedModels.choices)
@@ -17,6 +22,13 @@ class ScheduledChange(RootTeamMixin, models.Model):
     executed_at = models.DateTimeField(null=True, blank=True)
     failure_reason = models.CharField(max_length=400, null=True, blank=True)
     failure_count = models.IntegerField(default=0)
+    is_recurring = models.BooleanField(default=False)
+    recurrence_interval = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=RecurrenceInterval.choices,
+    )
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)

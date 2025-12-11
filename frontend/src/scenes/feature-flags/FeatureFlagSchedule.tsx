@@ -17,13 +17,13 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors } from 'lib/utils'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
+import { RecurrenceInterval, ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
 
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
@@ -77,6 +77,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
         scheduleDateMarker,
         schedulePayload,
         schedulePayloadErrors,
+        isRecurring,
+        recurrenceInterval,
     } = useValues(featureFlagLogic)
     const {
         deleteScheduledChange,
@@ -84,6 +86,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
         setSchedulePayload,
         setScheduledChangeOperation,
         createScheduledChange,
+        setIsRecurring,
+        setRecurrenceInterval,
     } = useActions(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -111,9 +115,14 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 if (payload.operation === ScheduledChangeOperationType.UpdateStatus) {
                     const isEnabled = payload.value
                     return (
-                        <LemonTag type={isEnabled ? 'success' : 'default'} className="uppercase">
-                            {isEnabled ? 'Enable' : 'Disable'}
-                        </LemonTag>
+                        <div className="inline-flex items-center gap-2">
+                            <LemonTag type={isEnabled ? 'success' : 'default'} className="uppercase">
+                                {isEnabled ? 'Enable' : 'Disable'}
+                            </LemonTag>
+                            {scheduledChange.is_recurring && scheduledChange.recurrence_interval && (
+                                <LemonTag type="highlight">{scheduledChange.recurrence_interval}</LemonTag>
+                            )}
+                        </div>
                     )
                 } else if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
                     const releaseText = groupFilters(payload.value, undefined, aggregationLabel)
@@ -146,10 +155,21 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 return JSON.stringify(payload)
             },
         },
-        atColumn('scheduled_at', 'Scheduled at') as LemonTableColumn<
-            ScheduledChangeType,
-            keyof ScheduledChangeType | undefined
-        >,
+        {
+            title: 'Scheduled at',
+            dataIndex: 'scheduled_at',
+            render: function Render(_, scheduledChange: ScheduledChangeType) {
+                const formattedDate = dayjs(scheduledChange.scheduled_at).format(DAYJS_FORMAT)
+                if (scheduledChange.is_recurring && scheduledChange.recurrence_interval) {
+                    return (
+                        <Tooltip title={`Next: ${formattedDate}`}>
+                            <span>Every {scheduledChange.recurrence_interval}</span>
+                        </Tooltip>
+                    )
+                }
+                return formattedDate
+            },
+        },
         createdAtColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
         createdByColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
         {
@@ -262,6 +282,28 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         checked={schedulePayload.active}
                                     />
                                 </div>
+                                <div className="border rounded p-4">
+                                    <LemonCheckbox
+                                        id="recurring-checkbox"
+                                        label="Repeat this change"
+                                        onChange={setIsRecurring}
+                                        checked={isRecurring}
+                                    />
+                                    {isRecurring && (
+                                        <div className="mt-3">
+                                            <LemonSelect
+                                                placeholder="Select interval"
+                                                value={recurrenceInterval}
+                                                onChange={setRecurrenceInterval}
+                                                options={[
+                                                    { value: RecurrenceInterval.Daily, label: 'Daily' },
+                                                    { value: RecurrenceInterval.Weekly, label: 'Weekly' },
+                                                    { value: RecurrenceInterval.Monthly, label: 'Monthly' },
+                                                ]}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
                             </>
                         )}
                         {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
@@ -344,12 +386,15 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 disabledReason={
                                     !scheduleDateMarker
                                         ? 'Select the scheduled date and time'
-                                        : hasFormErrors(schedulePayloadErrors)
-                                          ? 'Fix release condition errors'
-                                          : scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
-                                              variantErrors.some((error) => error.key != null)
-                                            ? 'Fix schedule variant changes errors'
-                                            : undefined
+                                        : isRecurring && !recurrenceInterval
+                                          ? 'Select a repeat interval'
+                                          : hasFormErrors(schedulePayloadErrors)
+                                            ? 'Fix release condition errors'
+                                            : scheduledChangeOperation ===
+                                                    ScheduledChangeOperationType.UpdateVariants &&
+                                                variantErrors.some((error) => error.key != null)
+                                              ? 'Fix schedule variant changes errors'
+                                              : undefined
                                 }
                             >
                                 Schedule

@@ -26,6 +26,8 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "is_recurring",
+            "recurrence_interval",
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
@@ -34,6 +36,24 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         if not obj.failure_reason:
             return None
         return obj.formatted_failure_reason
+
+    def validate(self, data: dict) -> dict:
+        is_recurring = data.get("is_recurring", False)
+        recurrence_interval = data.get("recurrence_interval")
+        payload = data.get("payload", {})
+
+        if is_recurring:
+            if not recurrence_interval:
+                raise serializers.ValidationError(
+                    {"recurrence_interval": "This field is required when is_recurring is true."}
+                )
+            # POC constraint: only update_status allowed for recurring schedules
+            if payload.get("operation") != "update_status":
+                raise serializers.ValidationError(
+                    {"payload": "Recurring schedules only support the update_status operation."}
+                )
+
+        return data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ScheduledChange:
         request = self.context["request"]

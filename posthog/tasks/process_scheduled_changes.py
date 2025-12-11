@@ -1,12 +1,14 @@
 import os
 import json
 import socket
+from datetime import datetime
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import IntegrityError, OperationalError, transaction
 from django.utils import timezone
 
 from celery import current_task
+from dateutil.relativedelta import relativedelta
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, ScheduledChange
@@ -59,6 +61,17 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     return isinstance(exception, unrecoverable_types)
 
 
+def compute_next_run(current: datetime, interval: str) -> datetime:
+    """Compute the next scheduled run time based on recurrence interval."""
+    if interval == "daily":
+        return current + relativedelta(days=1)
+    elif interval == "weekly":
+        return current + relativedelta(weeks=1)
+    elif interval == "monthly":
+        return current + relativedelta(months=1)
+    raise ValueError(f"Unknown recurrence interval: {interval}")
+
+
 def process_scheduled_changes() -> None:
     try:
         with transaction.atomic():
@@ -80,9 +93,18 @@ def process_scheduled_changes() -> None:
                         scheduled_change.payload, scheduled_change.created_by, scheduled_change_id=scheduled_change.id
                     )
 
-                    # Mark scheduled change completed
-                    scheduled_change.executed_at = timezone.now()
-                    scheduled_change.save()
+                    # Handle recurring vs one-time schedules
+                    if scheduled_change.is_recurring and scheduled_change.recurrence_interval:
+                        # Compute next run time instead of marking as executed
+                        scheduled_change.scheduled_at = compute_next_run(
+                            scheduled_change.scheduled_at,
+                            scheduled_change.recurrence_interval,
+                        )
+                        scheduled_change.save()
+                    else:
+                        # One-time schedule: mark as completed
+                        scheduled_change.executed_at = timezone.now()
+                        scheduled_change.save()
 
                 except Exception as e:
                     # Build comprehensive failure context (only info not already in ScheduledChange columns)
