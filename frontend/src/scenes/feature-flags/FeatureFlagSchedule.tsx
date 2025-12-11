@@ -89,6 +89,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         setIsRecurring,
         setRecurrenceInterval,
         stopRecurringScheduledChange,
+        resumeRecurringScheduledChange,
     } = useActions(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -158,8 +159,10 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 const scheduledAt = dayjs(scheduledChange.scheduled_at)
                 const formattedDate = scheduledAt.format(DAYJS_FORMAT)
                 const timeStr = scheduledAt.format('h:mm A')
+                const isPaused = !scheduledChange.is_recurring && !!scheduledChange.recurrence_interval
 
-                if (scheduledChange.is_recurring && scheduledChange.recurrence_interval) {
+                // Build recurring description for both active and paused recurring schedules
+                if (scheduledChange.recurrence_interval) {
                     let recurringDescription: string
                     switch (scheduledChange.recurrence_interval) {
                         case RecurrenceInterval.Daily:
@@ -178,6 +181,17 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         default:
                             recurringDescription = `Every ${scheduledChange.recurrence_interval}`
                     }
+
+                    if (isPaused) {
+                        // Paused: show pattern but indicate it won't run
+                        return (
+                            <Tooltip title={`Was: ${recurringDescription}. Resume to continue.`}>
+                                <span className="text-muted">—</span>
+                            </Tooltip>
+                        )
+                    }
+
+                    // Active recurring: show pattern with next run in tooltip
                     return (
                         <Tooltip title={`Next: ${formattedDate}`}>
                             <span>{recurringDescription}</span>
@@ -193,25 +207,32 @@ export default function FeatureFlagSchedule(): JSX.Element {
             title: 'Status',
             dataIndex: 'executed_at',
             render: function Render(_, scheduledChange: ScheduledChangeType) {
-                const { executed_at, failure_reason } = scheduledChange
+                const { executed_at, failure_reason, is_recurring, recurrence_interval } = scheduledChange
+                const isPaused = !is_recurring && !!recurrence_interval
 
-                function getStatus(): { type: LemonTagType; text: string } {
+                function getStatus(): { type: LemonTagType; text: string; tooltip?: string } {
                     if (failure_reason) {
-                        return { type: 'danger', text: 'Error' }
+                        return { type: 'danger', text: 'Error', tooltip: `Failed: ${failure_reason}` }
                     } else if (executed_at) {
-                        return { type: 'completion', text: 'Complete' }
+                        return {
+                            type: 'completion',
+                            text: 'Complete',
+                            tooltip: `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`,
+                        }
+                    } else if (isPaused) {
+                        return {
+                            type: 'warning',
+                            text: 'Paused',
+                            tooltip: 'Recurring schedule is paused. It will not execute until resumed.',
+                        }
+                    } else if (is_recurring) {
+                        return { type: 'highlight', text: 'Recurring' }
                     }
                     return { type: 'default', text: 'Scheduled' }
                 }
-                const { type, text } = getStatus()
+                const { type, text, tooltip } = getStatus()
                 return (
-                    <Tooltip
-                        title={
-                            failure_reason
-                                ? `Failed: ${failure_reason}`
-                                : executed_at && `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`
-                        }
-                    >
+                    <Tooltip title={tooltip}>
                         <LemonTag type={type}>
                             <b className="uppercase">{text}</b>
                         </LemonTag>
@@ -233,7 +254,15 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                             onClick={() => stopRecurringScheduledChange(scheduledChange.id)}
                                             fullWidth
                                         >
-                                            Stop recurring
+                                            Pause recurring
+                                        </LemonButton>
+                                    )}
+                                    {!scheduledChange.is_recurring && scheduledChange.recurrence_interval && (
+                                        <LemonButton
+                                            onClick={() => resumeRecurringScheduledChange(scheduledChange.id)}
+                                            fullWidth
+                                        >
+                                            Resume recurring
                                         </LemonButton>
                                     )}
                                     <LemonButton

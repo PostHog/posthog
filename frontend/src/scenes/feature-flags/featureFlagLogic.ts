@@ -383,6 +383,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
         setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
         stopRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
+        resumeRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
@@ -1381,10 +1382,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     await api.featureFlags.updateScheduledChange(currentProjectId, scheduledChangeId, {
                         is_recurring: false,
                     })
-                    lemonToast.success('Recurring schedule has been stopped')
+                    lemonToast.success('Recurring schedule has been paused')
                     actions.loadScheduledChanges()
                 } catch {
-                    lemonToast.error('Failed to stop recurring schedule')
+                    lemonToast.error('Failed to pause recurring schedule')
+                }
+            }
+        },
+        resumeRecurringScheduledChange: async ({ scheduledChangeId }) => {
+            const { currentProjectId } = values
+            if (currentProjectId) {
+                try {
+                    await api.featureFlags.updateScheduledChange(currentProjectId, scheduledChangeId, {
+                        is_recurring: true,
+                    })
+                    lemonToast.success('Recurring schedule has been resumed')
+                    actions.loadScheduledChanges()
+                } catch {
+                    lemonToast.error('Failed to resume recurring schedule')
                 }
             }
         },

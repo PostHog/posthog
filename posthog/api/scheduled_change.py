@@ -63,6 +63,8 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"payload": "Recurring schedules only support the update_status operation."}
                 )
+        # Note: We preserve recurrence_interval when is_recurring is false
+        # This allows users to "pause" a recurring schedule and resume it later
 
         return data
 

@@ -3662,6 +3662,7 @@ export enum ScheduledChangeOperationType {
     UpdateVariants = 'update_variants',
 }
 
+// Keep in sync with posthog/models/scheduled_change.py RecurrenceInterval
 export enum RecurrenceInterval {
     Daily = 'daily',
     Weekly = 'weekly',

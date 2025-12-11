@@ -103,6 +103,12 @@ def process_scheduled_changes() -> None:
             )
 
             for scheduled_change in scheduled_changes:
+                # Skip paused recurring schedules (is_recurring=false but has recurrence_interval)
+                # These are "paused" and should not execute until resumed
+                is_paused = not scheduled_change.is_recurring and scheduled_change.recurrence_interval
+                if is_paused:
+                    continue
+
                 try:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]

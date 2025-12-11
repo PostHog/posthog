@@ -9,6 +9,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
     class AllowedModels(models.TextChoices):
         FEATURE_FLAG = "FeatureFlag", "feature flag"
 
+    # Keep in sync with frontend/src/types.ts RecurrenceInterval enum
     class RecurrenceInterval(models.TextChoices):
         DAILY = "daily", "daily"
         WEEKLY = "weekly", "weekly"
