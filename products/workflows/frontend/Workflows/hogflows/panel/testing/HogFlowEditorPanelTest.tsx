@@ -212,10 +212,11 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                                                         loadSampleGlobals({ extendedSearch: true })
                                                                     } else {
                                                                         // For non-event triggers, reload with the last searched event name
-                                                                        loadSampleEventByName(
-                                                                            lastSearchedEventName || '$pageview',
-                                                                            true
-                                                                        )
+                                                                        loadSampleEventByName({
+                                                                            eventName:
+                                                                                lastSearchedEventName || '$pageview',
+                                                                            extendedSearch: true,
+                                                                        })
                                                                     }
                                                                 }}
                                                                 loading={sampleGlobalsLoading}
@@ -271,7 +272,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                                                 value={sampleGlobals?.event?.event || ''}
                                                                 onChange={(_, value) => {
                                                                     if (typeof value === 'string') {
-                                                                        loadSampleEventByName(value)
+                                                                        loadSampleEventByName({ eventName: value })
                                                                     }
                                                                 }}
                                                                 allowNonCapturedEvents

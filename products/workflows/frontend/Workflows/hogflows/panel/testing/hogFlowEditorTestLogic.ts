@@ -26,6 +26,12 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogflowTestResult } from '../../steps/types'
 import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
 
+// Time range constants for event search
+const STANDARD_SEARCH_DAYS = 7
+const EXTENDED_SEARCH_DAYS = 30
+const STANDARD_SEARCH_RANGE = `-${STANDARD_SEARCH_DAYS}d`
+const EXTENDED_SEARCH_RANGE = `-${EXTENDED_SEARCH_DAYS}d`
+
 export interface HogflowTestInvocation {
     globals: string
     mock_async_functions: boolean
@@ -124,7 +130,10 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             eventId: payload?.eventId,
             extendedSearch: payload?.extendedSearch,
         }),
-        loadSampleEventByName: (eventName: string, extendedSearch?: boolean) => ({ eventName, extendedSearch }),
+        loadSampleEventByName: (payload: { eventName: string; extendedSearch?: boolean }) => ({
+            eventName: payload.eventName,
+            extendedSearch: payload.extendedSearch,
+        }),
         setSampleGlobals: (globals?: string | null) => ({ globals }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
         setNoMatchingEvents: (noMatchingEvents: boolean) => ({ noMatchingEvents }),
@@ -227,8 +236,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     }
 
                     try {
-                        // Use 30 days for extended search, 7 days normally
-                        const timeRange = extendedSearch ? '-30d' : '-7d'
+                        // Use extended or standard search range
+                        const timeRange = extendedSearch ? EXTENDED_SEARCH_RANGE : STANDARD_SEARCH_RANGE
 
                         // Fetch multiple events so we can cycle through them
                         const query: EventsQuery = {
@@ -236,7 +245,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             fixedProperties: [values.matchingFilters],
                             select: ['*', 'person'],
                             after: timeRange,
-                            limit: 10, // Get 10 events to cycle through
+                            limit: 10,
                             orderBy: ['timestamp DESC'],
                             modifiers: {
                                 // NOTE: We always want to show events with the person properties at the time the event was created as that is what the function will see
@@ -252,15 +261,15 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             actions.setNoMatchingEvents(true)
 
                             if (extendedSearch) {
-                                // Extended search (30 days) also failed
+                                // Extended search also failed
                                 actions.setSampleGlobalsError(
-                                    'No events match these filters in the last 30 days. Using an example $pageview event instead.'
+                                    `No events match these filters in the last ${EXTENDED_SEARCH_DAYS} days. Using an example $pageview event instead.`
                                 )
                                 actions.setCanTryExtendedSearch(false)
                             } else {
-                                // First search (7 days) failed, allow extended search
+                                // First search failed, allow extended search
                                 actions.setSampleGlobalsError(
-                                    'No events match these filters in the last 7 days. Using an example $pageview event instead.'
+                                    `No events match these filters in the last ${STANDARD_SEARCH_DAYS} days. Using an example $pageview event instead.`
                                 )
                                 actions.setCanTryExtendedSearch(true)
                             }
@@ -302,7 +311,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 }): Promise<CyclotronJobInvocationGlobals | null> => {
                     // Load a specific event by name (for non-event triggers)
                     try {
-                        const timeRange = extendedSearch ? '-30d' : '-7d'
+                        const timeRange = extendedSearch ? EXTENDED_SEARCH_RANGE : STANDARD_SEARCH_RANGE
 
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
@@ -333,15 +342,15 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
 
                             if (extendedSearch) {
-                                // Extended search (30 days) also failed
+                                // Extended search also failed
                                 actions.setSampleGlobalsError(
-                                    `No "${eventName}" events found in the last 30 days. Using an example $pageview event instead.`
+                                    `No "${eventName}" events found in the last ${EXTENDED_SEARCH_DAYS} days. Using an example $pageview event instead.`
                                 )
                                 actions.setCanTryExtendedSearch(false)
                             } else {
-                                // First search (7 days) failed, allow extended search
+                                // First search failed, allow extended search
                                 actions.setSampleGlobalsError(
-                                    `No "${eventName}" events found in the last 7 days. Using an example $pageview event instead.`
+                                    `No "${eventName}" events found in the last ${STANDARD_SEARCH_DAYS} days. Using an example $pageview event instead.`
                                 )
                                 actions.setCanTryExtendedSearch(true)
                             }
