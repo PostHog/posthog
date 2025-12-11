@@ -290,9 +290,6 @@ class AutoProjectMiddleware:
                 ).data
             return False
 
-        if new_team.organization.is_active is False:
-            return False
-
         return True
 
 

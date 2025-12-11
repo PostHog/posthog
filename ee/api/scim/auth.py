@@ -59,11 +59,6 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         if not domain.organization.is_feature_available(AvailableFeature.SCIM):
             raise exceptions.AuthenticationFailed("Your organization does not have the required license to use SCIM")
 
-        if domain.organization.is_active is False:
-            raise exceptions.AuthenticationFailed(
-                f"Your organization has been de-activated. {domain.organization.is_not_active_reason or 'Contact us to re-activate your organization.'}"
-            )
-
         # Verify the bearer token matches the stored hashed token
         if not check_password(token, domain.scim_bearer_token):
             raise exceptions.AuthenticationFailed("Invalid bearer token")

@@ -303,7 +303,7 @@ class User(AbstractUser, UUIDTClassicModel):
         if self.current_organization is None:
             if self.current_team is not None:
                 self.current_organization_id = self.current_team.organization_id
-            self.current_organization = self.organizations.exclude(is_active=False).first()
+            self.current_organization = self.organizations.first()
             if self.current_organization is not None:
                 self.save(update_fields=["current_organization"])
         return self.current_organization

@@ -240,7 +240,7 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="verification email sent",
-        groups={"organization": str(user.current_organization.id) if user.current_organization is not None else None},  # type: ignore
+        groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
 
 
