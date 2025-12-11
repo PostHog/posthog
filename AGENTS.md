@@ -21,6 +21,32 @@
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start`
 
+## Frontend Scene Layouts
+
+Scene layouts control navigation and padding for different screens. Configure in `frontend/src/scenes/scenes.ts`:
+
+- `'app'` (default): Navigation shown, default padding (`p-4`)
+- `'app-raw'`: Navigation shown, no padding
+- `'app-container'`: Navigation shown, centered with max width
+- `'app-raw-no-header'`: Navigation shown, no padding, no header
+- `'plain'`: No navigation, no padding
+- `'app-full-scene-height'`: Navigation shown, default padding, full screen height
+- `'context'`: Navigation shown, scene controls its own padding via `<SceneProvider className="...">`
+
+Example using context layout:
+
+```tsx
+import { SceneProvider } from '~/layout/scenes'
+
+export function MyScene(): JSX.Element {
+  return (
+    <SceneProvider className="p-4 bg-surface-primary">
+      <div>Scene content</div>
+    </SceneProvider>
+  )
+}
+```
+
 ## ClickHouse Migrations
 
 ### Migration structure

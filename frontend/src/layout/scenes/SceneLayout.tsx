@@ -16,6 +16,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
+import { useSceneLayoutContext } from './SceneLayoutContext'
 import { SceneTabs } from './SceneTabs'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
@@ -75,6 +76,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
     const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
+    const { className: contextClassName } = useSceneLayoutContext()
 
     // Set layout config
     useEffect(() => {
@@ -98,16 +100,21 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
 
             <div
                 className={cn(
-                    'relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))]',
+                    'relative bg-[var(--scene-layout-background)]',
                     {
                         'lg:rounded-tl-lg': !firstTabIsActive,
                         'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]':
                             scenePanelIsPresent && scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
-                        'p-0':
+                        'min-h-[calc(100vh-var(--scene-layout-header-height))] p-0':
                             sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0'),
-                        'h-[calc(100vh-var(--scene-layout-header-height))]':
+                        'min-h-[calc(100vh-var(--scene-layout-header-height))] p-4':
+                            sceneConfig?.layout !== 'app-raw-no-header' &&
+                            sceneConfig?.layout !== 'app-raw' &&
+                            sceneConfig?.layout !== 'context',
+                        'min-h-[calc(100vh-var(--scene-layout-header-height))] h-[calc(100vh-var(--scene-layout-header-height))]':
                             sceneConfig?.layout === 'app-full-scene-height',
-                    }
+                    },
+                    sceneConfig?.layout === 'context' ? contextClassName : undefined
                 )}
             >
                 {children}

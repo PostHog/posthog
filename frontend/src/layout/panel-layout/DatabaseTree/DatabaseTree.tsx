@@ -7,18 +7,19 @@ import { SyncMoreNotice } from './SyncMoreNotice'
 
 export function DatabaseTree(): JSX.Element {
     return (
-        <ScrollableShadows
-            direction="vertical"
-            className="flex flex-col gap-2 z-20 border-r border-primary group/colorful-product-icons colorful-product-icons-true h-[calc(100vh-var(--scene-layout-header-height))] overflow-auto"
-            innerClassName="p-3 flex flex-col gap-2"
-            styledScrollbars
-        >
+        <div className="flex flex-col">
             <DatabaseSearchField placeholder="Search warehouse" />
-            <div className="-mx-2 grow">
-                <QueryDatabase />
-            </div>
+            <ScrollableShadows
+                direction="vertical"
+                className="flex flex-col gap-2 z-20 border-r border-primary h-full group/colorful-product-icons colorful-product-icons-true grow overflow-auto"
+                innerClassName="p-3"
+            >
+                <div className="-mx-2 grow">
+                    <QueryDatabase />
+                </div>
+            </ScrollableShadows>
             <SyncMoreNotice />
             <ViewLinkModal />
-        </ScrollableShadows>
+        </div>
     )
 }

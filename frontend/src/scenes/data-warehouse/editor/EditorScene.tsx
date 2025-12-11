@@ -8,6 +8,7 @@ import { useRef, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
+import { SceneProvider } from '~/layout/scenes/SceneProvider'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
@@ -126,22 +127,24 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                                 <BindLogic logic={outputPaneLogic} props={{ tabId }}>
                                     <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
-                                        <div className="grid grid-cols-[var(--project-panel-width)_1fr] gap-0">
-                                            <DatabaseTree />
-                                            <div
-                                                data-attr="editor-scene"
-                                                className="EditorScene w-full h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] flex flex-row overflow-hidden"
-                                                ref={ref}
-                                            >
-                                                <QueryWindow
-                                                    tabId={tabId || ''}
-                                                    onSetMonacoAndEditor={(monaco, editor) =>
-                                                        setMonacoAndEditor([monaco, editor])
-                                                    }
-                                                />
+                                        <SceneProvider className="grow text-[red]">
+                                            <div className="grow grid grid-cols-[var(--project-panel-width)_1fr] gap-0 min-h-0 h-full">
+                                                <DatabaseTree />
+                                                <div
+                                                    data-attr="editor-scene"
+                                                    className="EditorScene w-full flex flex-row overflow-hidden grow"
+                                                    ref={ref}
+                                                >
+                                                    <QueryWindow
+                                                        tabId={tabId || ''}
+                                                        onSetMonacoAndEditor={(monaco, editor) =>
+                                                            setMonacoAndEditor([monaco, editor])
+                                                        }
+                                                    />
+                                                </div>
                                             </div>
-                                        </div>
-                                        <ViewLinkModal />
+                                            <ViewLinkModal />
+                                        </SceneProvider>
                                     </BindLogic>
                                 </BindLogic>
                             </BindLogic>

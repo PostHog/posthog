@@ -21,7 +21,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'SQL editor',
             defaultDocsPath: '/docs/cdp/sources',
-            layout: 'app-raw-no-header',
+            layout: 'context',
             hideProjectNotice: true,
             description: 'Write and execute SQL queries against your data warehouse',
         },

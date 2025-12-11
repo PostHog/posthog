@@ -454,6 +454,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.Signup]: { onlyUnauthenticated: true },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
+    [Scene.SQLEditor]: { projectBased: true, name: 'SQL editor', layout: 'context' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },
     [Scene.SurveyTemplates]: {
         projectBased: true,
