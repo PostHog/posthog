@@ -4,7 +4,10 @@ import sys
 import html
 import uuid
 from decimal import Decimal
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 from django.conf import settings
 from django.core import exceptions, mail
@@ -139,7 +142,6 @@ def _send_via_http(
                     continue
 
                 identifiers: dict[str, str] = {"email": dest["raw_email"]}
-                # Adding distinct_id so Customer.io includes it as user identifier in reporting webhooks
                 if dest.get("distinct_id"):
                     identifiers["id"] = dest["distinct_id"]
 
@@ -371,6 +373,14 @@ class EmailMessage:
         if distinct_id:
             recipient_data["distinct_id"] = distinct_id
         self.to.append(recipient_data)
+
+    def add_user_recipient(self, user: "User", email_override: Optional[str] = None) -> None:
+        """
+        Add a user as a recipient, include their distinct_id for Customer.io reporting wenhooks.
+        Use this instead of add_recipient when you have a User object.
+        """
+        email = email_override or user.email
+        self.add_recipient(email=email, name=user.first_name, distinct_id=str(user.distinct_id))
 
     def send(self, send_async: bool = True) -> None:
         if not self.to:
