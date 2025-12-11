@@ -15,6 +15,9 @@ logger = structlog.get_logger(__name__)
 # Valid SQL identifier pattern (alphanumeric and underscores only)
 TABLE_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
+# Valid file size pattern (e.g., "512MB", "1GB", "256KB")
+FILE_SIZE_PATTERN = re.compile(r"^\d+\s*(B|KB|MB|GB|TB)$", re.IGNORECASE)
+
 
 class TableInfo(NamedTuple):
     schema_name: str
@@ -56,7 +59,9 @@ async def run_ducklake_compaction(input: DucklakeCompactionInput) -> dict:
             # Attach the DuckLake catalog
             attach_catalog(conn, config, alias="ducklake")
 
-            # Set the target file size for compaction
+            # Validate and set the target file size for compaction
+            if not FILE_SIZE_PATTERN.match(input.target_file_size.strip()):
+                raise ValueError(f"Invalid target_file_size format: {input.target_file_size!r}")
             conn.execute(f"CALL ducklake.set_option('target_file_size', '{input.target_file_size}')")
 
             # Get list of tables to compact
