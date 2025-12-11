@@ -43,7 +43,7 @@ export const couponLogic = kea<couponLogicType>([
     }),
     loaders(() => ({
         couponsOverview: [
-            { claimed_coupons: [] } as CouponsOverview,
+            null as CouponsOverview | null,
             {
                 loadCouponsOverview: async () => {
                     return await api.get('api/billing/coupons/overview')
@@ -60,13 +60,13 @@ export const couponLogic = kea<couponLogicType>([
             (s) => [s.couponsOverview],
             (couponsOverview) =>
                 (campaignSlug: string): ClaimedCouponInfo | null => {
-                    return couponsOverview.claimed_coupons.find((c) => c.campaign_slug === campaignSlug) || null
+                    return couponsOverview?.claimed_coupons?.find((c) => c.campaign_slug === campaignSlug) || null
                 },
         ],
         activeCoupons: [
             (s) => [s.couponsOverview],
             (couponsOverview): ClaimedCouponInfo[] => {
-                return couponsOverview.claimed_coupons.filter((c) => c.status === 'claimed')
+                return couponsOverview?.claimed_coupons?.filter((c) => c.status === 'claimed') ?? []
             },
         ],
     }),
