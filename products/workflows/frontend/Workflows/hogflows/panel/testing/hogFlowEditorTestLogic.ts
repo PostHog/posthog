@@ -438,6 +438,9 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         loadSampleGlobalsSuccess: () => {
             actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
+        loadSampleEventByNameSuccess: () => {
+            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
+        },
         setSampleGlobals: () => {
             actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
