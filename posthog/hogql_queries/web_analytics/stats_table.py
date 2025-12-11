@@ -56,6 +56,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             and self.modifiers.useWebAnalyticsPreAggregatedTables
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
             and not self.query.includeAvgTimeOnPage
+            and not self.query.conversionGoal
         )
 
         if should_use_preaggregated:
@@ -493,6 +494,7 @@ ON counts.breakdown_value = bounce.breakdown_value
                 select=selects,
                 select_from=ast.JoinExpr(table=self._frustration_metrics_inner_query()),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
+                having=self._frustration_metrics_having(),
                 order_by=self._frustration_metrics_order_by(),
             )
 
@@ -528,6 +530,28 @@ ON counts.breakdown_value = bounce.breakdown_value
 
         assert isinstance(query, ast.SelectQuery)
         return query
+
+    def _frustration_metrics_having(self) -> ast.Expr:
+        zero_tuple = ast.Tuple(exprs=[ast.Constant(value=0), ast.Constant(value=0)])
+        return ast.Or(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["context.columns.rage_clicks"]),
+                    right=zero_tuple,
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["context.columns.dead_clicks"]),
+                    right=zero_tuple,
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["context.columns.errors"]),
+                    right=zero_tuple,
+                ),
+            ]
+        )
 
     def _frustration_metrics_order_by(self) -> list[ast.OrderExpr] | None:
         return [

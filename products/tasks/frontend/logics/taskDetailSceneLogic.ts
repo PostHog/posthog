@@ -111,6 +111,13 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                             cache: 'no-store',
                             headers: { 'Cache-Control': 'no-cache' },
                         })
+                        if (response.status === 404) {
+                            return ''
+                        }
+                        if (!response.ok) {
+                            console.error('Failed to load logs:', response.status, response.statusText)
+                            return ''
+                        }
                         return await response.text()
                     } catch (error) {
                         console.error('Failed to load logs:', error)

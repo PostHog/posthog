@@ -65,11 +65,9 @@ const CondensedFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
 export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
-        preAggregatedEnabled,
         isPathCleaningEnabled,
     } = useValues(webAnalyticsLogic)
     const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
         return <CondensedFilterBar tabs={tabs} />
@@ -92,9 +90,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     <ShareButton />
                     <WebAnalyticsCompareFilter />
 
-                    {(!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]) && (
-                        <WebConversionGoal />
-                    )}
+                    <WebConversionGoal />
                     <TableSortingIndicator />
 
                     <WebVitalsPercentileToggle />
