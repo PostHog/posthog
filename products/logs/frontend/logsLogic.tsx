@@ -32,7 +32,7 @@ const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
-const DEFAULT_LOGS_PAGE_SIZE: number = 100
+const DEFAULT_LOGS_PAGE_SIZE: number = 250
 const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
@@ -260,6 +260,7 @@ export const logsLogic = kea<logsLogicType>([
         pollForNewLogs: true,
         setLogs: (logs: LogMessage[]) => ({ logs }),
         setSparkline: (sparkline: any[]) => ({ sparkline }),
+        setNextCursor: (nextCursor: string | null) => ({ nextCursor }),
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
@@ -441,6 +442,13 @@ export const logsLogic = kea<logsLogicType>([
                 clearLogs: () => true,
             },
         ],
+        nextCursor: [
+            null as string | null,
+            {
+                setNextCursor: (_, { nextCursor }) => nextCursor,
+                clearLogs: () => null,
+            },
+        ],
         expandedLogIds: [
             new Set<string>(),
             {
@@ -483,6 +491,7 @@ export const logsLogic = kea<logsLogicType>([
                     })
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
+                    actions.setNextCursor(response.nextCursor ?? null)
                     parseLogAttributes(response.results)
                     return response.results
                 },
@@ -491,40 +500,27 @@ export const logsLogic = kea<logsLogicType>([
                     const signal = logsController.signal
                     actions.cancelInProgressLogs(logsController)
 
-                    let dateRange: DateRange
-
-                    if (values.orderBy === 'earliest') {
-                        if (!values.newestLogTimestamp) {
-                            return values.logs
-                        }
-                        dateRange = {
-                            date_from: values.newestLogTimestamp,
-                            date_to: values.utcDateRange.date_to,
-                        }
-                    } else {
-                        if (!values.oldestLogTimestamp) {
-                            return values.logs
-                        }
-                        dateRange = {
-                            date_from: values.utcDateRange.date_from,
-                            date_to: values.oldestLogTimestamp,
-                        }
+                    if (!values.nextCursor) {
+                        return values.logs
                     }
+
                     await breakpoint(300)
                     const response = await api.logs.query({
                         query: {
                             limit: limit ?? values.logsPageSize,
                             orderBy: values.orderBy,
-                            dateRange,
+                            dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
                             serviceNames: values.serviceNames,
+                            after: values.nextCursor,
                         },
                         signal,
                     })
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
+                    actions.setNextCursor(response.nextCursor ?? null)
                     parseLogAttributes(response.results)
                     return [...values.logs, ...response.results]
                 },
@@ -680,7 +676,7 @@ export const logsLogic = kea<logsLogicType>([
                         if (currentItem.time !== lastTime) {
                             labels.push(
                                 humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
-                                    showNow: false,
+                                    timestampStyle: 'absolute',
                                 })
                             )
                             dates.push(currentItem.time)
@@ -710,32 +706,6 @@ export const logsLogic = kea<logsLogicType>([
                     .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
                 return { data, labels, dates }
-            },
-        ],
-        oldestLogTimestamp: [
-            (s) => [s.logs],
-            (logs): string | null => {
-                if (!logs.length) {
-                    return null
-                }
-                const oldest = logs.reduce((min, log) => {
-                    const logTime = dayjs(log.timestamp)
-                    return !min || logTime.isBefore(dayjs(min)) ? log.timestamp : min
-                }, logs[0].timestamp)
-                return oldest
-            },
-        ],
-        newestLogTimestamp: [
-            (s) => [s.logs],
-            (logs): string | null => {
-                if (!logs.length) {
-                    return null
-                }
-                const newest = logs.reduce((max, log) => {
-                    const logTime = dayjs(log.timestamp)
-                    return !max || logTime.isAfter(dayjs(max)) ? log.timestamp : max
-                }, logs[0].timestamp)
-                return newest
             },
         ],
         totalLogsMatchingFilters: [

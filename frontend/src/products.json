@@ -87,6 +87,13 @@
         },
         { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
         {
+            "path": "Marketing analytics",
+            "category": "Analytics",
+            "iconType": null,
+            "type": null,
+            "intents": ["marketing_analytics"]
+        },
+        {
             "path": "Product analytics",
             "category": "Analytics",
             "iconType": "product_analytics",
@@ -123,7 +130,7 @@
             "category": "Analytics",
             "iconType": "web_analytics",
             "type": null,
-            "intents": ["web_analytics", "marketing_analytics"]
+            "intents": ["web_analytics"]
         },
         {
             "path": "Workflows",

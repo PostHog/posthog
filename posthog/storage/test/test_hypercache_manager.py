@@ -23,6 +23,7 @@ def create_test_hypercache(
     namespace: str = "test_namespace",
     value: str = "test_value",
     token_based: bool = False,
+    expiry_sorted_set_key: str = "test_cache_expiry",
 ) -> HyperCache:
     """Create a test HyperCache with minimal setup."""
 
@@ -34,6 +35,7 @@ def create_test_hypercache(
         value=value,
         load_fn=load_fn,
         token_based=token_based,
+        expiry_sorted_set_key=expiry_sorted_set_key,
     )
 
 
@@ -290,7 +292,7 @@ class TestInvalidateAllCaches(BaseTest):
         invalidate_all_caches(config)
 
         # Should delete the expiry sorted set
-        mock_redis.delete.assert_called_with(config.expiry_sorted_set_key)
+        mock_redis.delete.assert_called_with(config.hypercache.expiry_sorted_set_key)
 
     @patch("posthog.storage.hypercache_manager.get_client")
     def test_returns_zero_on_error(self, mock_get_client):

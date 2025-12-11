@@ -1,3 +1,5 @@
+import json
+import base64
 import datetime as dt
 
 from rest_framework import status, viewsets
@@ -27,6 +29,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         live_logs_checkpoint = query_data.get("liveLogsCheckpoint", None)
+        after_cursor = query_data.get("after", None)
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
         requested_limit = min(query_data.get("limit", 1000), 2000)
         logs_query_params = {
@@ -40,6 +43,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         }
         if live_logs_checkpoint:
             logs_query_params["liveLogsCheckpoint"] = live_logs_checkpoint
+        if after_cursor:
+            logs_query_params["after"] = after_cursor
         query = LogsQuery(**logs_query_params)
 
         def results_generator(query: LogsQuery, logs_query_params: dict):
@@ -109,13 +114,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
                 return LogsQueryRunner(slice_query, self.team), LogsQueryRunner(remainder_query, self.team)
 
-            # if we're live tailing don't do the runner slicing optimisations
-            # we're always only looking at the most recent 1 or 2 minutes of observed data
-            # which should cut things down more than the slicing anyway
-            if live_logs_checkpoint:
+            # Skip time-slicing optimization when:
+            # - live tailing: we're always only looking at the most recent 1-2 minutes
+            # - cursor pagination: the cursor marks a continuation point in a single query
+            if live_logs_checkpoint or after_cursor:
                 response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 yield from response.results
                 return
+
             # if we're searching more than 20 minutes, first fetch the first 3 minutes of logs and see if that hits the limit
             if date_range_length > dt.timedelta(minutes=20):
                 recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3), query.orderBy)
@@ -152,7 +158,20 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         results = list(results_generator(query, logs_query_params))
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
-        return Response({"query": query, "results": results, "hasMore": has_more}, status=200)
+
+        # Generate cursor for next page
+        next_cursor = None
+        if has_more and results:
+            last_result = results[-1]
+            cursor_data = {
+                "timestamp": last_result["timestamp"].isoformat(),
+                "uuid": last_result["uuid"],
+            }
+            next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
+
+        return Response(
+            {"query": query, "results": results, "hasMore": has_more, "nextCursor": next_cursor}, status=200
+        )
 
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:

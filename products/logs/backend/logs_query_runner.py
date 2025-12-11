@@ -1,4 +1,6 @@
+import json
 import shlex
+import base64
 import datetime as dt
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -164,6 +166,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             parse_order_expr("team_id"),
             parse_order_expr(f"time_bucket {order_dir}"),
             parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"uuid {order_dir}"),
         ]
         final_query = parse_select(
             """
@@ -187,7 +190,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             placeholders={"query": query},
         )
         assert isinstance(final_query, ast.SelectQuery)
-        final_query.order_by = [parse_order_expr(f"timestamp {order_dir}")]
+        final_query.order_by = [
+            parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"uuid {order_dir}"),
+        ]
         return final_query
 
     def where(self):
@@ -251,6 +257,39 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 parse_expr(
                     "observed_timestamp >= {liveLogsCheckpoint}",
                     placeholders={"liveLogsCheckpoint": ast.Constant(value=self.query.liveLogsCheckpoint)},
+                )
+            )
+
+        if self.query.after:
+            try:
+                cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
+                cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
+                cursor_uuid = cursor["uuid"]
+            except (KeyError, ValueError, json.JSONDecodeError) as e:
+                raise ValueError(f"Invalid cursor format: {e}")
+            # For ASC (earliest first): get rows where (timestamp, uuid) > cursor
+            # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
+            op = ">" if self.query.orderBy == "earliest" else "<"
+            ts_op = ">=" if self.query.orderBy == "earliest" else "<="
+            # The logs table is partitioned by timestamp, not (timestamp, uuid).
+            # ClickHouse only prunes partitions when the WHERE clause directly matches
+            # the partition key. A tuple comparison like (timestamp, uuid) < (x, y)
+            # won't trigger pruning even though it logically implies timestamp <= x.
+            # So we add an explicit scalar bound to guarantee partition pruning fires.
+            exprs.append(
+                parse_expr(
+                    f"timestamp {ts_op} {{cursor_ts}}",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
+            # Tuple comparison handles the exact cursor position (same timestamp, different uuid)
+            exprs.append(
+                parse_expr(
+                    f"(timestamp, uuid) {op} ({{cursor_ts}}, {{cursor_uuid}})",
+                    placeholders={
+                        "cursor_ts": ast.Constant(value=cursor_ts),
+                        "cursor_uuid": ast.Constant(value=cursor_uuid),
+                    },
                 )
             )
 

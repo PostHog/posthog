@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -52,9 +52,14 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         // Copy link to log
         copyLinkToLog: (logId: string) => ({ logId }),
+
+        // Sync logs from props
+        setLogs: (logs: ParsedLogMessage[]) => ({ logs }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
+        // Synced from props via propsChanged
+        logs: [props.logs, { setLogs: (_, { logs }) => logs }],
         wrapBody: [
             true,
             { persist: true },
@@ -125,6 +130,12 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 userSetCursorIndex: () => null, // User clicked a row
             },
         ],
+    })),
+
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.logs !== oldProps.logs) {
+            actions.setLogs(props.logs)
+        }
     }),
 
     selectors({
@@ -140,7 +151,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         ],
 
         visibleLogsTimeRange: [
-            (_, p) => [p.logs, p.orderBy],
+            (s, p) => [s.logs, p.orderBy],
             (logs: ParsedLogMessage[], orderBy: LogsOrderBy): VisibleLogsTimeRange | null => {
                 if (logs.length === 0) {
                     return null
@@ -161,7 +172,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             },
         ],
 
-        logsCount: [(_, p) => [p.logs], (logs: ParsedLogMessage[]): number => logs.length],
+        logsCount: [(s) => [s.logs], (logs: ParsedLogMessage[]): number => logs.length],
     }),
 
     listeners(({ actions, values }) => ({

@@ -37,7 +37,6 @@ export function LogsViewer({
     return (
         <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy }}>
             <LogsViewerContent
-                logs={logs}
                 loading={loading}
                 totalLogsCount={totalLogsCount}
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
@@ -51,7 +50,6 @@ export function LogsViewer({
 }
 
 interface LogsViewerContentProps {
-    logs: ParsedLogMessage[]
     loading: boolean
     totalLogsCount?: number
     hasMoreLogsToLoad?: boolean
@@ -62,7 +60,6 @@ interface LogsViewerContentProps {
 }
 
 function LogsViewerContent({
-    logs,
     loading,
     totalLogsCount,
     hasMoreLogsToLoad,
@@ -71,7 +68,7 @@ function LogsViewerContent({
     onRefresh,
     onLoadMore,
 }: LogsViewerContentProps): JSX.Element {
-    const { wrapBody, prettifyJson, pinnedLogsArray, isFocused, getCursorLogId, linkToLogId } =
+    const { wrapBody, prettifyJson, pinnedLogsArray, isFocused, getCursorLogId, linkToLogId, logs, logsCount } =
         useValues(logsViewerLogic)
     const { setFocused, moveCursorDown, moveCursorUp, toggleExpandLog, resetCursor, setCursorToLogId } =
         useActions(logsViewerLogic)
@@ -81,18 +78,18 @@ function LogsViewerContent({
 
     // Reset cursor when logs are cleared (e.g., new query starts)
     useEffect(() => {
-        if (logs.length === 0) {
+        if (logsCount === 0) {
             resetCursor()
         }
-    }, [logs.length, resetCursor])
+    }, [logsCount, resetCursor])
 
     // Position cursor at linked log when deep linking (URL -> cursor)
     useEffect(() => {
-        if (linkToLogId && logs.length > 0) {
+        if (linkToLogId && logsCount > 0) {
             setCursorToLogId(linkToLogId, logs)
             containerRef.current?.focus()
         }
-    }, [linkToLogId, logs, setCursorToLogId])
+    }, [linkToLogId, logsCount, logs, setCursorToLogId])
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
         formatDate: 'YYYY-MM-DD',
@@ -101,10 +98,10 @@ function LogsViewerContent({
 
     useKeyboardHotkeys(
         {
-            arrowdown: { action: () => moveCursorDown(logs.length), disabled: !isFocused },
-            j: { action: () => moveCursorDown(logs.length), disabled: !isFocused },
-            arrowup: { action: () => moveCursorUp(logs.length), disabled: !isFocused },
-            k: { action: () => moveCursorUp(logs.length), disabled: !isFocused },
+            arrowdown: { action: () => moveCursorDown(logsCount), disabled: !isFocused },
+            j: { action: () => moveCursorDown(logsCount), disabled: !isFocused },
+            arrowup: { action: () => moveCursorUp(logsCount), disabled: !isFocused },
+            k: { action: () => moveCursorUp(logsCount), disabled: !isFocused },
             enter: {
                 action: () => {
                     if (cursorLogId) {
