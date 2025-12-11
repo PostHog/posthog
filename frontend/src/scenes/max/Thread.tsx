@@ -10,6 +10,7 @@ import {
     IconCheck,
     IconChevronRight,
     IconCollapse,
+    IconCopy,
     IconExpand,
     IconEye,
     IconHide,
@@ -49,6 +50,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { copyToClipboard } from '~/lib/utils/copyToClipboard'
+import { stripMarkdown } from '~/lib/utils/stripMarkdown'
 import { openNotebook } from '~/models/notebooksModel'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -385,6 +388,7 @@ function Message({
                                         key={`${key}-actions`}
                                         retriable={retriable}
                                         hideRatingAndRetry={isFeedbackCommandResponse}
+                                        content={message.content}
                                     />
                                 )
                             }
@@ -515,7 +519,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
                   }
 
                   // Show answer actions if the assistant's response is complete at this point
-                  return <SuccessActions retriable={retriable} />
+                  return <SuccessActions retriable={retriable} content={message.content} />
               }
 
               return null
@@ -1261,9 +1265,11 @@ function RetriableFailureActions(): JSX.Element {
 function SuccessActions({
     retriable,
     hideRatingAndRetry,
+    content,
 }: {
     retriable: boolean
     hideRatingAndRetry?: boolean
+    content?: string | null
 }): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
@@ -1296,6 +1302,15 @@ function SuccessActions({
     return (
         <>
             <div className="flex items-center ml-1">
+                {content && (
+                    <LemonButton
+                        icon={<IconCopy />}
+                        type="tertiary"
+                        size="xsmall"
+                        tooltip="Copy answer"
+                        onClick={() => copyToClipboard(stripMarkdown(content))}
+                    />
+                )}
                 {!hideRatingAndRetry && rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}

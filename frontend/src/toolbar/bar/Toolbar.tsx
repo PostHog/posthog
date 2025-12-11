@@ -39,9 +39,9 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
-import { NewTourModal } from '~/toolbar/product-tours/NewTourModal'
 import { ProductToursEditingBar } from '~/toolbar/product-tours/ProductToursEditingBar'
 import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
+import { TourGoalModal } from '~/toolbar/product-tours/TourGoalModal'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -201,7 +201,7 @@ function piiMaskingMenuItem(
 
 function MoreMenu(): JSX.Element {
     const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
-    const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor } =
+    const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor, startGracefulExit } =
         useActions(toolbarLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
@@ -216,8 +216,6 @@ function MoreMenu(): JSX.Element {
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
-
-    const { logout } = useActions(toolbarConfigLogic)
 
     return (
         <LemonMenu
@@ -261,7 +259,7 @@ function MoreMenu(): JSX.Element {
                             window.open(HELP_URL, '_blank')?.focus()
                         },
                     },
-                    { icon: <IconX />, label: 'Close toolbar', onClick: logout },
+                    { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
                 ].filter(Boolean) as LemonMenuItems
             }
             maxContentWidth={true}
@@ -343,11 +341,13 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isLoading } = useValues(toolbarLogic)
-    const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
+    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isLoading, isExiting } =
+        useValues(toolbarLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
+        useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
-    const { selectedTourId } = useValues(productToursLogic)
+    const { selectedTourId, isSelectingElements } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
@@ -385,10 +385,12 @@ export function Toolbar(): JSX.Element | null {
         return null
     }
 
+    const showEditingBar = selectedTourId !== null || isSelectingElements
+
     return (
         <>
-            {selectedTourId !== null && <ProductToursEditingBar />}
-            <NewTourModal />
+            <TourGoalModal />
+            {showEditingBar && <ProductToursEditingBar />}
             <ToolbarInfoMenu />
             <div
                 ref={ref}
@@ -415,7 +417,11 @@ export function Toolbar(): JSX.Element | null {
                     title={isAuthenticated ? 'Minimize' : 'Authenticate the PostHog Toolbar'}
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 >
-                    <AnimatedLogomark animate={isLoading} className="Toolbar__logomark" />
+                    <AnimatedLogomark
+                        animate={isLoading}
+                        animateOnce={isExiting ? completeGracefulExit : undefined}
+                        className="Toolbar__logomark"
+                    />
                 </ToolbarButton>
                 {isAuthenticated ? (
                     <>
