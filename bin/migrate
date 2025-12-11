@@ -45,8 +45,8 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
     fi
 fi
 
-RUN_CLICKHOUSE=$(run_scope "clickhouse" && echo 1 || echo 0)
-RUN_POSTGRES=$(run_scope "postgres" && echo 1 || echo 0)
+if run_scope "clickhouse"; then RUN_CLICKHOUSE=1; else RUN_CLICKHOUSE=0; fi
+if run_scope "postgres"; then RUN_POSTGRES=1; else RUN_POSTGRES=0; fi
 
 # Run ClickHouse in background only when both CH and Postgres run (original parallel behavior)
 if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
