@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconInfo, IconPlayFilled, IconRedo, IconTestTube } from '@posthog/icons'
 import {
@@ -45,8 +45,6 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
     const { workflow, selectedNode } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
-    const [eventPanelOpen, setEventPanelOpen] = useState<string[]>(['event'])
-    const [eventSelectorOpen, setEventSelectorOpen] = useState(false)
 
     const {
         sampleGlobals,
@@ -57,9 +55,18 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
         testResult,
         shouldLoadSampleGlobals,
         nextActionId,
+        eventPanelOpen,
+        eventSelectorOpen,
     } = useValues(hogFlowEditorTestLogic(logicProps))
-    const { submitTestInvocation, setTestResult, loadSampleGlobals, loadSampleEventByName, setSampleGlobals } =
-        useActions(hogFlowEditorTestLogic(logicProps))
+    const {
+        submitTestInvocation,
+        setTestResult,
+        loadSampleGlobals,
+        loadSampleEventByName,
+        setSampleGlobals,
+        setEventPanelOpen,
+        setEventSelectorOpen,
+    } = useActions(hogFlowEditorTestLogic(logicProps))
 
     const display = asDisplay(sampleGlobals?.person)
     const url = urls.personByDistinctId(sampleGlobals?.event?.distinct_id || '')
@@ -67,11 +74,6 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
     useEffect(() => {
         setTestResult(null)
     }, [selectedNode?.id, setTestResult])
-
-    // Ensure event panel is open when component mounts or becomes visible
-    useEffect(() => {
-        setEventPanelOpen(['event'])
-    }, [])
 
     if (!selectedNode) {
         return (
@@ -245,7 +247,6 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                                                 onChange={(_, value) => {
                                                                     if (typeof value === 'string') {
                                                                         loadSampleEventByName(value)
-                                                                        setEventSelectorOpen(false)
                                                                     }
                                                                 }}
                                                                 allowNonCapturedEvents

@@ -128,6 +128,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         cancelSampleGlobalsLoading: true,
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
         setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
+        setEventPanelOpen: (eventPanelOpen: string[]) => ({ eventPanelOpen }),
+        setEventSelectorOpen: (eventSelectorOpen: boolean) => ({ eventSelectorOpen }),
     }),
     reducers({
         testResult: [
@@ -179,6 +181,19 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         return previousGlobals
                     }
                 },
+            },
+        ],
+        eventPanelOpen: [
+            ['event'] as string[],
+            {
+                setEventPanelOpen: (_, { eventPanelOpen }) => eventPanelOpen,
+            },
+        ],
+        eventSelectorOpen: [
+            false as boolean,
+            {
+                setEventSelectorOpen: (_, { eventSelectorOpen }) => eventSelectorOpen,
+                loadSampleEventByNameSuccess: () => false, // Close selector after loading
             },
         ],
     }),
