@@ -1113,7 +1113,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         # Use from_cohort_id for both static and dynamic cohorts.
         # This copies people via an async Celery task using ClickHouse directly,
-        # which handles large cohorts efficiently without loading all UUIDs into memory.
+        # which handles large cohorts efficiently without loading an expensive JOIN
+        # on posthog_people.
         serializer_context["from_cohort_id"] = cohort.pk
 
         cohort_serializer = CohortSerializer(data=serializer_data, context=serializer_context)
