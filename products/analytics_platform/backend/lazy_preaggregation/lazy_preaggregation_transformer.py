@@ -5,15 +5,16 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression
-from posthog.hogql.transforms.preaggregation_executor import (
-    PreaggregationResult,
-    QueryInfo,
-    execute_preaggregation_jobs,
-)
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.models import Team
+
+from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
+    PreaggregationResult,
+    QueryInfo,
+    execute_preaggregation_jobs,
+)
 
 PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME = DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()
 
@@ -490,7 +491,7 @@ class Transformer(CloningVisitor):
 
         # Check if this query matches the pattern
         if not _is_daily_unique_persons_pageviews_query(transformed_node, self.context):
-            return node
+            return transformed_node
 
         # Extract date range
         where_exprs = _flatten_and(transformed_node.where)
@@ -498,7 +499,7 @@ class Transformer(CloningVisitor):
 
         if not timestamp_range:
             # Shouldn't happen if pattern detection worked, but defensive
-            return node
+            return transformed_node
 
         start_dt, end_dt = timestamp_range
 
@@ -508,7 +509,7 @@ class Transformer(CloningVisitor):
         # Run the preaggregation job orchestration
         team = self.context.team
         if not team:
-            return node
+            return transformed_node
         result = _run_daily_unique_persons_pageviews(team, query_to_insert, start_dt, end_dt)
 
         if not result.ready:

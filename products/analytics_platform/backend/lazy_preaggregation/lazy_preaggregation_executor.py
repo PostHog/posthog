@@ -12,8 +12,9 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
-from posthog.models.preaggregation_job import PreaggregationJob
 from posthog.models.team import Team
+
+from products.analytics_platform.backend.models import PreaggregationJob
 
 
 @dataclass

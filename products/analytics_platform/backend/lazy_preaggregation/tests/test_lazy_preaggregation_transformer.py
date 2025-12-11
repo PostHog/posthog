@@ -11,7 +11,11 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.transforms.hackathon_preaggregation import (
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.preaggregation.sql import SHARDED_PREAGGREGATION_RESULTS_TABLE
+
+from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_transformer import (
     PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME,
     Transformer,
     _extract_timestamp_range,
@@ -23,9 +27,6 @@ from posthog.hogql.transforms.hackathon_preaggregation import (
     _is_to_start_of_day_timestamp,
     _is_uniq_exact_persons_call,
 )
-
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.preaggregation.sql import SHARDED_PREAGGREGATION_RESULTS_TABLE
 
 
 class TestPatternDetection(BaseTest):
@@ -248,6 +249,7 @@ class TestQueryPatternDetection(BaseTest):
             FROM events
             WHERE event = '$pageview'
               AND toStartOfDay(timestamp) > '2025-01-01'
+              AND timestamp < '2024-02-01'
             GROUP BY toStartOfDay(timestamp)
         """
         node = self._parse_select(query)
@@ -266,7 +268,7 @@ class TestQueryPatternDetection(BaseTest):
         node = self._parse_select(query)
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         # Should match and infer end date
-        assert _is_daily_unique_persons_pageviews_query(node, context) is None
+        assert not _is_daily_unique_persons_pageviews_query(node, context)
 
     def test_with_single_breakdown(self):
         """Test query with one breakdown dimension."""
@@ -491,7 +493,7 @@ class TestQueryTransformation(BaseTest, QueryMatchingTest):
 
     def test_nested_select(self):
         original_query = """
-            SELECT sum(unique_persons) FROM (
+             SELECT sum(unique_persons) FROM (
                 SELECT uniqExact(person_id) AS unique_persons
                 FROM events
                 WHERE event = '$pageview'

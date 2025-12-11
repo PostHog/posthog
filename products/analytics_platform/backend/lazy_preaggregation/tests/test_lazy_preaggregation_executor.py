@@ -9,7 +9,12 @@ from posthog.schema import BaseMathType, DateRange, EventsNode, HogQLQueryModifi
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.transforms.preaggregation_executor import (
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+
+from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
     PreaggregationResult,
     QueryInfo,
     build_preaggregation_insert_sql,
@@ -17,11 +22,7 @@ from posthog.hogql.transforms.preaggregation_executor import (
     execute_preaggregation_jobs,
     find_missing_contiguous_windows,
 )
-
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.models.preaggregation_job import PreaggregationJob
+from products.analytics_platform.backend.models import PreaggregationJob
 
 
 class TestPreaggregationJob(BaseTest):
@@ -170,7 +171,7 @@ class TestBuildPreaggregationInsertSQL(BaseTest):
 
         assert (
             sql_with_values
-            == f"""INSERT INTO writable_preaggregation_results (
+            == f"""INSERT INTO preaggregation_results (
     team_id,
     time_window_start,
     breakdown_value,
@@ -196,7 +197,7 @@ SELECT {self.team.id} AS team_id, 1 AS col1, 2 AS col2, 3 AS col3, accurateCastO
 
         assert (
             sql_with_values
-            == f"""INSERT INTO writable_preaggregation_results (
+            == f"""INSERT INTO preaggregation_results (
     team_id,
     time_window_start,
     breakdown_value,
@@ -227,7 +228,7 @@ SELECT {self.team.id} AS team_id, 1 AS col1, 2 AS col2, 3 AS col3, accurateCastO
 
         assert (
             sql_with_values
-            == f"""INSERT INTO writable_preaggregation_results (
+            == f"""INSERT INTO preaggregation_results (
     team_id,
     time_window_start,
     breakdown_value,

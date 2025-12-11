@@ -10,7 +10,7 @@ class PreaggregationJob(CreatedMetaFields, UUIDModel):
         STALE = "stale", "Stale"
         FAILED = "failed", "Failed"
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, editable=False)
 
     # Time range this job covers
     time_range_start = models.DateTimeField()
