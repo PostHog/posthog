@@ -76,6 +76,13 @@ function initEditor(
     if (editorProps?.language === 'liquid') {
         initLiquidLanguage(monaco)
     }
+
+    editor.onKeyDown((evt) => {
+        if (evt.keyCode === monaco.KeyCode.Space) {
+            evt.stopPropagation()
+        }
+    })
+
     if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
             if (options.tabFocusMode) {
