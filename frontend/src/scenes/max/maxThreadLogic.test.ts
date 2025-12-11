@@ -37,6 +37,7 @@ import {
 
 describe('maxThreadLogic', () => {
     let logic: ReturnType<typeof maxThreadLogic.build>
+    let maxLogicInstance: ReturnType<typeof maxLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -53,18 +54,16 @@ describe('maxThreadLogic', () => {
         maxGlobalLogicInstance.mount()
         jest.spyOn(maxGlobalLogicInstance.selectors, 'dataProcessingAccepted').mockReturnValue(true)
 
+        // Set up maxLogic with matching conversationId so that activeThreadKey matches
+        maxLogicInstance = maxLogic({ tabId: 'test' })
+        maxLogicInstance.mount()
+        maxLogicInstance.actions.setConversationId(MOCK_CONVERSATION_ID)
+
         logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
     })
 
     afterEach(() => {
-        // Stop any active polling/streaming in maxLogic
-        const maxLogicInstance = maxLogic.findMounted()
-        if (maxLogicInstance) {
-            maxLogicInstance.cache.eventSourceController?.abort()
-            maxLogicInstance.unmount()
-        }
-
         // Stop any active streaming in the thread logic
         if (logic.cache?.generationController) {
             logic.cache.generationController.abort()
@@ -72,6 +71,12 @@ describe('maxThreadLogic', () => {
 
         sidePanelStateLogic.unmount()
         logic?.unmount()
+
+        // Stop any active polling/streaming in maxLogic
+        if (maxLogicInstance) {
+            maxLogicInstance.cache.eventSourceController?.abort()
+            maxLogicInstance.unmount()
+        }
 
         // Clean up any remaining mocks
         jest.restoreAllMocks()
@@ -334,6 +339,7 @@ describe('maxThreadLogic', () => {
     it('adds a thinking message when the thread is completely empty', async () => {
         const streamSpy = mockStream()
         logic.unmount()
+        maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
         logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
 
@@ -386,6 +392,7 @@ describe('maxThreadLogic', () => {
                 tiles: [],
             } as any)
 
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
@@ -410,6 +417,7 @@ describe('maxThreadLogic', () => {
             const streamSpy = mockStream()
 
             // Don't add any context data, so compiledContext will be null
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
@@ -431,6 +439,7 @@ describe('maxThreadLogic', () => {
         it('sends form_answers in ui_context when provided', async () => {
             const streamSpy = mockStream()
 
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
@@ -462,6 +471,7 @@ describe('maxThreadLogic', () => {
                 tiles: [],
             } as any)
 
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
@@ -486,6 +496,7 @@ describe('maxThreadLogic', () => {
         it('handles empty form_answers object', async () => {
             const streamSpy = mockStream()
 
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
