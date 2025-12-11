@@ -1,24 +1,16 @@
 import { EventHeaders, IncomingEventWithTeam } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restriction-manager'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 function applyPersonProcessingRestrictions(
     eventWithTeam: IncomingEventWithTeam,
-    eventIngestionRestrictionManager: EventIngestionRestrictionManager,
-    headers: EventHeaders
+    restrictions: ReadonlySet<Restriction>,
+    team_person_processing_opt_out: boolean
 ): void {
-    const { event, team } = eventWithTeam
+    const { event } = eventWithTeam
 
-    const shouldSkipPersonRestriction = eventIngestionRestrictionManager.shouldSkipPerson(
-        headers.token,
-        headers.distinct_id,
-        headers.session_id,
-        headers.event,
-        headers.uuid
-    )
-    const shouldSkipPersonOptOut = team.person_processing_opt_out
-    const shouldSkipPerson = shouldSkipPersonRestriction || shouldSkipPersonOptOut
+    const shouldSkipPerson = restrictions.has(Restriction.SKIP_PERSON_PROCESSING) || team_person_processing_opt_out
 
     if (shouldSkipPerson) {
         if (event.properties) {
@@ -34,7 +26,12 @@ export function createApplyPersonProcessingRestrictionsStep<
 >(eventIngestionRestrictionManager: EventIngestionRestrictionManager): ProcessingStep<T, T> {
     return async function applyPersonProcessingRestrictionsStep(input) {
         const { eventWithTeam, headers } = input
-        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager, headers)
+        const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(headers.token, headers)
+        applyPersonProcessingRestrictions(
+            eventWithTeam,
+            restrictions,
+            eventWithTeam.team.person_processing_opt_out ?? false
+        )
         return Promise.resolve(ok(input))
     }
 }
