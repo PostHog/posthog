@@ -3234,10 +3234,20 @@ export type SurveyRawResults = SurveyResponseRow[]
 
 // Product Tours
 export interface ProductTourStep {
+    id: string
     selector: string
     /** Rich text content in tiptap JSONContent format */
     content: Record<string, any> | null
     position?: 'top' | 'bottom' | 'left' | 'right'
+}
+
+/** Tracks a snapshot of steps at a point in time for funnel analysis */
+export interface StepOrderVersion {
+    id: string
+    /** Full snapshot of steps as they existed when this version was created */
+    steps: ProductTourStep[]
+    /** When this version became active */
+    created_at: string
 }
 
 export interface ProductTourContent {
@@ -3248,6 +3258,8 @@ export interface ProductTourContent {
         urlMatchType?: 'exact' | 'contains' | 'regex'
         selector?: string
     }
+    /** History of step order changes for funnel analysis */
+    step_order_history?: StepOrderVersion[]
 }
 
 export interface ProductTour {
