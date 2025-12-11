@@ -205,10 +205,20 @@
     }
 
     .InsightVizDisplay {
+        display: flex;
+        flex-direction: column;
         height: 100%;
     }
 
+    .InsightVizDisplay__content {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+    }
+
     .TrendsInsight {
-        min-height: 100%;
+        flex: 1;
+        min-height: 0;
     }
 }
