@@ -382,6 +382,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
         setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
+        stopRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
@@ -1371,6 +1372,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (scheduledChange) {
                 lemonToast.success('Change has been deleted')
                 actions.loadScheduledChanges()
+            }
+        },
+        stopRecurringScheduledChange: async ({ scheduledChangeId }) => {
+            const { currentProjectId } = values
+            if (currentProjectId) {
+                try {
+                    await api.featureFlags.updateScheduledChange(currentProjectId, scheduledChangeId, {
+                        is_recurring: false,
+                    })
+                    lemonToast.success('Recurring schedule has been stopped')
+                    actions.loadScheduledChanges()
+                } catch {
+                    lemonToast.error('Failed to stop recurring schedule')
+                }
             }
         },
         setRemoteConfigEnabled: ({ enabled }) => {

@@ -994,13 +994,20 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
     }
 
-    public featureFlagDeleteScheduledChange(
+    public featureFlagScheduledChange(
         teamId: TeamType['id'],
         scheduledChangeId: ScheduledChangeType['id']
     ): ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('scheduled_changes')
             .addPathComponent(`${scheduledChangeId}`)
+    }
+
+    public featureFlagDeleteScheduledChange(
+        teamId: TeamType['id'],
+        scheduledChangeId: ScheduledChangeType['id']
+    ): ApiRequest {
+        return this.featureFlagScheduledChange(teamId, scheduledChangeId)
     }
 
     // # Features
@@ -1875,6 +1882,13 @@ const api = {
             scheduledChangeId: ScheduledChangeType['id']
         ): Promise<{ scheduled_change: ScheduledChangeType }> {
             return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
+        },
+        async updateScheduledChange(
+            teamId: TeamType['id'],
+            scheduledChangeId: ScheduledChangeType['id'],
+            data: Partial<ScheduledChangeType>
+        ): Promise<ScheduledChangeType> {
+            return await new ApiRequest().featureFlagScheduledChange(teamId, scheduledChangeId).update({ data })
         },
         async getStatus(
             teamId: TeamType['id'],

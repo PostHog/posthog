@@ -88,6 +88,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         createScheduledChange,
         setIsRecurring,
         setRecurrenceInterval,
+        stopRecurringScheduledChange,
     } = useActions(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -167,9 +168,13 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         case RecurrenceInterval.Weekly:
                             recurringDescription = `Every ${scheduledAt.format('dddd')} at ${timeStr}`
                             break
-                        case RecurrenceInterval.Monthly:
-                            recurringDescription = `Monthly on the ${scheduledAt.format('Do')} at ${timeStr}`
+                        case RecurrenceInterval.Monthly: {
+                            // For days 29-31, show "last day" since months vary in length
+                            const dayOfMonth = scheduledAt.date()
+                            const dayText = dayOfMonth >= 29 ? 'last day' : scheduledAt.format('Do')
+                            recurringDescription = `Monthly on the ${dayText} at ${timeStr}`
                             break
+                        }
                         default:
                             recurringDescription = `Every ${scheduledChange.recurrence_interval}`
                     }
@@ -222,13 +227,23 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     featureFlag.can_edit && (
                         <More
                             overlay={
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => deleteScheduledChange(scheduledChange.id)}
-                                    fullWidth
-                                >
-                                    Delete scheduled change
-                                </LemonButton>
+                                <>
+                                    {scheduledChange.is_recurring && (
+                                        <LemonButton
+                                            onClick={() => stopRecurringScheduledChange(scheduledChange.id)}
+                                            fullWidth
+                                        >
+                                            Stop recurring
+                                        </LemonButton>
+                                    )}
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => deleteScheduledChange(scheduledChange.id)}
+                                        fullWidth
+                                    >
+                                        Delete scheduled change
+                                    </LemonButton>
+                                </>
                             }
                         />
                     )
@@ -285,7 +300,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 <div className="flex items-center gap-2">
                                     <LemonCheckbox
                                         id="recurring-checkbox"
-                                        label="Repeat this change"
+                                        label="Make recurring"
                                         onChange={setIsRecurring}
                                         checked={isRecurring}
                                     />
