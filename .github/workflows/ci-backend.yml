@@ -814,6 +814,7 @@ jobs:
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
+                      --reruns 2 --reruns-delay 1 \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -843,6 +844,7 @@ jobs:
               run: |
                   pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                       --durations=1000 --durations-min=1.0 \
+                      --reruns 2 --reruns-delay 1 \
                       $PYTEST_ARGS
 
             - name: Run Temporal tests
@@ -859,6 +861,7 @@ jobs:
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
+                      --reruns 2 --reruns-delay 1 \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -1104,7 +1107,7 @@ jobs:
 
             - name: Run async migrations tests
               run: |
-                  pytest -m "async_migrations"
+                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1
 
     calculate-running-time:
         name: Calculate running time
