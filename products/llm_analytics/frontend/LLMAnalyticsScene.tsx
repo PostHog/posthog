@@ -5,6 +5,7 @@ import React from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSwitch,
@@ -568,6 +569,10 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             <Filters hidePropertyFilters />
 
             <TrialUsageMeter showSettingsLink />
+
+            <LemonBanner type="info" dismissKey="evals-billing-notice">
+                Each evaluation run counts as an LLM analytics event.
+            </LemonBanner>
 
             <div className="flex justify-between items-center">
                 <div>

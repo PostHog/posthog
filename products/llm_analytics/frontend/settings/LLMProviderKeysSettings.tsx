@@ -80,11 +80,11 @@ function KeyValidationStatus({
 
     if (!result) {
         return (
-            <p className="text-xs text-muted mt-1">
-                Your OpenAI API key. It will be encrypted and stored securely. Evaluations use GPT-5-mini - you pay
-                OpenAI directly for usage. Each evaluation sends the prompt template and generation input/output to the
-                judge.
-            </p>
+            <ul className="text-xs text-muted mt-1 list-disc pl-4 space-y-0.5">
+                <li>Your key will be encrypted and stored securely</li>
+                <li>Evaluations use GPT-5-mini, you pay OpenAI directly</li>
+                <li>Each evaluation counts as an LLM analytics event</li>
+            </ul>
         )
     }
 
@@ -176,6 +176,7 @@ function AddKeyModal(): JSX.Element {
             isOpen={newKeyModalOpen}
             onClose={handleClose}
             title="Add OpenAI API key"
+            width={480}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={handleClose}>

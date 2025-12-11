@@ -439,6 +439,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 increment_trial_eval_count_activity,
                 evaluation["team_id"],
+                activity_id=f"increment-trial-{evaluation['id']}",
                 schedule_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
