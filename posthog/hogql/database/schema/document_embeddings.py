@@ -14,7 +14,8 @@ from posthog.hogql.database.models import (
     Table,
 )
 
-from products.error_tracking.backend.embedding import DISTRIBUTED_DOCUMENT_EMBEDDINGS
+# Note: Using union view that combines all model-specific tables
+DOCUMENT_EMBEDDINGS_VIEW = "posthog_document_embeddings_union_view"
 
 DOCUMENT_EMBEDDINGS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -51,7 +52,7 @@ class RawDocumentEmbeddingsTable(Table):
     fields: dict[str, FieldOrTable] = DOCUMENT_EMBEDDINGS_FIELDS
 
     def to_printed_clickhouse(self, context):
-        return DISTRIBUTED_DOCUMENT_EMBEDDINGS
+        return DOCUMENT_EMBEDDINGS_VIEW
 
     def to_printed_hogql(self):
         return f"raw_document_embeddings"
@@ -69,7 +70,7 @@ class DocumentEmbeddingsTable(LazyTable):
         return select_from_embeddings_table(table_to_add.fields_accessed)
 
     def to_printed_clickhouse(self, context):
-        return DISTRIBUTED_DOCUMENT_EMBEDDINGS
+        return DOCUMENT_EMBEDDINGS_VIEW
 
     def to_printed_hogql(self):
         return "document_embeddings"

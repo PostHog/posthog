@@ -105,7 +105,7 @@ EMBEDDING_MODELS_1 = [
 # Helper functions for pausing/resuming the entire embedding system
 def drop_kafka_to_buffer_mv_sql() -> str:
     """Drop the Kafka-to-buffer MV to pause all embedding consumption."""
-    return f"DROP TABLE IF EXISTS {KAFKA_TO_BUFFER_MV} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    return f"DROP TABLE IF EXISTS {KAFKA_TO_BUFFER_MV} "
 
 
 def KAFKA_TO_BUFFER_MV_SQL() -> str:
@@ -235,16 +235,16 @@ class ModelTableDefinitions:
     # SQL statements for dropping tables
 
     def drop_materialized_view_sql(self) -> str:
-        return f"DROP TABLE IF EXISTS {self.materialized_view_name()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+        return f"DROP TABLE IF EXISTS {self.materialized_view_name()}"
 
     def drop_distributed_sql(self) -> str:
-        return f"DROP TABLE IF EXISTS {self.distributed_table_name()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+        return f"DROP TABLE IF EXISTS {self.distributed_table_name()}"
 
     def drop_writable_sql(self) -> str:
-        return f"DROP TABLE IF EXISTS {self.writable_table_name()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+        return f"DROP TABLE IF EXISTS {self.writable_table_name()}"
 
     def truncate_sharded_sql(self) -> str:
-        return f"TRUNCATE TABLE IF EXISTS {self.sharded_table_name()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+        return f"TRUNCATE TABLE IF EXISTS {self.sharded_table_name()}"
 
     def add_vector_index_sql(self) -> list[str]:
         """SQL to add vector similarity indexes to the sharded table after creation."""
@@ -264,3 +264,39 @@ EMBEDDING_TABLES = [
     *EMBEDDING_TABLES_1,
     # Future: *EMBEDDING_TABLES_2, etc.
 ]
+
+
+# Union view that combines all model-specific tables and adds model_name column back
+def DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL() -> str:
+    """
+    Create a UNION ALL view combining all model-specific distributed tables.
+    Adds model_name column back for backward compatibility with queries.
+    """
+    union_parts = []
+    for model_table in EMBEDDING_TABLES:
+        model_name = model_table.model_name
+        distributed_table = model_table.distributed_table_name()
+
+        # Each part selects all columns and adds model_name as a constant
+        union_parts.append(f"""
+        SELECT
+            team_id,
+            product,
+            document_type,
+            rendering,
+            document_id,
+            timestamp,
+            inserted_at,
+            content,
+            metadata,
+            embedding,
+            _timestamp,
+            _offset,
+            _partition,
+            '{model_name}' AS model_name
+        FROM {distributed_table}""")
+
+    view_sql = f"""CREATE VIEW IF NOT EXISTS posthog_document_embeddings_union_view
+AS {' UNION ALL '.join(union_parts)}"""
+
+    return view_sql
