@@ -1976,9 +1976,6 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
 
-export const isUserLoggedIntoOrganization = (): boolean =>
-    isUserLoggedIn() && !!getAppContext()?.current_user?.organization
-
 // https://stackoverflow.com/questions/175739/how-can-i-check-if-a-string-is-a-valid-number
 export function isNumeric(x: unknown): x is number {
     if (typeof x === 'number') {

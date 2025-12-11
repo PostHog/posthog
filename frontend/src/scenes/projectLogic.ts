@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { identifierToHuman, isUserLoggedIntoOrganization } from 'lib/utils'
+import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
@@ -47,7 +47,7 @@ export const projectLogic = kea<projectLogicType>([
             null as ProjectType | null,
             {
                 loadCurrentProject: async () => {
-                    if (!isUserLoggedIntoOrganization()) {
+                    if (!isUserLoggedIn()) {
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return null
                     }

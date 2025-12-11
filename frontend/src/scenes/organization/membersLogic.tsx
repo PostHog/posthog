@@ -5,7 +5,6 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isUserLoggedIntoOrganization } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -41,11 +40,6 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
-                if (!isUserLoggedIntoOrganization()) {
-                    // If user is anonymous (i.e. viewing a shared dashboard logged out), or not authed as a member of an organization, don't load authenticated stuff
-                    return null
-                }
-
                 return await api.organizationMembers.listAll({
                     limit: PAGINATION_LIMIT,
                 })

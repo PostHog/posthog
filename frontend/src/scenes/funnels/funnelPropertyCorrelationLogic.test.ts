@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -104,10 +104,7 @@ describe('funnelPropertyCorrelationLogic', () => {
             },
         })
         initKeaTests(false)
-        window.POSTHOG_APP_CONTEXT = {
-            // @ts-expect-error: partial of the app context type
-            current_user: { organization: MOCK_DEFAULT_ORGANIZATION },
-        } // to force API request to /api/environments/@current
+        window.POSTHOG_APP_CONTEXT = undefined // to force API request to /api/environments/@current
     })
 
     const defaultProps: InsightLogicProps = {
