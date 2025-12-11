@@ -7,6 +7,7 @@ use posthog_symbol_data::{write_symbol_data, SourceAndMap};
 use tracing::{debug, info, warn};
 use walkdir::DirEntry;
 
+#[derive(Debug)]
 // Source pairs are the fundamental unit of a frontend symbol set
 pub struct SourcePair {
     pub source: MinifiedSourceFile,

@@ -107,7 +107,7 @@ fn test_exclude() {
         &None,
     )
     .expect("Failed to read pairs");
-    assert_eq!(pairs.len(), 3);
+    assert_eq!(pairs.len(), 4);
     assert_eq!(
         pairs.first().unwrap().source.inner.path,
         get_case_path("inject/chunk.js")
@@ -264,15 +264,16 @@ fn test_file_selection() {
     let res = read_pairs(
         vec![get_case_path("paths")],
         vec![],
-        vec!["**/[locale]/(app)/[...not_found]/index.js".to_string()],
+        vec!["**/chunks/app/[locale]/(app)/[...not-found]/index.js".to_string()],
         &None,
     );
     assert!(res.is_err());
+    assert_eq!(res.unwrap_err().to_string(), "error parsing glob '**/chunks/app/[locale]/(app)/[...not-found]/index.js': invalid range; 't' > 'f'");
 
     // But should work with file paths
     let res = read_pairs(
         vec![get_case_path(
-            "paths/[locale]/(app)/[...not_found]/index.js",
+            "paths/chunks/app/[locale]/(app)/[...not-found]/index.js",
         )],
         vec![],
         vec![],
