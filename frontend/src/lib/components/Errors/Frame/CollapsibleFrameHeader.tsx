@@ -26,19 +26,11 @@ export function CollapsibleFrameHeader({
     recordLoading: boolean
     expanded: boolean
 }): JSX.Element {
-    const { raw_id, source: _originalSource, line, column, resolved, resolve_failure, in_app, lang } = frame
-    // TODO: Remove this debug override - artificially long path for testing wrapping
-    const source = _originalSource
-        ? `/very/long/path/to/some/deeply/nested/directory/structure/that/keeps/going/${_originalSource}`
-        : _originalSource
+    const { raw_id, source, line, column, resolved, resolve_failure, in_app, lang } = frame
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
 
     const part = getFrameFingerprint(raw_id)
-    // TODO: Remove this debug override - artificially long names for testing wrapping
-    const _originalResolvedName = formatResolvedName(frame)
-    const resolvedName = _originalResolvedName
-        ? `veryLongModuleName.anotherLongClassName.${_originalResolvedName}WithExtremelyLongSuffixForTestingPurposes`
-        : null
+    const resolvedName = formatResolvedName(frame)
     const hasRecordContext = !!record && !!record.context
 
     return (
