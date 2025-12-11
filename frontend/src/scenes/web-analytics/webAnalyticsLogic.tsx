@@ -11,7 +11,6 @@ import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -2364,20 +2363,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         actions.setConversionGoalWarning
                     ),
             ],
-            [teamLogic.actionTypes.updateCurrentTeam]: async (action) => {
-                const isPreAggregatedEnabled =
-                    values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    action?.modifiers?.useWebAnalyticsPreAggregatedTables
-                const hasConversionGoalPreAggFlag =
-                    values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]
-
-                if (isPreAggregatedEnabled && values.conversionGoal && !hasConversionGoalPreAggFlag) {
-                    actions.setConversionGoal(null)
-                    lemonToast.info(
-                        'Your conversion goal has been cleared as the new query engine does not support it (yet!)'
-                    )
-                }
-            },
         }
     }),
     afterMount(({ actions, values }) => {
