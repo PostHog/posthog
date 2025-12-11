@@ -198,7 +198,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [values.matchingFilters],
                             select: ['*', 'person'],
-                            after: '-30d',
+                            after: '-7d',
                             limit: 10, // Get 10 events to cycle through
                             orderBy: ['timestamp DESC'],
                             modifiers: {
@@ -213,7 +213,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             // No matching events found, fall back to example event
                             const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
                             actions.setSampleGlobalsError(
-                                'No events match these filters in the last 30 days. Using an example $pageview event instead.'
+                                'No events match these filters in the last 7 days. Using an example $pageview event instead.'
                             )
                             actions.setNoMatchingEvents(true)
                             return exampleGlobals
@@ -263,7 +263,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                                 },
                             ],
                             select: ['*', 'person'],
-                            after: '-30d',
+                            after: '-7d',
                             limit: 1,
                             orderBy: ['timestamp DESC'],
                             modifiers: {
@@ -281,7 +281,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                                 eventName
                             )
                             actions.setSampleGlobalsError(
-                                `No "${eventName}" events found in the last 30 days. Using an example event instead.`
+                                `No "${eventName}" events found in the last 7 days. Using an example event instead.`
                             )
                             return exampleGlobals
                         }
