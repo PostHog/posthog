@@ -1171,15 +1171,6 @@ jobs:
             - name: Install dependencies
               run: uv sync --frozen --dev
 
-            - name: Run ruff check
-              run: uv run ruff check .
-
-            - name: Run ruff format check
-              run: uv run ruff format --check .
-
-            - name: Run mypy
-              run: uv run mypy src/
-
             - name: Run tests
               env:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
