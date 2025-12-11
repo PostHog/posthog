@@ -373,12 +373,19 @@ class FeatureFlagSerializer(
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    CREATION_CONTEXT_CHOICES = (
+        "feature_flags",
+        "experiments",
+        "surveys",
+        "early_access_features",
+        "web_experiments",
+        "product_tours",
+    )
     creation_context = serializers.ChoiceField(
         choices=CREATION_CONTEXT_CHOICES,
         write_only=True,
         required=False,
-        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
+        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _should_create_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=True)
@@ -1240,7 +1247,9 @@ def _evaluate_flags_with_fallback(
         # My plan is to roll this out, let it bake for a bit, monitor if this tombstone metric is hit, and then remove this fallback.
         # TODO remove this fallback once we're confident that the proxying works great.
         TOMBSTONE_COUNTER.labels(
-            namespace="feature_flag", operation="proxy_to_flags_service", component="python_fallback"
+            namespace="feature_flags",
+            operation="proxy_to_flags_service",
+            component="python_fallback",
         ).inc()
         logger.warning(f"Failed to proxy to flags service, falling back to Python: {e}")
 

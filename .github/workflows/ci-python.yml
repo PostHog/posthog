@@ -50,6 +50,8 @@ jobs:
                         # hogli CLI changes need validation
                         - 'common/hogli/**'
                         - 'bin/**'
+                        # LLM Gateway service
+                        - 'services/llm-gateway/**/*.py'
 
     code-quality:
         needs: changes

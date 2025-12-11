@@ -321,14 +321,10 @@ jobs:
                   python manage.py migrate_clickhouse &
                   python manage.py migrate --noinput
 
-                  # Build and run Rust migrations using dedicated container
-                  # Use posthog_persons_e2e_test as the separate persons database for e2e tests
-                  # This keeps posthog_e2e_test as the default DB with old non-partitioned schema (Django migrations only)
-                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
-                  docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test" \
-                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest all
+                  # Run Rust migrations for persons e2e test database
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
+                  sqlx database create -D "$PERSONS_DATABASE_URL"
+                  sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 
                   python manage.py setup_dev
                   wait
@@ -341,7 +337,7 @@ jobs:
             - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
-                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 1 &> /tmp/server.log &
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 4 &> /tmp/server.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -358,8 +354,8 @@ jobs:
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
-              # we can run 10 workers because we have 16 CPU
-              # we don't want to run 16 since we need to leave some for everything else
+              # Run 6 Playwright workers against 4 granian workers
+              # This balances parallelism with server capacity to avoid timeouts
               run: |
                   set +e  # Allow snapshot update retry
                   # Attempt 1: Always verify (fast path when snapshots match)
@@ -367,7 +363,7 @@ jobs:
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
                   echo "Attempt 1: Running Playwright tests"
                   set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=10 2>&1 | tee /tmp/playwright-output-attempt-1.log
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=6 2>&1 | tee /tmp/playwright-output-attempt-1.log
                   EXIT_CODE=$?
                   set +o pipefail
 
@@ -387,7 +383,7 @@ jobs:
                       # Attempt 2: Update snapshots
                       echo "Attempt 2: Running Playwright tests with --update-snapshots"
                       set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=10 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=6 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
                       EXIT_CODE=$?
                       set +o pipefail
 

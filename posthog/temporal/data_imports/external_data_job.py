@@ -4,6 +4,7 @@ import typing
 import datetime as dt
 import dataclasses
 
+from django.conf import settings
 from django.db import close_old_connections
 
 import posthoganalytics
@@ -17,6 +18,10 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
+from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
+    DataImportsDuckLakeCopyInputs,
+    DuckLakeCopyDataImportsWorkflow,
+)
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from posthog.temporal.data_imports.sources import SourceRegistry
@@ -319,6 +324,19 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+            # Start DuckLake copy workflow as a child (fire-and-forget)
+            await workflow.start_child_workflow(
+                DuckLakeCopyDataImportsWorkflow.run,
+                DataImportsDuckLakeCopyInputs(
+                    team_id=inputs.team_id,
+                    job_id=job_id,
+                    schema_ids=[inputs.external_data_schema_id],
+                ),
+                id=f"ducklake-copy-data-imports-{job_id}",
+                task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
             )
 
         except exceptions.ActivityError as e:

@@ -54,16 +54,18 @@ import { insightVizDataLogic } from '../insightVizDataLogic'
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
     detail = 'Try changing the date range, or pick another action, event or breakdown.',
+    icon = <IconArchive className="text-5xl mb-2 text-tertiary" />,
 }: {
     heading?: string
     detail?: string | JSX.Element
+    icon?: JSX.Element
 }): JSX.Element {
     return (
         <div
             data-attr="insight-empty-state"
             className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center text-center text-balance"
         >
-            <IconArchive className="text-5xl mb-2 text-tertiary" />
+            {icon}
             <h2 className="text-xl leading-tight">{heading}</h2>
             <p className="text-sm text-tertiary">{detail}</p>
         </div>

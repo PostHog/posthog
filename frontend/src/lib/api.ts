@@ -151,6 +151,7 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
+    ProductTour,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -1065,6 +1066,15 @@ export class ApiRequest {
         return this.surveys(teamId).addPathComponent('activity')
     }
 
+    // Product tours
+    public productTours(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('product_tours')
+    }
+
+    public productTour(id: ProductTour['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.productTours(teamId).addPathComponent(id)
+    }
+
     // Error tracking
     public errorTracking(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('error_tracking')
@@ -1889,6 +1899,7 @@ const api = {
             type__startswith,
             createdAtGt,
             createdAtLt,
+            searchNameOnly,
         }: {
             parent?: string
             path?: string
@@ -1903,6 +1914,7 @@ const api = {
             type__startswith?: string
             createdAtGt?: string
             createdAtLt?: string
+            searchNameOnly?: boolean
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
@@ -1920,6 +1932,7 @@ const api = {
                     type__startswith,
                     created_at__gt: createdAtGt,
                     created_at__lt: createdAtLt,
+                    search_name_only: searchNameOnly,
                 })
                 .get()
         },
@@ -3489,7 +3502,10 @@ const api = {
             return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
         },
 
-        async bulkDeleteRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+        async bulkDeleteRecordings(
+            session_recording_ids: SessionRecordingType['id'][],
+            date_from?: string | null
+        ): Promise<{
             success: boolean
             deleted_count: number
             total_requested: number
@@ -3497,7 +3513,7 @@ const api = {
             return await new ApiRequest()
                 .recordings()
                 .withAction('bulk_delete')
-                .create({ data: { session_recording_ids } })
+                .create({ data: { session_recording_ids, ...(date_from ? { date_from } : {}) } })
         },
 
         async bulkViewedRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
@@ -3768,13 +3784,10 @@ const api = {
             async get(taskId: Task['id'], runId: TaskRun['id']): Promise<TaskRun> {
                 return await new ApiRequest().taskRun(taskId, runId).get()
             },
-            async getLogs(taskId: Task['id'], runId: TaskRun['id'], noCache: boolean = false): Promise<string> {
+            async getLogs(taskId: Task['id'], runId: TaskRun['id']): Promise<string> {
                 const run = await new ApiRequest().taskRun(taskId, runId).get()
                 if (run.log_url) {
-                    const url = noCache
-                        ? `${run.log_url}${run.log_url.includes('?') ? '&' : '?'}t=${Date.now()}`
-                        : run.log_url // TRICKY: We add a timestamp to bypass the browser cache
-                    const response = await fetch(url, {
+                    const response = await fetch(run.log_url, {
                         cache: 'no-store',
                         headers: {
                             'Cache-Control': 'no-cache',
@@ -3905,6 +3918,24 @@ const api = {
         },
         async getArchivedResponseUuids(surveyId: Survey['id']): Promise<string[]> {
             return await new ApiRequest().survey(surveyId).withAction('archived-response-uuids').get()
+        },
+    },
+
+    productTours: {
+        async list(): Promise<PaginatedResponse<ProductTour>> {
+            return await new ApiRequest().productTours().get()
+        },
+        async get(tourId: ProductTour['id']): Promise<ProductTour> {
+            return await new ApiRequest().productTour(tourId).get()
+        },
+        async create(data: Partial<ProductTour>): Promise<ProductTour> {
+            return await new ApiRequest().productTours().create({ data })
+        },
+        async update(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
+            return await new ApiRequest().productTour(tourId).update({ data })
+        },
+        async delete(tourId: ProductTour['id']): Promise<void> {
+            await new ApiRequest().productTour(tourId).delete()
         },
     },
 
