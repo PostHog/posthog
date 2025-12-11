@@ -13,7 +13,7 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors, funnel_test_factory
+from posthog.hogql_queries.insights.funnels.test.test_funnel import funnel_test_factory
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.test.test_journeys import journeys_for
 
@@ -274,7 +274,7 @@ class TestFOSSFunnelUDF(funnel_test_factory(_create_event, _create_person)):  # 
 
 class TestFunnelConversionTimeUDF(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     maxDiff = None
     pass
