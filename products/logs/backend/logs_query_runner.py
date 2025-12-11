@@ -120,9 +120,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
     paginator: HogQLHasMorePaginator
 
     def __init__(self, query, *args, **kwargs):
-        # defensive copy of query because we mutate it
-        super().__init__(query.model_copy(deep=True), *args, **kwargs)
-        assert isinstance(self.query, LogsQuery)
+        super().__init__(query, *args, **kwargs)
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
@@ -142,7 +140,12 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             # todo: datetime?
             return "str"
 
-        if len(self.query.filterGroup.values) > 0:
+        self.attribute_filters = []
+        self.log_filters = []
+        self.resource_attribute_positive_filters = []
+        self.resource_attribute_negative_filters = []
+
+        if self.query.filterGroup and len(self.query.filterGroup.values) > 0:
             filter_keys = []
             # dynamically detect type of the given property values
             # if they all convert cleanly to float, use the __float property mapping instead
@@ -182,6 +185,28 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                         type=LogPropertyFilterType.LOG_ATTRIBUTE,
                     ),
                 )
+
+            for property_group in self.query.filterGroup.values:
+                self.attribute_filters = cast(
+                    list[LogPropertyFilter],
+                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_ATTRIBUTE],
+                )
+                self.log_filters = cast(
+                    list[LogPropertyFilter], [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
+                )
+                resource_attribute_group_filters = cast(
+                    list[LogPropertyFilter],
+                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE],
+                )
+                if resource_attribute_group_filters:
+                    self.resource_attribute_positive_filters += [
+                        filter
+                        for filter in resource_attribute_group_filters
+                        if not operator_is_negative(filter.operator)
+                    ]
+                    self.resource_attribute_negative_filters += [
+                        filter for filter in resource_attribute_group_filters if operator_is_negative(filter.operator)
+                    ]
 
     def _calculate(self) -> LogsQueryResponse:
         response = self.paginator.execute_hogql_query(
@@ -284,69 +309,13 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             )
 
         if self.query.filterGroup:
-            # split out attribute and resource attribute filters
-            attribute_filters = []
-            log_filters = []
-            resource_attribute_positive_filters = []
-            resource_attribute_negative_filters = []
+            exprs.append(self.resource_filter(existing_filters=exprs))
 
-            for property_group in self.query.filterGroup.values:
-                attribute_filters = cast(
-                    list[LogPropertyFilter],
-                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_ATTRIBUTE],
-                )
-                log_filters = cast(
-                    list[LogPropertyFilter], [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
-                )
-                resource_attribute_group_filters = cast(
-                    list[LogPropertyFilter],
-                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE],
-                )
-                if resource_attribute_group_filters:
-                    resource_attribute_positive_filters += [
-                        filter
-                        for filter in resource_attribute_group_filters
-                        if not operator_is_negative(filter.operator)
-                    ]
-                    resource_attribute_negative_filters += [
-                        filter for filter in resource_attribute_group_filters if operator_is_negative(filter.operator)
-                    ]
+            if self.attribute_filters:
+                exprs.append(property_to_expr(self.attribute_filters, team=self.team))
 
-            negative_resource_filter = ast.Constant(value=True)
-            # generate a query which excludes all the resources which match a negative filter
-            # e.g. if you filter k8s.container.name != "nginx", this will return
-            #      (resource_fingerprint) NOT IN (<query which returns resources which DO have k8s.container.name = "nginx">)
-            if resource_attribute_negative_filters:
-                negative_resource_filter = _generate_resource_attribute_filters(
-                    resource_attribute_negative_filters,
-                    team=self.team,
-                    existing_filters=exprs,
-                    query_date_range=self.query_date_range,
-                    is_negative_filter=True,
-                )
-
-            if resource_attribute_positive_filters:
-                exprs.append(
-                    _generate_resource_attribute_filters(
-                        resource_attribute_positive_filters,
-                        team=self.team,
-                        # negative resource filter is passed in here
-                        existing_filters=[*exprs, negative_resource_filter],
-                        query_date_range=self.query_date_range,
-                        is_negative_filter=False,
-                    )
-                )
-            elif resource_attribute_negative_filters:
-                # If we have both positive and negative filters, the negative filters are applied to the positive filter
-                # query, so we don't need to add them again.
-                # If we ONLY have negative filters, we have to add them to the top level query.
-                exprs.append(negative_resource_filter)
-
-            if attribute_filters:
-                exprs.append(property_to_expr(attribute_filters, team=self.team))
-
-            if log_filters:
-                exprs.append(property_to_expr(log_filters, team=self.team))
+            if self.log_filters:
+                exprs.append(property_to_expr(self.log_filters, team=self.team))
 
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
@@ -411,6 +380,37 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             )
 
         return ast.And(exprs=exprs)
+
+    def resource_filter(self, *, existing_filters):
+        negative_resource_filter = ast.Constant(value=True)
+        # generate a query which excludes all the resources which match a negative filter
+        # e.g. if you filter k8s.container.name != "nginx", this will return
+        #      (resource_fingerprint) NOT IN (<query which returns resources which DO have k8s.container.name = "nginx">)
+        if self.resource_attribute_negative_filters:
+            negative_resource_filter = _generate_resource_attribute_filters(
+                self.resource_attribute_negative_filters,
+                team=self.team,
+                existing_filters=existing_filters,
+                query_date_range=self.query_date_range,
+                is_negative_filter=True,
+            )
+
+        if self.resource_attribute_positive_filters:
+            return _generate_resource_attribute_filters(
+                self.resource_attribute_positive_filters,
+                team=self.team,
+                # negative resource filter is passed in here
+                existing_filters=[*existing_filters, negative_resource_filter],
+                query_date_range=self.query_date_range,
+                is_negative_filter=False,
+            )
+        elif self.resource_attribute_negative_filters:
+            # If we have both positive and negative filters, the negative filters are applied to the positive filter
+            # query, so we don't need to add them again.
+            # If we ONLY have negative filters, we have to add them to the top level query.
+            return negative_resource_filter
+
+        return ast.Constant(value=1)
 
     @cached_property
     def properties(self):

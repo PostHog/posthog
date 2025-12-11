@@ -7,7 +7,7 @@ import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLo
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
-import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType, DateRange } from '~/queries/schema/schema-general'
 import {
     ActionType,
     CohortType,
@@ -41,6 +41,7 @@ export interface TaxonomicFilterProps {
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    endpointFilters?: Record<string, any>,
     height?: number
     width?: number | string
     popoverEnabled?: boolean

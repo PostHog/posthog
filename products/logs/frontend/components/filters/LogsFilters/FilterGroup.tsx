@@ -10,6 +10,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/compone
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import {
@@ -49,7 +50,7 @@ export const LogsFilterGroup = (): JSX.Element => {
 
 const UniversalSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { searchTerm } = useValues(logsLogic)
+    const { utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -64,6 +65,11 @@ const UniversalSearch = (): JSX.Element => {
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey,
         taxonomicGroupTypes,
+        endpointFilters: {
+            dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
+            filterGroup: logsFilterGroup,
+            serviceNames: serviceNames,
+        },
         onChange: (taxonomicGroup, value, item, originalQuery) => {
             setVisible(false)
             if (item.value === undefined) {
@@ -84,7 +90,6 @@ const UniversalSearch = (): JSX.Element => {
         },
         onEnter: onClose,
         autoSelectItem: true,
-        initialSearchQuery: searchTerm,
     }
 
     return (
