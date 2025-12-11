@@ -2,6 +2,8 @@ import { Histogram } from 'prom-client'
 
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 
+import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
+
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
@@ -307,6 +309,13 @@ export class LegacyPluginExecutorService {
             }
 
             pluginExecutionDuration.observe(performance.now() - start)
+            if (result.finished) {
+                const capturedAt = invocation.state.globals.event?.captured_at
+                if (capturedAt) {
+                    const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
+                    destinationE2eLagMsSummary.observe(e2eLagMs)
+                }
+            }
         } catch (e) {
             if (e instanceof RetryError) {
                 // NOTE: Schedule as a retry to cyclotron?

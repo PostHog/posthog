@@ -39,6 +39,10 @@ class RecordingBlockGroup(BaseModel):
     ranges: list[tuple[int, int]]
 
 
+class DeleteRecordingMetadataInput(BaseModel):
+    dry_run: bool = False
+
+
 class DeleteRecordingError(Exception):
     pass
 
