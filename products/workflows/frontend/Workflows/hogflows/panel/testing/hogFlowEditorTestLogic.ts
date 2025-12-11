@@ -120,11 +120,15 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     actions({
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
-        loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
-        loadSampleEventByName: (eventName: string) => ({ eventName }),
+        loadSampleGlobals: (payload?: { eventId?: string; extendedSearch?: boolean }) => ({
+            eventId: payload?.eventId,
+            extendedSearch: payload?.extendedSearch,
+        }),
+        loadSampleEventByName: (eventName: string, extendedSearch?: boolean) => ({ eventName, extendedSearch }),
         setSampleGlobals: (globals?: string | null) => ({ globals }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
         setNoMatchingEvents: (noMatchingEvents: boolean) => ({ noMatchingEvents }),
+        setCanTryExtendedSearch: (canTryExtendedSearch: boolean) => ({ canTryExtendedSearch }),
         cancelSampleGlobalsLoading: true,
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
         setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
@@ -156,6 +160,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             {
                 loadSampleGlobals: () => false,
                 setNoMatchingEvents: (_, { noMatchingEvents }) => noMatchingEvents,
+            },
+        ],
+        canTryExtendedSearch: [
+            false as boolean,
+            {
+                loadSampleGlobals: () => false,
+                setCanTryExtendedSearch: (_, { canTryExtendedSearch }) => canTryExtendedSearch,
             },
         ],
         fetchCancelled: [
@@ -202,18 +213,21 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         sampleGlobals: [
             null as CyclotronJobInvocationGlobals | null,
             {
-                loadSampleGlobals: async () => {
+                loadSampleGlobals: async ({ extendedSearch }) => {
                     if (!values.shouldLoadSampleGlobals) {
                         return null
                     }
 
                     try {
+                        // Use 30 days for extended search, 7 days normally
+                        const timeRange = extendedSearch ? '-30d' : '-7d'
+
                         // Fetch multiple events so we can cycle through them
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [values.matchingFilters],
                             select: ['*', 'person'],
-                            after: '-7d',
+                            after: timeRange,
                             limit: 10, // Get 10 events to cycle through
                             orderBy: ['timestamp DESC'],
                             modifiers: {
@@ -225,17 +239,30 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const response = await performQuery(query)
 
                         if (!response?.results?.[0]) {
-                            // No matching events found, fall back to example event
+                            // No matching events found
                             const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
-                            actions.setSampleGlobalsError(
-                                'No events match these filters in the last 7 days. Using an example $pageview event instead.'
-                            )
                             actions.setNoMatchingEvents(true)
+
+                            if (extendedSearch) {
+                                // Extended search (30 days) also failed
+                                actions.setSampleGlobalsError(
+                                    'No events match these filters in the last 30 days. Using an example $pageview event instead.'
+                                )
+                                actions.setCanTryExtendedSearch(false)
+                            } else {
+                                // First search (7 days) failed, allow extended search
+                                actions.setSampleGlobalsError(
+                                    'No events match these filters in the last 7 days. Using an example $pageview event instead.'
+                                )
+                                actions.setCanTryExtendedSearch(true)
+                            }
+
                             return exampleGlobals
                         }
 
                         // Found matching events
                         actions.setNoMatchingEvents(false)
+                        actions.setCanTryExtendedSearch(false)
 
                         // Pick a different event than the current one if possible
                         let resultIndex = 0
@@ -261,9 +288,14 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         return null
                     }
                 },
-                loadSampleEventByName: async ({ eventName }): Promise<CyclotronJobInvocationGlobals | null> => {
+                loadSampleEventByName: async ({
+                    eventName,
+                    extendedSearch,
+                }): Promise<CyclotronJobInvocationGlobals | null> => {
                     // Load a specific event by name (for non-event triggers)
                     try {
+                        const timeRange = extendedSearch ? '-30d' : '-7d'
+
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [
@@ -278,7 +310,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                                 },
                             ],
                             select: ['*', 'person'],
-                            after: '-7d',
+                            after: timeRange,
                             limit: 1,
                             orderBy: ['timestamp DESC'],
                             modifiers: {
@@ -289,14 +321,15 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const response = await performQuery(query)
 
                         if (!response?.results?.[0]) {
-                            // No matching events found, create an example event with this name
+                            // No matching events found
+                            const timePeriod = extendedSearch ? '30' : '7'
                             const exampleGlobals = createExampleEvent(
                                 values.workflow.team_id,
                                 values.workflow.name,
                                 eventName
                             )
                             actions.setSampleGlobalsError(
-                                `No "${eventName}" events found in the last 7 days. Using an example event instead.`
+                                `No "${eventName}" events found in the last ${timePeriod} days. Using an example event instead.`
                             )
                             return exampleGlobals
                         }
@@ -460,10 +493,11 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             // Just mark as cancelled - we'll ignore any results that come back
         },
         setSelectedNodeId: () => {
-            // When we switch back to a trigger node, reset the no matching events flag
+            // When we switch back to a trigger node, reset the flags
             // so we can try loading again
             if (values.noMatchingEvents) {
                 actions.setNoMatchingEvents(false)
+                actions.setCanTryExtendedSearch(false)
             }
         },
     })),
