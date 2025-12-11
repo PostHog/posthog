@@ -31,14 +31,18 @@ export interface HogflowTestInvocation {
     mock_async_functions: boolean
 }
 
-const createExampleEvent = (teamId?: number, workflowName?: string | null): CyclotronJobInvocationGlobals => ({
+const createExampleEvent = (
+    teamId?: number,
+    workflowName?: string | null,
+    eventName: string = '$pageview'
+): CyclotronJobInvocationGlobals => ({
     event: {
         uuid: uuid(),
         distinct_id: uuid(),
         timestamp: dayjs().toISOString(),
         elements_chain: '',
         url: `${window.location.origin}/project/${teamId || 1}/events/`,
-        event: '$pageview',
+        event: eventName,
         properties: {
             $current_url: window.location.href.split('#')[0],
             $browser: 'Chrome',
@@ -65,6 +69,41 @@ const createExampleEvent = (teamId?: number, workflowName?: string | null): Cycl
     },
 })
 
+const createGlobalsFromResponse = (
+    event: any,
+    person: any,
+    teamId: number,
+    workflowName?: string | null
+): CyclotronJobInvocationGlobals => ({
+    event: {
+        uuid: event.uuid,
+        distinct_id: event.distinct_id,
+        timestamp: event.timestamp,
+        elements_chain: event.elements_chain || '',
+        url: event.url || '',
+        event: event.event,
+        properties: event.properties,
+    },
+    person: person
+        ? {
+              id: person.id,
+              properties: person.properties,
+              name: person.name || 'Unknown person',
+              url: `${window.location.origin}/person/${person.id}`,
+          }
+        : undefined,
+    groups: {},
+    project: {
+        id: teamId,
+        name: 'Default project',
+        url: `${window.location.origin}/project/${teamId}`,
+    },
+    source: {
+        name: workflowName ?? 'Unnamed',
+        url: window.location.href.split('#')[0],
+    },
+})
+
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'actions', 'workflowTestLogic', key]),
     props({} as WorkflowLogicProps),
@@ -82,6 +121,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
+        loadSampleEventByName: (eventName: string) => ({ eventName }),
         setSampleGlobals: (globals?: string | null) => ({ globals }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
         setNoMatchingEvents: (noMatchingEvents: boolean) => ({ noMatchingEvents }),
@@ -198,41 +238,61 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const event = response.results[resultIndex][0]
                         const person = response.results[resultIndex][1]
 
-                        const globals = {
-                            event: {
-                                uuid: event.uuid,
-                                distinct_id: event.distinct_id,
-                                timestamp: event.timestamp,
-                                elements_chain: event.elements_chain || '',
-                                url: event.url || '',
-                                event: event.event,
-                                properties: event.properties,
-                            },
-                            person: person
-                                ? {
-                                      id: person.id,
-                                      properties: person.properties,
-                                      name: person.name || 'Unknown person',
-                                      url: `${window.location.origin}/person/${person.id}`,
-                                  }
-                                : undefined,
-                            groups: {},
-                            project: {
-                                id: values.workflow.team_id,
-                                name: 'Default project',
-                                url: `${window.location.origin}/project/${values.workflow.team_id}`,
-                            },
-                            source: {
-                                name: values.workflow.name ?? 'Unnamed',
-                                url: window.location.href.split('#')[0],
-                            },
-                        }
-
-                        return globals
+                        return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
                     } catch (e: any) {
                         if (!e.message?.includes('breakpoint')) {
                             actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
                         }
+                        return null
+                    }
+                },
+                loadSampleEventByName: async ({ eventName }): Promise<CyclotronJobInvocationGlobals | null> => {
+                    // Load a specific event by name (for non-event triggers)
+                    try {
+                        const query: EventsQuery = {
+                            kind: NodeKind.EventsQuery,
+                            fixedProperties: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        {
+                                            type: PropertyFilterType.HogQL,
+                                            key: hogql`event = ${eventName}`,
+                                        },
+                                    ],
+                                },
+                            ],
+                            select: ['*', 'person'],
+                            after: '-30d',
+                            limit: 1,
+                            orderBy: ['timestamp DESC'],
+                            modifiers: {
+                                personsOnEventsMode: 'person_id_no_override_properties_on_events',
+                            },
+                        }
+
+                        const response = await performQuery(query)
+
+                        if (!response?.results?.[0]) {
+                            // No matching events found, create an example event with this name
+                            const exampleGlobals = createExampleEvent(
+                                values.workflow.team_id,
+                                values.workflow.name,
+                                eventName
+                            )
+                            actions.setSampleGlobalsError(
+                                `No "${eventName}" events found in the last 30 days. Using an example event instead.`
+                            )
+                            return exampleGlobals
+                        }
+
+                        const event = response.results[0][0]
+                        const person = response.results[0][1]
+
+                        actions.setSampleGlobalsError(null)
+                        return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+                    } catch {
+                        actions.setSampleGlobalsError('Failed to load event. Please try again.')
                         return null
                     }
                 },

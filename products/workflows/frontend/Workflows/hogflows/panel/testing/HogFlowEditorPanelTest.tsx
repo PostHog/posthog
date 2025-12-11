@@ -17,7 +17,10 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { HogFunctionTestEditor } from 'scenes/hog-functions/configuration/HogFunctionTest'
 import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -43,6 +46,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
     const [eventPanelOpen, setEventPanelOpen] = useState<string[]>(['event'])
+    const [eventSelectorOpen, setEventSelectorOpen] = useState(false)
 
     const {
         sampleGlobals,
@@ -54,9 +58,8 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
         shouldLoadSampleGlobals,
         nextActionId,
     } = useValues(hogFlowEditorTestLogic(logicProps))
-    const { submitTestInvocation, setTestResult, loadSampleGlobals, setSampleGlobals } = useActions(
-        hogFlowEditorTestLogic(logicProps)
-    )
+    const { submitTestInvocation, setTestResult, loadSampleGlobals, loadSampleEventByName, setSampleGlobals } =
+        useActions(hogFlowEditorTestLogic(logicProps))
 
     const display = asDisplay(sampleGlobals?.person)
     const url = urls.personByDistinctId(sampleGlobals?.event?.distinct_id || '')
@@ -214,26 +217,58 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                                         <TZLabel time={sampleGlobals.event.timestamp} />
                                                     )}
                                                 </div>
-                                                <LemonButton
-                                                    type="secondary"
-                                                    onClick={() => loadSampleGlobals()}
-                                                    tooltip={
-                                                        noMatchingEvents
-                                                            ? 'No events match the current filters. Try adjusting your trigger filters.'
-                                                            : 'Find the last event matching the trigger event filters, and use it to populate the globals for a test run.'
-                                                    }
-                                                    disabledReason={
-                                                        !shouldLoadSampleGlobals
-                                                            ? 'Must configure trigger event'
-                                                            : noMatchingEvents
-                                                              ? 'No matching events found - adjust your trigger filters'
-                                                              : undefined
-                                                    }
-                                                    icon={<IconRedo />}
-                                                    size="small"
-                                                >
-                                                    Load new event
-                                                </LemonButton>
+                                                {shouldLoadSampleGlobals ? (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        onClick={() => loadSampleGlobals()}
+                                                        tooltip={
+                                                            noMatchingEvents
+                                                                ? 'No events match the current filters. Try adjusting your trigger filters.'
+                                                                : 'Find the last event matching the trigger event filters, and use it to populate the globals for a test run.'
+                                                        }
+                                                        disabledReason={
+                                                            noMatchingEvents
+                                                                ? 'No matching events found - adjust your trigger filters'
+                                                                : undefined
+                                                        }
+                                                        icon={<IconRedo />}
+                                                        size="small"
+                                                    >
+                                                        Load new event
+                                                    </LemonButton>
+                                                ) : (
+                                                    <Popover
+                                                        overlay={
+                                                            <TaxonomicFilter
+                                                                groupType={TaxonomicFilterGroupType.Events}
+                                                                value={sampleGlobals?.event?.event || ''}
+                                                                onChange={(_, value) => {
+                                                                    if (typeof value === 'string') {
+                                                                        loadSampleEventByName(value)
+                                                                        setEventSelectorOpen(false)
+                                                                    }
+                                                                }}
+                                                                allowNonCapturedEvents
+                                                                taxonomicGroupTypes={[
+                                                                    TaxonomicFilterGroupType.CustomEvents,
+                                                                    TaxonomicFilterGroupType.Events,
+                                                                ]}
+                                                            />
+                                                        }
+                                                        visible={eventSelectorOpen}
+                                                        onClickOutside={() => setEventSelectorOpen(false)}
+                                                        placement="bottom-end"
+                                                    >
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            onClick={() => setEventSelectorOpen(!eventSelectorOpen)}
+                                                            tooltip="Select an event type to load test data"
+                                                            size="small"
+                                                        >
+                                                            {sampleGlobals?.event?.event || 'Select event'}
+                                                        </LemonButton>
+                                                    </Popover>
+                                                )}
                                             </div>
 
                                             {/* Event Properties */}
