@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -21,25 +22,25 @@ export function RawExceptionList({
     setShowAllFrames: (value: boolean) => void
     className?: string
 }): JSX.Element {
-    const { exceptionList, stackFrameRecords } = useValues(errorPropertiesLogic)
+    const { exceptionList, stackFrameRecords, hasInAppFrames } = useValues(errorPropertiesLogic)
+
+    useEffect(() => {
+        if (!hasInAppFrames) {
+            setShowAllFrames(true)
+        }
+    }, [hasInAppFrames])
 
     return (
         <div className={cn('flex flex-col gap-y-2', className)}>
             <ExceptionListRenderer
                 exceptionList={exceptionList}
-                renderException={(exception, index) => {
+                renderException={(exception) => {
                     return (
                         <ExceptionRenderer
                             exception={exception}
                             frameFilter={createFrameFilter(showAllFrames)}
                             renderExceptionHeader={(exception) => <RawExceptionHeader exception={exception} />}
-                            renderFilteredTrace={() => {
-                                if (!showAllFrames && index == 0) {
-                                    // Always show frames on the first exception
-                                    setShowAllFrames(true)
-                                }
-                                return null
-                            }}
+                            renderFilteredTrace={() => null}
                             renderResolvedTrace={(frames: ErrorTrackingStackFrame[]) => (
                                 <StackTraceRenderer
                                     frames={frames}
