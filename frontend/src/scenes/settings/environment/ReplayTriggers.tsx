@@ -374,6 +374,11 @@ function EventTriggerOptions(): JSX.Element | null {
 function Sampling(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const [value, setValue] = useState<string>(
+        typeof currentTeam?.session_recording_sample_rate === 'string'
+            ? currentTeam?.session_recording_sample_rate
+            : '100'
+    )
 
     return (
         <>
@@ -385,106 +390,13 @@ function Sampling(): JSX.Element {
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonSelect
-                        onChange={(v) => {
-                            updateCurrentTeam({ session_recording_sample_rate: v })
+                    <LemonInput
+                        onChange={() => {
+                            setValue(value)
+                            updateCurrentTeam({ session_recording_sample_rate: value })
                         }}
-                        dropdownMatchSelectWidth={false}
-                        options={[
-                            {
-                                label: '100% (no sampling)',
-                                value: '1.00',
-                            },
-                            {
-                                label: '95%',
-                                value: '0.95',
-                            },
-                            {
-                                label: '90%',
-                                value: '0.90',
-                            },
-                            {
-                                label: '85%',
-                                value: '0.85',
-                            },
-                            {
-                                label: '80%',
-                                value: '0.80',
-                            },
-                            {
-                                label: '75%',
-                                value: '0.75',
-                            },
-                            {
-                                label: '70%',
-                                value: '0.70',
-                            },
-                            {
-                                label: '65%',
-                                value: '0.65',
-                            },
-                            {
-                                label: '60%',
-                                value: '0.60',
-                            },
-                            {
-                                label: '55%',
-                                value: '0.55',
-                            },
-                            {
-                                label: '50%',
-                                value: '0.50',
-                            },
-                            {
-                                label: '45%',
-                                value: '0.45',
-                            },
-                            {
-                                label: '40%',
-                                value: '0.40',
-                            },
-                            {
-                                label: '35%',
-                                value: '0.35',
-                            },
-                            {
-                                label: '30%',
-                                value: '0.30',
-                            },
-                            {
-                                label: '25%',
-                                value: '0.25',
-                            },
-                            {
-                                label: '20%',
-                                value: '0.20',
-                            },
-                            {
-                                label: '15%',
-                                value: '0.15',
-                            },
-                            {
-                                label: '10%',
-                                value: '0.10',
-                            },
-                            {
-                                label: '5%',
-                                value: '0.05',
-                            },
-                            {
-                                label: '1%',
-                                value: '0.01',
-                            },
-                            {
-                                label: '0% (replay disabled)',
-                                value: '0.00',
-                            },
-                        ]}
-                        value={
-                            typeof currentTeam?.session_recording_sample_rate === 'string'
-                                ? currentTeam?.session_recording_sample_rate
-                                : '1.00'
-                        }
+                        value={value}
+                        onPressEnter={() => updateCurrentTeam({ session_recording_sample_rate: value })}
                     />
                 </AccessControlAction>
             </div>
