@@ -184,7 +184,13 @@ export function FeatureFlagVariantsForm({
                                 autoCapitalize="off"
                                 autoCorrect="off"
                                 spellCheck={false}
-                                disabled={!canEditVariant(index)}
+                                disabledReason={
+                                    !canEditVariant(index)
+                                        ? isDraftExperiment
+                                            ? 'Cannot modify the control variant in an experiment'
+                                            : 'Cannot modify variants in a flag with a launched experiment'
+                                        : undefined
+                                }
                                 value={variant.key}
                                 onChange={(value) => onVariantChange?.(index, 'key', value)}
                             />
