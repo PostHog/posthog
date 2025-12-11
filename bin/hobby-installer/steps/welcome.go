@@ -99,9 +99,10 @@ func (m WelcomeModel) View() string {
 
 func (m WelcomeModel) getActionTitle() string {
 	if m.isUpgrade {
-		return "Upgrade PostHog"
+		return "Upgrade PostHog (press enter to continue)"
 	}
-	return "Install PostHog"
+
+	return "Install PostHog (press enter to continue)"
 }
 
 func (m WelcomeModel) getActionDescription() string {
