@@ -495,6 +495,26 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 throw new Error('Failed to create test persons')
             }
 
+            // Delete distinct IDs first to avoid FK constraint violation
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
+                [singleCreatePersonResult.person.id],
+                'deleteDistinctIds'
+            )
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
+                [dualCreatePersonResult.person.id],
+                'deleteDistinctIds'
+            )
+            await migrationPostgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
+                [dualCreatePersonResult.person.id],
+                'deleteDistinctIds'
+            )
+
             const singleDeleteResult = await singleWriteRepository.deletePerson(singleCreatePersonResult.person)
             const dualDeleteResult = await dualWriteRepository.deletePerson(dualCreatePersonResult.person)
 

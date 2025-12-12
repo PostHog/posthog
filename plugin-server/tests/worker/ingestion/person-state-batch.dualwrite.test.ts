@@ -18,6 +18,7 @@ import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/pers
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { createDefaultSyncMergeMode } from '../../../src/worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
+import { PersonRepository } from '../../../src/worker/ingestion/persons/repositories/person-repository'
 import { PostgresDualWritePersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { cleanupPrepared, setupMigrationDb } from '../../../src/worker/ingestion/persons/repositories/test-helpers'
@@ -80,7 +81,7 @@ describe('PersonState dual-write compatibility', () => {
     })
 
     function createPersonProcessor(
-        repository: PostgresPersonRepository | PostgresDualWritePersonRepository,
+        repository: PersonRepository,
         event: Partial<PluginEvent>,
         processPerson = true,
         timestampParam = timestamp,
@@ -176,7 +177,7 @@ describe('PersonState dual-write compatibility', () => {
         it('handles concurrent person creation without errors', async () => {
             const distinctIds = ['user-1', 'user-2', 'user-3']
 
-            const createWithRepo = async (repo: any, distinctId: string) => {
+            const createWithRepo = async (repo: PersonRepository, distinctId: string) => {
                 const event: Partial<PluginEvent> = {
                     distinct_id: distinctId,
                     properties: {
@@ -206,7 +207,7 @@ describe('PersonState dual-write compatibility', () => {
             const singleUuid = new UUIDT().toString()
             const dualUuid = new UUIDT().toString()
 
-            const createPerson = async (repo: any, distinctId: string, uuid: string) => {
+            const createPerson = async (repo: PersonRepository, distinctId: string, uuid: string) => {
                 const result = await repo.createPerson(
                     timestamp,
                     { initial: 'value' },
@@ -216,8 +217,11 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuid,
-                    [{ distinctId, version: 0 }]
+                    { distinctId, version: 0 }
                 )
+                if (!result.success) {
+                    throw new Error(`Failed to create person: ${result.error}`)
+                }
                 return result.person
             }
 
@@ -272,7 +276,7 @@ describe('PersonState dual-write compatibility', () => {
             const dualAnonId = 'dual-anon-user'
             const dualUserId = 'dual-identified-user'
 
-            const createAnonPerson = async (repo: any, anonId: string) => {
+            const createAnonPerson = async (repo: PersonRepository, anonId: string) => {
                 const uuid = uuidFromDistinctId(teamId, anonId)
                 const result = await repo.createPerson(
                     timestamp,
@@ -285,6 +289,9 @@ describe('PersonState dual-write compatibility', () => {
                     uuid,
                     { distinctId: anonId, version: 0 }
                 )
+                if (!result.success) {
+                    throw new Error(`Failed to create person: ${result.error}`)
+                }
                 return result.person
             }
 
