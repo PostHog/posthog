@@ -60,8 +60,8 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     )
     renderings = ("text", "html")
     models = {
-        "text-embedding-3-small-1536": 3,
-        "text-embedding-3-large-3072": 5,
+        "text-embedding-3-small-1536": 1536,
+        "text-embedding-3-large-3072": 3072,
     }
 
     def setUp(self):
