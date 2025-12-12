@@ -168,11 +168,12 @@ impl FeatureFlagList {
                             e
                         );
                         // Also track as a tombstone - invalid data in postgres should never happen
+                        // Details (team_id, flag_key) are logged above to avoid high-cardinality labels
                         counter!(
                             TOMBSTONE_COUNTER,
-                            "failure_type" => "flag_filter_deserialization_error",
-                            "team_id" => row.team_id.to_string(),
-                            "flag_key" => row.key.clone(),
+                            "namespace" => "feature_flags",
+                            "operation" => "flag_filter_deserialization_error",
+                            "component" => "feature_flag_list",
                         )
                         .increment(1);
 

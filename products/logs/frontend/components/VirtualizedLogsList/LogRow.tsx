@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useCallback, useEffect, useRef } from 'react'
+
 import { IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
@@ -8,7 +11,13 @@ import { LogMessage } from '~/queries/schema/schema-general'
 
 import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
 import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
+import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
+
+import { virtualizedLogsListLogic } from './virtualizedLogsListLogic'
+
+const SCROLL_INTERVAL_MS = 16 // ~60fps
+const SCROLL_AMOUNT_PX = 8
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     trace: 'bg-muted-alt',
@@ -90,8 +99,72 @@ export function LogRow({
     onSetCursor,
     rowWidth,
 }: LogRowProps): JSX.Element {
+    const { messageScrollLeft } = useValues(virtualizedLogsListLogic)
+    const { setMessageScrollLeft } = useActions(virtualizedLogsListLogic)
+
     const isNew = 'new' in log && log.new
     const flexWidth = rowWidth ? rowWidth - getFixedColumnsWidth() : undefined
+    const messageScrollRef = useRef<HTMLDivElement>(null)
+    const isProgrammaticScrollRef = useRef(false)
+
+    // Sync scroll position from shared state (programmatic scroll)
+    useEffect(() => {
+        const el = messageScrollRef.current
+        if (el && Math.abs(el.scrollLeft - messageScrollLeft) > 1) {
+            isProgrammaticScrollRef.current = true
+            el.scrollLeft = messageScrollLeft
+            requestAnimationFrame(() => {
+                isProgrammaticScrollRef.current = false
+            })
+        }
+    }, [messageScrollLeft])
+
+    const handleMessageScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+        if (isProgrammaticScrollRef.current) {
+            return
+        }
+        setMessageScrollLeft(e.currentTarget.scrollLeft)
+    }
+
+    const scrollIntervalRef = useRef<number | null>(null)
+
+    const scrollMessage = useCallback(
+        (direction: 'left' | 'right'): void => {
+            const el = messageScrollRef.current
+            if (el) {
+                const newScrollLeft =
+                    direction === 'left'
+                        ? Math.max(0, el.scrollLeft - SCROLL_AMOUNT_PX)
+                        : el.scrollLeft + SCROLL_AMOUNT_PX
+                el.scrollLeft = newScrollLeft
+                setMessageScrollLeft(newScrollLeft)
+            }
+        },
+        [setMessageScrollLeft]
+    )
+
+    const startScrolling = useCallback(
+        (direction: 'left' | 'right'): void => {
+            if (scrollIntervalRef.current !== null) {
+                return // Already scrolling
+            }
+            scrollMessage(direction) // Immediate first scroll
+            scrollIntervalRef.current = window.setInterval(() => {
+                scrollMessage(direction)
+            }, SCROLL_INTERVAL_MS)
+        },
+        [scrollMessage]
+    )
+
+    const stopScrolling = useCallback((): void => {
+        if (scrollIntervalRef.current) {
+            clearInterval(scrollIntervalRef.current)
+            scrollIntervalRef.current = null
+        }
+    }, [])
+
+    // Cleanup interval on unmount
+    useEffect(() => () => stopScrolling(), [])
 
     const renderCell = (column: LogColumnConfig): JSX.Element => {
         const cellStyle = getCellStyle(column, flexWidth)
@@ -115,7 +188,7 @@ export function LogRow({
                             icon={
                                 <IconChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
                             }
-                            onClick={(e) => {
+                            onMouseDown={(e) => {
                                 e.stopPropagation()
                                 onToggleExpand()
                             }}
@@ -131,47 +204,38 @@ export function LogRow({
                     </div>
                 )
             case 'message': {
-                const isPrettyJson = prettifyJson && log.parsedBody
-                const content = isPrettyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody
-
-                if (isPrettyJson) {
-                    return (
-                        <div
-                            key={column.key}
-                            style={cellStyle}
-                            className={cn('flex items-start py-1.5 overflow-hidden')}
-                        >
-                            <pre
-                                className={cn(
-                                    'font-mono text-xs m-0',
-                                    wrapBody
-                                        ? 'overflow-hidden whitespace-pre-wrap break-all'
-                                        : 'overflow-x-auto hide-scrollbar'
-                                )}
-                            >
-                                {content}
-                            </pre>
-                        </div>
-                    )
-                }
-
                 return (
-                    <div
-                        key={column.key}
-                        style={cellStyle}
-                        className={cn(
-                            'flex items-start py-1.5',
-                            wrapBody ? 'overflow-hidden' : 'overflow-x-auto hide-scrollbar'
-                        )}
-                    >
-                        <span
-                            className={cn(
-                                'font-mono text-xs',
-                                wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap'
-                            )}
+                    <div key={column.key} style={cellStyle} className="relative flex items-start py-1.5">
+                        <div
+                            ref={wrapBody ? undefined : messageScrollRef}
+                            onScroll={wrapBody ? undefined : handleMessageScroll}
+                            className={cn('flex-1', wrapBody ? 'overflow-hidden' : 'overflow-x-auto hide-scrollbar')}
                         >
-                            {content}
-                        </span>
+                            <div className={cn('flex items-center', wrapBody ? '' : 'w-max min-h-full')}>
+                                {prettifyJson && log.parsedBody ? (
+                                    <pre
+                                        className={cn(
+                                            'font-mono text-xs inline-block mb-0',
+                                            wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
+                                        )}
+                                    >
+                                        {JSON.stringify(log.parsedBody, null, 2)}
+                                    </pre>
+                                ) : (
+                                    <span
+                                        className={cn(
+                                            'font-mono text-xs',
+                                            wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
+                                        )}
+                                    >
+                                        {log.cleanBody}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                        {!wrapBody && (
+                            <LogRowScrollButtons onStartScrolling={startScrolling} onStopScrolling={stopScrolling} />
+                        )}
                     </div>
                 )
             }
@@ -186,14 +250,14 @@ export function LogRow({
                             size="xsmall"
                             noPadding
                             icon={pinned ? <IconPinFilled /> : <IconPin />}
-                            onClick={(e) => {
+                            onMouseDown={(e) => {
                                 e.stopPropagation()
                                 onTogglePin(log)
                             }}
                             tooltip={pinned ? 'Unpin log' : 'Pin log'}
                             className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
                         />
-                        <div className="opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
+                        <div className="opacity-0 group-hover:opacity-100" onMouseDown={(e) => e.stopPropagation()}>
                             <LogsViewerRowActions log={log} />
                         </div>
                     </div>
@@ -212,7 +276,7 @@ export function LogRow({
                     pinned && 'bg-warning-highlight',
                     pinned && showPinnedWithOpacity && 'opacity-50'
                 )}
-                onClick={onSetCursor}
+                onMouseDown={onSetCursor}
             >
                 {LOG_COLUMNS.map(renderCell)}
             </div>

@@ -22,7 +22,7 @@ import {
     PluginsServerConfig,
     Team,
 } from '../types'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager, Restriction } from '../utils/event-ingestion-restriction-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
@@ -408,7 +408,8 @@ export class IngestionConsumer {
         const eventKey = `${token}:${distinctId}`
 
         // Check if this token is in the force overflow static/dynamic config list
-        const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
+        const restrictions = this.getAppliedRestrictions(token, distinctId)
+        const shouldForceOverflow = restrictions.has(Restriction.FORCE_OVERFLOW)
 
         // Check the rate limiter and emit to overflow if necessary
         const isBelowRateLimit = this.overflowRateLimiter.consume(
@@ -429,7 +430,8 @@ export class IngestionConsumer {
             // NOTE: If we are forcing to overflow we typically want to keep the partition key
             // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
             // of random partitioning.
-            const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
+            const preserveLocality =
+                shouldForceOverflow && !restrictions.has(Restriction.SKIP_PERSON_PROCESSING) ? true : undefined
 
             void this.promiseScheduler.schedule(
                 this.emitToOverflow(
@@ -551,18 +553,8 @@ export class IngestionConsumer {
         return groupedEvents
     }
 
-    private shouldSkipPerson(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
-    }
-
-    private shouldForceOverflow(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
+    private getAppliedRestrictions(token?: string, distinctId?: string): ReadonlySet<Restriction> {
+        return this.eventIngestionRestrictionManager.getAppliedRestrictions(token, { distinct_id: distinctId })
     }
 
     private overflowEnabled(): boolean {

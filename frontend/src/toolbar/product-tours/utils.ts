@@ -1,6 +1,7 @@
 import { domToJpeg } from 'modern-screenshot'
 
-import { TOOLBAR_ID } from '~/toolbar/utils'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { TOOLBAR_ID, elementToQuery } from '~/toolbar/utils'
 
 export interface ElementInfo {
     selector: string
@@ -59,55 +60,12 @@ function isToolbarElement(element: Element): boolean {
 
 /**
  * Generate a unique CSS selector for an element.
+ * Uses the same selector generation as actions for consistency.
  */
 function generateUniqueSelector(element: Element): string {
-    // Try data-attr first (PostHog convention)
-    const dataAttr = element.getAttribute('data-attr')
-    if (dataAttr) {
-        return `[data-attr="${dataAttr}"]`
-    }
-
-    // Try ID
-    if (element.id) {
-        return `#${element.id}`
-    }
-
-    // Try unique class combination
-    if (element.classList.length > 0) {
-        const classes = Array.from(element.classList).slice(0, 3).join('.')
-        const selector = `${element.tagName.toLowerCase()}.${classes}`
-        if (document.querySelectorAll(selector).length === 1) {
-            return selector
-        }
-    }
-
-    // Build path from parent
-    const path: string[] = []
-    let current: Element | null = element
-
-    while (current && current !== document.body) {
-        let selector = current.tagName.toLowerCase()
-
-        if (current.id) {
-            selector = `#${current.id}`
-            path.unshift(selector)
-            break
-        }
-
-        const parent: Element | null = current.parentElement
-        if (parent) {
-            const siblings = Array.from(parent.children).filter((c: Element) => c.tagName === current!.tagName)
-            if (siblings.length > 1) {
-                const index = siblings.indexOf(current) + 1
-                selector += `:nth-of-type(${index})`
-            }
-        }
-
-        path.unshift(selector)
-        current = parent
-    }
-
-    return path.join(' > ')
+    const dataAttributes = toolbarConfigLogic.values.dataAttributes || ['data-attr']
+    const selector = elementToQuery(element as HTMLElement, dataAttributes)
+    return selector || element.tagName.toLowerCase()
 }
 
 /**
