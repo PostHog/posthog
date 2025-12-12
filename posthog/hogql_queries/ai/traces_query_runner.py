@@ -74,8 +74,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         """Execute a separate query to get relevant trace IDs and their time range."""
         with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.LLM_ANALYTICS):
             # Calculate max number of events needed with current offset and limit
-            limit_value = self.query.limit if self.query.limit else 100
-            offset_value = self.query.offset if self.query.offset else 0
+            limit_value = self.paginator.limit
+            offset_value = self.paginator.offset
             pagination_limit = limit_value + offset_value + 1
 
             # Determine ordering based on randomOrder parameter

@@ -45,7 +45,9 @@ def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         try:
-            result = sandbox.execute_task(task_id=ctx.task_id, run_id=ctx.run_id, repository=ctx.repository)
+            result = sandbox.execute_task(
+                task_id=ctx.task_id, run_id=ctx.run_id, repository=ctx.repository, create_pr=ctx.create_pr
+            )
         except Exception as e:
             raise SandboxExecutionError(
                 f"Failed to execute task in sandbox",
@@ -59,6 +61,9 @@ def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
             )
 
         if result.exit_code != 0:
+            logger.error(f"Task execution failed for task {ctx.task_id}")
+            logger.error(f"stdout:\n{result.stdout}")
+            logger.error(f"stderr:\n{result.stderr}")
             raise TaskExecutionFailedError(
                 f"Task execution failed with exit code {result.exit_code}",
                 exit_code=result.exit_code,

@@ -175,7 +175,7 @@ describe('SourceWebhooksConsumer', () => {
                 })
                 expect(getLogs()).toEqual([
                     expect.stringContaining('Function completed'),
-                    'Responded with response status - 400',
+                    'Responded with response status - 400, reason: {"error":"\\"event\\" could not be parsed correctly"}',
                 ])
             })
 
@@ -349,7 +349,7 @@ describe('SourceWebhooksConsumer', () => {
                 await waitForBackgroundTasks()
                 expect(getLogs()).toEqual([
                     expect.stringContaining('[Action:trigger] Function completed in'),
-                    '[Action:trigger] Responded with response status - 400',
+                    '[Action:trigger] Responded with response status - 400, reason: {"error":"\\"distinct_id\\" could not be parsed correctly"}',
                 ])
                 expect(getMetrics()).toEqual([
                     expect.objectContaining({ metric_kind: 'failure', metric_name: 'trigger_failed', count: 1 }),

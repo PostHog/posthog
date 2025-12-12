@@ -10,13 +10,13 @@ from unittest import mock
 from django.conf import settings
 
 import temporalio
+import pytest_asyncio
 import temporalio.client
 import temporalio.common
 import temporalio.worker
 import temporalio.testing
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
-from flaky import flaky
 
 from posthog.models import Team
 from posthog.temporal.tests.utils.datetimes import date_range
@@ -50,7 +50,7 @@ def timezone(request) -> zoneinfo.ZoneInfo:
     return timezone
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def team_with_tz(timezone, aorganization):
     name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name, timezone=str(timezone))
@@ -60,7 +60,7 @@ async def team_with_tz(timezone, aorganization):
     await sync_to_async(team.delete)()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def temporal_schedule_with_tz(temporal_client, team_with_tz):
     """Manage a test Temporal Schedule yielding its handle."""
     batch_export = await acreate_batch_export(
@@ -80,7 +80,7 @@ async def temporal_schedule_with_tz(temporal_client, team_with_tz):
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def temporal_schedule(temporal_client, team):
     """Manage a test Temporal Schedule yielding its handle."""
     batch_export = await acreate_batch_export(
@@ -466,7 +466,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
 
 
 @pytest.mark.django_db(transaction=True)
-@flaky(max_runs=3, min_passes=1)
+@pytest.mark.flaky(reruns=2)
 async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
     temporal_worker, temporal_schedule, temporal_client, team
 ):
@@ -505,7 +505,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
 
 
 @pytest.mark.django_db(transaction=True)
-@flaky(max_runs=3, min_passes=1)
+@pytest.mark.flaky(reruns=2)
 async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_running(
     temporal_worker, temporal_schedule, temporal_client, team
 ):
@@ -548,7 +548,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     assert err.__cause__.__cause__.type == "TemporalScheduleNotFoundError"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def failing_s3_batch_export(ateam, temporal_client):
     destination_data = {
         "type": "S3",

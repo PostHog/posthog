@@ -36,7 +36,7 @@ from posthog.batch_exports.service import (
     BatchExportWithNoEndNotAllowedError,
     backfill_export,
     cancel_running_batch_export_run,
-    disable_and_delete_export,
+    delete_batch_export,
     fetch_earliest_backfill_start_at,
     pause_batch_export,
     sync_batch_export,
@@ -744,7 +744,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         since we are deleting, we assume that we can recover from this state by finishing the delete operation by calling
         instance.save().
         """
-        disable_and_delete_export(instance)
+        delete_batch_export(instance)
 
     @action(methods=["GET"], detail=False, required_scopes=["INTERNAL"])
     def test(self, request: request.Request, *args, **kwargs) -> response.Response:

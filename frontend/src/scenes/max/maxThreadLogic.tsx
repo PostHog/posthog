@@ -84,14 +84,14 @@ export interface MaxThreadLogicProps {
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
-    path(['scenes', 'max', 'maxThreadLogic']),
-
     key((props) => {
         if (!props.tabId) {
             throw new Error('Max thread logic must have a tabId prop')
         }
         return `${props.conversationId}-${props.tabId}`
     }),
+
+    path((key) => ['scenes', 'max', 'maxThreadLogic', key]),
 
     props({} as MaxThreadLogicProps),
 
@@ -118,7 +118,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
             maxLogic({ tabId }),
-            ['question', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
+            ['question', 'autoRun', 'threadLogicKey as activeThreadKey', 'activeStreamingThreads'],
             maxContextLogic,
             ['compiledContext'],
             maxBillingContextLogic,
@@ -509,6 +509,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
         askMax: async ({ prompt, addToThread = true, uiContext }) => {
+            // Only process if this thread is the currently active one
+            if (values.conversationId !== values.activeThreadKey) {
+                return
+            }
             if (!values.dataProcessingAccepted) {
                 return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
             }
@@ -606,7 +610,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.updateGlobalConversationCache(newConversation)
 
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
-            if (values.selectedConversationId !== values.conversationId && cache.unmount) {
+            if (values.activeThreadKey !== values.conversationId && cache.unmount) {
                 cache.unmount()
             }
         },
@@ -835,9 +839,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return 'I need some input first'
                 }
 
-                // Prevent submission if there are active streaming threads
-                if (activeStreamingThreads > 0) {
-                    return 'Please wait for one of the chats to finish'
+                // Prevent submission if too many active streaming threads (limit: 10)
+                if (activeStreamingThreads >= 10) {
+                    return 'You have too many chats running. Please wait for one to finish.'
                 }
 
                 return undefined

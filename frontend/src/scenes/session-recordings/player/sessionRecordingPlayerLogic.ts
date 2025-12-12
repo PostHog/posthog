@@ -458,8 +458,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         allowPlayerChromeToHide: true,
         setMuted: (muted: boolean) => ({ muted }),
         setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => ({ skipToFirstMatchingEvent }),
+        forcePause: true,
     }),
     reducers(() => ({
+        // used in visual regression testing to make sure the player is paused
+        pauseForced: [
+            false as boolean,
+            {
+                forcePause: () => true,
+            },
+        ],
         skipToFirstMatchingEvent: [
             false,
             {
@@ -589,6 +597,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             {
                 setPlay: () => SessionPlayerState.PLAY,
                 setPause: () => SessionPlayerState.PAUSE,
+                forcePause: () => SessionPlayerState.PAUSE,
             },
         ],
         playingTimeTracking: [
@@ -1299,29 +1308,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
-
-                if (router.values.searchParams.pause) {
-                    setTimeout(() => {
-                        /** KLUDGE: when loaded for visual regression tests we want to pause the player
-                         ** but only after it has had time to buffer and show the frame
-                         *
-                         * Frustratingly if we start paused we never process the data,
-                         * so the player frame is just a black square.
-                         *
-                         * If we play (the default behaviour) and then stop after its processed the data
-                         * then we see the player screen
-                         * and can assert that _at least_ the full snapshot has been processed
-                         * (i.e. we didn't completely break rrweb playback)
-                         *
-                         * We have to be paused so that the visual regression snapshot doesn't flap
-                         * (because of the seekbar timestamp changing)
-                         *
-                         * And don't want to be at 0, so we can see that the seekbar
-                         * at least paints the "played" portion of the recording correctly
-                         **/
-                        actions.setPause()
-                    }, 400)
-                }
             }
         },
         loadSnapshotsForSourceFailure: () => {
@@ -1539,6 +1525,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // At the end of the recording. Pause the player and set fully to the end
                     actions.setEndReached()
                 }
+
+                if (values.pauseForced) {
+                    actions.setPause()
+                }
                 return
             }
 
@@ -1560,6 +1550,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const timerId = requestAnimationFrame(actions.updateAnimation)
                 return () => cancelAnimationFrame(timerId)
             }, 'animationTimer')
+
+            if (values.pauseForced) {
+                actions.setPause()
+            }
         },
         stopAnimation: () => {
             cache.disposables.dispose('animationTimer')
@@ -1820,8 +1814,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         currentPlayerState: (value) => {
-            if (value === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
-                actions.markViewed(0)
+            if (value === SessionPlayerState.PLAY) {
+                if (!values.wasMarkedViewed) {
+                    actions.markViewed(0)
+                }
+                if (values.pauseForced) {
+                    actions.setPause()
+                }
             }
             // Update tracking state whenever player state changes
             actions.updatePlayerTimeTracking()
@@ -1889,8 +1888,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.schedulePlayerTimeTracking()
     }),
 
-    urlToAction(({ actions, props }) => {
-        const handleTimestampParams = (searchParams: Record<string, string>): void => {
+    urlToAction(({ actions, values }) => ({
+        '*': (_, searchParams, hashParams) => {
+            const shouldPause = searchParams.pause || hashParams.pause
+            if (shouldPause && !values.pauseForced) {
+                actions.forcePause()
+            }
             if (searchParams.timestamp) {
                 const desiredStartTime = Number(searchParams.timestamp)
                 if (!isNaN(desiredStartTime)) {
@@ -1902,17 +1905,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.seekToTime(desiredStartTime)
                 }
             }
-        }
-
-        return {
-            '/replay/:id': (_, searchParams) => handleTimestampParams(searchParams),
-            '/replay': (_, searchParams) => {
-                if (searchParams.sessionRecordingId === props.sessionRecordingId) {
-                    handleTimestampParams(searchParams)
-                }
-            },
-        }
-    }),
+        },
+    })),
 ])
 
 export const getCurrentPlayerTime = (logicProps: SessionRecordingPlayerLogicProps): number => {
