@@ -30,7 +30,7 @@ async fn shutdown() {
     };
 
     capture::metrics_middleware::set_shutdown_status(
-        capture::metrics_middleware::SHUTDOWN_TERMINATING,
+        capture::metrics_middleware::ShutdownStatus::Terminating,
     );
     tracing::info!("Shutdown status change: TERMINATING");
 }
@@ -105,6 +105,8 @@ async fn main() {
         .expect("could not bind port");
     serve(config, listener, shutdown()).await;
 
-    capture::metrics_middleware::set_shutdown_status(capture::metrics_middleware::SHUTDOWN_KILLED);
+    capture::metrics_middleware::set_shutdown_status(
+        capture::metrics_middleware::ShutdownStatus::Killed,
+    );
     tracing::info!("Shutdown status change: KILLED");
 }

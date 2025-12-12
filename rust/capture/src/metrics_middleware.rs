@@ -17,29 +17,45 @@ use metrics::gauge;
 static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 
 // Shutdown status state machine
-pub const SHUTDOWN_RUNNING: u8 = 0;
-pub const SHUTDOWN_PRESTOP: u8 = 1;
-pub const SHUTDOWN_TERMINATING: u8 = 2;
-pub const SHUTDOWN_KILLED: u8 = 3;
-
-static SHUTDOWN_STATUS: AtomicU8 = AtomicU8::new(SHUTDOWN_RUNNING);
-
-pub fn set_shutdown_status(status: u8) {
-    SHUTDOWN_STATUS.store(status, Ordering::SeqCst);
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum ShutdownStatus {
+    Running = 0,
+    Prestop = 1,
+    Terminating = 2,
+    Killed = 3,
 }
 
-pub fn get_shutdown_status() -> u8 {
-    SHUTDOWN_STATUS.load(Ordering::SeqCst)
-}
-
-pub fn shutdown_status_label() -> &'static str {
-    match get_shutdown_status() {
-        SHUTDOWN_RUNNING => "running",
-        SHUTDOWN_PRESTOP => "prestop",
-        SHUTDOWN_TERMINATING => "terminating",
-        SHUTDOWN_KILLED => "killed",
-        _ => "unknown",
+impl ShutdownStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Prestop => "prestop",
+            Self::Terminating => "terminating",
+            Self::Killed => "killed",
+        }
     }
+}
+
+impl From<u8> for ShutdownStatus {
+    fn from(v: u8) -> Self {
+        match v {
+            0 => Self::Running,
+            1 => Self::Prestop,
+            2 => Self::Terminating,
+            _ => Self::Killed,
+        }
+    }
+}
+
+static SHUTDOWN_STATUS: AtomicU8 = AtomicU8::new(ShutdownStatus::Running as u8);
+
+pub fn set_shutdown_status(status: ShutdownStatus) {
+    SHUTDOWN_STATUS.store(status as u8, Ordering::Relaxed);
+}
+
+pub fn get_shutdown_status() -> ShutdownStatus {
+    SHUTDOWN_STATUS.load(Ordering::Relaxed).into()
 }
 
 // Guard to ensure connection count is decremented even on panic
@@ -52,7 +68,7 @@ impl Drop for ConnectionGuard {
             .saturating_sub(1);
         gauge!(
             METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-            "shutdown_status" => shutdown_status_label()
+            "shutdown_status" => get_shutdown_status().as_str()
         )
         .set(connections as f64);
     }
@@ -81,7 +97,7 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     let connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     gauge!(
         METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-        "shutdown_status" => shutdown_status_label()
+        "shutdown_status" => get_shutdown_status().as_str()
     )
     .set(connections as f64);
     let _guard = ConnectionGuard;
