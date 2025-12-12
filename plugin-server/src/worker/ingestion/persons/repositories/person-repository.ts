@@ -40,7 +40,8 @@ export interface PersonRepository {
     ): Promise<InternalPerson | undefined>
 
     fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]>
 
     createPerson(
@@ -52,7 +53,8 @@ export interface PersonRepository {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult>
 
     updatePerson(
@@ -62,6 +64,18 @@ export interface PersonRepository {
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]>
+
+    /**
+     * Batch update multiple persons in a single query using UNNEST.
+     * Returns results indexed by person UUID, each containing:
+     * - success: boolean indicating if the update succeeded
+     * - version: the new version if successful
+     * - kafkaMessage: the Kafka message to send if successful
+     * - error: error details if the update failed
+     */
+    updatePersonsBatch(
+        personUpdates: PersonUpdate[]
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>>
 
     deletePerson(person: InternalPerson): Promise<TopicMessage[]>
 

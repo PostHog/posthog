@@ -48,7 +48,8 @@ export interface PersonsStore extends BatchWritingStore {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[],
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonRepositoryTransaction
     ): Promise<CreatePersonResult>
 
@@ -156,6 +157,12 @@ export interface PersonsStore extends BatchWritingStore {
      * Removes a distinct ID from the cache
      */
     removeDistinctIdFromCache(teamId: number, distinctId: string): void
+
+    /**
+     * Prefetches persons by team ID and distinct ID to warm up the cache
+     * @param teamDistinctIds - A list of team IDs and distinct IDs to prefetch
+     */
+    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[]): Promise<void>
 
     /**
      * Flushes the batch

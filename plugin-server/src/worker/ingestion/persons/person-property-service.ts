@@ -63,7 +63,7 @@ export class PersonPropertyService {
             // :NOTE: This should never be set in this branch, but adding this for logical consistency
             this.context.updateIsIdentified,
             this.context.event.uuid,
-            [{ distinctId: this.context.distinctId }]
+            { distinctId: this.context.distinctId }
         )
     }
 

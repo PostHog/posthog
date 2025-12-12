@@ -36,9 +36,6 @@ COPY common/esbuilder/ common/esbuilder/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
-COPY .git/config .git/config
-COPY .git/HEAD .git/HEAD
-COPY .git/refs/heads .git/refs/heads
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && pnpm --version && \
     CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
@@ -57,6 +54,8 @@ FROM node:22.17.1-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
+ARG COMMIT_HASH
+
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
@@ -70,7 +69,9 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
             export POSTHOG_CLI_ENV_ID=2 && \
             posthog-cli --no-fail sourcemap process \
                 --directory /code/frontend/dist \
-                --public-path-prefix /static; \
+                --public-path-prefix /static \
+                --project posthog \
+                --version "${COMMIT_HASH:-unknown}"; \
         fi \
     ) || true && \
     touch /tmp/.sourcemaps-processed
@@ -149,7 +150,7 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin
 FROM ghcr.io/astral-sh/uv:0.9.9 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
-FROM python:3.12.12-slim-bookworm AS posthog-build
+FROM python:3.12.12-slim-bookworm@sha256:78e702aee4d693e769430f0d7b4f4858d8ea3f1118dc3f57fee3f757d0ca64b1 AS posthog-build
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -165,8 +166,8 @@ RUN apt-get update && \
     "build-essential" \
     "git" \
     "libpq-dev" \
-    "libxmlsec1" \
-    "libxmlsec1-dev" \
+    "libxmlsec1=1.2.37-2" \
+    "libxmlsec1-dev=1.2.37-2" \
     "libffi-dev" \
     "zlib1g-dev" \
     "pkg-config" \
@@ -174,7 +175,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies using cache mount for faster rebuilds
-RUN --mount=type=cache,target=/root/.cache/uv \
+# Cache ID includes libxmlsec1 version to bust cache when system library changes
+RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
@@ -244,8 +246,8 @@ RUN apt-get update && \
     "chromium" \
     "chromium-driver" \
     "libpq-dev" \
-    "libxmlsec1" \
-    "libxmlsec1-dev" \
+    "libxmlsec1=1.2.37-2" \
+    "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "gettext-base" \
     "ffmpeg=7:5.1.7-0+deb12u1" \
@@ -339,9 +341,14 @@ ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
 # Install Playwright Chromium browser for video export (as root for system deps)
+# Use cache mount for browser binaries to avoid re-downloading on every build
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium && \
+RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
+    PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-cache \
+    /python-runtime/bin/python -m playwright install --with-deps chromium && \
+    mkdir -p /ms-playwright && \
+    cp -r /tmp/playwright-cache/* /ms-playwright/ && \
     chown -R posthog:posthog /ms-playwright
 USER posthog
 

@@ -9,6 +9,16 @@ from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
+from products.tasks.backend.max_tools import (
+    CreateTaskTool,
+    GetTaskRunLogsTool,
+    GetTaskRunTool,
+    ListRepositoriesTool,
+    ListTaskRunsTool,
+    ListTasksTool,
+    RunTaskTool,
+)
+
 from ee.hogai.chat_agent.prompts import (
     AGENT_CORE_MEMORY_PROMPT,
     AGENT_PROMPT,
@@ -39,7 +49,11 @@ from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import CreateFormTool, ReadDataTool, ReadTaxonomyTool, SearchTool, SwitchModeTool, TodoWriteTool
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag, has_create_form_tool_feature_flag
+from ee.hogai.utils.feature_flags import (
+    has_agent_modes_feature_flag,
+    has_create_form_tool_feature_flag,
+    has_phai_tasks_feature_flag,
+)
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
@@ -59,6 +73,16 @@ DEFAULT_TOOLS: list[type["MaxTool"]] = [
     SwitchModeTool,
 ]
 
+TASK_TOOLS: list[type["MaxTool"]] = [
+    CreateTaskTool,
+    RunTaskTool,
+    GetTaskRunTool,
+    GetTaskRunLogsTool,
+    ListTasksTool,
+    ListTaskRunsTool,
+    ListRepositoriesTool,
+]
+
 
 class ChatAgentToolkit(AgentToolkit):
     @property
@@ -66,6 +90,8 @@ class ChatAgentToolkit(AgentToolkit):
         tools = list(DEFAULT_TOOLS if has_agent_modes_feature_flag(self._team, self._user) else LEGACY_DEFAULT_TOOLS)
         if has_create_form_tool_feature_flag(self._team, self._user):
             tools.append(CreateFormTool)
+        if has_phai_tasks_feature_flag(self._team, self._user):
+            tools.extend(TASK_TOOLS)
         return tools
 
 

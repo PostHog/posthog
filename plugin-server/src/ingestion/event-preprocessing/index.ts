@@ -1,6 +1,5 @@
 export { createApplyCookielessProcessingStep } from './apply-cookieless-processing'
-export { createApplyDropRestrictionsStep } from './apply-drop-events-restrictions'
-export { createApplyForceOverflowRestrictionsStep } from './apply-force-overflow-restrictions'
+export { createApplyEventRestrictionsStep } from './apply-event-restrictions'
 export { createApplyPersonProcessingRestrictionsStep } from './apply-person-processing-restrictions'
 export { createDropExceptionEventsStep } from './drop-exception-events'
 export { createParseHeadersStep } from './parse-headers'
