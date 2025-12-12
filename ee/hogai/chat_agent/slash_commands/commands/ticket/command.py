@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from uuid import uuid4
 
 from django.conf import settings
+from django.utils import timezone
 
 from langchain_core.messages import (
     AIMessage,
@@ -28,10 +29,21 @@ class TicketCommand(SlashCommand):
 
     _window_manager = AnthropicConversationCompactionManager()
 
+    def _is_organization_new(self) -> bool:
+        """Check if the organization was created less than 3 months ago."""
+        org_created_at = self._team.organization.created_at
+        if not org_created_at:
+            return False
+        months_since_creation = (timezone.now() - org_created_at).days / 30
+        return months_since_creation < 3
+
     def _can_create_ticket(self, config: RunnableConfig) -> bool:
         """Check if user's subscription allows ticket creation."""
         # Enable ticket creation in local dev
         if settings.DEBUG:
+            return True
+
+        if self._is_organization_new():
             return True
 
         billing_context_data = config.get("configurable", {}).get("billing_context")

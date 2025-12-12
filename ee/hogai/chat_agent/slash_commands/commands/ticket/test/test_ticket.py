@@ -1,6 +1,10 @@
+from datetime import timedelta
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 
@@ -23,6 +27,9 @@ def _make_billing_context(subscription_level: str = "paid", trial_active: bool =
 class TestTicketCommand(BaseTest):
     def setUp(self):
         super().setUp()
+        # Default to old organization (more than 3 months) for consistent test behavior
+        self.team.organization.created_at = timezone.now() - timedelta(days=100)
+        self.team.organization.save()
         self.command = TicketCommand(self.team, self.user)
 
     @pytest.mark.asyncio
@@ -160,3 +167,47 @@ class TestTicketCommand(BaseTest):
             ]
         )
         self.assertFalse(self.command._is_first_message(state))
+
+    def test_is_organization_new_returns_true_for_recent_org(self):
+        """Test that _is_organization_new returns True for org created less than 3 months ago."""
+        self.team.organization.created_at = timezone.now() - timedelta(days=30)
+        self.team.organization.save()
+        self.assertTrue(self.command._is_organization_new())
+
+    def test_is_organization_new_returns_false_for_old_org(self):
+        """Test that _is_organization_new returns False for org created more than 3 months ago."""
+        self.team.organization.created_at = timezone.now() - timedelta(days=100)
+        self.team.organization.save()
+        self.assertFalse(self.command._is_organization_new())
+
+    @pytest.mark.asyncio
+    @patch.object(TicketCommand, "_is_organization_new", return_value=True)
+    async def test_execute_new_org_free_user_allowed(self, mock_is_new):
+        """Test that /ticket works for free users in new organizations."""
+        state = AssistantState(messages=[HumanMessage(content="/ticket")])
+        config = RunnableConfig(
+            configurable={"thread_id": "test-conversation-id", "billing_context": _make_billing_context("free")}
+        )
+
+        result = await self.command.execute(config, state)
+
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        assert isinstance(message.content, str)
+        self.assertIn("describe your issue", message.content.lower())
+
+    @pytest.mark.asyncio
+    @patch.object(TicketCommand, "_is_organization_new", return_value=False)
+    async def test_execute_old_org_free_user_blocked(self, mock_is_new):
+        """Test that /ticket returns upgrade message for free users in old organizations."""
+        state = AssistantState(messages=[HumanMessage(content="/ticket")])
+        config = RunnableConfig(
+            configurable={"thread_id": "test-conversation-id", "billing_context": _make_billing_context("free")}
+        )
+
+        result = await self.command.execute(config, state)
+
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        assert isinstance(message.content, str)
+        self.assertIn("paid plans", message.content)
