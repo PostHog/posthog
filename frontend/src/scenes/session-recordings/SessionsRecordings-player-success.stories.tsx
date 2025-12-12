@@ -1,5 +1,7 @@
-import { Meta, StoryObj } from '@storybook/react'
-import { combineUrl } from 'kea-router'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { combineUrl, router } from 'kea-router'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
@@ -7,7 +9,9 @@ import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { getAvailableProductFeatures } from '~/mocks/features'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, SessionRecordingPlaylistType } from '~/types'
 
 import { recordingPlaylists } from './__mocks__/recording_playlists'
@@ -249,3 +253,30 @@ export const RecentRecordingsNarrow: Story = {
     },
 }
 RecentRecordingsNarrow.tags = ['test-skip']
+
+export const FiltersExpanded: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/users/@me/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_USER,
+                    has_seen_product_intro_for: {
+                        [ProductKey.SESSION_REPLAY]: true,
+                    },
+                    organization: {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        available_product_features: getAvailableProductFeatures(),
+                    },
+                },
+            ],
+        },
+    })
+
+    router.actions.push(sceneUrl(urls.replay(), { showFilters: true }))
+
+    return <App />
+}
+FiltersExpanded.parameters = {
+    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+}
