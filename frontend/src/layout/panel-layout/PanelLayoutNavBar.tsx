@@ -305,7 +305,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 showName={false}
                                 buttonProps={{
                                     variant: 'panel',
-                                    className: 'px-px',
+                                    className: cn('px-px', {
+                                        hidden: isLayoutNavCollapsed,
+                                    }),
                                     iconOnly: isLayoutNavCollapsed,
                                     tooltipCloseDelayMs: 0,
                                     tooltipPlacement: 'bottom',
