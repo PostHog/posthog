@@ -1,5 +1,5 @@
 use std::{
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicU8, AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -16,15 +16,30 @@ use metrics::gauge;
 // Global atomic counter for active connections
 static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 
-// Global flag indicating shutdown is in progress
-static IS_SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+// Shutdown status state machine
+pub const SHUTDOWN_RUNNING: u8 = 0;
+pub const SHUTDOWN_PRESTOP: u8 = 1;
+pub const SHUTDOWN_TERMINATING: u8 = 2;
+pub const SHUTDOWN_KILLED: u8 = 3;
 
-pub fn set_shutting_down() {
-    IS_SHUTTING_DOWN.store(true, Ordering::SeqCst);
+static SHUTDOWN_STATUS: AtomicU8 = AtomicU8::new(SHUTDOWN_RUNNING);
+
+pub fn set_shutdown_status(status: u8) {
+    SHUTDOWN_STATUS.store(status, Ordering::SeqCst);
 }
 
-pub fn is_shutting_down() -> bool {
-    IS_SHUTTING_DOWN.load(Ordering::SeqCst)
+pub fn get_shutdown_status() -> u8 {
+    SHUTDOWN_STATUS.load(Ordering::SeqCst)
+}
+
+pub fn shutdown_status_label() -> &'static str {
+    match get_shutdown_status() {
+        SHUTDOWN_RUNNING => "running",
+        SHUTDOWN_PRESTOP => "prestop",
+        SHUTDOWN_TERMINATING => "terminating",
+        SHUTDOWN_KILLED => "killed",
+        _ => "unknown",
+    }
 }
 
 // Guard to ensure connection count is decremented even on panic
@@ -35,10 +50,9 @@ impl Drop for ConnectionGuard {
         let connections = ACTIVE_CONNECTIONS
             .fetch_sub(1, Ordering::Relaxed)
             .saturating_sub(1);
-        let shutting_down = is_shutting_down();
         gauge!(
             METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-            "is_shutting_down" => if shutting_down { "true" } else { "false" }
+            "shutdown_status" => shutdown_status_label()
         )
         .set(connections as f64);
     }
@@ -65,10 +79,9 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
 
     // Track active connections with shutdown status label
     let connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
-    let shutting_down = is_shutting_down();
     gauge!(
         METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-        "is_shutting_down" => if shutting_down { "true" } else { "false" }
+        "shutdown_status" => shutdown_status_label()
     )
     .set(connections as f64);
     let _guard = ConnectionGuard;
@@ -101,6 +114,10 @@ where
 {
     if let Some(request_timeout_seconds) = request_timeout_seconds {
         let timeout_duration = Duration::from_secs(request_timeout_seconds);
+        tracing::info!(
+            "Applying request timeout middleware with duration: {:?}",
+            timeout_duration
+        );
 
         return router.layer(axum::middleware::from_fn(
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
@@ -159,5 +176,6 @@ where
     }
 
     // no timeout configured
+    tracing::info!("No request timeout middleware applied");
     router
 }

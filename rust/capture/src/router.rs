@@ -81,8 +81,17 @@ async fn index() -> &'static str {
 async fn readiness(
     axum::extract::State(state): axum::extract::State<State>,
 ) -> axum::http::StatusCode {
-    if state.is_mirror_deploy && std::path::Path::new("/tmp/shutdown").exists() {
-        crate::metrics_middleware::set_shutting_down();
+    let shutdown_status = crate::metrics_middleware::get_shutdown_status();
+
+    if shutdown_status == crate::metrics_middleware::SHUTDOWN_RUNNING
+        && state.is_mirror_deploy
+        && std::path::Path::new("/tmp/shutdown").exists()
+    {
+        crate::metrics_middleware::set_shutdown_status(crate::metrics_middleware::SHUTDOWN_PRESTOP);
+        tracing::info!("Shutdown status change: PRESTOP");
+    }
+
+    if shutdown_status != crate::metrics_middleware::SHUTDOWN_RUNNING {
         axum::http::StatusCode::SERVICE_UNAVAILABLE
     } else {
         axum::http::StatusCode::OK
