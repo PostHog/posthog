@@ -5,16 +5,16 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
-import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { PersonsStore } from './persons-store'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 /**
  * PersonsStoreTransaction that delegates to a store with a transaction.
- * This can be used by any store that implements PersonsStoreForBatch.
+ * This can be used by any store that implements PersonsStore.
  */
 export class PersonsStoreTransaction {
     constructor(
-        private store: PersonsStoreForBatch,
+        private store: PersonsStore,
         private tx: PersonRepositoryTransaction
     ) {}
 
@@ -27,7 +27,8 @@ export class PersonsStoreTransaction {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
         return await this.store.createPerson(
             createdAt,
@@ -38,7 +39,8 @@ export class PersonsStoreTransaction {
             isUserId,
             isIdentified,
             uuid,
-            distinctIds,
+            primaryDistinctId,
+            extraDistinctIds,
             this.tx
         )
     }

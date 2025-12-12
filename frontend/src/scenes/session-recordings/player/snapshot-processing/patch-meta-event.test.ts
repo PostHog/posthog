@@ -63,7 +63,7 @@ describe('processAllSnapshots - inline meta patching', () => {
     }
 
     function createSource(
-        sourceType: SnapshotSourceType = 'blob',
+        sourceType: SnapshotSourceType = 'blob_v2',
         blobKey: string = 'blob-key'
     ): SessionRecordingSnapshotSource {
         return {
@@ -103,11 +103,11 @@ describe('processAllSnapshots - inline meta patching', () => {
     const countByType = (result: RecordingSnapshot[], type: EventType): number =>
         result.filter((r) => r.type === type).length
 
-    it('adds meta event before full snapshot when none exists', () => {
+    it('adds meta event before full snapshot when none exists', async () => {
         const snapshots = [createFullSnapshot()]
         const { sources, snapshotsBySource, processingCache } = setupTest(snapshots)
 
-        const result = processAllSnapshots(
+        const result = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache,
@@ -125,11 +125,11 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(result[1].type).toBe(EventType.FullSnapshot)
     })
 
-    it('does not add meta event if one already exists before full snapshot', () => {
+    it('does not add meta event if one already exists before full snapshot', async () => {
         const snapshots = [createMeta(800, 600, 1000, 'http://test'), createFullSnapshot()]
         const { sources, snapshotsBySource, processingCache } = setupTest(snapshots)
 
-        const result = processAllSnapshots(
+        const result = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache,
@@ -143,11 +143,11 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(result[1].type).toBe(EventType.FullSnapshot)
     })
 
-    it('handles multiple full snapshots correctly - each gets its own meta event', () => {
+    it('handles multiple full snapshots correctly - each gets its own meta event', async () => {
         const snapshots = [createFullSnapshot(1000), createIncrementalSnapshot(1500), createFullSnapshot(2000)]
         const { sources, snapshotsBySource, processingCache } = setupTest(snapshots)
 
-        const result = processAllSnapshots(
+        const result = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache,
@@ -169,14 +169,14 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(result[4].timestamp).toBe(2000)
     })
 
-    it('logs error when viewport dimensions are not available', () => {
+    it('logs error when viewport dimensions are not available', async () => {
         const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
         const snapshots = [createFullSnapshot()]
         const { sources, snapshotsBySource, processingCache } = setupTest(snapshots)
 
         jest.spyOn(posthog, 'captureException')
 
-        const result = processAllSnapshots(
+        const result = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache,
@@ -189,7 +189,7 @@ describe('processAllSnapshots - inline meta patching', () => {
             expect.objectContaining({
                 feature: 'session-recording-meta-patching',
                 sessionRecordingId: '12345',
-                sourceKey: 'blob-blob-key',
+                sourceKey: 'blob_v2-blob-key',
                 throttleCaptureKey: '12345-no-viewport-found',
             })
         )
@@ -197,7 +197,7 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(result[0].type).toBe(EventType.FullSnapshot)
     })
 
-    it('does not log error twice for the same session', () => {
+    it('does not log error twice for the same session', async () => {
         clearThrottle()
 
         const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
@@ -210,20 +210,32 @@ describe('processAllSnapshots - inline meta patching', () => {
         jest.spyOn(posthog, 'captureException')
 
         expect(posthog.captureException).toHaveBeenCalledTimes(0)
-        processAllSnapshots(sources, snapshotsBySource, processingCache, mockViewportForTimestampNoData, '12345')
+        await processAllSnapshots(sources, snapshotsBySource, processingCache, mockViewportForTimestampNoData, '12345')
         expect(posthog.captureException).toHaveBeenCalledTimes(1)
-        processAllSnapshots(sources, snapshotsBySource, { snapshots: {} }, mockViewportForTimestampNoData, '12345')
+        await processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            { snapshots: {} },
+            mockViewportForTimestampNoData,
+            '12345'
+        )
         expect(posthog.captureException).toHaveBeenCalledTimes(1)
-        processAllSnapshots(sources, snapshotsBySource, { snapshots: {} }, mockViewportForTimestampNoData, '54321')
+        await processAllSnapshots(
+            sources,
+            snapshotsBySource,
+            { snapshots: {} },
+            mockViewportForTimestampNoData,
+            '54321'
+        )
         expect(posthog.captureException).toHaveBeenCalledTimes(2)
     })
 
-    it('caches snapshots with meta events included', () => {
+    it('caches snapshots with meta events included', async () => {
         const snapshots = [createFullSnapshot()]
         const { sources, snapshotsBySource, processingCache } = setupTest(snapshots)
 
         // First call - should process and add meta event
-        const result1 = processAllSnapshots(
+        const result1 = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache,
@@ -236,7 +248,7 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(result1[1].type).toBe(EventType.FullSnapshot)
 
         // Second call - should use cache and still include meta event
-        const result2 = processAllSnapshots(
+        const result2 = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache,
@@ -259,9 +271,9 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(countByType(result2, EventType.FullSnapshot)).toBe(1)
     })
 
-    it('handles multiple sources correctly', () => {
-        const source1 = createSource('blob', 'blob-key-1')
-        const source2 = createSource('blob', 'blob-key-2')
+    it('handles multiple sources correctly', async () => {
+        const source1 = createSource('blob_v2', 'blob-key-1')
+        const source2 = createSource('blob_v2', 'blob-key-2')
         const sources = [source1, source2]
         const snapshotsBySource = {
             ...createSnapshotsBySource(source1, [createFullSnapshot(1000)]),
@@ -269,7 +281,7 @@ describe('processAllSnapshots - inline meta patching', () => {
         }
         const processingCache: ProcessingCache = { snapshots: {} }
 
-        const result = processAllSnapshots(
+        const result = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache,
@@ -289,9 +301,9 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(result[3].timestamp).toBe(2000)
     })
 
-    it('does not patch meta event when previous source ends with meta and next starts with full snapshot', () => {
-        const source1 = createSource('blob', 'blob-key-1')
-        const source2 = createSource('blob', 'blob-key-2')
+    it('does not patch meta event when previous source ends with meta and next starts with full snapshot', async () => {
+        const source1 = createSource('blob_v2', 'blob-key-1')
+        const source2 = createSource('blob_v2', 'blob-key-2')
         const sources = [source1, source2]
         const snapshotsBySource = {
             ...createSnapshotsBySource(source1, [
@@ -304,7 +316,7 @@ describe('processAllSnapshots - inline meta patching', () => {
         }
         const processingCache: ProcessingCache = { snapshots: {} }
 
-        const result = processAllSnapshots(
+        const result = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache,
@@ -328,9 +340,9 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(countByType(result, EventType.FullSnapshot)).toBe(2)
     })
 
-    it('patches meta event when previous source ends without meta and next starts with full snapshot', () => {
-        const source1 = createSource('blob', 'blob-key-1')
-        const source2 = createSource('blob', 'blob-key-2')
+    it('patches meta event when previous source ends without meta and next starts with full snapshot', async () => {
+        const source1 = createSource('blob_v2', 'blob-key-1')
+        const source2 = createSource('blob_v2', 'blob-key-2')
         const sources = [source1, source2]
         const snapshotsBySource = {
             ...createSnapshotsBySource(source1, [
@@ -343,7 +355,7 @@ describe('processAllSnapshots - inline meta patching', () => {
         }
         const processingCache: ProcessingCache = { snapshots: {} }
 
-        const result = processAllSnapshots(
+        const result = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache,
@@ -370,7 +382,7 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(countByType(result, EventType.FullSnapshot)).toBe(2)
     })
 
-    it('handles same source processed multiple times with fresh cache correctly', () => {
+    it('handles same source processed multiple times with fresh cache correctly', async () => {
         const snapshots = [createFullSnapshot()]
         const source = createSource()
         const sources = [source]
@@ -378,7 +390,7 @@ describe('processAllSnapshots - inline meta patching', () => {
 
         // First call with fresh cache
         const processingCache1: ProcessingCache = { snapshots: {} }
-        const result1 = processAllSnapshots(
+        const result1 = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache1,
@@ -388,7 +400,7 @@ describe('processAllSnapshots - inline meta patching', () => {
 
         // Second call with different fresh cache (simulating edge case)
         const processingCache2: ProcessingCache = { snapshots: {} }
-        const result2 = processAllSnapshots(
+        const result2 = await processAllSnapshots(
             sources,
             snapshotsBySource,
             processingCache2,

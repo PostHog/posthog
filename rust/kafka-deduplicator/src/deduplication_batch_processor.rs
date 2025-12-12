@@ -23,10 +23,11 @@ use crate::{
         DUPLICATE_EVENTS_TOTAL_COUNTER, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
         TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER,
         TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
-        TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, UNIQUE_EVENTS_TOTAL_COUNTER,
-        UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
-        UUID_DEDUP_FIELD_DIFFERENCES_COUNTER, UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
-        UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM,
+        TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
+        UNIQUE_EVENTS_TOTAL_COUNTER, UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
+        UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, UUID_DEDUP_FIELD_DIFFERENCES_COUNTER,
+        UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM, UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM,
+        UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM, UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM,
     },
     rocksdb::dedup_metadata::DedupFieldName,
     store::deduplication_store::{
@@ -397,6 +398,14 @@ impl BatchDeduplicationProcessor {
             let timestamp_result =
                 match Self::check_timestamp_duplicate_from_bytes(timestamp_source, raw_event) {
                     Ok((result, metadata)) => {
+                        // Emit metrics for timestamp deduplication (before moving metadata)
+                        Self::emit_timestamp_metrics(
+                            &result,
+                            raw_event,
+                            &metrics,
+                            metadata.as_ref(),
+                        );
+
                         if let Some(metadata) = metadata {
                             // Update metadata and prepare for write
                             let value = bincode::serde::encode_to_vec(
@@ -410,9 +419,6 @@ impl BatchDeduplicationProcessor {
                             batch_timestamp_cache
                                 .insert(enriched.timestamp_key_bytes.clone(), value);
                         }
-
-                        // Emit metrics for timestamp deduplication
-                        Self::emit_timestamp_metrics(&result, raw_event, &metrics);
 
                         result
                     }
@@ -441,6 +447,14 @@ impl BatchDeduplicationProcessor {
                 let uuid_result =
                     match Self::check_uuid_duplicate_from_bytes(uuid_source, raw_event) {
                         Ok((result, metadata)) => {
+                            // Emit metrics for UUID deduplication (before moving metadata)
+                            Self::emit_uuid_metrics(
+                                &result,
+                                raw_event,
+                                &metrics,
+                                metadata.as_ref(),
+                            );
+
                             if let Some(metadata) = metadata {
                                 // Update metadata and prepare for write
                                 let value = bincode::serde::encode_to_vec(
@@ -456,9 +470,6 @@ impl BatchDeduplicationProcessor {
                                 // Update batch cache for within-batch duplicate detection
                                 batch_uuid_cache.insert(uuid_key_bytes.clone(), value);
                             }
-
-                            // Emit metrics for UUID deduplication
-                            Self::emit_uuid_metrics(&result, raw_event, &metrics);
 
                             result
                         }
@@ -731,6 +742,7 @@ impl BatchDeduplicationProcessor {
         result: &DeduplicationResult,
         raw_event: &RawEvent,
         metrics: &MetricsHelper,
+        metadata: Option<&TimestampMetadata>,
     ) {
         if let Some(similarity) = result.get_similarity() {
             if let Some(lib_info) = raw_event.extract_library_info() {
@@ -739,6 +751,14 @@ impl BatchDeduplicationProcessor {
                     .with_label("lib", &lib_info.name)
                     .with_label("dedup_type", "timestamp")
                     .increment(1);
+
+                // Emit unique UUIDs histogram if metadata is available
+                if let Some(meta) = metadata {
+                    metrics
+                        .histogram(TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM)
+                        .with_label("lib", &lib_info.name)
+                        .record(meta.seen_uuids.len() as f64);
+                }
 
                 metrics
                     .histogram(TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM)
@@ -784,6 +804,7 @@ impl BatchDeduplicationProcessor {
         result: &DeduplicationResult,
         raw_event: &RawEvent,
         metrics: &MetricsHelper,
+        metadata: Option<&UuidMetadata>,
     ) {
         if let Some(similarity) = result.get_similarity() {
             if let Some(lib_info) = raw_event.extract_library_info() {
@@ -792,6 +813,19 @@ impl BatchDeduplicationProcessor {
                     .with_label("lib", &lib_info.name)
                     .with_label("dedup_type", "uuid")
                     .increment(1);
+
+                // Emit UUID-specific histograms if metadata is available
+                if let Some(meta) = metadata {
+                    metrics
+                        .histogram(UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM)
+                        .with_label("lib", &lib_info.name)
+                        .record(meta.get_timestamp_variance() as f64);
+
+                    metrics
+                        .histogram(UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM)
+                        .with_label("lib", &lib_info.name)
+                        .record(meta.seen_timestamps.len() as f64);
+                }
 
                 metrics
                     .histogram(UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM)

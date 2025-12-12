@@ -14,9 +14,10 @@ use tracing::error;
 
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
+    payload::{decompression::GZIP_MAGIC_NUMBERS, Compression, EventFormData, EventQuery},
     router,
     utils::extract_and_verify_token,
-    v0_request::{Compression, EventFormData, EventQuery, RawRequest, GZIP_MAGIC_NUMBERS},
+    v0_request::RawRequest,
 };
 
 // These metrics are only used in the test paths below

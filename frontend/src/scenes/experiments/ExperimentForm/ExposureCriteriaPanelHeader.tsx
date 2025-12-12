@@ -15,7 +15,7 @@ export const ExposureCriteriaPanelHeader = ({ experiment }: { experiment: Experi
     const summaryParts: string[] = []
     summaryParts.push(isCustom && customEvent ? `Custom: ${customEvent}` : 'Default trigger')
     if (hasTestAccountFilter) {
-        summaryParts.push('Filter test accounts')
+        summaryParts.push('Filter out internal and test users')
     }
 
     const summaryText = summaryParts.join(' • ')

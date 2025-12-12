@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-04 20:02:07 UTC
+// Generated at: 2025-12-12 20:02:04 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -20,7 +20,6 @@ export type CanonicalProvider =
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'
-    | 'byteplus'
     | 'cerebras'
     | 'cerebras-fp16'
     | 'chutes'
@@ -68,6 +67,7 @@ export type CanonicalProvider =
     | 'mancer-fp16'
     | 'mancer-fp8'
     | 'mancer-int4'
+    | 'mara'
     | 'minimax'
     | 'minimax-fp8'
     | 'mistral'
@@ -90,6 +90,7 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita-bf16'
     | 'novita-fp16'
+    | 'novita-fp4'
     | 'novita-fp8'
     | 'nvidia'
     | 'nvidia-bf16'
@@ -103,11 +104,12 @@ export type CanonicalProvider =
     | 'parasail-int8'
     | 'perplexity'
     | 'phala'
+    | 'relace-bf16'
     | 'relace-fp8'
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
-    | 'sambanova-standard'
+    | 'sambanova-high-throughput'
     | 'sambanova-turbo'
     | 'siliconflow-fp8'
     | 'streamlake-fp16'
