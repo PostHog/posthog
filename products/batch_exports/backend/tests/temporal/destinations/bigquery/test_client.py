@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
-    BigQueryStartQueryTimeoutError,
+    StartQueryTimeoutError,
 )
 
 
@@ -41,7 +41,7 @@ async def test_execute_query_pending_timeout(states_sequence: list[str], should_
 
     if should_timeout:
         with pytest.raises(
-            BigQueryStartQueryTimeoutError, match="Query 'test-job-id' still in 'PENDING' state after 0.05 seconds"
+            StartQueryTimeoutError, match="Query 'test-job-id' still in 'PENDING' state after 0.05 seconds"
         ):
             await client.execute_query(
                 "SELECT 1",

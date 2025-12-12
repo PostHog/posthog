@@ -67,6 +67,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Raised when attempting to run a batch export without required BigQuery permissions.
     # Our own version of `Forbidden`.
     "MissingRequiredPermissionsError",
+    # Raised when a query takes too long to start (i.e. remains in "PENDING" state for too long).
+    "StartQueryTimeoutError",
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -388,7 +390,7 @@ class BigQueryClient:
             return table
 
     async def execute_query(
-        self, query: str, start_query_timeout: float = 10 * 60, poll_interval: float = 0.2
+        self, query: str, start_query_timeout: float = 10 * 60, poll_interval: float = 0.5
     ) -> RowIterator | _EmptyRowIterator:
         """Execute a query and wait for it to complete.
 
@@ -401,7 +403,7 @@ class BigQueryClient:
             The query result.
 
         Raises:
-            BigQueryStartQueryTimeoutError: If the query took too long to start (i.e. remained in "PENDING" state for
+            StartQueryTimeoutError: If the query took too long to start (i.e. remained in "PENDING" state for
                 longer than the timeout duration).
         """
         job_config = bigquery.QueryJobConfig()
@@ -410,7 +412,6 @@ class BigQueryClient:
         # wait for the query to start (and timeout if it takes too long)
         query_start_time = time.monotonic()
         while True:
-            await asyncio.sleep(poll_interval)
             await asyncio.to_thread(query_job.reload)
             if query_job.state != "PENDING":
                 break
@@ -422,7 +423,8 @@ class BigQueryClient:
                 # so we cancel it and hope for the best
                 await asyncio.to_thread(query_job.cancel)
                 assert query_job.job_id is not None
-                raise BigQueryStartQueryTimeoutError(query_job.job_id, start_query_timeout)
+                raise StartQueryTimeoutError(query_job.job_id, start_query_timeout)
+            await asyncio.sleep(poll_interval)
 
         # wait for the query to complete and return the result
         return await asyncio.to_thread(query_job.result)
@@ -716,7 +718,7 @@ class BigQueryQuotaExceededError(Exception):
         super().__init__(f"A BigQuery quota has been exceeded. Error: {message}")
 
 
-class BigQueryStartQueryTimeoutError(TimeoutError):
+class StartQueryTimeoutError(TimeoutError):
     """Exception raised when a query takes too long to start."""
 
     def __init__(self, job_id: str, timeout: float):
