@@ -62,7 +62,6 @@ def configure_connection(
     config: dict[str, str] | None = None,
     *,
     install_extension: bool = False,
-    use_core_nightly: bool = False,
 ) -> None:
     """Configure DuckDB connection with DuckLake extension and S3 settings.
 
@@ -70,16 +69,12 @@ def configure_connection(
         conn: DuckDB connection
         config: Configuration dict (uses get_config() if None)
         install_extension: Whether to install the DuckLake extension
-        use_core_nightly: Whether to install from core_nightly (for production)
     """
     if config is None:
         config = get_config()
 
     if install_extension:
-        if use_core_nightly:
-            conn.sql("INSTALL ducklake FROM core_nightly")
-        else:
-            conn.sql("INSTALL ducklake")
+        conn.sql("INSTALL ducklake")
     conn.sql("LOAD ducklake")
 
     # Configure S3 access - supports both IRSA (production) and explicit credentials (dev)

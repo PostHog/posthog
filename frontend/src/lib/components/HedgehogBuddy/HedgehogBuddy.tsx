@@ -8,6 +8,7 @@ import React from 'react'
 
 import { ProfilePicture, lemonToast } from '@posthog/lemon-ui'
 
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
@@ -942,6 +943,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     const actor = actorRef.current
     const [_, setTimerLoop] = useState(0)
     const { currentLocation } = useValues(router)
+    const { isVisible } = usePageVisibility()
 
     useEffect(() => {
         if (currentLocation.pathname.includes('/heatmaps')) {
@@ -968,6 +970,10 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     }, [staticMode, actor.static])
 
     useEffect(() => {
+        if (!isVisible) {
+            return
+        }
+
         let timer: any = null
 
         const loop = (): void => {
@@ -980,7 +986,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
         return () => {
             clearTimeout(timer)
         }
-    }, [actor])
+    }, [actor, isVisible])
 
     useEffect(() => {
         if (actor.isDragging) {

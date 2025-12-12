@@ -90,7 +90,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             self.query.breakdownFilter.breakdown = None
             self.query.breakdownFilter.breakdown_type = None
 
-        # Optimize cohort filters
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        """
+        Called after __init__ and after dashboard filters are applied.
+        This ensures cohort optimizations work for both direct filters and dashboard-level filters.
+        """
         self.update_hogql_modifiers()
 
     def update_hogql_modifiers(self) -> None:
