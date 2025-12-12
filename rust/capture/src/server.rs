@@ -244,9 +244,9 @@ where
     // QuotaResource type and a predicate function that will match events to be limited
     let quota_limiter =
         CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
-            .add_scoped_limiter(QuotaResource::Exceptions, Box::new(is_exception_event))
-            .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event))
-            .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
+            .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
+            .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
+            .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     // TODO: remove this once we have a billing limiter
     let token_dropper = config
