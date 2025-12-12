@@ -1,4 +1,5 @@
 import time
+import logging
 import datetime
 from typing import Any, Optional, cast
 from uuid import uuid4
@@ -43,6 +44,7 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.two_factor_session import (
+    _obfuscate_token,
     clear_two_factor_session_flags,
     email_mfa_token_generator,
     email_mfa_verifier,
@@ -57,6 +59,8 @@ from posthog.tasks.email import (
     send_two_factor_auth_backup_code_used_email,
 )
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
+
+logger = logging.getLogger(__name__)
 
 USER_AUTH_METHOD_MISMATCH = Counter(
     "user_auth_method_mismatches_sso_enforcement",
@@ -417,9 +421,15 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             {"token": ["This verification link is invalid or has expired."]}, code="invalid_token"
         )
 
+        logger.info("Email MFA verification attempt", extra={"token": _obfuscate_token(token)})
+
         try:
             user = User.objects.filter(is_active=True, email=email).get()
         except User.DoesNotExist:
+            logger.warning(
+                "Email MFA verification failed: user not found or inactive",
+                extra={"token": _obfuscate_token(token)},
+            )
             raise validation_error
 
         if not email_mfa_token_generator.check_token(user, token):
@@ -429,6 +439,10 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(request)
         report_user_logged_in(user, social_provider="")
+        logger.info(
+            "Email MFA login successful",
+            extra={"user_id": user.pk, "token": _obfuscate_token(token)},
+        )
 
         # Always set remember device cookie (30 days), same as TOTP 2FA
         cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
