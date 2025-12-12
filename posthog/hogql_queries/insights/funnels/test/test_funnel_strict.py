@@ -19,7 +19,7 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
+from posthog.hogql_queries.insights.funnels.test.test_utils import PseudoFunnelActors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
