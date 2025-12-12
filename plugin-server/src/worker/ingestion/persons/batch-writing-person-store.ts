@@ -1112,11 +1112,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[],
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonRepositoryTransaction
     ): Promise<CreatePersonResult> {
-        this.incrementCount('createPerson', distinctIds?.[0].distinctId ?? '')
-        this.incrementDatabaseOperation('createPerson', distinctIds?.[0]?.distinctId ?? '')
+        this.incrementCount('createPerson', primaryDistinctId.distinctId)
+        this.incrementDatabaseOperation('createPerson', primaryDistinctId.distinctId)
         const result = await (tx || this.personRepository).createPerson(
             createdAt,
             properties,
@@ -1126,23 +1127,24 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             isUserId,
             isIdentified,
             uuid,
-            distinctIds
+            primaryDistinctId,
+            extraDistinctIds
         )
 
         if (result.success) {
             const { person } = result
-            this.setCheckCachedPerson(teamId, distinctIds?.[0]?.distinctId ?? '', person)
+            this.setCheckCachedPerson(teamId, primaryDistinctId.distinctId, person)
             this.setCachedPersonForUpdate(
                 teamId,
-                distinctIds?.[0]?.distinctId ?? '',
-                fromInternalPerson(person, distinctIds?.[0]?.distinctId ?? '')
+                primaryDistinctId.distinctId,
+                fromInternalPerson(person, primaryDistinctId.distinctId)
             )
-            if (distinctIds?.[1]) {
-                this.setDistinctIdToPersonId(teamId, distinctIds[1].distinctId, person.id)
+            for (const extraDistinctId of extraDistinctIds || []) {
+                this.setDistinctIdToPersonId(teamId, extraDistinctId.distinctId, person.id)
                 this.setCachedPersonForUpdate(
                     teamId,
-                    distinctIds[1].distinctId,
-                    fromInternalPerson(person, distinctIds[1].distinctId)
+                    extraDistinctId.distinctId,
+                    fromInternalPerson(person, extraDistinctId.distinctId)
                 )
             }
         }
