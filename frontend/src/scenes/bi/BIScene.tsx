@@ -299,7 +299,15 @@ export function BIScene(): JSX.Element {
         })
 
         return Object.values(groupedTables)
-            .sort((a, b) => a.name.localeCompare(b.name))
+            .sort((a, b) => {
+                if (a.name === 'posthog') {
+                    return -1
+                }
+                if (b.name === 'posthog') {
+                    return 1
+                }
+                return a.name.localeCompare(b.name)
+            })
             .map((group) => ({
                 ...group,
                 children: (group.children || []).sort((a, b) => a.name.localeCompare(b.name)),
@@ -556,6 +564,15 @@ export function BIScene(): JSX.Element {
                                 data={tableTreeData}
                                 expandedItemIds={expandedTableGroups}
                                 onSetExpandedItemIds={setExpandedTableGroups}
+                                onFolderClick={(folder, isExpanded) => {
+                                    if (!folder) {
+                                        return
+                                    }
+
+                                    setExpandedTableGroups((current) =>
+                                        isExpanded ? current.filter((id) => id !== folder.id) : [...current, folder.id]
+                                    )
+                                }}
                                 onItemClick={(item) => {
                                     if (item.record?.type === 'table') {
                                         selectTable(item.record.tableName)
