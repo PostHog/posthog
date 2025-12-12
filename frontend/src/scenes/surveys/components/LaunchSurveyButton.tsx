@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { TZLabel } from 'lib/components/TZLabel'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
@@ -43,6 +44,15 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                                         : 'all your users'}
                                     .
                                 </div>
+                                {survey.scheduled_start_datetime && !survey.start_date && (
+                                    <LemonBanner type="info" hideIcon className="mt-5">
+                                        <div>
+                                            This survey is scheduled to launch{' '}
+                                            <TZLabel time={survey.scheduled_start_datetime} />. Proceed to launch it
+                                            immediately.
+                                        </div>
+                                    </LemonBanner>
+                                )}
                                 <SdkVersionWarnings warnings={surveyWarnings} />
                             </div>
                         ),

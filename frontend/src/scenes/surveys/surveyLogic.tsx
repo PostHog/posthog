@@ -194,9 +194,7 @@ export interface QuestionResultsReady {
 
 export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
 
-export type SurveyStartType = 'manual' | 'datetime'
-
-export type SurveyEndType = 'manual' | 'datetime'
+export type SurveyScheduleType = 'manual' | 'datetime'
 
 export interface SurveyDateRange {
     date_from: string | null

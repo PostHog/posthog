@@ -4,12 +4,13 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGraph, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { TZLabel } from 'lib/components/TZLabel'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -233,8 +234,21 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     LemonDialog.open({
                                                         title: 'Stop this survey?',
                                                         content: (
-                                                            <div className="text-sm text-secondary">
-                                                                The survey will no longer be displayed to users.
+                                                            <div>
+                                                                <div className="text-sm text-secondary">
+                                                                    The survey will no longer be displayed to users.
+                                                                </div>
+                                                                {survey.scheduled_end_datetime && !survey.end_date && (
+                                                                    <LemonBanner type="info" hideIcon className="mt-5">
+                                                                        <div>
+                                                                            This survey is scheduled to end{' '}
+                                                                            <TZLabel
+                                                                                time={survey.scheduled_end_datetime}
+                                                                            />
+                                                                            . Proceed to end it immediately.
+                                                                        </div>
+                                                                    </LemonBanner>
+                                                                )}
                                                             </div>
                                                         ),
                                                         primaryButton: {
