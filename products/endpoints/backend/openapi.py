@@ -10,8 +10,6 @@ def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) ->
     base_url = settings.SITE_URL or f"{request.scheme}://{request.get_host()}"
     run_path = f"/api/environments/{team_id}/endpoints/{endpoint.name}/run"
 
-    request_schema = _build_request_schema(endpoint)
-
     return {
         "openapi": "3.0.3",
         "info": {
@@ -31,7 +29,7 @@ def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) ->
                         "required": False,
                         "content": {
                             "application/json": {
-                                "schema": request_schema,
+                                "schema": {"$ref": "#/components/schemas/EndpointRunRequest"},
                             }
                         },
                     },
@@ -77,61 +75,134 @@ def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) ->
                     "scheme": "bearer",
                     "description": "Personal API Key from PostHog. Get one at /settings/user-api-keys",
                 }
-            }
+            },
+            "schemas": _build_component_schemas(endpoint),
         },
     }
 
 
-def _build_request_schema(endpoint: Endpoint) -> dict:
-    """Build the request body schema based on the endpoint's query type."""
+def _build_component_schemas(endpoint: Endpoint) -> dict:
+    """Build the components/schemas section with reusable schema definitions."""
     query_kind = endpoint.query.get("kind")
-    properties: dict = {}
-    schema: dict = {
-        "type": "object",
-        "properties": properties,
+
+    schemas: dict = {
+        "EndpointRunRequest": {
+            "type": "object",
+            "properties": {
+                "client_query_id": {
+                    "type": "string",
+                    "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
+                },
+                "filters_override": {
+                    "$ref": "#/components/schemas/DashboardFilter",
+                },
+                "refresh": {
+                    "type": "string",
+                    "enum": ["blocking", "force_blocking"],
+                    "default": "blocking",
+                    "description": (
+                        "Whether results should be calculated sync or async. "
+                        "'blocking' returns when done unless fresh cache exists. "
+                        "'force_blocking' always calculates fresh."
+                    ),
+                },
+                "version": {
+                    "type": "integer",
+                    "description": f"Specific endpoint version to execute (1-{endpoint.current_version}). Defaults to latest.",
+                },
+            },
+        },
+        "DashboardFilter": {
+            "type": "object",
+            "description": "Override dashboard/query filters including date range and properties.",
+            "properties": {
+                "date_from": {
+                    "type": "string",
+                    "description": "Start date for the query (e.g., '-7d', '2024-01-01', 'mStart').",
+                    "examples": ["-7d", "-30d", "2024-01-01", "mStart"],
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "End date for the query (e.g., 'now', '2024-12-31'). Defaults to now.",
+                    "examples": ["now", "2024-12-31", "dStart"],
+                },
+                "properties": {
+                    "type": "array",
+                    "description": "Property filters to apply to the query.",
+                    "items": {"$ref": "#/components/schemas/PropertyFilter"},
+                },
+            },
+        },
+        "PropertyFilter": {
+            "type": "object",
+            "description": "A property filter to narrow down results.",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "The property key to filter on.",
+                },
+                "value": {
+                    "description": "The value(s) to filter for.",
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "number"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
+                },
+                "operator": {
+                    "type": "string",
+                    "enum": [
+                        "exact",
+                        "is_not",
+                        "icontains",
+                        "not_icontains",
+                        "regex",
+                        "not_regex",
+                        "gt",
+                        "lt",
+                        "gte",
+                        "lte",
+                        "is_set",
+                        "is_not_set",
+                        "is_date_exact",
+                        "is_date_before",
+                        "is_date_after",
+                        "in",
+                        "not_in",
+                    ],
+                    "description": "The comparison operator.",
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["event", "person", "session", "cohort", "group", "hogql"],
+                    "description": "The type of property filter.",
+                },
+            },
+            "required": ["key"],
+        },
     }
 
+    # Add variables schema for HogQL queries
     if query_kind == "HogQLQuery":
         variables = endpoint.query.get("variables")
         if variables:
-            variables_schema = _build_variables_schema(variables)
-            properties["variables"] = variables_schema
+            schemas["EndpointRunRequest"]["properties"]["variables"] = {
+                "$ref": "#/components/schemas/Variables",
+            }
+            schemas["Variables"] = _build_variables_schema(variables)
     else:
-        properties["query_override"] = {
+        # Insight queries support query_override
+        schemas["EndpointRunRequest"]["properties"]["query_override"] = {
             "type": "object",
-            "description": "Override query parameters (e.g., dateRange, interval)",
+            "description": "Override insight query parameters (e.g., series, dateRange, interval).",
             "additionalProperties": True,
         }
 
-    properties["filters_override"] = {
-        "type": "object",
-        "description": "Override dashboard filters",
-        "properties": {
-            "properties": {
-                "type": "array",
-                "items": {},
-                "description": "Property filters to apply",
-            }
-        },
-    }
-
-    properties["refresh"] = {
-        "type": "string",
-        "enum": ["blocking", "force_blocking"],
-        "default": "blocking",
-        "description": "Refresh mode for the query",
-    }
-
-    properties["version"] = {
-        "type": "integer",
-        "description": f"Specific endpoint version to execute (1-{endpoint.current_version})",
-    }
-
-    return schema
+    return schemas
 
 
 def _build_variables_schema(variables: dict) -> dict:
-    """Build schema for HogQL variables."""
+    """Build schema for HogQL variables based on the endpoint's defined variables."""
     properties = {}
 
     for var_id, var_data in variables.items():
@@ -142,7 +213,7 @@ def _build_variables_schema(variables: dict) -> dict:
 
     return {
         "type": "object",
-        "description": "HogQL query variables",
+        "description": "HogQL query variables. Keys are variable code names as defined in the query.",
         "properties": properties,
         "additionalProperties": True,
     }
