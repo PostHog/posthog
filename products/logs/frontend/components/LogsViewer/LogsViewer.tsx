@@ -1,17 +1,21 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { cn } from 'lib/utils/css-classes'
 
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
+import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 import { logsViewerLogic } from './logsViewerLogic'
+
+const SCROLL_INTERVAL_MS = 16 // ~60fps
+const SCROLL_AMOUNT_PX = 8
 
 export interface LogsViewerProps {
     tabId: string
@@ -23,7 +27,7 @@ export interface LogsViewerProps {
     onChangeOrderBy: (orderBy: LogsOrderBy) => void
     onRefresh?: () => void
     onLoadMore?: () => void
-    onAddFilter?: (key: string, value: string, operator?: PropertyOperator) => void
+    onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
 }
 
 export function LogsViewer({
@@ -76,7 +80,80 @@ function LogsViewerContent({
         useValues(logsViewerLogic)
     const { setFocused, moveCursorDown, moveCursorUp, toggleExpandLog, resetCursor, setCursorToLogId } =
         useActions(logsViewerLogic)
+    const { messageScrollLeft } = useValues(virtualizedLogsListLogic)
+    const { setMessageScrollLeft } = useActions(virtualizedLogsListLogic)
     const containerRef = useRef<HTMLDivElement>(null)
+    const scrollLeftRef = useRef(messageScrollLeft)
+    scrollLeftRef.current = messageScrollLeft
+
+    const scrollIntervalRef = useRef<number | null>(null)
+
+    const scrollMessage = useCallback(
+        (direction: 'left' | 'right'): void => {
+            const newScrollLeft =
+                direction === 'left'
+                    ? Math.max(0, scrollLeftRef.current - SCROLL_AMOUNT_PX)
+                    : scrollLeftRef.current + SCROLL_AMOUNT_PX
+            scrollLeftRef.current = newScrollLeft
+            setMessageScrollLeft(newScrollLeft)
+        },
+        [setMessageScrollLeft]
+    )
+
+    const startScrolling = useCallback(
+        (direction: 'left' | 'right'): void => {
+            if (scrollIntervalRef.current !== null) {
+                return // Already scrolling
+            }
+            scrollMessage(direction)
+            scrollIntervalRef.current = window.setInterval(() => {
+                scrollMessage(direction)
+            }, SCROLL_INTERVAL_MS)
+        },
+        [scrollMessage]
+    )
+
+    const stopScrolling = useCallback((): void => {
+        if (scrollIntervalRef.current) {
+            clearInterval(scrollIntervalRef.current)
+            scrollIntervalRef.current = null
+        }
+    }, [])
+
+    // Handle keyboard scroll with keydown/keyup for smooth 60fps scrolling
+    useEffect(() => {
+        if (!isFocused || wrapBody) {
+            return
+        }
+
+        const handleKeyDown = (e: KeyboardEvent): void => {
+            if (e.repeat) {
+                return // Ignore OS key repeat, we have our own interval
+            }
+            if (e.key === 'ArrowLeft' || e.key === 'h') {
+                e.preventDefault()
+                startScrolling('left')
+            } else if (e.key === 'ArrowRight' || e.key === 'l') {
+                e.preventDefault()
+                startScrolling('right')
+            }
+        }
+
+        const handleKeyUp = (e: KeyboardEvent): void => {
+            if (e.key === 'ArrowLeft' || e.key === 'h' || e.key === 'ArrowRight' || e.key === 'l') {
+                stopScrolling()
+            }
+        }
+
+        window.addEventListener('keydown', handleKeyDown)
+        window.addEventListener('keyup', handleKeyUp)
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown)
+            window.removeEventListener('keyup', handleKeyUp)
+            stopScrolling()
+        }
+    }, [isFocused, wrapBody, startScrolling, stopScrolling])
 
     // Position cursor at linked log when deep linking (URL -> cursor)
     useEffect(() => {
@@ -97,6 +174,7 @@ function LogsViewerContent({
             j: { action: () => moveCursorDown(), disabled: !isFocused },
             arrowup: { action: () => moveCursorUp(), disabled: !isFocused },
             k: { action: () => moveCursorUp(), disabled: !isFocused },
+            // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
                     if (cursorLogId) {

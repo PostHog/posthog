@@ -1,10 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { DB } from '~/utils/db/db'
 import { TeamManager } from '~/utils/team-manager'
 
 import { getMetricValues, resetMetrics } from '../../../tests/helpers/metrics'
-import { EventHeaders, Hub, IncomingEvent, Team } from '../../types'
+import { EventHeaders, IncomingEvent, Team } from '../../types'
 import { drop, ok } from '../pipelines/results'
 import { createResolveTeamStep } from './resolve-team'
 
@@ -34,12 +33,12 @@ const teamTwo: Team = {
 
 const teamTwoToken = 'token'
 
-let hub: Hub
+let teamManager: TeamManager
 let step: ReturnType<typeof createResolveTeamStep>
 
 beforeEach(() => {
     resetMetrics()
-    const teamManager: TeamManager = {
+    teamManager = {
         getTeamByToken: jest.fn(async (token) => {
             return Promise.resolve(token === teamTwoToken ? teamTwo : null)
         }),
@@ -55,18 +54,7 @@ beforeEach(() => {
         }),
     } as unknown as TeamManager
 
-    const db = {
-        kafkaProducer: {
-            queueMessages: jest.fn(() => Promise.resolve()),
-        },
-    } as unknown as DB
-
-    hub = {
-        teamManager,
-        db,
-    } as Hub
-
-    step = createResolveTeamStep(hub)
+    step = createResolveTeamStep(teamManager)
 })
 
 describe('createResolveTeamStep()', () => {
@@ -126,8 +114,8 @@ describe('createResolveTeamStep()', () => {
                 },
             })
         )
-        expect(hub.teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
-        expect(hub.teamManager.getTeam).not.toHaveBeenCalled()
+        expect(teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
+        expect(teamManager.getTeam).not.toHaveBeenCalled()
     })
 
     it('event with team_id but no token is dropped', async () => {
@@ -147,8 +135,8 @@ describe('createResolveTeamStep()', () => {
                 value: 1,
             },
         ])
-        expect(hub.teamManager.getTeam).not.toHaveBeenCalled()
-        expect(hub.teamManager.getTeamByToken).not.toHaveBeenCalled()
+        expect(teamManager.getTeam).not.toHaveBeenCalled()
+        expect(teamManager.getTeamByToken).not.toHaveBeenCalled()
     })
 
     it('event with both team_id and token uses token for team resolution', async () => {
@@ -172,12 +160,12 @@ describe('createResolveTeamStep()', () => {
                 },
             })
         )
-        expect(hub.teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
-        expect(hub.teamManager.getTeam).not.toHaveBeenCalled()
+        expect(teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
+        expect(teamManager.getTeam).not.toHaveBeenCalled()
     })
 
     it('PG errors are propagated up to trigger retries', async () => {
-        jest.mocked(hub.teamManager.getTeamByToken).mockRejectedValueOnce(new Error('retry me'))
+        jest.mocked(teamManager.getTeamByToken).mockRejectedValueOnce(new Error('retry me'))
         const input = {
             message: {} as Message,
             headers: {} as EventHeaders,

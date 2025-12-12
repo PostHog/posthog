@@ -184,6 +184,7 @@ class TrendsActorsQueryBuilder:
                 ast.Alias(alias="event_count", expr=self._get_actor_value_expr()),
                 *self._get_event_distinct_ids_expr(),
                 *self._get_matching_recordings_expr(),
+                *self._get_last_seen_expr(),
             ],
             select_from=ast.JoinExpr(table=self._get_events_query()),
             group_by=[ast.Field(chain=["actor_id"])],
@@ -248,6 +249,13 @@ class TrendsActorsQueryBuilder:
 
     def _get_actor_value_expr(self) -> ast.Expr:
         return parse_expr("count()")
+
+    def _get_last_seen_expr(self) -> list[ast.Expr]:
+        if self.trends_aggregation_operations.is_first_time_ever_math():
+            # first time ever math doesn't select `timestamp`, so we should not calculate `last_seen`
+            return []
+
+        return [ast.Alias(alias="last_seen", expr=parse_expr("max(timestamp)"))]
 
     def _get_matching_recordings_expr(self) -> list[ast.Expr]:
         if not self.include_recordings:

@@ -82,7 +82,11 @@ def _auto_update_manifest() -> None:
         )
 
 
-@click.group(cls=CategorizedGroup, help="Unified developer experience for the PostHog monorepo.")
+@click.group(
+    cls=CategorizedGroup,
+    help="Unified developer experience for the PostHog monorepo.",
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - Developer CLI for PostHog."""

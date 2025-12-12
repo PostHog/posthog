@@ -1934,12 +1934,20 @@
                 "filter_web_analytics",
                 "create_feature_flag",
                 "create_experiment",
+                "create_task",
+                "run_task",
+                "get_task_run",
+                "get_task_run_logs",
+                "list_tasks",
+                "list_task_runs",
+                "list_repositories",
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",
                 "filter_session_recordings",
                 "create_insight",
-                "create_form"
+                "create_form",
+                "task"
             ],
             "type": "string"
         },
@@ -14696,6 +14704,7 @@
                 "heatmap",
                 "session_replay",
                 "survey",
+                "product_tour",
                 "user_interview",
                 "early_access_feature",
                 "experiment",
@@ -17474,6 +17483,9 @@
                 "inputTokens": {
                     "type": "number"
                 },
+                "isSupportTrace": {
+                    "type": "boolean"
+                },
                 "outputCost": {
                     "type": "number"
                 },
@@ -19742,6 +19754,10 @@
             "properties": {
                 "id": {
                     "description": "Name of the event.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Optional display name for this event.",
                     "type": "string"
                 },
                 "properties": {
@@ -28909,6 +28925,22 @@
             "required": ["results"],
             "type": "object"
         },
+        "SubagentUpdateEvent": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/AssistantToolCall"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "tool_call_id", "content"],
+            "type": "object"
+        },
         "SubscriptionDropoffMode": {
             "enum": ["last_event", "after_dropoff_period"],
             "type": "string"
@@ -29849,6 +29881,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterSupportTraces": {
+                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"

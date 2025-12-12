@@ -167,6 +167,8 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
                 person_properties=person_properties,
                 groups=groups,
                 group_properties=group_properties,
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
             )
             or posthoganalytics.feature_enabled(
                 EARLY_ADOPTERS_FEATURE_FLAG,
@@ -174,6 +176,8 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
                 person_properties=person_properties,
                 groups=groups,
                 group_properties=group_properties,
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
             )
         ):
             raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this user")

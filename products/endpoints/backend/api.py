@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
+from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
@@ -45,6 +46,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
@@ -218,6 +220,18 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 scope="Endpoint",
                 activity="created",
                 detail=Detail(name=endpoint.name),
+            )
+
+            # Report endpoint created event
+            report_user_action(
+                user=cast(User, request.user),
+                event="endpoint created",
+                properties={
+                    "endpoint_id": str(endpoint.id),
+                    "endpoint_name": endpoint.name,
+                    "query_kind": endpoint.query.get("kind") if isinstance(endpoint.query, dict) else None,
+                },
+                team=self.team,
             )
 
             return Response(self._serialize_endpoint(endpoint), status=status.HTTP_201_CREATED)
@@ -476,6 +490,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         )
         return Response(result, status=response_status)
 
+    def _is_cache_stale(self, result: Response, saved_query) -> bool:
+        """Check if cached result is older than the materialization."""
+        if not isinstance(result.data, dict) or not result.data.get("is_cached"):
+            return False
+
+        last_refresh = result.data.get("last_refresh")
+        if not last_refresh or not saved_query.last_run_at:
+            return False
+
+        if isinstance(last_refresh, str):
+            last_refresh = isoparse(last_refresh)
+
+        return last_refresh < saved_query.last_run_at
+
     def _execute_materialized_endpoint(
         self, endpoint: Endpoint, data: EndpointRunRequest, request: Request
     ) -> Response:
@@ -514,9 +542,17 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             }
             tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
 
-            return self._execute_query_and_respond(
+            result = self._execute_query_and_respond(
                 query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
             )
+
+            if self._is_cache_stale(result, saved_query):
+                query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
+                result = self._execute_query_and_respond(
+                    query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
+                )
+
+            return result
         except Exception as e:
             capture_exception(
                 e,

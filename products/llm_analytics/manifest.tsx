@@ -110,6 +110,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
         '/llm-analytics/prompts': ['LLMAnalytics', 'llmAnalyticsPrompts'],
         '/llm-analytics/prompts/:id': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
+        '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
     },
     redirects: {
         '/llm-observability': (_params, searchParams, hashParams) =>
@@ -167,6 +168,7 @@ export const manifest: ProductManifest = {
         llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
         llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
         llmAnalyticsPrompt: (id: string): string => `/llm-analytics/prompts/${id}`,
+        llmAnalyticsSettings: (): string => '/llm-analytics/settings',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

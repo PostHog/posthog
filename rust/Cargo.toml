@@ -16,6 +16,7 @@ members = [
     "common/limiters",
     "common/metrics",
     "common/profiler",
+    "common/continuous_profiling",
     "common/redis",
     "common/s3",
     "common/serve_metrics",

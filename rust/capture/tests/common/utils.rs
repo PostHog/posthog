@@ -28,6 +28,7 @@ use tracing::{info, warn, Level};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
+use common_continuous_profiling::ContinuousProfilingConfig;
 use health::HealthStrategy;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
@@ -84,6 +85,12 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
     request_timeout_seconds: Some(10),
+    continuous_profiling: ContinuousProfilingConfig {
+        continuous_profiling_enabled: false,
+        pyroscope_server_address: String::new(),
+        pyroscope_application_name: String::new(),
+        pyroscope_sample_rate: 100,
+    },
 });
 
 static TRACING_INIT: Once = Once::new();

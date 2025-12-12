@@ -24,8 +24,9 @@ plugin-server/src/cdp/templates/** @PostHog/team-workflows
 posthog/cdp/templates/** @PostHog/team-workflows
 
 # Being open source brings us unwanted problems because Github Actions are untrusted and inherently unsafe
-# so we have to be extra careful with changes here. Let's have the security team own this.
-.github/** @PostHog/team-security
+# so we have to be extra careful with changes here. Let's have the security team own these checks.
+.github/workflows/ci-security.yaml @PostHog/team-security
+.github/workflows/codeql.yml @PostHog/team-security
 
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect CODEOWNERS-soft which is used for assigning non-required reviewers and it's much safer to change.

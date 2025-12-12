@@ -23,7 +23,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.dashboard import Dashboard
-from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
@@ -74,6 +73,8 @@ CURRENCY_CODE_CHOICES = [(code.value, code.value) for code in CurrencyCode]
 assert len(CURRENCY_CODE_CHOICES) == 152
 
 DEFAULT_CURRENCY = CurrencyCode.USD.value
+
+ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD = 100
 
 
 # keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
@@ -143,14 +144,16 @@ class TeamManager(models.Manager):
         team.save()
 
         # Add UserProductList for all users who have access to this new team
-        self._sync_user_product_lists_for_new_team(team)
+        # For large orgs, dispatch async to avoid request timeouts
+        from posthog.tasks.tasks import sync_user_product_lists_for_new_team
+
+        user_count = OrganizationMembership.objects.filter(organization_id=team.organization_id).count()
+        if user_count > ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD:
+            sync_user_product_lists_for_new_team.delay(team.id)
+        else:
+            sync_user_product_lists_for_new_team(team.id)
 
         return team
-
-    def _sync_user_product_lists_for_new_team(self, team: "Team") -> None:
-        """Sync UserProductList for all users who have access to this new team."""
-        for user in team.all_users_with_access():
-            backfill_user_product_list_for_new_user(user, team)
 
     def create(self, **kwargs):
         from ..project import Project
@@ -380,6 +383,9 @@ class Team(UUIDTClassicModel):
     # Surveys
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")
+
+    # Product tours
+    product_tours_opt_in = models.BooleanField(null=True, blank=True)
 
     # Capture / Autocapture
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
