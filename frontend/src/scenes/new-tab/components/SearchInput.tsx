@@ -319,7 +319,8 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
 
     return (
         <div className="relative w-full">
-            <div
+            <label
+                htmlFor="command-input"
                 key={`search-input-${pulseKey}`}
                 className={cn(
                     textInputVariants({
@@ -539,7 +540,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         )
                     }
                 />
-            </div>
+            </label>
         </div>
     )
 })
