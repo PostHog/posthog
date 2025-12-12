@@ -190,6 +190,20 @@ class TestLoginAPI(APIBaseTest):
         mock_capture.assert_not_called()
 
     @patch("posthoganalytics.capture")
+    def test_user_cant_login_if_deactivated(self, mock_capture):
+        User.objects.filter(email=self.CONFIG_EMAIL).update(is_active=False)
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertContains(response, text="Account has been de-activated", status_code=status.HTTP_401_UNAUTHORIZED)
+        mock_capture.assert_not_called()
+
+    @patch("posthoganalytics.capture")
+    def test_user_cant_login_if_deactivated_incorrect_password(self, mock_capture):
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": "67"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
+        mock_capture.assert_not_called()
+
+    @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_email(self, mock_capture):
         response = self.client.post(
             "/api/login",

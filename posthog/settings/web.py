@@ -178,6 +178,10 @@ AUTHENTICATION_BACKENDS: list[str] = [
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
+    # The AllowAllUsersModelBackend backend ignores the is_active flag
+    # This causes authenticate to succeed for inactive users.
+    # ModelBackend is kept in this list for backwards compatibility with existing sessions
+    "django.contrib.auth.backends.AllowAllUsersModelBackend",
 ]
 
 AUTH_USER_MODEL = "posthog.User"

@@ -226,6 +226,12 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
+        if not user.is_active:
+            raise serializers.ValidationError(
+                f"Account has been de-activated.{" " + user.is_not_active_reason if user.is_not_active_reason else ""}",
+                code="invalid_credentials",
+            )
+
         # We still let them log in if is_email_verified is null so existing users don't get locked out
         if is_email_available() and user.is_email_verified is not True and not is_email_verification_disabled(user):
             EmailVerifier.create_token_and_send_email_verification(user)
