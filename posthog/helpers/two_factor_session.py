@@ -304,7 +304,6 @@ class EmailMFAVerifier:
                 "Email MFA verification email sent",
                 extra={
                     "user_id": user.pk,
-                    "user_email": user.email,
                     "user_last_login": str(user.last_login) if user.last_login else None,
                     "token": _obfuscate_token(token),
                 },
@@ -313,7 +312,7 @@ class EmailMFAVerifier:
         except Exception as e:
             logger.exception(
                 "Email MFA verification email failed",
-                extra={"user_id": user.pk, "user_email": user.email, "error": str(e)},
+                extra={"user_id": user.pk, "error": str(e)},
             )
             capture_exception(Exception(f"Email MFA verification email failed: {e}"))
             return False
