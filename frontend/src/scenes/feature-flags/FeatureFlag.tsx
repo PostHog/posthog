@@ -50,6 +50,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
+import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -354,6 +355,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         />
 
                         <SceneContent>
+                            {!isNewFeatureFlag && featureFlag.id && (
+                                <PendingChangeRequestBanner resourceType="feature_flag" resourceId={featureFlag.id} />
+                            )}
+
                             {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                                 <LemonBanner type="warning">
                                     This feature flag is linked to{' '}
@@ -816,6 +821,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             </ScenePanelActionsSection>
                         </ScenePanel>
                         <SceneContent>
+                            {featureFlag.id && (
+                                <PendingChangeRequestBanner resourceType="feature_flag" resourceId={featureFlag.id} />
+                            )}
+
                             {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                                 <LemonBanner type="info">
                                     This feature flag is assigned to an early access feature in the{' '}

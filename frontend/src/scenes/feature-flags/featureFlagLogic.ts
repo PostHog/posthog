@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { handleApprovalRequired } from 'lib/approvals/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -1128,7 +1129,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         submitFeatureFlagFailure: async () => {
             scrollToFormError()
         },
-        updateFeatureFlagActiveFailure: ({ error }) => {
+        updateFeatureFlagActiveFailure: ({ error, errorObject }) => {
+            if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
+                return
+            }
+
             lemonToast.error(`Failed to toggle flag: ${error}`)
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {

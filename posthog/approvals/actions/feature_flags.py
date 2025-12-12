@@ -67,7 +67,7 @@ class FeatureFlagActionBase(BaseAction):
         desired_active = request.data.get("active")
         current_active = flag.active
 
-        if desired_active is not cls.target_active_state or current_active is cls.target_active_state:
+        if desired_active != cls.target_active_state or current_active == cls.target_active_state:
             return False
 
         team = cls._get_team(view)
@@ -157,8 +157,8 @@ class EnableFeatureFlagAction(FeatureFlagActionBase):
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         return {
             "description": f"Enable feature flag '{intent_data.get('flag_key', 'unknown')}'",
-            "flag_key": intent_data.get("flag_key"),
-            "action": "enable",
+            "before": intent_data.get("current_state", {}),
+            "after": intent_data.get("desired_state", {}),
         }
 
 
@@ -174,6 +174,6 @@ class DisableFeatureFlagAction(FeatureFlagActionBase):
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         return {
             "description": f"Disable feature flag '{intent_data.get('flag_key', 'unknown')}'",
-            "flag_key": intent_data.get("flag_key"),
-            "action": "disable",
+            "before": intent_data.get("current_state", {}),
+            "after": intent_data.get("desired_state", {}),
         }
