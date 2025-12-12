@@ -77,6 +77,8 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
 
+from products.product_tours.backend.models import ProductTour
+
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 MAX_PROPERTY_VALUES = 1000
@@ -1528,8 +1530,13 @@ class FeatureFlagViewSet(
             survey_internal_targeting_flags = Survey.objects.filter(
                 team__project_id=self.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
-            queryset = queryset.exclude(Q(id__in=survey_targeting_flags)).exclude(
-                Q(id__in=survey_internal_targeting_flags)
+            product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+                team__project_id=self.project_id, internal_targeting_flag__isnull=False
+            ).values_list("internal_targeting_flag_id", flat=True)
+            queryset = (
+                queryset.exclude(Q(id__in=survey_targeting_flags))
+                .exclude(Q(id__in=survey_internal_targeting_flags))
+                .exclude(Q(id__in=product_tour_internal_targeting_flags))
             )
 
             # add additional filters provided by the client
