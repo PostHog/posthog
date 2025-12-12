@@ -416,6 +416,11 @@ class BigQueryClient:
                 break
             query_duration = time.monotonic() - query_start_time
             if query_duration > start_query_timeout:
+                # Cancel the query then raise a timeout error
+                # According to Google's own docs:
+                # "It's not possible to check if a job was cancelled in the API"
+                # so we cancel it and hope for the best
+                await asyncio.to_thread(query_job.cancel)
                 assert query_job.job_id is not None
                 raise BigQueryStartQueryTimeoutError(query_job.job_id, start_query_timeout)
 

@@ -48,6 +48,7 @@ async def test_execute_query_pending_timeout(states_sequence: list[str], should_
                 start_query_timeout=0.05,
                 poll_interval=0.01,
             )
+        mock_query_job.cancel.assert_called_once()
     else:
         result = await client.execute_query(
             "SELECT 1",
