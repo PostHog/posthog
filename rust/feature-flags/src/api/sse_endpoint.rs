@@ -56,10 +56,8 @@ pub async fn feature_flags_stream(
 
     // Authenticate token and get team
     let flag_service = crate::flags::flag_service::FlagService::new(
-        state.redis_reader.clone(),
-        state.redis_writer.clone(),
-        state.dedicated_redis_reader.clone(),
-        state.dedicated_redis_writer.clone(),
+        state.redis_client.clone(),
+        state.dedicated_redis_client.clone(),
         state.database_pools.non_persons_reader.clone(),
         state.config.team_cache_ttl_seconds,
         state.config.flags_cache_ttl_seconds,
