@@ -162,8 +162,11 @@ export class EmailService {
             Tags: [{ Name: 'ph_id', Value: trackingCode }],
         }
 
-        if (params.replyTo) {
-            sendEmailParams.ReplyToAddresses = params.replyTo.split(',').map((addr) => addr.trim())
+        if (params.replyTo && params.replyTo.trim()) {
+            sendEmailParams.ReplyToAddresses = params.replyTo
+                .split(',')
+                .map((addr) => addr.trim())
+                .filter((addr) => addr.length > 0)
         }
 
         try {
