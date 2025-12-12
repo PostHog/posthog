@@ -330,7 +330,7 @@ describe('EmailService', () => {
             await service.ses.verifyDomainIdentity({ Domain: 'posthog-test.com' }).promise()
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1, email: 'test@posthog-test.com' },
-                html: '<body>Test content</body>',
+                html: '<tbody>Test email content</tbody>',
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
@@ -342,7 +342,7 @@ describe('EmailService', () => {
             await service.ses.verifyDomainIdentity({ Domain: 'posthog-test.com' }).promise()
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1, email: 'test@posthog-test.com' },
-                html: '<tbody>Test content</tbody>',
+                html: '<tbody>Test email content</tbody>',
                 preheader: 'This is a preview text',
             })
             const result = await service.executeSendEmail(invocation)
