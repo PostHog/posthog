@@ -84,8 +84,10 @@ async fn readiness(
     use crate::metrics_middleware::ShutdownStatus;
 
     let shutdown_status = crate::metrics_middleware::get_shutdown_status();
+    let is_running_or_unknown =
+        shutdown_status == ShutdownStatus::Running || shutdown_status == ShutdownStatus::Unknown;
 
-    if (shutdown_status == ShutdownStatus::Running || shutdown_status == ShutdownStatus::Unknown)
+    if is_running_or_unknown
         && state.is_mirror_deploy
         && std::path::Path::new("/tmp/shutdown").exists()
     {
@@ -93,10 +95,10 @@ async fn readiness(
         tracing::info!("Shutdown status change: PRESTOP");
     }
 
-    if shutdown_status != ShutdownStatus::Running {
-        axum::http::StatusCode::SERVICE_UNAVAILABLE
-    } else {
+    if is_running_or_unknown {
         axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
     }
 }
 
