@@ -320,6 +320,12 @@ export interface AssistantUpdateEvent {
     content: string
 }
 
+export interface SubagentUpdateEvent {
+    id: string
+    tool_call_id: string
+    content: AssistantToolCall
+}
+
 export enum AssistantGenerationStatusType {
     Acknowledged = 'ack',
     GenerationError = 'generation_error',
@@ -367,6 +373,13 @@ export type AssistantTool =
     | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
+    | 'create_task'
+    | 'run_task'
+    | 'get_task_run'
+    | 'get_task_run_logs'
+    | 'list_tasks'
+    | 'list_task_runs'
+    | 'list_repositories'
     // Below are modes-only
     | 'execute_sql'
     | 'switch_mode'
@@ -374,11 +387,19 @@ export type AssistantTool =
     | 'filter_session_recordings'
     | 'create_insight'
     | 'create_form'
+    | 'task'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
+}
+
+export enum SlashCommandName {
+    SlashInit = '/init',
+    SlashRemember = '/remember',
+    SlashUsage = '/usage',
+    SlashFeedback = '/feedback',
 }
 
 /** Exact possible `urls` keys for the `navigate` tool. */
@@ -425,6 +446,7 @@ export enum AssistantNavigateUrl {
     ToolbarLaunch = 'toolbarLaunch',
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
+    WebAnalyticsHealth = 'webAnalyticsHealth',
     Persons = 'persons',
 }
 

@@ -482,8 +482,9 @@ class _Printer(Visitor[str]):
             clauses.append(f"LIMIT {self.visit(limit)}")
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
-            if node.offset is not None:
-                clauses.append(f"OFFSET {self.visit(node.offset)}")
+
+        if node.offset is not None:
+            clauses.append(f"OFFSET {self.visit(node.offset)}")
 
         if (
             self.context.output_format
@@ -1548,7 +1549,7 @@ class _Printer(Visitor[str]):
                     survey_id = node.args[0]
                     if not isinstance(survey_id, ast.Constant):
                         raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
-                    return filter_survey_sent_events_by_unique_submission(survey_id.value)
+                    return filter_survey_sent_events_by_unique_submission(survey_id.value, self.context.team_id)
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:

@@ -16,6 +16,7 @@ members = [
     "common/limiters",
     "common/metrics",
     "common/profiler",
+    "common/continuous_profiling",
     "common/redis",
     "common/s3",
     "common/serve_metrics",
@@ -67,6 +68,7 @@ base64 = "0.22.0"
 bytes = "1"
 chrono = { version = "0.4.38", features = ["default", "serde"] }
 chrono-tz = "0.10.1"
+dashmap = "6.1"
 envconfig = "0.10.0"
 eyre = "0.6.9"
 flate2 = "1.0"

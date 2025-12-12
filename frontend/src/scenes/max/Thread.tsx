@@ -10,6 +10,7 @@ import {
     IconCheck,
     IconChevronRight,
     IconCollapse,
+    IconCopy,
     IconExpand,
     IconEye,
     IconHide,
@@ -49,6 +50,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { copyToClipboard } from '~/lib/utils/copyToClipboard'
+import { stripMarkdown } from '~/lib/utils/stripMarkdown'
 import { openNotebook } from '~/models/notebooksModel'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -81,7 +84,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
-import { MAX_SLASH_COMMANDS } from './slash-commands'
+import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
@@ -127,6 +130,14 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         const isLastInGroup =
                             !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
+                        // Hiding rating buttons after /feedback command output
+                        const prevMessage = threadGrouped[index - 1]
+                        const isFeedbackCommandResponse =
+                            message.type !== 'human' &&
+                            prevMessage?.type === 'human' &&
+                            'content' in prevMessage &&
+                            prevMessage.content.startsWith(SlashCommandName.SlashFeedback)
+
                         return (
                             <Message
                                 key={`${conversationId}-${index}`}
@@ -135,6 +146,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                 isLastInGroup={isLastInGroup}
                                 isFinal={index === threadGrouped.length - 1}
                                 streamingActive={streamingActive}
+                                isFeedbackCommandResponse={isFeedbackCommandResponse}
                             />
                         )
                     })}
@@ -201,9 +213,16 @@ interface MessageProps {
     isLastInGroup: boolean
     isFinal: boolean
     streamingActive: boolean
+    isFeedbackCommandResponse?: boolean
 }
 
-function Message({ message, nextMessage, isLastInGroup, isFinal }: MessageProps): JSX.Element {
+function Message({
+    message,
+    nextMessage,
+    isLastInGroup,
+    isFinal,
+    isFeedbackCommandResponse,
+}: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
@@ -363,7 +382,15 @@ function Message({ message, nextMessage, isLastInGroup, isFinal }: MessageProps)
                                 }
 
                                 // Show answer actions if the assistant's response is complete at this point
-                                return <SuccessActions key={`${key}-actions`} retriable={retriable} />
+                                // For feedback command responses, only show the trace button (hide rating/retry)
+                                return (
+                                    <SuccessActions
+                                        key={`${key}-actions`}
+                                        retriable={retriable}
+                                        hideRatingAndRetry={isFeedbackCommandResponse}
+                                        content={message.content}
+                                    />
+                                )
                             }
 
                             return null
@@ -449,7 +476,6 @@ function MessageGroupSkeleton({
 }): JSX.Element {
     return (
         <MessageContainer className={clsx('items-center', className)} groupType={groupType}>
-            <LemonSkeleton className="w-8 h-8 rounded-full hidden border @md/thread:flex" />
             <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
         </MessageContainer>
     )
@@ -493,7 +519,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
                   }
 
                   // Show answer actions if the assistant's response is complete at this point
-                  return <SuccessActions retriable={retriable} />
+                  return <SuccessActions retriable={retriable} content={message.content} />
               }
 
               return null
@@ -939,38 +965,9 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             {regularToolCalls.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                     {regularToolCalls.map((toolCall) => {
-                        const commentary = toolCall.args.commentary as string
                         const updates = toolCall.updates ?? []
                         const definition = getToolDefinitionFromToolCall(toolCall)
-                        let description = `Executing ${toolCall.name}`
-                        let widget: JSX.Element | null = null
-                        if (definition) {
-                            if (definition.displayFormatter) {
-                                const displayFormatterResult = definition.displayFormatter(toolCall, {
-                                    registeredToolMap,
-                                })
-                                if (typeof displayFormatterResult === 'string') {
-                                    description = displayFormatterResult
-                                } else {
-                                    description = displayFormatterResult[0]
-                                    switch (displayFormatterResult[1]?.widget) {
-                                        case 'recordings':
-                                            widget = (
-                                                <RecordingsWidget
-                                                    toolCallId={toolCall.id}
-                                                    filters={displayFormatterResult[1].args}
-                                                />
-                                            )
-                                            break
-                                        default:
-                                            break
-                                    }
-                                }
-                            }
-                            if (commentary) {
-                                description = commentary
-                            }
-                        }
+                        const [description, widget] = getToolCallDescriptionAndWidget(toolCall, registeredToolMap)
                         return (
                             <AssistantActionComponent
                                 key={toolCall.id}
@@ -1236,7 +1233,15 @@ function RetriableFailureActions(): JSX.Element {
     )
 }
 
-function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
+function SuccessActions({
+    retriable,
+    hideRatingAndRetry,
+    content,
+}: {
+    retriable: boolean
+    hideRatingAndRetry?: boolean
+    content?: string | null
+}): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
@@ -1268,7 +1273,16 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     return (
         <>
             <div className="flex items-center ml-1">
-                {rating !== 'bad' && (
+                {content && (
+                    <LemonButton
+                        icon={<IconCopy />}
+                        type="tertiary"
+                        size="xsmall"
+                        tooltip="Copy answer"
+                        onClick={() => copyToClipboard(stripMarkdown(content))}
+                    />
+                )}
+                {!hideRatingAndRetry && rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                         type="tertiary"
@@ -1277,7 +1291,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         onClick={() => submitRating('good')}
                     />
                 )}
-                {rating !== 'good' && (
+                {!hideRatingAndRetry && rating !== 'good' && (
                     <LemonButton
                         icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                         type="tertiary"
@@ -1286,7 +1300,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         onClick={() => submitRating('bad')}
                     />
                 )}
-                {retriable && (
+                {!hideRatingAndRetry && retriable && (
                     <LemonButton
                         icon={<IconRefresh />}
                         type="tertiary"
@@ -1305,7 +1319,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                     />
                 )}
             </div>
-            {feedbackInputStatus !== 'hidden' && (
+            {!hideRatingAndRetry && feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
                     <div className="flex items-center gap-1">
                         <h4 className="m-0 text-sm grow">
@@ -1345,4 +1359,35 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
             )}
         </>
     )
+}
+
+export const getToolCallDescriptionAndWidget = (
+    toolCall: EnhancedToolCall,
+    registeredToolMap: Record<string, ToolRegistration>
+): [string, JSX.Element | null] => {
+    const commentary = toolCall.args.commentary as string
+    const definition = getToolDefinitionFromToolCall(toolCall)
+    let description = `Executing ${toolCall.name}`
+    let widget: JSX.Element | null = null
+    if (definition) {
+        if (definition.displayFormatter) {
+            const displayFormatterResult = definition.displayFormatter(toolCall, { registeredToolMap })
+            if (typeof displayFormatterResult === 'string') {
+                description = displayFormatterResult
+            } else {
+                description = displayFormatterResult[0]
+                switch (displayFormatterResult[1]?.widget) {
+                    case 'recordings':
+                        widget = <RecordingsWidget toolCallId={toolCall.id} filters={displayFormatterResult[1].args} />
+                        break
+                    default:
+                        break
+                }
+            }
+        }
+        if (commentary) {
+            description = commentary
+        }
+    }
+    return [description, widget]
 }

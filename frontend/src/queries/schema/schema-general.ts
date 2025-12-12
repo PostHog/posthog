@@ -141,6 +141,7 @@ export enum NodeKind {
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
+    NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -190,6 +191,7 @@ export type AnyDataNode =
     | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -270,6 +272,7 @@ export type QuerySchema =
     // Marketing analytics
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | NonIntegratedConversionsTableQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -891,6 +894,7 @@ export interface DataTableNode
                     | RevenueExampleDataWarehouseTablesQuery
                     | MarketingAnalyticsTableQuery
                     | MarketingAnalyticsAggregatedQuery
+                    | NonIntegratedConversionsTableQuery
                     | ErrorTrackingQuery
                     | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
@@ -926,6 +930,7 @@ export interface DataTableNode
         | RevenueExampleDataWarehouseTablesQuery
         | MarketingAnalyticsTableQuery
         | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
         | ErrorTrackingQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
@@ -2604,6 +2609,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     filterGroup: PropertyGroupFilter
     serviceNames: string[]
     liveLogsCheckpoint?: string
+    /** Cursor for fetching the next page of results */
+    after?: string
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2612,6 +2619,8 @@ export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     columns?: string[]
+    /** Cursor for fetching the next page of results */
+    nextCursor?: string
 }
 
 export interface SessionEventsItem {
@@ -2698,6 +2707,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'marketing_analytics'
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
@@ -2706,6 +2716,7 @@ export type FileSystemIconType =
     | 'heatmap'
     | 'session_replay'
     | 'survey'
+    | 'product_tour'
     | 'user_interview'
     | 'early_access_feature'
     | 'experiment'
@@ -2745,6 +2756,8 @@ export type FileSystemIconType =
     | 'live'
     | 'chat'
     | 'search'
+    | 'folder'
+    | 'folder_open'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3432,6 +3445,12 @@ export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
+export enum DataWarehouseSavedQueryOrigin {
+    DATA_WAREHOUSE = 'data_warehouse',
+    ENDPOINT = 'endpoint',
+    MANAGED_VIEWSET = 'managed_viewset',
+}
+
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
     query: HogQLQuery
     type: 'managed_view'
@@ -3815,6 +3834,7 @@ export interface LLMTrace {
     traceName?: string
     errorCount?: number
     events: LLMTraceEvent[]
+    isSupportTrace?: boolean
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -3831,6 +3851,7 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     limit?: integer
     offset?: integer
     filterTestAccounts?: boolean
+    filterSupportTraces?: boolean
     showColumnConfigurator?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
@@ -4116,7 +4137,6 @@ export interface RevenueAnalyticsConfig {
 
 export interface PageURL {
     url: string
-    count: number
 }
 
 export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLSearchQueryResponse> {
@@ -4198,8 +4218,6 @@ export interface MarketingAnalyticsTableQuery
     draftConversionGoal?: ConversionGoalFilter | null
     /** Compare to date range */
     compareFilter?: CompareFilter
-    /** Include conversion goal rows even when they don't match campaign costs table */
-    includeAllConversions?: boolean
     /** Filter by integration type */
     integrationFilter?: IntegrationFilter
 }
@@ -4240,6 +4258,45 @@ export interface MarketingAnalyticsAggregatedQuery
     /** Filter by integration IDs */
     integrationFilter?: IntegrationFilter
 }
+
+/** Columns for non-integrated conversions table */
+export enum NonIntegratedConversionsColumnsSchemaNames {
+    Source = 'Source',
+    Campaign = 'Campaign',
+}
+
+export interface NonIntegratedConversionsTableQuery
+    extends Omit<WebAnalyticsQueryBase<NonIntegratedConversionsTableQueryResponse>, 'orderBy'> {
+    kind: NodeKind.NonIntegratedConversionsTableQuery
+    /** Return a limited set of data. Will use default columns if empty. */
+    select?: HogQLExpression[]
+    /** Columns to order by */
+    orderBy?: MarketingAnalyticsOrderBy[]
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+    /** Compare to date range */
+    compareFilter?: CompareFilter
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter | null
+}
+
+export interface NonIntegratedConversionsTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsItem[][]
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    samplingRate?: SamplingRate
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedNonIntegratedConversionsTableQueryResponse =
+    CachedQueryResponse<NonIntegratedConversionsTableQueryResponse>
 
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
@@ -4496,6 +4553,7 @@ export interface SourceConfig {
     label?: string
     docsUrl?: string
     caption?: string | any
+    permissionsCaption?: string
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     existingSource?: boolean

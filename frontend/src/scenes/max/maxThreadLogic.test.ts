@@ -12,7 +12,13 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import * as notebooksModel from '~/models/notebooksModel'
-import { AgentMode, AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import {
+    AgentMode,
+    AssistantMessage,
+    AssistantMessageType,
+    HumanMessage,
+    SlashCommandName,
+} from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
@@ -32,6 +38,7 @@ import {
 
 describe('maxThreadLogic', () => {
     let logic: ReturnType<typeof maxThreadLogic.build>
+    let maxLogicInstance: ReturnType<typeof maxLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -48,18 +55,16 @@ describe('maxThreadLogic', () => {
         maxGlobalLogicInstance.mount()
         jest.spyOn(maxGlobalLogicInstance.selectors, 'dataProcessingAccepted').mockReturnValue(true)
 
+        // Set up maxLogic with matching conversationId so that activeThreadKey matches
+        maxLogicInstance = maxLogic({ tabId: 'test' })
+        maxLogicInstance.mount()
+        maxLogicInstance.actions.setConversationId(MOCK_CONVERSATION_ID)
+
         logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
     })
 
     afterEach(() => {
-        // Stop any active polling/streaming in maxLogic
-        const maxLogicInstance = maxLogic.findMounted()
-        if (maxLogicInstance) {
-            maxLogicInstance.cache.eventSourceController?.abort()
-            maxLogicInstance.unmount()
-        }
-
         // Stop any active streaming in the thread logic
         if (logic.cache?.generationController) {
             logic.cache.generationController.abort()
@@ -67,6 +72,12 @@ describe('maxThreadLogic', () => {
 
         sidePanelStateLogic.unmount()
         logic?.unmount()
+
+        // Stop any active polling/streaming in maxLogic
+        if (maxLogicInstance) {
+            maxLogicInstance.cache.eventSourceController?.abort()
+            maxLogicInstance.unmount()
+        }
 
         // Clean up any remaining mocks
         jest.restoreAllMocks()
@@ -329,6 +340,7 @@ describe('maxThreadLogic', () => {
     it('adds a thinking message when the thread is completely empty', async () => {
         const streamSpy = mockStream()
         logic.unmount()
+        maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
         logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
 
@@ -381,6 +393,7 @@ describe('maxThreadLogic', () => {
                 tiles: [],
             } as any)
 
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
@@ -405,6 +418,7 @@ describe('maxThreadLogic', () => {
             const streamSpy = mockStream()
 
             // Don't add any context data, so compiledContext will be null
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
@@ -426,6 +440,7 @@ describe('maxThreadLogic', () => {
         it('sends form_answers in ui_context when provided', async () => {
             const streamSpy = mockStream()
 
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
@@ -457,6 +472,7 @@ describe('maxThreadLogic', () => {
                 tiles: [],
             } as any)
 
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
@@ -481,6 +497,7 @@ describe('maxThreadLogic', () => {
         it('handles empty form_answers object', async () => {
             const streamSpy = mockStream()
 
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
@@ -544,6 +561,79 @@ describe('maxThreadLogic', () => {
                 }),
                 expect.any(Object)
             )
+        })
+    })
+
+    describe('parallel conversation isolation', () => {
+        it('only processes askMax for the active thread, not other mounted threads', async () => {
+            const streamSpy = mockStream()
+
+            // Create a second thread logic with a different conversation ID
+            const otherConversationId = 'other-conversation-id'
+            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, tabId: 'test' })
+            otherLogic.mount()
+
+            // maxLogicInstance is still set to MOCK_CONVERSATION_ID (the first logic's conversation)
+            // So the first logic should process askMax, but the second should not
+
+            // Call askMax - this should only be processed by the first logic (matching activeThreadKey)
+            await expectLogic(logic, () => {
+                logic.actions.askMax('test message')
+            })
+
+            // The stream should be called with the first conversation's ID
+            expect(streamSpy).toHaveBeenCalledTimes(1)
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    conversation: MOCK_CONVERSATION_ID,
+                    content: 'test message',
+                }),
+                expect.any(Object)
+            )
+
+            // The other logic should NOT have added the message to its thread
+            expect(otherLogic.values.threadRaw).toHaveLength(0)
+
+            // The first logic SHOULD have added the message to its thread
+            expect(logic.values.threadRaw).toHaveLength(1)
+            expect((logic.values.threadRaw[0] as HumanMessage).content).toBe('test message')
+
+            otherLogic.unmount()
+        })
+
+        it('switches which thread processes askMax when activeThreadKey changes', async () => {
+            const streamSpy = mockStream()
+
+            // Create a second thread logic with a different conversation ID
+            const otherConversationId = 'other-conversation-id'
+            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, tabId: 'test' })
+            otherLogic.mount()
+
+            // Now switch maxLogicInstance to point to the other conversation
+            maxLogicInstance.actions.setConversationId(otherConversationId)
+
+            // Call askMax on the other logic - now IT should process
+            await expectLogic(otherLogic, () => {
+                otherLogic.actions.askMax('message for other conversation')
+            })
+
+            // The stream should be called with the other conversation's ID
+            expect(streamSpy).toHaveBeenCalledTimes(1)
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    conversation: otherConversationId,
+                    content: 'message for other conversation',
+                }),
+                expect.any(Object)
+            )
+
+            // The other logic SHOULD have added the message
+            expect(otherLogic.values.threadRaw).toHaveLength(1)
+
+            // The first logic should NOT have added any message
+            expect(logic.values.threadRaw).toHaveLength(0)
+
+            otherLogic.unmount()
         })
     })
 
@@ -884,7 +974,7 @@ describe('maxThreadLogic', () => {
 
         it('selectCommand sets question for command without arg', async () => {
             const initCommand = {
-                name: '/init' as const,
+                name: SlashCommandName.SlashInit,
                 description: 'Test command',
                 icon: React.createElement('div'),
             }
@@ -898,7 +988,7 @@ describe('maxThreadLogic', () => {
 
         it('selectCommand sets question with space for command with arg', async () => {
             const rememberCommand = {
-                name: '/remember' as const,
+                name: SlashCommandName.SlashRemember,
                 arg: '[information]' as const,
                 description: 'Test command with arg',
                 icon: React.createElement('div'),
@@ -913,7 +1003,7 @@ describe('maxThreadLogic', () => {
 
         it('activateCommand calls askMax directly for command without arg', async () => {
             const initCommand = {
-                name: '/init' as const,
+                name: SlashCommandName.SlashInit,
                 description: 'Test command',
                 icon: React.createElement('div'),
             }
@@ -927,7 +1017,7 @@ describe('maxThreadLogic', () => {
 
         it('activateCommand sets question for command with arg', async () => {
             const rememberCommand = {
-                name: '/remember' as const,
+                name: SlashCommandName.SlashRemember,
                 arg: '[information]' as const,
                 description: 'Test command with arg',
                 icon: React.createElement('div'),
@@ -942,7 +1032,7 @@ describe('maxThreadLogic', () => {
 
         it('activateCommand does not call askMax for command with arg, only setQuestion', async () => {
             const rememberCommand = {
-                name: '/remember' as const,
+                name: SlashCommandName.SlashRemember,
                 arg: '[information]' as const,
                 description: 'Test command with arg',
                 icon: React.createElement('div'),
@@ -973,7 +1063,7 @@ describe('maxThreadLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate(updateEvent)
+                logic.actions.setToolCallUpdate(updateEvent, {})
             })
 
             expect(logic.values.toolCallUpdateMap.get('tool-call-123')).toEqual(['Processing data...'])
@@ -983,21 +1073,30 @@ describe('maxThreadLogic', () => {
             const toolCallId = 'tool-call-123'
 
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate({
-                    id: 'update-1',
-                    tool_call_id: toolCallId,
-                    content: 'Step 1 complete',
-                })
-                logic.actions.setToolCallUpdate({
-                    id: 'update-2',
-                    tool_call_id: toolCallId,
-                    content: 'Step 2 complete',
-                })
-                logic.actions.setToolCallUpdate({
-                    id: 'update-3',
-                    tool_call_id: toolCallId,
-                    content: 'Step 3 complete',
-                })
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-1',
+                        tool_call_id: toolCallId,
+                        content: 'Step 1 complete',
+                    },
+                    {}
+                )
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-2',
+                        tool_call_id: toolCallId,
+                        content: 'Step 2 complete',
+                    },
+                    {}
+                )
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-3',
+                        tool_call_id: toolCallId,
+                        content: 'Step 3 complete',
+                    },
+                    {}
+                )
             })
 
             expect(logic.values.toolCallUpdateMap.get(toolCallId)).toEqual([
@@ -1012,16 +1111,22 @@ describe('maxThreadLogic', () => {
             const sameContent = 'Same update'
 
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate({
-                    id: 'update-1',
-                    tool_call_id: toolCallId,
-                    content: sameContent,
-                })
-                logic.actions.setToolCallUpdate({
-                    id: 'update-2',
-                    tool_call_id: toolCallId,
-                    content: sameContent,
-                })
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-1',
+                        tool_call_id: toolCallId,
+                        content: sameContent,
+                    },
+                    {}
+                )
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-2',
+                        tool_call_id: toolCallId,
+                        content: sameContent,
+                    },
+                    {}
+                )
             })
 
             // Should only have one entry despite two calls
@@ -1030,16 +1135,22 @@ describe('maxThreadLogic', () => {
 
         it('setToolCallUpdate handles updates for different tool calls', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate({
-                    id: 'update-1',
-                    tool_call_id: 'tool-1',
-                    content: 'Tool 1 update',
-                })
-                logic.actions.setToolCallUpdate({
-                    id: 'update-2',
-                    tool_call_id: 'tool-2',
-                    content: 'Tool 2 update',
-                })
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-1',
+                        tool_call_id: 'tool-1',
+                        content: 'Tool 1 update',
+                    },
+                    {}
+                )
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-2',
+                        tool_call_id: 'tool-2',
+                        content: 'Tool 2 update',
+                    },
+                    {}
+                )
             })
 
             expect(logic.values.toolCallUpdateMap.get('tool-1')).toEqual(['Tool 1 update'])
@@ -1063,11 +1174,14 @@ describe('maxThreadLogic', () => {
                     },
                 ])
                 // UpdateMessages should not appear in thread directly
-                logic.actions.setToolCallUpdate({
-                    id: 'update-1',
-                    tool_call_id: 'tool-call-123',
-                    content: 'This should not appear',
-                })
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-1',
+                        tool_call_id: 'tool-call-123',
+                        content: 'This should not appear',
+                    },
+                    {}
+                )
             }).toMatchValues({
                 threadGrouped: [
                     {
@@ -1187,16 +1301,22 @@ describe('maxThreadLogic', () => {
             const toolCallId = 'tool-123'
 
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate({
-                    id: 'update-1',
-                    tool_call_id: toolCallId,
-                    content: 'Progress update 1',
-                })
-                logic.actions.setToolCallUpdate({
-                    id: 'update-2',
-                    tool_call_id: toolCallId,
-                    content: 'Progress update 2',
-                })
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-1',
+                        tool_call_id: toolCallId,
+                        content: 'Progress update 1',
+                    },
+                    {}
+                )
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-2',
+                        tool_call_id: toolCallId,
+                        content: 'Progress update 2',
+                    },
+                    {}
+                )
                 logic.actions.setThread([
                     {
                         type: AssistantMessageType.Assistant,

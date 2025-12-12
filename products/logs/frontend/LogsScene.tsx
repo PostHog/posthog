@@ -31,7 +31,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage, ProductKey } from '~/queries/schema/schema-general'
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogTag } from 'products/logs/frontend/components/LogTag'
 import { LogsSparkline } from 'products/logs/frontend/components/LogsSparkline'
@@ -100,7 +100,7 @@ const LogsListContainer = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { tabId, parsedLogs, logsLoading, totalLogsMatchingFilters, sparklineLoading, hasMoreLogsToLoad, orderBy } =
         useValues(logsLogic)
-    const { runQuery, fetchNextLogsPage, setOrderBy } = useActions(logsLogic)
+    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter } = useActions(logsLogic)
     const useVirtualizedList = !!featureFlags[FEATURE_FLAGS.LOGS_VIRTUALIZED_LIST]
     return useVirtualizedList ? (
         <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px)]">
@@ -114,6 +114,7 @@ const LogsListContainer = (): JSX.Element => {
                 onChangeOrderBy={setOrderBy}
                 onRefresh={runQuery}
                 onLoadMore={fetchNextLogsPage}
+                onAddFilter={addFilter}
             />
         </div>
     ) : (
@@ -325,7 +326,7 @@ function LogsTable({
                         dataIndex: 'timestamp',
                         width: 180,
                         render: (_, { timestamp }) => (
-                            <TZLabel time={timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
+                            <TZLabel time={timestamp} {...tzLabelFormat} timestampStyle="absolute" />
                         ),
                     },
                     {
@@ -368,8 +369,18 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
     const { expandedAttributeBreaksdowns, tabId } = useValues(logsLogic)
     const { addFilter, toggleAttributeBreakdown } = useActions(logsLogic)
 
-    const attributes = log.attributes
-    const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
+    const rows = [
+        ...Object.entries(log.resource_attributes).map(([key, value]) => ({
+            key,
+            value,
+            type: PropertyFilterType.LogResourceAttribute,
+        })),
+        ...Object.entries(log.attributes).map(([key, value]) => ({
+            key,
+            value,
+            type: PropertyFilterType.LogAttribute,
+        })),
+    ]
 
     return (
         <LemonTable
@@ -384,14 +395,14 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                             <LemonButton
                                 tooltip="Add as filter"
                                 size="xsmall"
-                                onClick={() => addFilter(record.key, record.value)}
+                                onClick={() => addFilter(record.key, record.value, PropertyOperator.Exact, record.type)}
                             >
                                 <IconPlusSquare />
                             </LemonButton>
                             <LemonButton
                                 tooltip="Exclude as filter"
                                 size="xsmall"
-                                onClick={() => addFilter(record.key, record.value, PropertyOperator.IsNot)}
+                                onClick={() => addFilter(record.key, record.value, PropertyOperator.IsNot, record.type)}
                             >
                                 <IconMinusSquare />
                             </LemonButton>
@@ -435,7 +446,12 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                 showRowExpansionToggle: false,
                 isRowExpanded: (record) => expandedAttributeBreaksdowns.includes(record.key),
                 expandedRowRender: (record) => (
-                    <AttributeBreakdowns attribute={record.key} addFilter={addFilter} tabId={tabId} />
+                    <AttributeBreakdowns
+                        attribute={record.key}
+                        type={record.type}
+                        addFilter={addFilter}
+                        tabId={tabId}
+                    />
                 ),
             }}
         />

@@ -1,5 +1,7 @@
+import ssl
 import json
 import uuid
+import socket
 import typing as t
 import datetime as dt
 import ipaddress
@@ -210,6 +212,25 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
         )
 
         response.raise_for_status()
+
+        # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem
+        ctx = ssl.create_default_context()
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        with ctx.wrap_socket(socket.socket(), server_hostname=proxy_record.domain) as s:
+            s.connect((proxy_record.domain, 443))
+            cert = s.getpeercert()
+            if cert is None:
+                # How can cert be none if we sent an event over https?
+                raise Exception(
+                    "Certificate not found while monitoring proxy endpoint (but we sent an event successfully)"
+                )
+            assert isinstance(cert["notAfter"], str)
+            expires_at = dt.datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
+            if expires_at - dt.datetime.utcnow() < dt.timedelta(days=14):
+                return CheckActivityOutput(
+                    errors=["Live proxy certificate is expiring soon"],
+                    warnings=[],
+                )
     except requests.exceptions.SSLError:
         return CheckActivityOutput(
             errors=["Failed to connect to proxy: invalid SSL certificate"],

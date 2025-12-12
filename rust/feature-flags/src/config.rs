@@ -1,3 +1,4 @@
+use common_continuous_profiling::ContinuousProfilingConfig;
 use common_cookieless::CookielessConfig;
 use common_types::TeamId;
 use envconfig::Envconfig;
@@ -144,6 +145,9 @@ impl FromStr for FlagDefinitionsRateLimits {
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     #[envconfig(default = "127.0.0.1:3001")]
     pub address: SocketAddr,
 
@@ -153,10 +157,10 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub read_database_url: String,
 
-    #[envconfig(default = "")]
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog_persons")]
     pub persons_write_database_url: String,
 
-    #[envconfig(default = "")]
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog_persons")]
     pub persons_read_database_url: String,
 
     #[envconfig(default = "1000")]
@@ -306,8 +310,26 @@ pub struct Config {
     #[envconfig(from = "TEAM_IDS_TO_TRACK", default = "all")]
     pub team_ids_to_track: TeamIdCollection,
 
-    #[envconfig(from = "CACHE_MAX_COHORT_ENTRIES", default = "100000")]
-    pub cache_max_cohort_entries: u64,
+    /// Maximum memory capacity for the cohort cache in bytes.
+    ///
+    /// The cache uses memory-based eviction to prevent unbounded memory growth.
+    /// Each cached cohort's memory footprint is estimated based on its serialized
+    /// JSON filter and query sizes (not exact heap usage, but proportional to it).
+    /// When the cache exceeds this limit, least recently used entries are evicted.
+    ///
+    /// Default: 268435456 bytes (256 MB)
+    /// Environment variable: COHORT_CACHE_CAPACITY_BYTES
+    ///
+    /// Common values:
+    /// - 134217728 (128 MB) - For memory-constrained environments
+    /// - 268435456 (256 MB) - Default, good balance
+    /// - 536870912 (512 MB) - For high-traffic instances with many teams
+    ///
+    /// Note: Individual cache entries cannot exceed ~4 GB (u32::MAX) due to the
+    /// weigher's u32 return type, though the total cache capacity can exceed this.
+    /// In practice, individual cohorts rarely exceed 1 MB, so this is not a concern.
+    #[envconfig(from = "COHORT_CACHE_CAPACITY_BYTES", default = "268435456")]
+    pub cohort_cache_capacity_bytes: u64,
 
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
@@ -506,6 +528,7 @@ impl Config {
 
     pub fn default_test_config() -> Self {
         Self {
+            continuous_profiling: ContinuousProfilingConfig::default(),
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
             redis_url: "redis://localhost:6379/".to_string(),
             redis_reader_url: "".to_string(),
@@ -541,7 +564,7 @@ impl Config {
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
             team_ids_to_track: TeamIdCollection::All,
-            cache_max_cohort_entries: 100_000,
+            cohort_cache_capacity_bytes: 268_435_456, // 256 MB
             cache_ttl_seconds: 300,
             team_cache_ttl_seconds: 432000,
             flags_cache_ttl_seconds: 432000,

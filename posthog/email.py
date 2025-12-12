@@ -4,7 +4,10 @@ import sys
 import html
 import uuid
 from decimal import Decimal
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 from django.conf import settings
 from django.core import exceptions, mail
@@ -138,10 +141,14 @@ def _send_via_http(
                 if record.sent_at:
                     continue
 
+                identifiers: dict[str, str] = {"email": dest["raw_email"]}
+                if dest.get("distinct_id"):
+                    identifiers["id"] = dest["distinct_id"]
+
                 payload = {
                     "transactional_message_id": get_customer_io_template_id(template_name),
                     "to": dest["raw_email"],
-                    "identifiers": {"email": dest["raw_email"]},
+                    "identifiers": identifiers,
                     "message_data": properties,
                 }
 
@@ -357,9 +364,23 @@ class EmailMessage:
         self.txt_body = ""
         self.headers = headers if headers else {}
 
-    def add_recipient(self, email: str, name: Optional[str] = None) -> None:
+    def add_recipient(self, email: str, name: Optional[str] = None, distinct_id: Optional[str] = None) -> None:
         sanitized_name = html.escape(name) if name else None
-        self.to.append({"recipient": f'"{sanitized_name}" <{email}>' if sanitized_name else email, "raw_email": email})
+        recipient_data = {
+            "recipient": f'"{sanitized_name}" <{email}>' if sanitized_name else email,
+            "raw_email": email,
+        }
+        if distinct_id:
+            recipient_data["distinct_id"] = distinct_id
+        self.to.append(recipient_data)
+
+    def add_user_recipient(self, user: "User", email_override: Optional[str] = None) -> None:
+        """
+        Add a user as a recipient, include their distinct_id for Customer.io reporting wenhooks.
+        Use this instead of add_recipient when you have a User object.
+        """
+        email = email_override or user.email
+        self.add_recipient(email=email, name=user.first_name, distinct_id=str(user.distinct_id))
 
     def send(self, send_async: bool = True) -> None:
         if not self.to:
