@@ -504,7 +504,9 @@ class _SessionSummarizer:
         self, session_ids: list[str], state: AssistantState, summary_title: str | None
     ) -> tuple[str, str]:
         """Summarize sessions as a group (for larger sets). Returns tuple of (summary_str, session_group_summary_id)."""
-        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._node._team)
+        min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
+            session_ids=session_ids, team=self._node._team
+        )
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._node._has_video_validation_feature_flag()
 

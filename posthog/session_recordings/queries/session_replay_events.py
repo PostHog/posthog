@@ -79,59 +79,101 @@ class SessionReplayEvents:
         self, session_ids: list[str], team: Team
     ) -> tuple[set[str], Optional[datetime], Optional[datetime]]:
         """
-        Check if sessions exist and return min/max timestamps for the entire list to optimize follow-up queries to get events for multiple sessions at once.
+        Check if sessions exist in both session_replay_events and events tables.
         Returns a tuple of (sessions_found, min_timestamp, max_timestamp).
         Timestamps are for the entire list of sessions, not per session.
+        Sessions must exist in both tables to be included in the result.
         """
         if not session_ids:
             return set(), None, None
-        # Check sessions within TTL
+        # Check sessions within TTL in session_replay_events
         found_sessions = self._find_with_timestamps(session_ids, team)
         if not found_sessions:
             return set(), None, None
-        # Calculate min/max timestamps for the entire list of sessions and return
-        sessions_found = {session_id for session_id, _, _ in found_sessions}
-        min_timestamp = min(min_timestamp for _, min_timestamp, _ in found_sessions)
-        max_timestamp = max(max_timestamp for _, _, max_timestamp in found_sessions)
-        # Not searching for sessions outside of TTL to simplify logic
-        return sessions_found, min_timestamp, max_timestamp
+        # Calculate min/max timestamps for the entire list of sessions
+        replay_session_ids = [session_id for session_id, _, _ in found_sessions]
+        min_timestamp = min(ts for _, ts, _ in found_sessions)
+        max_timestamp = max(ts for _, _, ts in found_sessions)
+        # Check which sessions also have events in the events table
+        sessions_with_events = self._find_sessions_in_events(replay_session_ids, min_timestamp, max_timestamp, team)
+        if not sessions_with_events:
+            return set(), None, None
+        # Filter to only sessions that exist in both tables
+        session_ids_found = {session_id for session_id, _, _ in found_sessions if session_id in sessions_with_events}
+        if not session_ids_found:
+            return set(), None, None
+        # Recalculate timestamps for filtered sessions only
+        min_timestamp = min(ts for session_id, ts, _ in found_sessions if session_id in session_ids_found)
+        max_timestamp = max(ts for session_id, _, ts in found_sessions if session_id in session_ids_found)
+        return session_ids_found, min_timestamp, max_timestamp
 
     @staticmethod
     def _find_with_timestamps(session_ids: list[str], team: Team) -> list[tuple[str, datetime, datetime]]:
         """
-        Check which session IDs exist within the specified number of days.
+        Check which session IDs exist in session_replay_events within retention period.
         Returns a list of tuples of (session_id, min_timestamp, max_timestamp).
         Timestamps are per session, not for the entire list of sessions.
         """
-        result = sync_execute(
-            """
-            SELECT
-                session_id,
-                min(min_first_timestamp) as min_timestamp,
-                max(max_last_timestamp) as max_timestamp,
-                max(retention_period_days) as retention_period_days,
-                dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
-            FROM
-                session_replay_events
-            PREWHERE
-                team_id = %(team_id)s
-                AND session_id IN %(session_ids)s
-                AND min_first_timestamp <= %(python_now)s
-            GROUP BY
-                session_id
-            HAVING
-                expiry_time >= %(python_now)s
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+        now = datetime.now(pytz.timezone("UTC"))
+        query = HogQLQuery(
+            query="""
+                SELECT
+                    session_id,
+                    min(min_first_timestamp) as min_timestamp,
+                    max(max_last_timestamp) as max_timestamp,
+                    max(retention_period_days) as retention_period_days,
+                    dateTrunc('day', min_timestamp) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
+                FROM
+                    raw_session_replay_events
+                WHERE
+                    session_id IN {session_ids}
+                    AND min_first_timestamp <= {now}
+                GROUP BY
+                    session_id
+                HAVING
+                    expiry_time >= {now}
             """,
-            {
-                "team_id": team.pk,
+            values={
                 "session_ids": session_ids,
-                "python_now": datetime.now(pytz.timezone("UTC")),
+                "now": now,
             },
         )
-        if not result:
+        result = HogQLQueryRunner(team=team, query=query).calculate()
+        if not result.results:
             return []
-        sessions_found: list[tuple[str, datetime, datetime]] = [(row[0], row[1], row[2]) for row in result]
+        sessions_found: list[tuple[str, datetime, datetime]] = [(row[0], row[1], row[2]) for row in result.results]
         return sessions_found
+
+    @staticmethod
+    def _find_sessions_in_events(
+        session_ids: list[str], min_timestamp: datetime, max_timestamp: datetime, team: Team
+    ) -> set[str]:
+        """
+        Check which session IDs have events in the events table within the given time range.
+        Returns a set of session IDs that have at least one event.
+        """
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+        query = HogQLQuery(
+            query="""
+                SELECT DISTINCT properties.$session_id AS session_id
+                FROM events
+                WHERE properties.$session_id IN {session_ids}
+                    AND timestamp >= {min_timestamp}
+                    AND timestamp <= {max_timestamp}
+            """,
+            values={
+                "session_ids": session_ids,
+                "min_timestamp": min_timestamp,
+                "max_timestamp": max_timestamp,
+            },
+        )
+        result = HogQLQueryRunner(team=team, query=query).calculate()
+        if not result.results:
+            return set()
+        return {row[0] for row in result.results}
 
     @staticmethod
     def get_metadata_query(

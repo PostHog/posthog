@@ -78,6 +78,7 @@ export const createAiGenerationEvent = (teamId: number, data: Partial<RawClickHo
             $ai_output_choices: ['test output'],
         }),
         person_mode: 'full',
+        historical_migration: false,
         ...data,
     }
 }

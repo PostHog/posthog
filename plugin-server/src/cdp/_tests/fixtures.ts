@@ -82,6 +82,7 @@ export const createIncomingEvent = (teamId: number, data: Partial<RawClickHouseE
         timestamp: new Date().toISOString() as ClickHouseTimestamp,
         properties: '{}',
         person_mode: 'full',
+        historical_migration: false,
         ...data,
     }
 }

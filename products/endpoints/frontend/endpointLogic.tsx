@@ -96,7 +96,7 @@ export const endpointLogic = kea<endpointLogicType>([
             },
         ],
     }),
-    loaders(({ actions }) => ({
+    loaders(({ actions, values }) => ({
         endpoint: [
             null as EndpointType | null,
             {
@@ -125,10 +125,40 @@ export const endpointLogic = kea<endpointLogicType>([
                 },
             },
         ],
+        materializationStatus: [
+            null as EndpointType['materialization'] | null,
+            {
+                loadMaterializationStatus: async (name: string) => {
+                    if (!name) {
+                        return null
+                    }
+                    const materializationStatus = await api.endpoint.getMaterializationStatus(name)
+
+                    // Update the local state if needed
+                    if (materializationStatus?.sync_frequency) {
+                        actions.setSyncFrequency(materializationStatus.sync_frequency)
+                    }
+
+                    // Update the endpoint object with the new materialization status
+                    if (values.endpoint) {
+                        const updatedEndpoint = {
+                            ...values.endpoint,
+                            materialization: materializationStatus,
+                            is_materialized: materializationStatus?.can_materialize
+                                ? !!materializationStatus.status
+                                : false,
+                        }
+                        actions.loadEndpointSuccess(updatedEndpoint)
+                    }
+
+                    return materializationStatus
+                },
+            },
+        ],
     })),
     listeners(({ actions }) => {
-        const reloadEndpoint = debounce((name: string): void => {
-            actions.loadEndpoint(name)
+        const reloadMaterializationStatus = debounce((name: string): void => {
+            actions.loadMaterializationStatus(name)
         }, 2000)
         return {
             createEndpoint: async ({ request }) => {
@@ -183,7 +213,7 @@ export const endpointLogic = kea<endpointLogicType>([
                 } else {
                     lemonToast.success('Endpoint updated')
                 }
-                reloadEndpoint(response.name)
+                reloadMaterializationStatus(response.name)
             },
             updateEndpointFailure: () => {
                 lemonToast.error('Failed to update endpoint')

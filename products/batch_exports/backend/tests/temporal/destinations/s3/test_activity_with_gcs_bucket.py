@@ -4,6 +4,7 @@ import uuid
 import pytest
 
 import aioboto3
+import pytest_asyncio
 from temporalio.testing._activity import ActivityEnvironment
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
@@ -43,7 +44,7 @@ def bucket_name():
     return os.getenv("GCS_TEST_BUCKET")
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def gcs_client(bucket_name, s3_key_prefix):
     """Manage an S3 client to interact with a GCS bucket."""
     async with aioboto3.Session().client("s3", endpoint_url="https://storage.googleapis.com") as s3_client:

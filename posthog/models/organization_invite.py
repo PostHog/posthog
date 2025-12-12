@@ -11,6 +11,7 @@ from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
@@ -145,6 +146,8 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 access_level=item["level"],
             )
 
+        self._sync_user_product_list_for_accessible_teams(user)
+
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 
@@ -157,6 +160,16 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         OrganizationInvite.objects.filter(
             organization=self.organization, target_email__iexact=self.target_email
         ).delete()
+
+    def _sync_user_product_list_for_accessible_teams(self, user: "User") -> None:
+        """Sync UserProductList for all teams the user has access to."""
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        uac = UserAccessControl(user=user, organization_id=str(self.organization.id))
+        accessible_teams = uac.filter_queryset_by_access_level(self.organization.teams.all(), include_all_if_admin=True)
+
+        for team in accessible_teams:
+            backfill_user_product_list_for_new_user(user, team)
 
     def is_expired(self) -> bool:
         """Check if invite is older than INVITE_DAYS_VALIDITY days."""

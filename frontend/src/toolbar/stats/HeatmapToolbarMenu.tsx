@@ -3,8 +3,7 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconMagicWand } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
@@ -74,8 +73,8 @@ const SectionButton = ({
 }
 
 export const HeatmapToolbarMenu = (): JSX.Element => {
-    const { wildcardHref } = useValues(currentPageLogic)
-    const { setWildcardHref, autoWildcardHref } = useActions(currentPageLogic)
+    const { wildcardHref, autoWildcardEnabled } = useValues(currentPageLogic)
+    const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled } = useActions(currentPageLogic)
 
     const {
         matchLinksByHref,
@@ -112,9 +111,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 <div className="flex gap-1">
                     <LemonInput className="flex-1" value={wildcardHref} onChange={setWildcardHref} />
                     <LemonButton
-                        type="secondary"
+                        type={autoWildcardEnabled ? 'primary' : 'secondary'}
                         icon={<IconMagicWand />}
-                        size="small"
+                        size="medium"
                         onClick={() => autoWildcardHref()}
                         tooltip={
                             <>
@@ -122,9 +121,31 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 example, <code>https://example.com/*</code> will match{' '}
                                 <code>https://example.com/page</code> and <code>https://example.com/page/1</code>.
                                 <br />
-                                Click this button to automatically wildcards where we believe it would make sense
+                                Click this button to automatically wildcard where we believe it would make sense
                             </>
                         }
+                        sideAction={{
+                            dropdown: {
+                                placement: 'bottom-end',
+                                matchWidth: false,
+                                closeOnClickInside: false,
+                                overlay: (
+                                    <div className="p-2 flex flex-col gap-2 min-w-80">
+                                        <LemonSwitch
+                                            checked={autoWildcardEnabled}
+                                            onChange={setAutoWildcardEnabled}
+                                            label="Auto-wildcard on navigation"
+                                            fullWidth
+                                            bordered
+                                        />
+                                        <div className="text-xs text-muted">
+                                            When enabled, the URL will be automatically wildcarded whenever you navigate
+                                            to a new page.
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                        }}
                     />
                 </div>
 

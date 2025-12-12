@@ -73,6 +73,11 @@ yalc.lock
 !.vscode/launch.json
 !.vscode/settings.example.json
 
+# Ignoring local Zed config
+# but commit shared `debug.json` file
+.zed/*
+!.zed/debug.json
+
 # Kea types should be ignored
 *Type.ts
 

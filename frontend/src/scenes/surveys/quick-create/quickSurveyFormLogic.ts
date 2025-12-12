@@ -11,19 +11,37 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
 import { EventsNode, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    BasicSurveyQuestion,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
+    Survey,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 
-import { NewSurvey, SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from '../constants'
+import { NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE, defaultSurveyAppearance } from '../constants'
 import { surveysLogic } from '../surveysLogic'
 import { toSurveyEvent } from '../utils/opportunityDetection'
 import type { quickSurveyFormLogicType } from './quickSurveyFormLogicType'
 import { QuickSurveyType } from './types'
 
 export type QuickSurveyCreateMode = 'launch' | 'edit' | 'draft'
+export type QuickSurveyQuestionType = SurveyQuestionType.Open | SurveyQuestionType.Rating | SurveyQuestionType.Link
+
+export const DEFAULT_RATING_LOWER_LABEL = 'Ugh, gross'
+export const DEFAULT_RATING_UPPER_LABEL = 'Sparks joy'
 
 export interface QuickSurveyFormValues {
     name: string
     question: string
+    description?: string
+    questionType: QuickSurveyQuestionType
+    scaleType?: 'number' | 'emoji'
+    ratingLowerBound?: string
+    ratingUpperBound?: string
+    buttonText?: string
+    link?: string
     conditions: Survey['conditions']
     appearance: Survey['appearance']
     linkedFlagId?: number | null
@@ -35,6 +53,36 @@ export interface QuickSurveyFormLogicProps {
     source: SURVEY_CREATED_SOURCE
     contextType: QuickSurveyType
     onSuccess?: () => void
+}
+
+function buildSurveyQuestion(
+    formValues: QuickSurveyFormValues
+): BasicSurveyQuestion | RatingSurveyQuestion | LinkSurveyQuestion {
+    if (formValues.questionType === SurveyQuestionType.Rating) {
+        return {
+            type: SurveyQuestionType.Rating,
+            question: formValues.question,
+            optional: false,
+            display: formValues.scaleType || 'emoji',
+            scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+            lowerBoundLabel: formValues.ratingLowerBound || DEFAULT_RATING_LOWER_LABEL,
+            upperBoundLabel: formValues.ratingUpperBound || DEFAULT_RATING_UPPER_LABEL,
+        }
+    } else if (formValues.questionType === SurveyQuestionType.Link) {
+        return {
+            type: SurveyQuestionType.Link,
+            question: formValues.question,
+            description: formValues.description,
+            buttonText: formValues.buttonText,
+            link: formValues.link ?? null,
+            optional: true,
+        }
+    }
+    return {
+        type: SurveyQuestionType.Open,
+        question: formValues.question,
+        optional: false,
+    }
 }
 
 export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
@@ -64,11 +112,19 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
                 ...props.defaults,
             } as QuickSurveyFormValues,
 
-            errors: ({ question, appearance }) => ({
-                question: !question?.trim() ? 'Please enter a question' : undefined,
+            errors: ({ question, appearance, buttonText }) => ({
+                question: !question?.trim()
+                    ? props.contextType === QuickSurveyType.ANNOUNCEMENT
+                        ? 'Please enter a title'
+                        : 'Please enter a question'
+                    : undefined,
                 appearance:
                     props.contextType === QuickSurveyType.FUNNEL && !appearance?.surveyPopupDelaySeconds
                         ? { surveyPopupDelaySeconds: 'A delay is required for funnel sequence targeting' as any }
+                        : undefined,
+                buttonText:
+                    props.contextType === QuickSurveyType.ANNOUNCEMENT && !buttonText
+                        ? 'Please enter your button text'
                         : undefined,
             }),
 
@@ -79,13 +135,7 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
                 const surveyData: Partial<Survey> = {
                     name: formValues.name,
                     type: SurveyType.Popover,
-                    questions: [
-                        {
-                            type: SurveyQuestionType.Open,
-                            question: formValues.question.trim(),
-                            optional: false,
-                        },
-                    ],
+                    questions: [buildSurveyQuestion(formValues)],
                     conditions: formValues.conditions,
                     appearance: formValues.appearance,
                     ...(formValues.linkedFlagId ? { linked_flag_id: formValues.linkedFlagId } : {}),
@@ -147,15 +197,7 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
                     id: 'new',
                     name: surveyForm.name,
                     type: SurveyType.Popover,
-
-                    questions: [
-                        {
-                            type: SurveyQuestionType.Open,
-                            question: surveyForm.question,
-                            optional: false,
-                        },
-                    ],
-
+                    questions: [buildSurveyQuestion(surveyForm)],
                     conditions: surveyForm.conditions,
                     appearance: surveyForm.appearance,
                 }) as NewSurvey,

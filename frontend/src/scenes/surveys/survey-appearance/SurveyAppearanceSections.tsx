@@ -236,21 +236,21 @@ export function SurveyColorsAppearance({
                 error={validationErrors?.submitButtonTextColor}
                 label="Button text color"
             />
+            <SurveyAppearanceInput
+                value={appearance.inputBackground}
+                onChange={(inputBackground) =>
+                    onAppearanceChange({ inputBackground, ratingButtonColor: inputBackground })
+                }
+                error={validationErrors?.inputBackground || validationErrors?.ratingButtonColor}
+                label="Input and rating background"
+            />
             {customizeRatingButtons && (
-                <>
-                    <SurveyAppearanceInput
-                        value={appearance.ratingButtonColor}
-                        onChange={(ratingButtonColor) => onAppearanceChange({ ratingButtonColor })}
-                        error={validationErrors?.ratingButtonColor}
-                        label="Rating button color"
-                    />
-                    <SurveyAppearanceInput
-                        value={appearance.ratingButtonActiveColor}
-                        onChange={(ratingButtonActiveColor) => onAppearanceChange({ ratingButtonActiveColor })}
-                        error={validationErrors?.ratingButtonActiveColor}
-                        label="Rating button active color"
-                    />
-                </>
+                <SurveyAppearanceInput
+                    value={appearance.ratingButtonActiveColor}
+                    onChange={(ratingButtonActiveColor) => onAppearanceChange({ ratingButtonActiveColor })}
+                    error={validationErrors?.ratingButtonActiveColor}
+                    label="Active rating color"
+                />
             )}
             {customizePlaceholderText && (
                 <SurveyAppearanceInput
@@ -260,6 +260,9 @@ export function SurveyColorsAppearance({
                     label="Placeholder text"
                 />
             )}
+            <span className="col-span-2 text-secondary">
+                Text colors are automatically set based on background contrast.
+            </span>
         </SurveyOptionsGroup>
     )
 }

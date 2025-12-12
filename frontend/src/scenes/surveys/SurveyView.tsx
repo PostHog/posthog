@@ -49,6 +49,7 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { SurveyHeadline } from './SurveyHeadline'
 import { SurveysDisabledBanner } from './SurveySettings'
 
 const RESOURCE_TYPE = 'survey'
@@ -356,11 +357,13 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         isAnyResultsLoading,
         processedSurveyStats,
         archivedResponseUuids,
+        isSurveyHeadlineEnabled,
     } = useValues(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
     return (
         <div className="deprecated-space-y-4">
+            {isSurveyHeadlineEnabled && <SurveyHeadline />}
             <SurveyResponseFilters />
             <SurveyStatsSummary />
             {isAnyResultsLoading || atLeastOneResponse ? (

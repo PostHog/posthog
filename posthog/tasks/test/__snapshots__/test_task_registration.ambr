@@ -105,6 +105,7 @@
     'posthog.tasks.tasks.sync_feature_flag_last_called',
     'posthog.tasks.tasks.sync_insight_cache_states_task',
     'posthog.tasks.tasks.sync_insight_caching_state',
+    'posthog.tasks.tasks.sync_user_product_lists_for_new_team',
     'posthog.tasks.tasks.update_cache_task',
     'posthog.tasks.tasks.update_event_partitions',
     'posthog.tasks.tasks.update_survey_adaptive_sampling',

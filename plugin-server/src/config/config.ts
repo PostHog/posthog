@@ -21,6 +21,9 @@ export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
 export function getDefaultConfig(): PluginsServerConfig {
     return {
+        CONTINUOUS_PROFILING_ENABLED: false,
+        PYROSCOPE_SERVER_ADDRESS: '',
+        PYROSCOPE_APPLICATION_NAME: '',
         INSTRUMENT_THREAD_PERFORMANCE: false,
         OTEL_EXPORTER_OTLP_ENDPOINT: isDevEnv() ? 'http://localhost:4317' : '',
         OTEL_SDK_DISABLED: isDevEnv() ? false : true,
@@ -337,6 +340,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSONS_DUAL_WRITE_ENABLED: false,
         PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
+        PERSONS_PREFETCH_ENABLED: false,
         GROUPS_DUAL_WRITE_ENABLED: false,
         GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,

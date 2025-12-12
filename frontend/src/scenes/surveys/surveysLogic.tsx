@@ -16,13 +16,13 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
+import { surveysSdkLogic } from './surveysSdkLogic'
 
 export enum SurveysTabs {
     Active = 'active',
@@ -114,8 +114,8 @@ export const surveysLogic = kea<surveysLogicType>([
             ['currentTeam', 'currentTeamLoading'],
             enabledFlagLogic,
             ['featureFlags as enabledFlags'],
-            sidePanelSdkDoctorLogic,
-            ['augmentedData as sdkDoctorData'],
+            surveysSdkLogic,
+            ['teamSdkVersions'],
         ],
         actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
     })),
@@ -240,8 +240,8 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
-            loadResponsesCount: async () => {
-                const surveysResponsesCount = await api.surveys.getResponsesCount()
+            loadResponsesCount: async (surveyIds: string) => {
+                const surveysResponsesCount = await api.surveys.getResponsesCount(surveyIds)
                 return surveysResponsesCount
             },
         },
@@ -307,10 +307,14 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         setSurveysFilters: () => {
             actions.loadSurveys()
-            actions.loadResponsesCount()
         },
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
+
+            if (values.data.surveys.length > 0) {
+                const surveyIds = values.data.surveys.map((s) => s.id).join(',')
+                actions.loadResponsesCount(surveyIds)
+            }
 
             if (values.data.surveys.some((survey) => survey.start_date)) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
@@ -400,22 +404,6 @@ export const surveysLogic = kea<surveysLogicType>([
                 return !currentTeam?.surveys_opt_in
             },
         ],
-        teamSdkVersions: [
-            (s) => [s.sdkDoctorData],
-            (sdkDoctorData): Record<string, string | null> => {
-                const versions: Record<string, string | null> = {}
-
-                for (const [sdkType, sdkInfo] of Object.entries(sdkDoctorData ?? {})) {
-                    if (sdkInfo?.allReleases?.length) {
-                        // sdk doctor uses 'web' but we use 'posthog-js' in SURVEY_SDK_REQUIREMENTS...
-                        const key = sdkType === 'web' ? 'posthog-js' : sdkType
-                        versions[key] = sdkInfo.allReleases[0]?.version ?? null
-                    }
-                }
-
-                return versions
-            },
-        ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [],
             (): SidePanelSceneContext => ({
@@ -437,6 +425,5 @@ export const surveysLogic = kea<surveysLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSurveys()
-        actions.loadResponsesCount()
     }),
 ])

@@ -59,7 +59,7 @@ import {
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
-import { playlistLogic } from '../playlist/playlistLogic'
+import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -186,8 +186,8 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     totalFiltersCount?: number
     currentSessionRecordingId?: string
 }): JSX.Element => {
-    const { isFiltersExpanded } = useValues(playlistLogic)
-    const { setIsFiltersExpanded } = useActions(playlistLogic)
+    const { isFiltersExpanded } = useValues(playlistFiltersLogic)
+    const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
     const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
@@ -268,7 +268,6 @@ export const RecordingsUniversalFiltersEmbed = ({
     totalFiltersCount,
     className,
     allowReplayHogQLFilters = false,
-    allowReplayGroupsFilters = false,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
@@ -276,7 +275,6 @@ export const RecordingsUniversalFiltersEmbed = ({
     totalFiltersCount?: number
     className?: string
     allowReplayHogQLFilters?: boolean
-    allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
     const [savedFilterName, setSavedFilterName] = useState('')
@@ -288,8 +286,8 @@ export const RecordingsUniversalFiltersEmbed = ({
 
     const durationFilter = filters.duration?.[0] ?? defaultRecordingDurationFilter
 
-    const { activeFilterTab } = useValues(playlistLogic)
-    const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistLogic)
+    const { activeFilterTab } = useValues(playlistFiltersLogic)
+    const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const taxonomicGroupTypes = [
@@ -300,14 +298,11 @@ export const RecordingsUniversalFiltersEmbed = ({
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,
+        ...groupsTaxonomicTypes,
     ]
 
     if (allowReplayHogQLFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
-    }
-
-    if (allowReplayGroupsFilters) {
-        taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
     const { savedFilters, appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
