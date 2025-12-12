@@ -878,21 +878,21 @@ function buildFieldTreeNodes(
 
 function getOrderedFields(table: DatabaseSchemaTable): DatabaseSchemaField[] {
     const fieldsRecord = table.fields || {}
-    const fieldOrder = new Map<string, number>(Object.keys(fieldsRecord).map((name, index) => [name, index]))
+    const primaryKeyFields = new Set(table.schema_metadata?.primary_key || [])
 
     return Object.values(fieldsRecord).sort((a, b) => {
         if (a.name === b.name) {
             return 0
         }
 
-        const aPriority = a.name === 'id' ? -1 : (fieldOrder.get(a.name) ?? Number.MAX_SAFE_INTEGER)
-        const bPriority = b.name === 'id' ? -1 : (fieldOrder.get(b.name) ?? Number.MAX_SAFE_INTEGER)
+        const aIsPrimaryKey = primaryKeyFields.has(a.name)
+        const bIsPrimaryKey = primaryKeyFields.has(b.name)
 
-        if (aPriority === bPriority) {
-            return a.name.localeCompare(b.name)
+        if (aIsPrimaryKey !== bIsPrimaryKey) {
+            return aIsPrimaryKey ? -1 : 1
         }
 
-        return aPriority - bPriority
+        return a.name.localeCompare(b.name)
     })
 }
 
