@@ -22,11 +22,12 @@ T = TypeVar("T", bound=BaseModel)
 
 class ValidatedRequest(Request):
     """
-    Request with validated_data attribute.
-    This is set by the @validated_request decorator when request_serializer is provided.
+    Request with validated_data and validated_query_data attributes.
+    These are set by the @validated_request decorator when serializers are provided.
     """
 
     validated_data: dict[str, Any]
+    validated_query_data: dict[str, Any]
 
 
 # Generic Pydantic model mixin for validating the response data
@@ -64,9 +65,11 @@ def validated_request(
             },
             summary="Do something"
         )
-        def my_action(self, request: Request, **kwargs):
+        def my_action(self, request: ValidatedRequest, **kwargs):
             # request.validated_data contains validated body data (if request_serializer provided)
-            # Query params are validated but not mutated
+            # request.validated_query_data contains validated query params (if query_serializer provided)
+            body_field = request.validated_data["field"]
+            query_param = request.validated_query_data["param"]
     """
 
     def decorator(view_func: Callable) -> Callable:
@@ -86,9 +89,13 @@ def validated_request(
         )
         @wraps(view_func)
         def wrapper(self, request: Request, *args, **kwargs) -> Response:
+            validated_request = cast(ValidatedRequest, request)
+            validated_request.validated_query_data = {}
+
             if query_serializer is not None:
                 query_serializer_instance = query_serializer(data=request.query_params)
                 query_serializer_instance.is_valid(raise_exception=True)
+                validated_request.validated_query_data = query_serializer_instance.validated_data
 
             if request_serializer is not None:
                 serializer = request_serializer(data=request.data)
@@ -102,7 +109,6 @@ def validated_request(
                         validation_errors=serializer.errors,
                     )
 
-                validated_request = cast(ValidatedRequest, request)
                 validated_request.validated_data = serializer.validated_data
 
             result = view_func(self, request, *args, **kwargs)

@@ -716,6 +716,48 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             (s) => [s.viableItems],
             (viableItems): FileSystemEntry[] => [...viableItems].sort(sortFilesAndFolders),
         ],
+        itemsByRef: [
+            (s) => [s.sortedItems],
+            (sortedItems): Record<string, FileSystemEntry> => {
+                const keyedByRef: Record<string, FileSystemEntry> = {}
+
+                for (const item of sortedItems) {
+                    if (item.type && item.ref) {
+                        keyedByRef[`${item.type}::${item.ref}`] = item
+                    }
+                }
+
+                return keyedByRef
+            },
+        ],
+        itemsByHref: [
+            (s) => [s.sortedItems],
+            (sortedItems): Record<string, FileSystemEntry> => {
+                const keyedByHref: Record<string, FileSystemEntry> = {}
+
+                for (const item of sortedItems) {
+                    if (item.href) {
+                        keyedByHref[item.href] = item
+                    }
+                }
+
+                return keyedByHref
+            },
+        ],
+        itemsByPath: [
+            (s) => [s.sortedItems],
+            (sortedItems): Record<string, FileSystemEntry> => {
+                const keyedByPath: Record<string, FileSystemEntry> = {}
+
+                for (const item of sortedItems) {
+                    if (typeof item.path === 'string') {
+                        keyedByPath[item.path] = item
+                    }
+                }
+
+                return keyedByPath
+            },
+        ],
         viableItemsById: [
             (s) => [s.viableItems],
             (viableItems): Record<string, FileSystemEntry> =>
