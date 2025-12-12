@@ -18,10 +18,9 @@ from posthog.schema import BaseMathType, FunnelsQuery
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.funnels.test.test_utils import PseudoFunnelActors
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.cohort import Cohort
-from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
@@ -43,11 +42,13 @@ class FunnelStepResult:
 def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdown(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = PseudoFunnelActors(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+            actors = get_actors_legacy_filters(
+                filter._data,
+                self.team,
+                funnel_step=funnel_step,
+                funnel_step_breakdown=breakdown_value,
+            )
+            return [actor[0] for actor in actors]
 
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: list[FunnelStepResult]):
             def funnel_result(step: FunnelStepResult, order: int) -> dict[str, Any]:
@@ -2741,11 +2742,13 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdownGroup(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = PseudoFunnelActors(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+            actors = get_actors_legacy_filters(
+                filter._data,
+                self.team,
+                funnel_step=funnel_step,
+                funnel_step_breakdown=breakdown_value,
+            )
+            return [actor[0] for actor in actors]
 
         def _create_groups(self):
             create_group_type_mapping_without_created_at(
