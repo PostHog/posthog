@@ -321,9 +321,9 @@ services:
             KAFKA_CONSUMER_GROUP: cymbal
             KAFKA_CONSUMER_TOPIC: exceptions_ingestion
             OBJECT_STORAGE_BUCKET: posthog
-            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
-            OBJECT_STORAGE_ENDPOINT: 'http://objectstorage:19000'
+            OBJECT_STORAGE_ACCESS_KEY_ID: 'any'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'any'
+            OBJECT_STORAGE_ENDPOINT: 'http://seaweedfs:8333'
             OBJECT_STORAGE_FORCE_PATH_STYLE: 'true'
             BIND_HOST: '0.0.0.0'
             BIND_PORT: '3302'
@@ -336,7 +336,7 @@ services:
         depends_on:
             kafka:
                 condition: service_started
-            objectstorage:
+            seaweedfs:
                 condition: service_started
             db:
                 condition: service_healthy
