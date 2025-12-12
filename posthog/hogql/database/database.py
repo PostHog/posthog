@@ -11,10 +11,14 @@ from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
+    DatabaseSchemaColumnInfo,
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
     DatabaseSchemaField,
+    DatabaseSchemaForeignKey,
+    DatabaseSchemaIndexInfo,
     DatabaseSchemaManagedViewTable,
+    DatabaseSchemaMetadata,
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
@@ -42,6 +46,7 @@ from posthog.hogql.database.models import (
     FunctionCallTable,
     IntegerDatabaseField,
     LazyJoin,
+    LazyJoinToAdd,
     SavedQuery,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -124,6 +129,7 @@ from posthog.models.team.team import WeekStartDay
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
@@ -404,6 +410,7 @@ class Database(BaseModel):
             schema_data = list(warehouse_table.externaldataschema_set.all())
             if not schema_data:
                 schema = None
+                schema_metadata = None
             else:
                 db_schema = schema_data[0]
                 schema = DatabaseSchemaSchema(
@@ -414,6 +421,46 @@ class Database(BaseModel):
                     status=db_schema.status,
                     last_synced_at=str(db_schema.last_synced_at),
                 )
+
+                # Build schema_metadata for direct query sources
+                raw_metadata = db_schema.schema_metadata
+                if raw_metadata:
+                    schema_metadata = DatabaseSchemaMetadata(
+                        primary_key=raw_metadata.get("primary_key"),
+                        foreign_keys=[
+                            DatabaseSchemaForeignKey(
+                                column=fk.get("column", ""),
+                                target_table=fk.get("target_table", ""),
+                                target_column=fk.get("target_column", ""),
+                            )
+                            for fk in raw_metadata.get("foreign_keys", [])
+                        ]
+                        if raw_metadata.get("foreign_keys")
+                        else None,
+                        columns=[
+                            DatabaseSchemaColumnInfo(
+                                name=col.get("name", ""),
+                                data_type=col.get("data_type", ""),
+                                is_nullable=col.get("is_nullable", True),
+                            )
+                            for col in raw_metadata.get("columns", [])
+                        ]
+                        if raw_metadata.get("columns")
+                        else None,
+                        indexes=[
+                            DatabaseSchemaIndexInfo(
+                                name=idx.get("name", ""),
+                                columns=idx.get("columns", []),
+                                is_unique=idx.get("is_unique", False),
+                                is_primary=idx.get("is_primary", False),
+                            )
+                            for idx in raw_metadata.get("indexes", [])
+                        ]
+                        if raw_metadata.get("indexes")
+                        else None,
+                    )
+                else:
+                    schema_metadata = None
 
             # Get source from prefetched data
             if warehouse_table.external_data_source is None:
@@ -431,6 +478,7 @@ class Database(BaseModel):
                     source_type=db_source.source_type,
                     prefix=db_source.prefix or "",
                     last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
+                    is_direct_query=db_source.is_direct_query,
                 )
 
             # Temp until we migrate all table names in the DB to use dot notation
@@ -467,6 +515,7 @@ class Database(BaseModel):
                     format=warehouse_table.format,
                     url_pattern=warehouse_table.url_pattern,
                     schema=schema,
+                    schema_metadata=schema_metadata,
                     source=source,
                     row_count=warehouse_table.row_count,
                 )
@@ -478,6 +527,138 @@ class Database(BaseModel):
                 )
                 self._serialization_errors[table_key] = str(e)
                 continue  # Skip this table but process others
+
+        # Handle direct query sources - these don't have DataWarehouseTable records
+        direct_query_schemas = (
+            ExternalDataSchema.objects.select_related("source")
+            .filter(
+                team_id=context.team_id,
+                source__is_direct_query=True,
+                deleted=False,
+            )
+            .exclude(source__deleted=True)
+            .all()
+        )
+
+        for dq_schema in direct_query_schemas:
+            dq_source = dq_schema.source
+            source_type = dq_source.source_type
+            prefix = dq_source.prefix
+
+            # Build table_key using the same logic as regular warehouse tables
+            if prefix is not None and isinstance(prefix, str) and prefix != "":
+                table_key = f"{source_type}.{prefix.strip('_')}.{dq_schema.name}".lower()
+            else:
+                table_key = f"{source_type}.{dq_schema.name}".lower()
+
+            if include_only and table_key not in include_only:
+                continue
+
+            # Build source info
+            source = DatabaseSchemaSource(
+                id=str(dq_source.source_id),
+                status=dq_source.status,
+                source_type=dq_source.source_type,
+                prefix=dq_source.prefix or "",
+                last_synced_at=None,  # Direct query sources don't sync
+                is_direct_query=True,
+            )
+
+            # Build schema info
+            schema = DatabaseSchemaSchema(
+                id=str(dq_schema.id),
+                name=dq_schema.name,
+                should_sync=False,
+                incremental=False,
+                status="Direct query",
+                last_synced_at=None,
+            )
+
+            # Build schema_metadata from the stored metadata
+            raw_metadata = dq_schema.schema_metadata
+            if raw_metadata:
+                schema_metadata = DatabaseSchemaMetadata(
+                    primary_key=raw_metadata.get("primary_key"),
+                    foreign_keys=[
+                        DatabaseSchemaForeignKey(
+                            column=fk.get("column", ""),
+                            target_table=fk.get("target_table", ""),
+                            target_column=fk.get("target_column", ""),
+                        )
+                        for fk in raw_metadata.get("foreign_keys", [])
+                    ]
+                    if raw_metadata.get("foreign_keys")
+                    else None,
+                    columns=[
+                        DatabaseSchemaColumnInfo(
+                            name=col.get("name", ""),
+                            data_type=col.get("data_type", ""),
+                            is_nullable=col.get("is_nullable", True),
+                        )
+                        for col in raw_metadata.get("columns", [])
+                    ]
+                    if raw_metadata.get("columns")
+                    else None,
+                    indexes=[
+                        DatabaseSchemaIndexInfo(
+                            name=idx.get("name", ""),
+                            columns=idx.get("columns", []),
+                            is_unique=idx.get("is_unique", False),
+                            is_primary=idx.get("is_primary", False),
+                        )
+                        for idx in raw_metadata.get("indexes", [])
+                    ]
+                    if raw_metadata.get("indexes")
+                    else None,
+                )
+            else:
+                schema_metadata = None
+
+            # Build fields from columns metadata
+            fields_dict: dict[str, DatabaseSchemaField] = {}
+            columns_metadata = raw_metadata.get("columns", []) if raw_metadata else []
+            for col in columns_metadata:
+                col_name = col.get("name", "")
+                col_type = col.get("data_type", "string").lower()
+
+                # Map PostgreSQL types to our serialized field types
+                if "int" in col_type or "serial" in col_type:
+                    field_type = DatabaseSerializedFieldType.INTEGER
+                elif "float" in col_type or "double" in col_type or "real" in col_type:
+                    field_type = DatabaseSerializedFieldType.FLOAT
+                elif "numeric" in col_type or "decimal" in col_type:
+                    field_type = DatabaseSerializedFieldType.DECIMAL
+                elif "bool" in col_type:
+                    field_type = DatabaseSerializedFieldType.BOOLEAN
+                elif "timestamp" in col_type:
+                    field_type = DatabaseSerializedFieldType.DATETIME
+                elif "date" in col_type:
+                    field_type = DatabaseSerializedFieldType.DATE
+                elif "json" in col_type:
+                    field_type = DatabaseSerializedFieldType.JSON
+                elif "array" in col_type or col_type.endswith("[]"):
+                    field_type = DatabaseSerializedFieldType.ARRAY
+                else:
+                    field_type = DatabaseSerializedFieldType.STRING
+
+                fields_dict[col_name] = DatabaseSchemaField(
+                    name=col_name,
+                    hogql_value=f'"{col_name}"',
+                    type=field_type,
+                    schema_valid=True,
+                )
+
+            tables[table_key] = DatabaseSchemaDataWarehouseTable(
+                fields=fields_dict,
+                id=str(dq_schema.id),
+                name=table_key,
+                format="direct_query",
+                url_pattern="",
+                schema=schema,
+                schema_metadata=schema_metadata,
+                source=source,
+                row_count=None,
+            )
 
         # Fetch all views in a single query
         all_views = (
@@ -785,6 +966,9 @@ class Database(BaseModel):
                 def to_printed_hogql(self):
                     return self.parent_table.to_printed_hogql()
 
+                def to_printed_postgres(self):
+                    return self.parent_table.to_printed_postgres()
+
                 def to_printed_clickhouse(self, context):
                     return self.parent_table.to_printed_clickhouse(context)
 
@@ -793,6 +977,7 @@ class Database(BaseModel):
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
                     .select_related("credential", "external_data_source")
+                    .prefetch_related("externaldataschema_set")
                 )
 
             view_names = views.resolve_all_table_names()
@@ -804,6 +989,8 @@ class Database(BaseModel):
 
                 with timings.measure(f"table_{table.name}"):
                     s3_table = table.hogql_definition(modifiers)
+
+                    _add_foreign_key_lazy_joins(s3_table, table)
 
                     # If the warehouse table has no _properties_ field, then set it as a virtual table
                     if s3_table.fields.get("properties") is None:
@@ -837,6 +1024,82 @@ class Database(BaseModel):
                         joined_table_chain = ".".join(table_chain)
                         s3_table.name = joined_table_chain
                         warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+
+        # Add direct query Postgres tables
+        with timings.measure("direct_query_tables"):
+            from posthog.hogql.database.postgres_table import PostgresTable
+
+            direct_query_schemas = (
+                ExternalDataSchema.objects.select_related("source")
+                .filter(
+                    team_id=team.pk,
+                    source__is_direct_query=True,
+                    deleted=False,
+                )
+                .exclude(source__deleted=True)
+                .all()
+            )
+
+            for dq_schema in direct_query_schemas:
+                try:
+                    dq_source = dq_schema.source
+                    source_type = dq_source.source_type
+                    prefix = dq_source.prefix
+                    pg_schema = dq_source.job_inputs.get("schema", "public") if dq_source.job_inputs else "public"
+
+                    # Build table_key using the same logic as regular warehouse tables
+                    if prefix is not None and isinstance(prefix, str) and prefix != "":
+                        table_key = f"{source_type}.{prefix.strip('_')}.{dq_schema.name}".lower()
+                    else:
+                        table_key = f"{source_type}.{dq_schema.name}".lower()
+
+                    # Build field definitions from schema metadata
+                    fields: dict[str, FieldOrTable] = {}
+                    columns = dq_schema.columns or []
+                    for col in columns:
+                        col_name = col.get("name", "")
+                        col_type = col.get("data_type", "").lower()
+                        if not col_name:
+                            continue
+
+                        # Map Postgres types to HogQL field types
+                        if col_type in ("integer", "int", "int4", "int8", "bigint", "smallint", "serial", "bigserial"):
+                            fields[col_name] = IntegerDatabaseField(name=col_name)
+                        elif col_type in ("real", "float4", "float8", "double precision", "float"):
+                            fields[col_name] = FloatDatabaseField(name=col_name)
+                        elif col_type in ("numeric", "decimal", "money"):
+                            fields[col_name] = DecimalDatabaseField(name=col_name)
+                        elif col_type in ("boolean", "bool"):
+                            fields[col_name] = BooleanDatabaseField(name=col_name)
+                        elif col_type in (
+                            "timestamp",
+                            "timestamptz",
+                            "timestamp with time zone",
+                            "timestamp without time zone",
+                        ):
+                            fields[col_name] = DateTimeDatabaseField(name=col_name)
+                        elif col_type in ("date",):
+                            fields[col_name] = DateDatabaseField(name=col_name)
+                        else:
+                            # Default to string for text, varchar, char, json, jsonb, uuid, etc.
+                            fields[col_name] = StringDatabaseField(name=col_name)
+
+                    # Create PostgresTable with actual postgres table name
+                    postgres_table_name = f"{pg_schema}.{dq_schema.name}" if pg_schema else dq_schema.name
+                    pg_table = PostgresTable(
+                        name=table_key,
+                        postgres_table_name=postgres_table_name,
+                        fields=fields,
+                    )
+
+                    _add_foreign_key_lazy_joins(pg_table, dq_schema)
+
+                    # Add to warehouse tables using dot notation chain
+                    table_chain = table_key.split(".")
+                    warehouse_tables.add_child(TableNode.create_nested_for_chain(table_chain, pg_table))
+                except Exception as e:
+                    capture_exception(e)
+                    continue
 
         def define_mappings(root_node: TableNode, get_table: Callable):
             table: Table | None = None
@@ -1213,6 +1476,97 @@ def _constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> 
 
 
 HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
+
+
+def _foreign_key_join_function(
+    from_field: list[str | int], to_field: list[str | int]
+) -> Callable[[LazyJoinToAdd, HogQLContext, ast.SelectQuery], ast.JoinExpr]:
+    def _join_function(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery):
+        if not join_to_add.fields_accessed:
+            raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
+
+        left = ast.Field(chain=[join_to_add.from_table, *from_field])
+        right = ast.Field(chain=[join_to_add.to_table, *to_field])
+
+        return ast.JoinExpr(
+            table=ast.SelectQuery(
+                select=[
+                    ast.Alias(alias=alias, expr=ast.Field(chain=chain))
+                    for alias, chain in join_to_add.fields_accessed.items()
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[join_to_add.to_table])),
+            ),
+            join_type="LEFT JOIN",
+            alias=join_to_add.to_table,
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=left,
+                    right=right,
+                ),
+                constraint_type="ON",
+            ),
+        )
+
+    return _join_function
+
+
+def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehouseTable | ExternalDataSchema) -> None:
+    schemas_attr = getattr(warehouse_table, "externaldataschema_set", None)
+
+    if hasattr(schemas_attr, "all"):
+        schemas = list(schemas_attr.all())
+    else:
+        schemas = list(schemas_attr or [])
+
+    if not schemas:
+        schemas = [warehouse_table]
+
+    def _get_foreign_keys(schema: ExternalDataSchema | DataWarehouseTable) -> list[dict[str, str]] | None:
+        foreign_keys = getattr(schema, "foreign_keys", None)
+
+        if foreign_keys:
+            return foreign_keys
+
+        schema_metadata = getattr(schema, "schema_metadata", None)
+
+        if schema_metadata:
+            return schema_metadata.get("foreign_keys")
+
+        return None
+
+    schema_with_foreign_keys = next((schema for schema in schemas if _get_foreign_keys(schema)), None)
+
+    if not schema_with_foreign_keys:
+        return
+
+    foreign_keys = _get_foreign_keys(schema_with_foreign_keys) or []
+
+    for foreign_key in foreign_keys:
+        column = foreign_key.get("column")
+        target_table = foreign_key.get("target_table")
+        target_column = foreign_key.get("target_column")
+
+        if not column or not target_table or not target_column:
+            continue
+
+        from_field = get_join_field_chain(column)
+        to_field = get_join_field_chain(target_column)
+
+        if from_field is None or to_field is None:
+            continue
+
+        field_name = column[:-3] if column.endswith("_id") and len(column) > 3 else column
+
+        if hogql_table.fields.get(field_name):
+            continue
+
+        hogql_table.fields[field_name] = LazyJoin(
+            from_field=from_field,
+            to_field=to_field,
+            join_table=target_table,
+            join_function=_foreign_key_join_function(from_field, to_field),
+        )
 
 
 def serialize_fields(

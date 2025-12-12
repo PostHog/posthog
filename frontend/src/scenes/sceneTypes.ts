@@ -16,6 +16,7 @@ export enum Scene {
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
+    BI = 'BI',
     Billing = 'Billing',
     BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     BillingSection = 'BillingSection',

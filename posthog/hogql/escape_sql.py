@@ -1,10 +1,11 @@
 import re
 import math
 from datetime import date, datetime
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.models.utils import UUIDT
@@ -51,6 +52,11 @@ def escape_hogql_identifier(identifier: str | int) -> str:
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
+# Copied from dlt/common/data_writers/escape.py
+def escape_postgres_identifier(v: str) -> str:
+    return '"' + v.replace('"', '""').replace("\\", "\\\\") + '"'
+
+
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
 def escape_clickhouse_identifier(identifier: str) -> str:
     if "%" in identifier:
@@ -78,7 +84,7 @@ class SQLValueEscaper:
     def __init__(
         self,
         timezone: Optional[str] = None,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
     ):
         self._timezone = timezone or "UTC"
         self._dialect = dialect

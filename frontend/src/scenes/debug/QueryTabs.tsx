@@ -55,6 +55,8 @@ export function QueryTabs<Q extends Node>({
     const explainTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === './explain')?.t ?? 0
     const totalTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === '.')?.t ?? 0
     const hogQLTime = totalTime - explainTime - clickHouseTime
+    const sqlQuery = response?.postgres ?? response?.clickhouse
+    const sqlLabel = 'SQL'
     const tabs: LemonTabsProps<string>['tabs'] = query
         ? [
               response?.error && {
@@ -137,11 +139,11 @@ export function QueryTabs<Q extends Node>({
                       />
                   ),
               },
-              response?.clickhouse && {
-                  key: 'clickhouse',
+              sqlQuery && {
+                  key: 'sql',
                   label: (
                       <>
-                          Clickhouse
+                          {sqlLabel}
                           {clickHouseTime && (
                               <LemonTag className="ml-2">{Math.floor(clickHouseTime * 10) / 10}s</LemonTag>
                           )}
@@ -151,7 +153,7 @@ export function QueryTabs<Q extends Node>({
                       <CodeEditor
                           className="border"
                           language="sql"
-                          value={String(response.clickhouse)}
+                          value={String(sqlQuery)}
                           height={500}
                           path={`debug/${queryKey}/hogql.sql`}
                       />

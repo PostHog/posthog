@@ -860,7 +860,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
 export function initHogQLLanguage(monaco: Monaco, lang: HogLanguage = HogLanguage.hogQL): void {
     if (!monaco.languages.getLanguages().some(({ id }) => id === lang)) {
         monaco.languages.register(
-            lang === 'hogQL'
+            lang === HogLanguage.hogQL || lang === HogLanguage.hogQLPostgres
                 ? {
                       id: lang,
                       extensions: ['.sql', '.hogql'],

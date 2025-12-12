@@ -4259,6 +4259,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "postgres": {
+                    "description": "Executed Postgres query",
+                    "type": "string"
+                },
                 "query": {
                     "description": "Input query string",
                     "type": "string"
@@ -8841,6 +8845,10 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "postgres": {
+                                    "description": "Executed Postgres query",
+                                    "type": "string"
                                 },
                                 "query": {
                                     "description": "Input query string",
@@ -15960,7 +15968,7 @@
             "type": "object"
         },
         "HogLanguage": {
-            "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
+            "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogQLPostgres", "hogTemplate", "liquid"],
             "type": "string"
         },
         "HogQLASTQuery": {
@@ -16451,6 +16459,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "postgres": {
+                    "description": "Executed Postgres query",
+                    "type": "string"
                 },
                 "query": {
                     "description": "Input query string",
@@ -21779,6 +21791,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "postgres": {
+                            "description": "Executed Postgres query",
+                            "type": "string"
+                        },
                         "query": {
                             "description": "Input query string",
                             "type": "string"
@@ -23505,6 +23521,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "postgres": {
+                            "description": "Executed Postgres query",
+                            "type": "string"
                         },
                         "query": {
                             "description": "Input query string",

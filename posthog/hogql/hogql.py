@@ -1,6 +1,7 @@
-from typing import Literal, Optional, cast
+from typing import Optional, cast
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import NotImplementedError, QueryError, SyntaxError
@@ -15,7 +16,7 @@ from posthog.queries.util import alias_poe_mode_for_legacy
 def translate_hogql(
     query: str,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+    dialect: HogQLDialect = "clickhouse",
     *,
     events_table_alias: Optional[str] = None,
     placeholders: Optional[dict[str, ast.Expr]] = None,

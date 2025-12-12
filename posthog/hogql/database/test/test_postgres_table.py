@@ -1,7 +1,6 @@
-from typing import Literal
-
 from posthog.test.base import BaseTest
 
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import IntegerDatabaseField, StringDatabaseField, TableNode
@@ -37,7 +36,7 @@ class TestPostgresTable(BaseTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-    def _select(self, query: str, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
+    def _select(self, query: str, dialect: HogQLDialect = "clickhouse") -> str:
         return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
 
     def test_postgres_table_select(self):

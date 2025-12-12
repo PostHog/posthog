@@ -9,6 +9,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.BatchExportNew]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
     [Scene.BatchExport]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
+    [Scene.BI]: () => import('./bi/BIScene'),
     [Scene.BillingAuthorizationStatus]: () => import('./billing/AuthorizationStatus'),
     [Scene.BillingSection]: () => import('./billing/BillingSection'),
     [Scene.Billing]: () => import('./billing/Billing'),

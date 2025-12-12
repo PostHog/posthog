@@ -136,15 +136,22 @@ def parse_select(
     timings: HogQLTimings | None = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
+    allow_reserved_identifiers: bool = False,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     if timings is None:
         timings = HogQLTimings()
-    with timings.measure(f"parse_select_{backend}"):
+    parser_backend = "python" if allow_reserved_identifiers and backend == "cpp" else backend
+
+    with timings.measure(f"parse_select_{parser_backend}"):
         with (
-            RULE_TO_HISTOGRAM["select"].labels(backend=backend).time(),
+            RULE_TO_HISTOGRAM["select"].labels(backend=parser_backend).time(),
             tracer.start_as_current_span("parse_statement_to_node"),
         ):
-            node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
+            if parser_backend == "python":
+                converter = HogQLParseTreeConverter(allow_reserved_identifiers=allow_reserved_identifiers)
+                node = converter.visit(get_parser(statement).select())
+            else:
+                node = RULE_TO_PARSE_FUNCTION[parser_backend]["select"](statement)
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -198,9 +205,10 @@ class HogQLErrorListener(ErrorListener):
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
-    def __init__(self, start: int | None = 0):
+    def __init__(self, start: int | None = 0, allow_reserved_identifiers: bool = False):
         super().__init__()
         self.start = start
+        self.allow_reserved_identifiers = allow_reserved_identifiers
 
     def visit(self, ctx: ParserRuleContext):
         start = ctx.start.start if ctx.start else None
@@ -701,7 +709,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise SyntaxError(f"Must specify an alias")
         expr = self.visit(ctx.columnExpr())
 
-        if alias.lower() in RESERVED_KEYWORDS:
+        if alias.lower() in RESERVED_KEYWORDS and not self.allow_reserved_identifiers:
             raise SyntaxError(f'"{alias}" cannot be an alias or identifier, as it\'s a reserved keyword')
 
         return ast.Alias(expr=expr, alias=alias)
@@ -1079,7 +1087,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias: str = self.visit(ctx.alias() or ctx.identifier())
-        if alias.lower() in RESERVED_KEYWORDS:
+        if alias.lower() in RESERVED_KEYWORDS and not self.allow_reserved_identifiers:
             raise SyntaxError(f'"{alias}" cannot be an alias or identifier, as it\'s a reserved keyword')
         table = self.visit(ctx.tableExpr())
         if isinstance(table, ast.JoinExpr):

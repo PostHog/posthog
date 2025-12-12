@@ -988,6 +988,45 @@ class DatabaseSchemaSource(BaseModel):
     prefix: str
     source_type: str
     status: str
+    is_direct_query: bool | None = None
+
+
+class DatabaseSchemaForeignKey(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str
+    target_table: str
+    target_column: str
+
+
+class DatabaseSchemaColumnInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    data_type: str
+    is_nullable: bool
+
+
+class DatabaseSchemaIndexInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    columns: list[str]
+    is_unique: bool
+    is_primary: bool
+
+
+class DatabaseSchemaMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    primary_key: list[str] | None = None
+    foreign_keys: list[DatabaseSchemaForeignKey] | None = None
+    columns: list[DatabaseSchemaColumnInfo] | None = None
+    indexes: list[DatabaseSchemaIndexInfo] | None = None
 
 
 class DatabaseSchemaTableType(StrEnum):
@@ -1773,6 +1812,7 @@ class HogLanguage(StrEnum):
     HOG_JSON = "hogJson"
     HOG_QL = "hogQL"
     HOG_QL_EXPR = "hogQLExpr"
+    HOG_QL_POSTGRES = "hogQLPostgres"
     HOG_TEMPLATE = "hogTemplate"
     LIQUID = "liquid"
 
@@ -9208,6 +9248,7 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     name: str
     row_count: float | None = None
     schema_: DatabaseSchemaSchema | None = Field(default=None, alias="schema")
+    schema_metadata: DatabaseSchemaMetadata | None = None
     source: DatabaseSchemaSource | None = None
     type: Literal["data_warehouse"] = "data_warehouse"
     url_pattern: str
@@ -10137,6 +10178,7 @@ class HogQLQueryResponse(BaseModel):
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    postgres: str | None = Field(default=None, description="Executed Postgres query")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -10613,6 +10655,7 @@ class QueryResponseAlternative8(BaseModel):
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    postgres: str | None = Field(default=None, description="Executed Postgres query")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11174,6 +11217,7 @@ class QueryResponseAlternative41(BaseModel):
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    postgres: str | None = Field(default=None, description="Executed Postgres query")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12911,6 +12955,7 @@ class CachedHogQLQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    postgres: str | None = Field(default=None, description="Executed Postgres query")
     query: str | None = Field(default=None, description="Input query string")
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -13112,6 +13157,7 @@ class Response3(BaseModel):
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    postgres: str | None = Field(default=None, description="Executed Postgres query")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."

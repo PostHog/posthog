@@ -1,6 +1,6 @@
 import json
 from collections.abc import Mapping
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional, cast
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, clean_varying_query_parts, materialized
@@ -27,7 +27,13 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
+from posthog.hogql.printer import (
+    HogQLDialect,
+    prepare_and_print_ast,
+    prepare_ast_for_printing,
+    print_prepared_ast,
+    to_printed_hogql,
+)
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -48,7 +54,7 @@ class TestPrinter(BaseTest):
         self,
         query: str,
         context: Optional[HogQLContext] = None,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
     ) -> str:
         node = parse_expr(query)
@@ -84,7 +90,7 @@ class TestPrinter(BaseTest):
         self,
         expr,
         expected_error,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
     ):
         with self.assertRaises(ExposedHogQLError) as context:
             self._expr(expr, None, dialect)
@@ -114,7 +120,7 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         placeholders: Optional[dict[str, ast.Expr]] = None,
         settings: Optional[HogQLGlobalSettings] = None,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
     ) -> str:
         parsed = parse_select(query, placeholders=placeholders)
         printed, _ = prepare_and_print_ast(
@@ -3242,3 +3248,103 @@ class TestPrinted(APIBaseTest):
             query=query,
         )
         assert query_response.results == [(6,)]
+
+
+class TestPostgresPrinter(BaseTest):
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        settings: Optional[HogQLQuerySettings] = None,
+    ) -> str:
+        node = parse_expr(query)
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(
+            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
+        )
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="postgres", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="postgres",
+            stack=[prepared_select_query],
+        )
+
+    def _select(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        placeholders: Optional[dict[str, ast.Expr]] = None,
+        dialect: HogQLDialect = "postgres",
+    ) -> str:
+        return prepare_and_print_ast(
+            parse_select(query, placeholders=placeholders),
+            context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect,
+        )[0]
+
+    @parameterized.expand(
+        [
+            ("SELECT event FROM events",),
+            ("SELECT distinct_id, event FROM events WHERE event = 'test'",),
+            ("SELECT event FROM events ORDER BY timestamp DESC",),
+            ("SELECT count() FROM events GROUP BY event",),
+        ]
+    )
+    def test_matches_hogql_output(self, query: str):
+        postgres = self._select(query)
+        hogql = self._select(query, dialect="hogql")
+
+        self.assertEqual(postgres, hogql)
+
+    def test_omits_clickhouse_specific_transforms(self):
+        postgres = self._select("SELECT event FROM events")
+        clickhouse = self._select("SELECT event FROM events", dialect="clickhouse")
+
+        self.assertNotIn("team_id", postgres)
+        self.assertNotEqual(postgres, clickhouse)
+
+    def test_boolean_and_null_literals(self):
+        self.assertEqual(self._expr("true"), "true")
+        self.assertEqual(self._expr("false"), "false")
+        self.assertEqual(self._expr("null"), "NULL")
+
+    def test_json_properties_render_as_postgres_json_access(self):
+        self.assertEqual(
+            self._expr("properties.a.b.c.$browser"),
+            "((((events.properties) -> 'a') -> 'b') -> 'c') ->> '$browser'",
+        )
+
+    def test_json_properties_in_select_render_as_postgres_json_access(self):
+        printed = self._select("SELECT properties.detail.name FROM events")
+
+        self.assertIn("(events.properties) ->", printed)
+        self.assertIn("->> 'name'", printed)
+        self.assertIn('AS "properties.detail.name"', printed)
+
+    def test_allows_dollar_identifiers(self):
+        printed = self._select("SELECT event AS $value FROM events")
+
+        self.assertIn("AS $value", printed)
+
+    def test_window_functions_keep_postgres_shape(self):
+        printed = self._select("SELECT lag(timestamp) OVER (ORDER BY timestamp) FROM events")
+
+        self.assertIn("lag(", printed)
+        self.assertNotIn("lagInFrame", printed)
+        self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)
+
+    def test_and_or_functions_render_as_boolean_operators(self):
+        self.assertEqual(
+            self._expr("and(event = 'test', distinct_id = 'abc')"),
+            "((event = 'test') AND (distinct_id = 'abc'))",
+        )
+        self.assertEqual(
+            self._expr("or(event = 'test', distinct_id = 'abc')"),
+            "((event = 'test') OR (distinct_id = 'abc'))",
+        )

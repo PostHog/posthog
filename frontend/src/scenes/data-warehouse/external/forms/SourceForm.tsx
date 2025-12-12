@@ -300,6 +300,21 @@ export function SourceFormComponent({
                     }}
                 </LemonField>
             )}
+            {sourceConfig.name === 'Postgres' && !isUpdateMode && (
+                <LemonField
+                    name="is_direct_query"
+                    label="Direct query mode"
+                    help="Query data directly from the source without syncing to PostHog. Data will not be stored locally."
+                >
+                    {({ value, onChange }) => (
+                        <LemonSwitch
+                            checked={value || false}
+                            onChange={onChange}
+                            label="Query directly (no data sync)"
+                        />
+                    )}
+                </LemonField>
+            )}
         </div>
     )
 }

@@ -64,7 +64,11 @@ function initEditor(
     if (editorProps?.language === 'hog') {
         initHogLanguage(monaco)
     }
-    if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogQLExpr') {
+    if (
+        editorProps?.language === 'hogQL' ||
+        editorProps?.language === 'hogQLExpr' ||
+        editorProps?.language === 'hogQLPostgres'
+    ) {
         initHogQLLanguage(monaco, editorProps.language as HogLanguage)
     }
     if (editorProps?.language === 'hogTemplate') {

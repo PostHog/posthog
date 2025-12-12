@@ -14,7 +14,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_default_limit_for_context
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
@@ -130,7 +130,7 @@ class HogQLQueryExecutor:
                     self.select_query = transformed_node
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
-    def _generate_hogql(self):
+    def _generate_hogql(self, dialect: HogQLDialect = "hogql"):
         self.hogql_context = dataclasses.replace(
             self.context,
             team_id=self.team.pk,
@@ -149,14 +149,14 @@ class HogQLQueryExecutor:
         with self.timings.measure("prepare_ast_for_printing"):
             select_query_hogql = cast(
                 ast.SelectQuery,
-                prepare_ast_for_printing(node=cloned_query, context=self.hogql_context, dialect="hogql"),
+                prepare_ast_for_printing(node=cloned_query, context=self.hogql_context, dialect=dialect),
             )
 
         with self.timings.measure("print_prepared_ast"):
             self.hogql = print_prepared_ast(
                 select_query_hogql,
                 self.hogql_context,
-                "hogql",
+                dialect,
                 pretty=self.pretty if self.pretty is not None else True,
             )
             self.print_columns = []
@@ -173,7 +173,7 @@ class HogQLQueryExecutor:
                         print_prepared_ast(
                             node=node,
                             context=self.hogql_context,
-                            dialect="hogql",
+                            dialect=dialect,
                             stack=[select_query_hogql],
                         )
                     )
@@ -317,3 +317,30 @@ class HogQLQueryExecutor:
 
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
     return HogQLQueryExecutor(*args, **kwargs).execute()
+
+
+def parse_and_print_hogql_postgres_query(
+    query: str,
+    team: Team,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+    pretty: bool = True,
+) -> str:
+    """Parse and print a HogQL query using the Postgres dialect."""
+
+    timings = HogQLTimings()
+    parsed_query = parse_select(query, timings=timings)
+    context = HogQLContext(
+        team_id=team.pk,
+        team=team,
+        enable_select_queries=True,
+        timings=timings,
+        modifiers=create_default_modifiers_for_team(team, modifiers),
+    )
+
+    printed, _ = prepare_and_print_ast(
+        parsed_query,
+        context=context,
+        dialect="postgres",
+        pretty=pretty,
+    )
+    return printed
