@@ -19,13 +19,17 @@ from posthog.batch_exports.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
     BatchExportModel,
+    BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
 )
 from posthog.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.models.integration import DatabricksIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import bigquery_default_fields
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
+    BigQueryClient,
+    bigquery_default_fields,
+)
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
     databricks_default_fields,
@@ -483,10 +487,10 @@ class BatchExportsDebugger:
         return column_stats
 
     @contextlib.asynccontextmanager
-    async def get_client(self) -> collections.abc.AsyncIterator[DatabricksClient]:
+    async def get_client(self) -> collections.abc.AsyncIterator[DatabricksClient | BigQueryClient]:
         """Get a client for the destination.
 
-        Only Databricks is supported at the moment.
+        Only Databricks and BigQuery are supported at the moment.
         """
         match self.batch_export.destination.type:
             case BatchExportDestination.Destination.DATABRICKS:
@@ -504,5 +508,16 @@ class BatchExportsDebugger:
                 )
                 async with client.connect() as databricks_client:
                     yield databricks_client
+            case BatchExportDestination.Destination.BIGQUERY:
+                console.print("[bold green]Getting BigQuery client...[/bold green]")
+                inputs = cast(BigQueryBatchExportInputs, self.batch_export_inputs)
+                async with BigQueryClient.from_service_account_inputs(
+                    private_key=inputs.private_key,
+                    private_key_id=inputs.private_key_id,
+                    token_uri=inputs.token_uri,
+                    client_email=inputs.client_email,
+                    project_id=inputs.project_id,
+                ) as bigquery_client:
+                    yield bigquery_client
             case t:
                 raise NotImplementedError(f"get_client not yet implemented for destination: {t}")
