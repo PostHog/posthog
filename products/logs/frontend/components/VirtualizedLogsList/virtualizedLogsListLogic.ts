@@ -14,7 +14,7 @@ export const virtualizedLogsListLogic = kea<virtualizedLogsListLogicType>([
 
     actions({
         setContainerWidth: (width: number) => ({ width }),
-        setMessageScrollLeft: (scrollLeft: number) => ({ scrollLeft }),
+        setCellScrollLeft: (cellKey: string, scrollLeft: number) => ({ cellKey, scrollLeft }),
     }),
 
     reducers({
@@ -24,10 +24,13 @@ export const virtualizedLogsListLogic = kea<virtualizedLogsListLogicType>([
                 setContainerWidth: (_, { width }) => width,
             },
         ],
-        messageScrollLeft: [
-            0,
+        cellScrollLefts: [
+            {} as Record<string, number>,
             {
-                setMessageScrollLeft: (_, { scrollLeft }) => scrollLeft,
+                setCellScrollLeft: (state, { cellKey, scrollLeft }) => ({
+                    ...state,
+                    [cellKey]: scrollLeft,
+                }),
             },
         ],
     }),
