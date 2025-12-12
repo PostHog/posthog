@@ -610,25 +610,22 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     )
     @action(methods=["GET", "POST"], detail=True)
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
-        """Execute endpoint with optional parameters.
-
-        Query Parameters:
-            version (int, optional): Specific version to execute. Defaults to latest.
-        """
+        """Execute endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)
         data = self.get_model(request.data, EndpointRunRequest)
         self.validate_run_request(data, endpoint)
 
-        version_param = request.query_params.get("version") or request.data.get("version")
-        version_number = None
-
-        if version_param is not None:
-            try:
-                version_number = int(version_param)
-            except (ValueError, TypeError):
-                return Response(
-                    {"error": f"Invalid version parameter: {version_param}"}, status=status.HTTP_400_BAD_REQUEST
-                )
+        # Support version from request body or query params (for backwards compatibility)
+        version_number = data.version
+        if version_number is None:
+            version_param = request.query_params.get("version")
+            if version_param is not None:
+                try:
+                    version_number = int(version_param)
+                except (ValueError, TypeError):
+                    return Response(
+                        {"error": f"Invalid version parameter: {version_param}"}, status=status.HTTP_400_BAD_REQUEST
+                    )
 
         version_obj = None
         try:
