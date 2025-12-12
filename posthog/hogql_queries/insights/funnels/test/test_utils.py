@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import clone_expr
 
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
 from posthog.hogql_queries.insights.funnels.utils import alias_columns_in_select
 from posthog.models.team.team import Team
 
@@ -41,7 +41,7 @@ class PseudoFunnelActors:
         self.team = team
 
     def get_actors(self):
-        actors = get_actors(
+        actors = get_actors_legacy_filters(
             self.filters,
             self.team,
             funnel_step=self.filters.get("funnel_step"),
