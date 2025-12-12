@@ -1,6 +1,9 @@
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { EventHeaders, Hub, PipelineEvent, Team } from '../../types'
+import { EventHeaders, PipelineEvent, Team } from '../../types'
+import { TeamManager } from '../../utils/team-manager'
+import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { createDisablePersonProcessingStep } from '../event-processing/disable-person-processing-step'
@@ -18,7 +21,11 @@ export interface HeatmapSubpipelineInput {
 }
 
 export interface HeatmapSubpipelineConfig {
-    hub: Hub
+    options: EventPipelineRunnerOptions & {
+        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+    }
+    teamManager: TeamManager
+    groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
     kafkaProducer: KafkaProducerWrapper
@@ -28,16 +35,25 @@ export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput,
     builder: StartPipelineBuilder<TInput, TContext>,
     config: HeatmapSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { hub, hogTransformer, personsStore, kafkaProducer } = config
+    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, kafkaProducer } = config
 
     return builder
         .pipe(createDisablePersonProcessingStep())
-        .pipe(createNormalizeEventStep(hub))
-        .pipe(createEventPipelineRunnerHeatmapStep(hub, hogTransformer, personsStore))
+        .pipe(createNormalizeEventStep(options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE))
+        .pipe(
+            createEventPipelineRunnerHeatmapStep(
+                options,
+                kafkaProducer,
+                teamManager,
+                groupTypeManager,
+                hogTransformer,
+                personsStore
+            )
+        )
         .pipe(
             createExtractHeatmapDataStep({
                 kafkaProducer,
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
             })
         )
         .pipe(createSkipEmitEventStep())
