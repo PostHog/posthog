@@ -23,9 +23,8 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.hogql_queries.insights.funnels.test.test_utils import PseudoFunnelActors
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.filters import Filter
 from posthog.models.property_definition import PropertyDefinition
 from posthog.test.test_journeys import journeys_for
 
@@ -535,11 +534,13 @@ class TestFunnelUnorderedStepsConversionTime(
 
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-        filter = Filter(data=filter, team=self.team)
-        person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        _, serialized_result, _ = PseudoFunnelActors(person_filter, self.team).get_actors()
-
-        return [val["id"] for val in serialized_result]
+        actors = get_actors_legacy_filters(
+            filter._data,
+            self.team,
+            funnel_step=funnel_step,
+            funnel_step_breakdown=breakdown_value,
+        )
+        return [actor[0] for actor in actors]
 
     def test_basic_unordered_funnel(self):
         filters = {
