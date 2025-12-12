@@ -96,7 +96,10 @@ function SurveyLaunchSchedule(): JSX.Element {
         },
     ]
 
-    const dateRangeError = survey.scheduled_start_datetime >= survey.scheduled_end_datetime
+    const dateRangeError =
+        !!survey.scheduled_start_datetime &&
+        !!survey.scheduled_end_datetime &&
+        dayjs(survey.scheduled_start_datetime).isSameOrAfter(dayjs(survey.scheduled_end_datetime))
     const showDateRangeError = dateRangeError && survey.scheduled_start_datetime && survey.scheduled_end_datetime
 
     // if we're editing an existing survey we need to initialize the form with the saved values
@@ -121,10 +124,10 @@ function SurveyLaunchSchedule(): JSX.Element {
                         value={startType}
                         options={surveyStartDateTimeOptions}
                         onChange={(newValue: SurveyStartType) => {
-                            if (newValue == 'manual') {
+                            if (newValue === 'manual') {
                                 setSurveyValue('scheduled_start_datetime', null)
                             }
-                            if (newValue == 'datetime' && !survey.scheduled_start_datetime) {
+                            if (newValue === 'datetime' && !survey.scheduled_start_datetime) {
                                 setSurveyValue('scheduled_start_datetime', dayjs().toISOString())
                             }
                             setStartType(newValue)
@@ -166,10 +169,10 @@ function SurveyLaunchSchedule(): JSX.Element {
                         value={endType}
                         options={surveyEndDateTimeOptions}
                         onChange={(newValue: SurveyEndType) => {
-                            if (newValue == 'manual') {
+                            if (newValue === 'manual') {
                                 setSurveyValue('scheduled_end_datetime', null)
                             }
-                            if (newValue == 'datetime' && !survey.scheduled_end_datetime) {
+                            if (newValue === 'datetime' && !survey.scheduled_end_datetime) {
                                 setSurveyValue('scheduled_end_datetime', dayjs().toISOString())
                             }
                             setEndType(newValue)

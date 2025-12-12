@@ -283,14 +283,14 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         from posthog.api.survey import SurveySerializer
 
         if "launch" not in payload and "end" not in payload:
-            raise Exception(f"Invalid payload")
+            raise Exception("Payload must contain either 'launch' or 'end' key")
 
         # Store scheduled change context on the instance for activity logging
         if scheduled_change_id is not None:
             self._scheduled_change_context = {"scheduled_change_id": scheduled_change_id}
 
         http_request = HttpRequest()
-        # We kind of cheat here set the request user to the user who created the scheduled change
+        # We kind of cheat here and set the request user to the user who created the scheduled change
         # It's not the correct type, but it matches enough to get the job done
         http_request.user = user or self.created_by  # type: ignore
         http_request.method = "PATCH"  # This is a partial update, not a new creation
@@ -315,8 +315,6 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
                 return
 
             serializer_data["end_date"] = datetime.now()
-        else:
-            raise Exception(f"Unrecognized payload: {payload}")
 
         serializer = SurveySerializer(self, data=serializer_data, context=context, partial=True)
         if serializer.is_valid(raise_exception=True):

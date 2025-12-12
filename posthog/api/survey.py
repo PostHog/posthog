@@ -589,7 +589,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
         self._add_launch_schedules(
-            instance, validated_data["scheduled_start_datetime"], validated_data["scheduled_end_datetime"]
+            instance, validated_data.get("scheduled_start_datetime"), validated_data.get("scheduled_end_datetime")
         )
 
         team = Team.objects.get(id=self.context["team_id"])
@@ -745,7 +745,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
         self._add_launch_schedules(
-            instance, validated_data["scheduled_start_datetime"], validated_data["scheduled_end_datetime"]
+            instance, validated_data.get("scheduled_start_datetime"), validated_data.get("scheduled_end_datetime")
         )
 
         return instance
@@ -772,7 +772,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance.save()
 
     def _add_launch_schedules(self, instance: Survey, start_datetime: str | None, end_datetime: str | None) -> None:
-        # delete previous schedules. we could potentially score scheduled change IDs as a foreign key on the survey so we can CRUD instead of delete/create
+        # delete previous schedules.
+        # TODO: we could potentially store scheduled change IDs as a foreign key on the survey which would allow us to update here instead of delete/create
         ScheduledChange.objects.filter(model_name="Survey", record_id=instance.id).delete()
 
         # create new schedule changes
