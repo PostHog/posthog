@@ -27,6 +27,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     insightProps?: InsightLogicProps<Q>
     emptyStateHeading?: string
     emptyStateDetail?: string | JSX.Element
+    emptyStateIcon?: JSX.Element
     renderEmptyStateAsSkeleton?: boolean
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /**

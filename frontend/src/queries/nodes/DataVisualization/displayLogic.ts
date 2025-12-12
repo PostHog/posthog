@@ -55,15 +55,7 @@ export const displayLogic = kea<displayLogicType>([
                 updateGoalLine: (state, { goalLineIndex, key, value }) => {
                     const goalLines = [...state]
 
-                    if (key === 'value') {
-                        if (Number.isNaN(value)) {
-                            goalLines[goalLineIndex][key] = 0
-                        } else {
-                            goalLines[goalLineIndex][key] = parseInt(value.toString())
-                        }
-                    } else {
-                        goalLines[goalLineIndex][key] = value
-                    }
+                    goalLines[goalLineIndex] = { ...goalLines[goalLineIndex], [key]: value }
 
                     return goalLines
                 },

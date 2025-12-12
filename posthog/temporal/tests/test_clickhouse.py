@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import datetime as dt
 
 import pytest
@@ -6,7 +7,10 @@ from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.temporal.common.clickhouse import (
+    ClickHouseError,
     ClickHouseMemoryLimitExceededError,
+    ClickHouseQueryNotFound,
+    ClickHouseQueryStatus,
     add_log_comment_param,
     encode_clickhouse_data,
 )
@@ -76,3 +80,39 @@ def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
         with pytest.raises(ClickHouseMemoryLimitExceededError):
             with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
                 pass
+
+
+async def test_acancel_query(clickhouse_client, django_db_setup):
+    """Test that acancel_query successfully cancels a long-running query."""
+    long_running_query_id = f"test-long-running-query-{uuid.uuid4()}"
+    long_running_query = "SELECT sleep(300)"
+
+    async def run_query():
+        await clickhouse_client.execute_query(
+            long_running_query,
+            query_id=long_running_query_id,
+        )
+
+    query_task = asyncio.create_task(run_query())
+
+    await asyncio.sleep(1)
+
+    await clickhouse_client.acancel_query(long_running_query_id)
+
+    with pytest.raises(ClickHouseError):
+        await query_task
+
+    max_wait_time = 5.0
+    poll_interval = 0.5
+    elapsed_time = 0.0
+
+    status = None
+    while elapsed_time < max_wait_time:
+        try:
+            status = await clickhouse_client.acheck_query(long_running_query_id, raise_on_error=False)
+            break
+        except ClickHouseQueryNotFound:
+            await asyncio.sleep(poll_interval)
+            elapsed_time += poll_interval
+
+    assert status == ClickHouseQueryStatus.ERROR

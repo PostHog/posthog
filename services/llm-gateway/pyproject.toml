@@ -35,6 +35,7 @@ dev = [
     "openai>=1.50.0",
     "anthropic>=0.40.0",
     "fakeredis==2.23.3",
+    "asyncpg-stubs>=0.30.0",
 ]
 
 [build-system]

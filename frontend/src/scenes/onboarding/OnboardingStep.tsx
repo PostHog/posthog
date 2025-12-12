@@ -10,7 +10,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
-import { breadcrumbExcludeSteps, onboardingLogic, stepKeyToTitle } from './onboardingLogic'
+import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -54,7 +54,6 @@ export const OnboardingStep = ({
     if (!stepKey) {
         throw new Error('stepKey is required in any OnboardingStep')
     }
-    const breadcrumbStepKeys = onboardingStepKeys.filter((stepKey) => !breadcrumbExcludeSteps.includes(stepKey))
 
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
@@ -70,6 +69,8 @@ export const OnboardingStep = ({
         advance()
     }
 
+    const onboardingLength = onboardingStepKeys.length
+
     return (
         <>
             <div className="pb-2">
@@ -78,7 +79,7 @@ export const OnboardingStep = ({
                         className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
                     >
-                        {breadcrumbStepKeys.map((stepName, idx) => {
+                        {onboardingStepKeys.map((stepName, idx) => {
                             const highlightStep = [
                                 currentOnboardingStep?.props.stepKey,
                                 breadcrumbHighlightName,
@@ -95,7 +96,7 @@ export const OnboardingStep = ({
                                             {stepKeyToTitle(stepName)}
                                         </span>
                                     </Link>
-                                    {breadcrumbStepKeys.length > 1 && idx !== breadcrumbStepKeys.length - 1 && (
+                                    {onboardingLength > 1 && idx !== onboardingLength - 1 && (
                                         <IconChevronRight className="text-xl" />
                                     )}
                                 </React.Fragment>
