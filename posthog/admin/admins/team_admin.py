@@ -220,6 +220,7 @@ class TeamAdmin(admin.ModelAdmin):
                 {
                     "team": team,
                     "export_url": f"/admin/posthog/team/{team.pk}/export-replay/",
+                    "export_history_url": f"/admin/posthog/team/{team.pk}/export-history/",
                 },
                 request=getattr(self, "_current_request", None),
             )
@@ -279,6 +280,16 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/import-replay/",
                 self.admin_site.admin_view(self.import_replay_view),
                 name="posthog_team_import_replay",
+            ),
+            path(
+                "<path:object_id>/export-history/",
+                self.admin_site.admin_view(self.export_history_view),
+                name="posthog_team_export_history",
+            ),
+            path(
+                "<path:object_id>/download-export/<int:export_id>/",
+                self.admin_site.admin_view(self.download_export_view),
+                name="posthog_team_download_export",
             ),
         ]
         return custom_urls + urls
@@ -454,3 +465,52 @@ class TeamAdmin(admin.ModelAdmin):
             messages.error(request, f"Import failed: {e}")
 
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    def export_history_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+
+        exports = ExportedAsset.objects.filter(
+            team=team,
+            export_format=ExportedAsset.ExportFormat.JSON,
+            export_context__has_key="session_id",
+        ).order_by("-created_at")[:50]
+
+        context = {
+            **self.admin_site.each_context(request),
+            "team": team,
+            "exports": exports,
+            "title": f"Export History - {team.name}",
+        }
+        return render(request, "admin/posthog/team/export_history.html", context)
+
+    def download_export_view(self, request, object_id, export_id):
+        from django.http import HttpResponse
+
+        from posthog.storage import session_recording_v2_object_storage
+
+        team = Team.objects.get(pk=object_id)
+        try:
+            export = ExportedAsset.objects.get(pk=export_id, team=team)
+
+            if not export.content_location:
+                messages.error(request, "Export content not available yet")
+                return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
+
+            storage = session_recording_v2_object_storage.client()
+            content = storage.read_all_bytes(export.content_location)
+
+            if not content:
+                messages.error(request, "Failed to read export content from storage")
+                return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
+
+            response = HttpResponse(content, content_type="application/zip")
+            filename = f"export-{export.export_context.get('session_id', export_id)}.zip"
+            response["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return response
+
+        except ExportedAsset.DoesNotExist:
+            messages.error(request, "Export not found")
+            return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
+        except Exception as e:
+            messages.error(request, f"Failed to download export: {e}")
+            return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
