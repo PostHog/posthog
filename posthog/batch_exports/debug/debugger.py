@@ -495,28 +495,28 @@ class BatchExportsDebugger:
         match self.batch_export.destination.type:
             case BatchExportDestination.Destination.DATABRICKS:
                 console.print("[bold green]Getting Databricks client...[/bold green]")
-                inputs = cast(DatabricksBatchExportInputs, self.batch_export_inputs)
+                databricks_inputs = cast(DatabricksBatchExportInputs, self.batch_export_inputs)
                 assert self.batch_export.destination.integration is not None
                 integration = DatabricksIntegration(self.batch_export.destination.integration)
                 client = DatabricksClient(
                     server_hostname=integration.server_hostname,
-                    http_path=inputs.http_path,
+                    http_path=databricks_inputs.http_path,
                     client_id=integration.client_id,
                     client_secret=integration.client_secret,
-                    catalog=inputs.catalog,
-                    schema=inputs.schema,
+                    catalog=databricks_inputs.catalog,
+                    schema=databricks_inputs.schema,
                 )
                 async with client.connect() as databricks_client:
                     yield databricks_client
             case BatchExportDestination.Destination.BIGQUERY:
                 console.print("[bold green]Getting BigQuery client...[/bold green]")
-                inputs = cast(BigQueryBatchExportInputs, self.batch_export_inputs)
+                bigquery_inputs = cast(BigQueryBatchExportInputs, self.batch_export_inputs)
                 async with BigQueryClient.from_service_account_inputs(
-                    private_key=inputs.private_key,
-                    private_key_id=inputs.private_key_id,
-                    token_uri=inputs.token_uri,
-                    client_email=inputs.client_email,
-                    project_id=inputs.project_id,
+                    private_key=bigquery_inputs.private_key,
+                    private_key_id=bigquery_inputs.private_key_id,
+                    token_uri=bigquery_inputs.token_uri,
+                    client_email=bigquery_inputs.client_email,
+                    project_id=bigquery_inputs.project_id,
                 ) as bigquery_client:
                     yield bigquery_client
             case t:
