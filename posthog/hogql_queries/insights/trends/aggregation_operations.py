@@ -1,6 +1,6 @@
 from typing import Optional, Union, cast
 
-from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode
+from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode, TrendsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -18,6 +18,17 @@ from posthog.models.team.team import Team
 DEFAULT_CURRENCY_VALUE = "USD"
 DEFAULT_REVENUE_PROPERTY = "$revenue"
 
+ALLOWED_SESSION_MATH_PROPERTIES = frozenset(
+    [
+        "$session_duration",
+        "$pageview_count",
+        "$screen_count",
+        "$autocapture_count",
+        "$num_uniq_urls",
+        "$is_bounce",
+    ]
+)
+
 
 def create_placeholder(name: str) -> ast.Placeholder:
     return ast.Placeholder(expr=ast.Field(chain=[name]))
@@ -29,6 +40,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     chart_display_type: ChartDisplayType
     query_date_range: QueryDateRange
     is_total_value: bool
+    query: Optional[TrendsQuery]
 
     def __init__(
         self,
@@ -37,12 +49,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         chart_display_type: ChartDisplayType,
         query_date_range: QueryDateRange,
         is_total_value: bool,
+        query: Optional[TrendsQuery] = None,
     ) -> None:
         self.team = team
         self.series = series
         self.chart_display_type = chart_display_type
         self.query_date_range = query_date_range
         self.is_total_value = is_total_value
+        self.query = query
 
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
@@ -123,8 +137,68 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
 
-    def aggregating_on_session_duration(self) -> bool:
+    def _is_session_duration_property(self) -> bool:
+        """Helper to check if math_property is $session_duration"""
         return self.series.math_property == "$session_duration"
+
+    def _validate_session_property(self) -> str:
+        if not self.series.math_property:
+            raise ValueError("No math_property specified for session-level aggregation")
+
+        if self.series.math_property not in ALLOWED_SESSION_MATH_PROPERTIES:
+            raise ValueError(
+                f"Invalid session property: {self.series.math_property}. "
+                f"Allowed properties are: {', '.join(sorted(ALLOWED_SESSION_MATH_PROPERTIES))}"
+            )
+
+        return self.series.math_property
+
+    def aggregating_on_session_property(self) -> bool:
+        """
+        Check if we need session-level aggregation for the query.
+
+        Session-level aggregation groups events by session_id before applying math operations,
+        ensuring each session contributes exactly once to the aggregation. This is essential
+        for accurate session-based metrics like bounce rate and average pageviews per session.
+
+        Without session-level aggregation, math operations would aggregate across all events,
+        which would produce incorrect results. For example, avg($is_bounce) without session-level
+        aggregation would average the bounce flag across all events, not sessions.
+
+        Returns True if:
+        1. Using $session_duration (backwards compatibility - always uses session-level aggregation
+           to maintain existing behavior for queries created before this feature was added)
+        2. Using a session property as math_property AND sessionLevelAggregation flag is enabled
+           (opt-in for other session properties to prevent breaking existing queries)
+
+        The two-step aggregation process:
+        1. GROUP BY $session_id to get one row per session with the session property value
+        2. Apply the math operation (avg, sum, etc.) across sessions
+
+        Returns:
+            bool: True if session-level aggregation should be used
+        """
+        if self._is_session_duration_property():
+            # $session_duration always uses session-level aggregation for backwards compatibility
+            # This ensures queries created before the sessionLevelAggregation flag was introduced
+            # continue to work as expected
+            return True
+
+        # For other session properties, check if opt-in flag is enabled
+        if self.series.math_property_type == "session_properties":
+            return (
+                self.query is not None
+                and self.query.trendsFilter is not None
+                and self.query.trendsFilter.sessionLevelAggregation is True
+            )
+
+        return False
+
+    def aggregating_on_session_duration(self) -> bool:
+        """
+        @deprecated: Use aggregating_on_session_property() instead.
+        """
+        return self.aggregating_on_session_property()
 
     def is_count_per_actor_variant(self):
         return self.series.math in [
@@ -150,8 +224,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def _get_math_chain(self) -> list[str | int]:
         if not self.series.math_property:
             raise ValueError("No math property set")
-        if self.series.math_property == "$session_duration":
+        if self._is_session_duration_property():
+            # Special alias for backwards compatibility
+            # The wrapper query creates an alias called "session_duration"
             return ["session_duration"]
+        elif self.series.math_property_type == "session_properties" and self.aggregating_on_session_property():
+            # When session-level aggregation is enabled, the wrapper query creates
+            # an alias called "session_property" that contains the aggregated session property value
+            return ["session_property"]
         elif isinstance(self.series, DataWarehouseNode):
             return [self.series.math_property]
         elif self.series.math_property_type == "data_warehouse_person_properties":
@@ -182,9 +262,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             event_currency = (
                 ast.Constant(value=self.series.math_property_revenue_currency.static.value)
                 if self.series.math_property_revenue_currency.static is not None
-                else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
-                if self.series.math_property_revenue_currency.property is not None
-                else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+                else (
+                    ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
+                    if self.series.math_property_revenue_currency.property is not None
+                    else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+                )
             )
             base_currency = (
                 ast.Constant(value=self.team.base_currency)
