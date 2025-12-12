@@ -13,7 +13,7 @@
             <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">ID</th>
             <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Session ID</th>
             <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Reason</th>
-            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Triggered By</th>
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Created By</th>
             <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Created At</th>
             <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Status</th>
             <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Download</th>
@@ -23,21 +23,23 @@
         {% for export in exports %}
         <tr style="border-bottom: 1px solid #eee;">
             <td style="padding: 10px;">{{ export.id }}</td>
-            <td style="padding: 10px;">{{ export.export_context.session_id|default:"-" }}</td>
-            <td style="padding: 10px;">{{ export.export_context.reason|default:"-" }}</td>
-            <td style="padding: 10px;">{{ export.export_context.triggered_by|default:"-" }}</td>
+            <td style="padding: 10px;">{{ export.session_id }}</td>
+            <td style="padding: 10px;">{{ export.reason|default:"-" }}</td>
+            <td style="padding: 10px;">{{ export.created_by.email|default:"-" }}</td>
             <td style="padding: 10px;">{{ export.created_at }}</td>
             <td style="padding: 10px;">
-                {% if export.content_location %}
+                {% if export.status == "complete" %}
                     <span style="color: green;">Complete</span>
-                {% elif export.exception %}
+                {% elif export.status == "failed" %}
                     <span style="color: red;">Failed</span>
+                {% elif export.status == "running" %}
+                    <span style="color: blue;">Running</span>
                 {% else %}
                     <span style="color: orange;">Pending</span>
                 {% endif %}
             </td>
             <td style="padding: 10px;">
-                {% if export.content_location %}
+                {% if export.export_location %}
                     <a href="/admin/posthog/team/{{ team.pk }}/download-export/{{ export.id }}/" class="button" style="font-size: 11px;">Download</a>
                 {% else %}
                     -

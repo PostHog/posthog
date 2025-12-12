@@ -4,11 +4,11 @@ from pydantic import BaseModel
 
 
 class ExportRecordingInput(BaseModel):
-    exported_asset_id: int
+    exported_recording_id: UUID
 
 
 class ExportContext(BaseModel):
     export_id: UUID
-    exported_asset_id: int
+    exported_recording_id: UUID
     session_id: str
     team_id: int

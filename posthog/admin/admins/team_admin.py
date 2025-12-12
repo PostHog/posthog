@@ -19,7 +19,7 @@ from temporalio import common
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.models import Team
-from posthog.models.exported_asset import ExportedAsset
+from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import cache_key_for_team_token
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.temporal.common.client import sync_connect
@@ -287,7 +287,7 @@ class TeamAdmin(admin.ModelAdmin):
                 name="posthog_team_export_history",
             ),
             path(
-                "<path:object_id>/download-export/<int:export_id>/",
+                "<path:object_id>/download-export/<uuid:export_id>/",
                 self.admin_site.admin_view(self.download_export_view),
                 name="posthog_team_download_export",
             ),
@@ -324,21 +324,17 @@ class TeamAdmin(admin.ModelAdmin):
             triggered_by=request.user.email,
         )
 
-        asset = ExportedAsset.objects.create(
+        export_record = ExportedRecording.objects.create(
             team=team,
-            export_format=ExportedAsset.ExportFormat.JSON,
+            session_id=session_id,
+            reason=reason,
             created_by=request.user,
-            export_context={
-                "session_id": session_id,
-                "reason": reason,
-                "triggered_by": request.user.email,
-            },
         )
 
         try:
             temporal = sync_connect()
-            workflow_input = ExportRecordingInput(exported_asset_id=asset.id)
-            workflow_id = f"export-recording-{asset.id}-{uuid.uuid4()}"
+            workflow_input = ExportRecordingInput(exported_recording_id=export_record.id)
+            workflow_id = f"export-recording-{export_record.id}-{uuid.uuid4()}"
 
             asyncio.run(
                 temporal.start_workflow(
@@ -355,7 +351,7 @@ class TeamAdmin(admin.ModelAdmin):
 
             messages.success(
                 request,
-                f"Export triggered for session '{session_id}' on team '{team.name}' by {request.user.email}. Asset ID: {asset.id}",
+                f"Export triggered for session '{session_id}' on team '{team.name}' by {request.user.email}. Export ID: {export_record.id}",
             )
         except Exception as e:
             logger.exception(
@@ -469,11 +465,7 @@ class TeamAdmin(admin.ModelAdmin):
     def export_history_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)
 
-        exports = ExportedAsset.objects.filter(
-            team=team,
-            export_format=ExportedAsset.ExportFormat.JSON,
-            export_context__has_key="session_id",
-        ).order_by("-created_at")[:50]
+        exports = ExportedRecording.objects.filter(team=team).order_by("-created_at")[:50]
 
         context = {
             **self.admin_site.each_context(request),
@@ -490,25 +482,25 @@ class TeamAdmin(admin.ModelAdmin):
 
         team = Team.objects.get(pk=object_id)
         try:
-            export = ExportedAsset.objects.get(pk=export_id, team=team)
+            export = ExportedRecording.objects.get(id=export_id, team=team)
 
-            if not export.content_location:
+            if not export.export_location:
                 messages.error(request, "Export content not available yet")
                 return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
 
             storage = session_recording_v2_object_storage.client()
-            content = storage.read_all_bytes(export.content_location)
+            content = storage.read_all_bytes(export.export_location)
 
             if not content:
                 messages.error(request, "Failed to read export content from storage")
                 return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
 
             response = HttpResponse(content, content_type="application/zip")
-            filename = f"export-{export.export_context.get('session_id', export_id)}.zip"
+            filename = f"export-{export.session_id}.zip"
             response["Content-Disposition"] = f'attachment; filename="{filename}"'
             return response
 
-        except ExportedAsset.DoesNotExist:
+        except ExportedRecording.DoesNotExist:
             messages.error(request, "Export not found")
             return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
         except Exception as e:

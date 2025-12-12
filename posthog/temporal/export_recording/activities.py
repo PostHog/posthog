@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytz
 from temporalio import activity
 
-from posthog.models.exported_asset import ExportedAsset
+from posthog.models.exported_recording import ExportedRecording
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import list_blocks
@@ -25,21 +25,20 @@ LOGGER = get_write_only_logger()
 @activity.defn
 async def build_recording_export_context(input: ExportRecordingInput) -> ExportContext:
     logger = LOGGER.bind()
-    logger.info(f"Building export context for asset {input.exported_asset_id}")
+    logger.info(f"Building export context for recording {input.exported_recording_id}")
 
-    asset = await ExportedAsset.objects.select_related("team").aget(pk=input.exported_asset_id)
+    export_record = await ExportedRecording.objects.select_related("team").aget(id=input.exported_recording_id)
 
-    if not (asset.export_context and asset.export_context.get("session_id")):
-        raise RuntimeError("Malformed asset - must contain session_id")
+    export_record.status = ExportedRecording.Status.RUNNING
+    await database_sync_to_async(export_record.save)(update_fields=["status"])
 
-    session_id = asset.export_context.get("session_id")
-    logger.info(f"Built export context for session {session_id}")
+    logger.info(f"Built export context for session {export_record.session_id}")
 
     return ExportContext(
         export_id=uuid.uuid4(),
-        exported_asset_id=input.exported_asset_id,
-        session_id=session_id,
-        team_id=asset.team.id,
+        exported_recording_id=input.exported_recording_id,
+        session_id=export_record.session_id,
+        team_id=export_record.team.id,
     )
 
 
@@ -216,11 +215,12 @@ async def store_export_data(input: ExportContext) -> None:
 
     zip_path.unlink()
 
-    asset = await ExportedAsset.objects.aget(pk=input.exported_asset_id)
-    asset.content_location = s3_key
-    await database_sync_to_async(asset.save)(update_fields=["content_location"])
+    export_record = await ExportedRecording.objects.aget(id=input.exported_recording_id)
+    export_record.export_location = s3_key
+    export_record.status = ExportedRecording.Status.COMPLETE
+    await database_sync_to_async(export_record.save)(update_fields=["export_location", "status"])
 
-    logger.info(f"Updated ExportedAsset {input.exported_asset_id} with content_location {s3_key}")
+    logger.info(f"Updated ExportedRecording {input.exported_recording_id} with export_location {s3_key}")
 
 
 @activity.defn
