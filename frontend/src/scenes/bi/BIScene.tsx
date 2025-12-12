@@ -27,7 +27,9 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 import { useChart } from 'lib/hooks/useChart'
+import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { humanFriendlyNumber } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
@@ -266,6 +268,52 @@ export function BIScene(): JSX.Element {
     const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set())
     const [showGeneratedQuery, setShowGeneratedQuery] = useState(false)
     const [chartType, setChartType] = useState<'pie' | 'line' | 'bar' | 'area'>('pie')
+    const [expandedTableGroups, setExpandedTableGroups] = useState<string[]>(['folder-posthog'])
+
+    const tableTreeData = useMemo<TreeDataItem[]>(() => {
+        const groupedTables: Record<string, TreeDataItem> = {}
+
+        filteredTables.forEach((table) => {
+            const [groupName, ...rest] = table.name.split('.')
+            const folderName = rest.length > 0 ? groupName : 'posthog'
+            const tableName = rest.length > 0 ? rest.join('.') : table.name
+
+            if (!groupedTables[folderName]) {
+                groupedTables[folderName] = {
+                    id: `folder-${folderName}`,
+                    name: folderName,
+                    type: 'node',
+                    record: { type: 'folder' },
+                    children: [],
+                    icon: <IconStack />,
+                }
+            }
+
+            groupedTables[folderName].children?.push({
+                id: `table-${table.name}`,
+                name: tableName,
+                type: 'node',
+                record: { type: 'table', tableName: table.name },
+                icon: <IconStack />,
+            })
+        })
+
+        return Object.values(groupedTables)
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((group) => ({
+                ...group,
+                children: (group.children || []).sort((a, b) => a.name.localeCompare(b.name)),
+            }))
+    }, [filteredTables])
+
+    useEffect(() => {
+        const groupIds = tableTreeData.map((group) => group.id)
+        setExpandedTableGroups((current) => {
+            const preserved = current.filter((id) => groupIds.includes(id))
+            const missing = groupIds.filter((id) => !preserved.includes(id))
+            return [...preserved, ...missing]
+        })
+    }, [tableTreeData])
 
     useEffect(() => {
         setExpandedFields(new Set())
@@ -448,22 +496,21 @@ export function BIScene(): JSX.Element {
     return (
         <div className="flex flex-col gap-4 h-full" onClick={closePopovers}>
             <div className="flex gap-4 h-full min-h-0">
-                <LemonCard className="flex-1 max-w-80 h-full min-h-0" hoverEffect={false}>
-                    <div className="flex items-center gap-2">
+                <div className="w-80 shrink-0 h-full min-h-0 flex flex-col" hoverEffect={false}>
+                    <div className="flex items-center gap-2 p-2">
                         {selectedTableObject && (
                             <LemonButton type="tertiary" icon={<IconArrowLeft />} onClick={() => resetSelection()} />
                         )}
-                        <LemonInput
-                            type="search"
-                            placeholder={selectedTableObject ? 'Search columns' : 'Search tables'}
+                        <SearchAutocomplete
+                            inputPlaceholder={selectedTableObject ? 'Search columns' : 'Search tables'}
+                            defaultValue={searchTerm}
                             onChange={(value) =>
                                 selectedTableObject ? setColumnSearchTerm(value) : setTableSearchTerm(value)
                             }
-                            value={searchTerm}
-                            fullWidth
+                            onClear={() => (selectedTableObject ? setColumnSearchTerm('') : setTableSearchTerm(''))}
                         />
                     </div>
-                    <div className="mt-2 overflow-y-auto" style={{ maxHeight: 'calc(100% - 60px)' }}>
+                    <div className="flex-1 overflow-y-auto p-2">
                         {selectedTableObject ? (
                             <>
                                 <div className="font-semibold px-1">{selectedTableObject.name}</div>
@@ -499,28 +546,27 @@ export function BIScene(): JSX.Element {
                                     <div className="text-muted">No columns match your search.</div>
                                 )}
                             </>
-                        ) : filteredTables.length > 0 ? (
-                            filteredTables.map((table) => (
-                                <LemonButton
-                                    key={table.name}
-                                    icon={<IconStack />}
-                                    fullWidth
-                                    status={selectedTableObject?.name === table.name ? 'primary' : 'default'}
-                                    onClick={() => selectTable(table.name)}
-                                >
-                                    {table.name}
-                                </LemonButton>
-                            ))
                         ) : databaseLoading ? (
                             <div className="flex items-center gap-2 text-muted">
                                 <Spinner />
                                 Loading tables…
                             </div>
+                        ) : tableTreeData.length > 0 ? (
+                            <LemonTree
+                                data={tableTreeData}
+                                expandedItemIds={expandedTableGroups}
+                                onSetExpandedItemIds={setExpandedTableGroups}
+                                onItemClick={(item) => {
+                                    if (item.record?.type === 'table') {
+                                        selectTable(item.record.tableName)
+                                    }
+                                }}
+                            />
                         ) : (
                             <div className="text-muted">No tables match your search.</div>
                         )}
                     </div>
-                </LemonCard>
+                </div>
 
                 <div className="flex-1 flex flex-col gap-2 min-h-0">
                     <div className="flex items-center justify-between">
