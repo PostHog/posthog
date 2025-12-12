@@ -56,6 +56,12 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
     "processPersonsStep",
     [
       {
+        "limit": 100,
+        "type": "LIMIT",
+      },
+      0,
+      false,
+      {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": null,
@@ -118,6 +124,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
           },
         },
         "personUpdateCache": {},
+        "personlessBatchResults": {},
         "updateLatencyPerDistinctIdSeconds": {},
       },
     ],
@@ -125,6 +132,30 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
   [
     "prepareEventStep",
     [
+      {
+        "groupTypeManager": {},
+        "skipUpdateEventAndPropertiesStep": false,
+        "teamManager": {},
+      },
+      {
+        "databaseOperationCounts": {},
+        "db": {
+          "kafkaProducer": {},
+        },
+        "groupCache": {
+          "cache": {},
+          "fetchPromises": {},
+          "metrics": {
+            "cacheHits": 0,
+            "cacheMisses": 0,
+          },
+        },
+        "options": {
+          "maxConcurrentUpdates": 10,
+          "maxOptimisticUpdateRetries": 5,
+          "optimisticUpdateRetryInterval": 50,
+        },
+      },
       {
         "distinct_id": "my_id",
         "event": "default event",

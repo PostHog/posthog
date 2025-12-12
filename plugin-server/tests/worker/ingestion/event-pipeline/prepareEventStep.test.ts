@@ -7,7 +7,7 @@ import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { createEvent } from '../../../../src/worker/ingestion/create-event'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
-import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { BatchWritingGroupStoreForBatch } from '../../../../src/worker/ingestion/groups/batch-writing-group-store'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
@@ -57,8 +57,9 @@ const teamTwo: Team = {
 }
 
 describe('prepareEventStep()', () => {
-    let runner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'>
     let hub: Hub
+    let eventsProcessor: EventsProcessor
+    let groupStoreForBatch: BatchWritingGroupStoreForBatch
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -75,7 +76,7 @@ describe('prepareEventStep()', () => {
             null,
             false,
             person.uuid,
-            [{ distinctId: 'my_id' }]
+            { distinctId: 'my_id' }
         )
 
         // @ts-expect-error TODO: Check existence of queueMessage
@@ -86,10 +87,16 @@ describe('prepareEventStep()', () => {
             return teamId === 2 ? teamTwo : null
         })
 
-        runner = {
-            hub,
-            eventsProcessor: new EventsProcessor(hub),
-        }
+        eventsProcessor = new EventsProcessor(
+            hub.teamManager,
+            hub.groupTypeManager,
+            hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
+        )
+        groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
     })
 
     afterEach(async () => {
@@ -97,7 +104,14 @@ describe('prepareEventStep()', () => {
     })
 
     it('goes to `createEventStep` for normal events', async () => {
-        const response = await prepareEventStep(runner as EventPipelineRunner, pluginEvent, false, teamTwo)
+        const response = await prepareEventStep(
+            hub.kafkaProducer,
+            eventsProcessor,
+            groupStoreForBatch,
+            pluginEvent,
+            false,
+            teamTwo
+        )
 
         expect(response).toEqual({
             distinctId: 'my_id',
@@ -122,7 +136,9 @@ describe('prepareEventStep()', () => {
         }
 
         const response = await prepareEventStep(
-            runner as EventPipelineRunner,
+            hub.kafkaProducer,
+            eventsProcessor,
+            groupStoreForBatch,
             pluginEvent,
             false,
             teamWithAnonymization
@@ -145,7 +161,14 @@ describe('prepareEventStep()', () => {
     // Tests combo of prepareEvent + createEvent
     it('extracts elements_chain from properties', async () => {
         const event: PluginEvent = { ...pluginEvent, ip: null, properties: { $elements_chain: 'random string', a: 1 } }
-        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false, teamTwo)
+        const preppedEvent = await prepareEventStep(
+            hub.kafkaProducer,
+            eventsProcessor,
+            groupStoreForBatch,
+            event,
+            false,
+            teamTwo
+        )
         const chEvent = createEvent(preppedEvent, person, false, false, null)
 
         expect(chEvent.elements_chain).toEqual('random string')
@@ -162,7 +185,14 @@ describe('prepareEventStep()', () => {
                 $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
             },
         }
-        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false, teamTwo)
+        const preppedEvent = await prepareEventStep(
+            hub.kafkaProducer,
+            eventsProcessor,
+            groupStoreForBatch,
+            event,
+            false,
+            teamTwo
+        )
         const chEvent = createEvent(preppedEvent, person, false, false, null)
 
         expect(chEvent.elements_chain).toEqual('random string')
@@ -176,7 +206,14 @@ describe('prepareEventStep()', () => {
             ip: null,
             properties: { a: 1, $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }] },
         }
-        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false, teamTwo)
+        const preppedEvent = await prepareEventStep(
+            hub.kafkaProducer,
+            eventsProcessor,
+            groupStoreForBatch,
+            event,
+            false,
+            teamTwo
+        )
         const chEvent = createEvent(preppedEvent, person, false, false, null)
 
         expect(chEvent.elements_chain).toEqual('div:nth-child="1"nth-of-type="2"text="text"')
