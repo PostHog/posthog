@@ -648,6 +648,42 @@ class Database(BaseModel):
                     schema_valid=True,
                 )
 
+            foreign_keys_metadata = raw_metadata.get("foreign_keys", []) if raw_metadata else []
+            for foreign_key in foreign_keys_metadata:
+                column = foreign_key.get("column")
+                target_table_name = foreign_key.get("target_table")
+                target_column = foreign_key.get("target_column")
+
+                if not column or not target_table_name or not target_column:
+                    continue
+
+                field_name = column[:-3] if column.endswith("_id") and len(column) > 3 else column
+
+                if fields_dict.get(field_name):
+                    continue
+
+                try:
+                    target_table = self.get_table(target_table_name)
+                except QueryError:
+                    continue
+
+                field_type = (
+                    DatabaseSerializedFieldType.VIEW
+                    if isinstance(target_table, SavedQuery)
+                    else DatabaseSerializedFieldType.LAZY_TABLE
+                )
+                target_fields = list(target_table.fields.keys())
+
+                fields_dict[field_name] = DatabaseSchemaField(
+                    name=field_name,
+                    hogql_value=f'"{field_name}"',
+                    type=field_type,
+                    schema_valid=True,
+                    table=target_table.to_printed_hogql(),
+                    fields=target_fields,
+                    id=str(target_table.id) if isinstance(target_table, SavedQuery) else field_name,
+                )
+
             tables[table_key] = DatabaseSchemaDataWarehouseTable(
                 fields=fields_dict,
                 id=str(dq_schema.id),
