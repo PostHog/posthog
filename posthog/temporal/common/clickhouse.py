@@ -540,6 +540,31 @@ class ClickHouseClient:
         async with self.aget_query(query, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
 
+    async def acheck_query_in_process_list(self, query_id: str) -> bool:
+        """Check if a query is running in the ClickHouse process list.
+
+        Arguments:
+            query_id: The ID of the query to check.
+
+        Returns:
+            True if the query is running, False otherwise.
+        """
+        query = """
+                SELECT count() > 0 AS is_running
+                FROM clusterAllReplicas({{cluster_name:String}}, system.processes)
+                WHERE query_id = {{query_id:String}}
+                FORMAT JSONEachRow
+                """
+
+        resp = await self.read_query(
+            query,
+            query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+            query_id=f"{query_id}-CHECK",
+        )
+        result = json.loads(resp)["is_running"]
+        assert result == 1 or result == 0
+        return bool(result)
+
     async def acheck_query(
         self,
         query_id: str,

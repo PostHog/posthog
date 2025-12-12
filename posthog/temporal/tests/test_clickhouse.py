@@ -116,3 +116,42 @@ async def test_acancel_query(clickhouse_client, django_db_setup):
             elapsed_time += poll_interval
 
     assert status == ClickHouseQueryStatus.ERROR
+
+
+async def test_acheck_query_in_process_list(clickhouse_client, django_db_setup):
+    """Test that acheck_query_in_process_list correctly identifies running queries."""
+    query_id = f"test-process-list-query-{uuid.uuid4()}"
+    long_running_query = "SELECT sleep(3)"
+
+    async def run_query():
+        await clickhouse_client.execute_query(
+            long_running_query,
+            query_id=query_id,
+        )
+
+    query_task = asyncio.create_task(run_query())
+
+    await asyncio.sleep(0.5)
+
+    # query should be running, and therefore in the process list
+    is_running = await clickhouse_client.acheck_query_in_process_list(query_id)
+    assert is_running is True
+
+    # now try cancelling the query and asserting that it is no longer in the process list
+    await clickhouse_client.acancel_query(query_id)
+
+    with pytest.raises(ClickHouseError):
+        await query_task
+
+    max_wait_time = 5.0
+    poll_interval = 0.5
+    elapsed_time = 0.0
+
+    while elapsed_time < max_wait_time:
+        is_running = await clickhouse_client.acheck_query_in_process_list(query_id)
+        if not is_running:
+            break
+        await asyncio.sleep(poll_interval)
+        elapsed_time += poll_interval
+
+    assert is_running is False
