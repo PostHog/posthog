@@ -20,6 +20,7 @@ from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflowInputs,
 )
 from posthog.temporal.common.client import sync_connect
+from posthog.user_permissions import UserPermissions
 
 from ee.models.assistant import Conversation
 
@@ -150,12 +151,32 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                     thread_ts=thread_ts,
                     text=(
                         f"Sorry, I couldn't find {slack_email} in the {organization_name} organization. "
-                        f"Please make sure you're a member of that PostHog organization connected to this Slack workspace."
+                        f"Please make sure you're a member of that PostHog organization."
                     ),
                 )
                 return
 
             posthog_user = membership.user
+
+            # Check if the user has access to the specific team (handles private teams and RBAC)
+            user_permissions = UserPermissions(user=posthog_user, team=integration.team)
+            if user_permissions.current_team.effective_membership_level is None:
+                logger.warning(
+                    "slack_app_no_team_access",
+                    user_id=posthog_user.id,
+                    team_id=integration.team_id,
+                    organization_id=integration.team.organization_id,
+                )
+                slack.client.chat_postEphemeral(
+                    channel=channel,
+                    user=slack_user_id,
+                    thread_ts=thread_ts,
+                    text=(
+                        f"Sorry, you don't have access to the PostHog project connected to this Slack workspace. "
+                        f"Please ask an admin of your PostHog organization to grant you access."
+                    ),
+                )
+                return
         except Exception as e:
             logger.exception("slack_app_user_lookup_failed", error=str(e))
             slack.client.chat_postEphemeral(
