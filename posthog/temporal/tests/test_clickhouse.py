@@ -85,7 +85,7 @@ def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
 async def test_acancel_query(clickhouse_client, django_db_setup):
     """Test that acancel_query successfully cancels a long-running query."""
     long_running_query_id = f"test-long-running-query-{uuid.uuid4()}"
-    long_running_query = "SELECT sleep(300)"
+    long_running_query = "SELECT sleep(3)"
 
     async def run_query():
         await clickhouse_client.execute_query(
@@ -95,7 +95,7 @@ async def test_acancel_query(clickhouse_client, django_db_setup):
 
     query_task = asyncio.create_task(run_query())
 
-    await asyncio.sleep(1)
+    await asyncio.sleep(0.5)
 
     await clickhouse_client.acancel_query(long_running_query_id)
 
@@ -110,11 +110,15 @@ async def test_acancel_query(clickhouse_client, django_db_setup):
     while elapsed_time < max_wait_time:
         try:
             status = await clickhouse_client.acheck_query(long_running_query_id, raise_on_error=False)
-            break
+            if status != ClickHouseQueryStatus.RUNNING:
+                break
         except ClickHouseQueryNotFound:
-            await asyncio.sleep(poll_interval)
-            elapsed_time += poll_interval
+            pass
+        await asyncio.sleep(poll_interval)
+        elapsed_time += poll_interval
 
+    # ClickHouse treats cancelled queries as failed, so we expect an error status
+    # Code: 394. DB::Exception: Query was cancelled. (QUERY_WAS_CANCELLED)
     assert status == ClickHouseQueryStatus.ERROR
 
 
