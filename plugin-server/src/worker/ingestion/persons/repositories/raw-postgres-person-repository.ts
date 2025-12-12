@@ -24,7 +24,8 @@ export interface RawPostgresPersonRepository {
     ): Promise<InternalPerson | undefined>
 
     fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]>
 
     createPerson(
@@ -49,6 +50,10 @@ export interface RawPostgresPersonRepository {
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]>
+
+    updatePersonsBatch(
+        personUpdates: PersonUpdate[]
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>>
 
     deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
 

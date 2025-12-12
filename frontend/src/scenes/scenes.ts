@@ -432,6 +432,15 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/revenue-analytics',
     },
+    [Scene.MarketingAnalytics]: {
+        projectBased: true,
+        name: 'Marketing analytics',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/marketing-analytics',
+        description:
+            'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
+        iconType: 'marketing_analytics',
+    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
@@ -464,6 +473,17 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.SURVEY,
         description: 'Create surveys to collect feedback from your users',
         iconType: 'survey',
+    },
+    [Scene.ProductTours]: {
+        projectBased: true,
+        name: 'Product tours',
+        defaultDocsPath: '/docs/product-tours',
+        description: 'Guide users through your product with interactive tours',
+    },
+    [Scene.ProductTour]: {
+        projectBased: true,
+        name: 'Product tour',
+        defaultDocsPath: '/docs/product-tours',
     },
     [Scene.SystemStatus]: { instanceLevel: true, name: 'Instance panel' },
     [Scene.ToolbarLaunch]: { projectBased: true, name: 'Launch toolbar', defaultDocsPath: '/docs/toolbar' },
@@ -538,6 +558,11 @@ export const redirects: Record<
     '/data-pipelines': urls.dataPipelines('overview'),
     '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+    // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
+    '/web/marketing': (_, searchParams) => {
+        const params = new URLSearchParams(searchParams as Record<string, string>).toString()
+        return urls.marketingAnalyticsApp() + (params ? `?${params}` : '')
+    },
 
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }) => {
@@ -629,9 +654,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
-    [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
+    [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
@@ -681,6 +706,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
+    [urls.productTours()]: [Scene.ProductTours, 'productTours'],
+    [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],

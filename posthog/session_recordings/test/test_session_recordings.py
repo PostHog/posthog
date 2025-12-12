@@ -1563,3 +1563,73 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         recent_recording = SessionRecording.objects.get(team=self.team, session_id=session_id_recent)
         assert recent_recording.deleted
         assert recent_recording.distinct_id == "user1"
+
+    def test_bulk_delete_with_date_from_parameter(self):
+        """Test that bulk_delete accepts and uses the date_from parameter to optimize ClickHouse queries."""
+        Person.objects.create(team=self.team, distinct_ids=["user1"], properties={"email": "bla"})
+
+        # Set team retention to 90 days
+        self.team.session_recording_retention_period = "90d"
+        self.team.save()
+
+        # Create a recording 15 days ago (outside default 7d, but within 30d)
+        fifteen_days_ago = datetime.now(UTC) - relativedelta(days=15)
+        session_id = f"test_session_15d_old_{uuid7()}"
+
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            distinct_id="user1",
+            first_timestamp=fifteen_days_ago,
+            last_timestamp=fifteen_days_ago + relativedelta(minutes=5),
+        )
+
+        # Verify no PostgreSQL record exists yet
+        assert not SessionRecording.objects.filter(team=self.team, session_id=session_id).exists()
+
+        # Bulk delete with date_from parameter set to -30d (should find the recording)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": [session_id], "date_from": "-30d"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        # Recording should be deleted successfully
+        assert response_data["success"]
+        assert response_data["deleted_count"] == 1
+        assert response_data["total_requested"] == 1
+
+        # Verify PostgreSQL record was created and marked as deleted
+        recording = SessionRecording.objects.get(team=self.team, session_id=session_id)
+        assert recording.deleted
+        assert recording.distinct_id == "user1"
+
+        # Now test with date_from that's too recent (should not find it)
+        # Create another old recording
+        session_id_2 = f"test_session_15d_old_2_{uuid7()}"
+        produce_replay_summary(
+            session_id=session_id_2,
+            team_id=self.team.pk,
+            distinct_id="user1",
+            first_timestamp=fifteen_days_ago,
+            last_timestamp=fifteen_days_ago + relativedelta(minutes=5),
+        )
+
+        # Try to delete with date_from=-3d (should not find the 15-day-old recording)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": [session_id_2], "date_from": "-3d"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        # Should return success but deleted_count=0 since recording is outside the search range
+        assert response_data["success"]
+        assert response_data["deleted_count"] == 0
+        assert response_data["total_requested"] == 1
+
+        # Verify no PostgreSQL record was created (since it wasn't found)
+        assert not SessionRecording.objects.filter(team=self.team, session_id=session_id_2).exists()

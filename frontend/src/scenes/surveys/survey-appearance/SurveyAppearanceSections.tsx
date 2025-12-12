@@ -236,46 +236,33 @@ export function SurveyColorsAppearance({
                 error={validationErrors?.submitButtonTextColor}
                 label="Button text color"
             />
-            {customizeRatingButtons && (
-                <>
-                    <SurveyAppearanceInput
-                        value={appearance.ratingButtonColor}
-                        onChange={(ratingButtonColor) => onAppearanceChange({ ratingButtonColor })}
-                        error={validationErrors?.ratingButtonColor}
-                        label="Rating button color"
-                    />
-                    <SurveyAppearanceInput
-                        value={appearance.ratingButtonActiveColor}
-                        onChange={(ratingButtonActiveColor) => onAppearanceChange({ ratingButtonActiveColor })}
-                        error={validationErrors?.ratingButtonActiveColor}
-                        label="Rating button active color"
-                    />
-                </>
-            )}
             <SurveyAppearanceInput
                 value={appearance.inputBackground}
-                onChange={(inputBackground) => onAppearanceChange({ inputBackground })}
-                error={validationErrors?.inputBackground}
-                label="Input background color"
-                info="Requires at least version 1.300.0 of posthog-js"
+                onChange={(inputBackground) =>
+                    onAppearanceChange({ inputBackground, ratingButtonColor: inputBackground })
+                }
+                error={validationErrors?.inputBackground || validationErrors?.ratingButtonColor}
+                label="Input and rating background"
             />
-            <SurveyAppearanceInput
-                value={appearance.inputTextColor}
-                onChange={(inputTextColor) => onAppearanceChange({ inputTextColor })}
-                error={validationErrors?.inputTextColor}
-                label="Input text color"
-                info="Requires at least version 1.300.0 of posthog-js"
-            />
-            {customizePlaceholderText && (
-                <>
-                    <SurveyAppearanceInput
-                        value={appearance.placeholder}
-                        onChange={(placeholder) => onAppearanceChange({ placeholder })}
-                        error={validationErrors?.placeholder}
-                        label="Placeholder text"
-                    />
-                </>
+            {customizeRatingButtons && (
+                <SurveyAppearanceInput
+                    value={appearance.ratingButtonActiveColor}
+                    onChange={(ratingButtonActiveColor) => onAppearanceChange({ ratingButtonActiveColor })}
+                    error={validationErrors?.ratingButtonActiveColor}
+                    label="Active rating color"
+                />
             )}
+            {customizePlaceholderText && (
+                <SurveyAppearanceInput
+                    value={appearance.placeholder}
+                    onChange={(placeholder) => onAppearanceChange({ placeholder })}
+                    error={validationErrors?.placeholder}
+                    label="Placeholder text"
+                />
+            )}
+            <span className="col-span-2 text-secondary">
+                Text colors are automatically set based on background contrast.
+            </span>
         </SurveyOptionsGroup>
     )
 }

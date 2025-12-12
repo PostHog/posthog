@@ -52,17 +52,17 @@ class TestSlashCommandHandlerNode(BaseTest):
         result = self.node._get_command(state)
         self.assertIsNone(result)
 
-    def test_router_returns_end_for_command(self):
+    async def test_router_returns_end_for_command(self):
         """Test that commands route to END (handled in arun)."""
         state = AssistantState(messages=[HumanMessage(content="/usage")])
-        result = self.node.router(state)
+        result = await self.node.arouter(state)
         self.assertEqual(result, AssistantNodeName.END)
 
-    def test_router_returns_send_list_for_non_command(self):
+    async def test_router_returns_send_list_for_non_command(self):
         """Test that non-command messages route to normal flow."""
         state = AssistantState(messages=[HumanMessage(content="Hello, how are you?")])
         with patch.object(self.node, "_team", self.team), patch.object(self.node, "_user", self.user):
-            result = self.node.router(state)
+            result = await self.node.arouter(state)
 
         self.assertIsInstance(result, list)
         send_list = cast(list[Send], result)
@@ -72,11 +72,11 @@ class TestSlashCommandHandlerNode(BaseTest):
         self.assertEqual(send_list[0].node, AssistantNodeName.ROOT)
         self.assertEqual(send_list[1].node, AssistantNodeName.MEMORY_COLLECTOR)
 
-    def test_router_returns_send_list_for_empty_messages(self):
+    async def test_router_returns_send_list_for_empty_messages(self):
         """Test that empty messages route to normal flow."""
         state = AssistantState(messages=[])
         with patch.object(self.node, "_team", self.team), patch.object(self.node, "_user", self.user):
-            result = self.node.router(state)
+            result = await self.node.arouter(state)
 
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 2)
@@ -114,10 +114,10 @@ class TestSlashCommandHandlerNode(BaseTest):
         result = self.node._get_command(state)
         self.assertEqual(result, SlashCommandName.FIELD_REMEMBER)
 
-    def test_router_returns_end_for_remember_command(self):
+    async def test_router_returns_end_for_remember_command(self):
         """Test that /remember command routes to END."""
         state = AssistantState(messages=[HumanMessage(content="/remember test fact")])
-        result = self.node.router(state)
+        result = await self.node.arouter(state)
         self.assertEqual(result, AssistantNodeName.END)
 
     def test_command_handlers_contains_feedback(self):
@@ -134,10 +134,10 @@ class TestSlashCommandHandlerNode(BaseTest):
         result = self.node._get_command(state)
         self.assertEqual(result, SlashCommandName.FIELD_FEEDBACK)
 
-    def test_router_returns_end_for_feedback_command(self):
+    async def test_router_returns_end_for_feedback_command(self):
         """Test that /feedback command routes to END."""
         state = AssistantState(messages=[HumanMessage(content="/feedback")])
-        result = self.node.router(state)
+        result = await self.node.arouter(state)
         self.assertEqual(result, AssistantNodeName.END)
 
     def test_get_command_detects_feedback_with_args(self):

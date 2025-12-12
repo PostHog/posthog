@@ -8,7 +8,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     # Job to decide if we should run frontend ci
@@ -248,7 +248,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              run: bin/turbo run test --filter=@posthog/frontend
+              run: bin/turbo run test --filter=@posthog/frontend -- --runInBand
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}

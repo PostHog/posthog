@@ -11,7 +11,6 @@ import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -106,8 +105,8 @@ import {
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
 } from './common'
+import { webAnalyticsHealthLogic } from './health'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -125,9 +124,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             preflightLogic,
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
-            ['authorizedUrls'],
-            marketingAnalyticsTilesLogic,
-            ['tiles as marketingTiles'],
+            ['authorizedUrls', 'showProposedURLForm', 'isProposedUrlSubmitting', 'suggestions as urlSuggestions'],
+            webAnalyticsHealthLogic,
+            ['webAnalyticsHealthStatus'],
+        ],
+        actions: [
+            webAnalyticsHealthLogic,
+            ['trackTabViewed'],
+            authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
+            [
+                'addUrl as addAuthorizedUrl',
+                'newUrl as newAuthorizedUrl',
+                'cancelProposingUrl as cancelProposingAuthorizedUrl',
+            ],
         ],
     })),
     actions({
@@ -570,8 +579,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         hasHostFilter: [(s) => [s.rawWebAnalyticsFilters], (filters) => filters.some((f) => f.key === '$host')],
+        validatedDomainFilter: [
+            (s) => [s.domainFilter, s.authorizedDomains],
+            (domainFilter: string | null, authorizedDomains: string[]): string | null => {
+                if (!domainFilter || domainFilter === 'all') {
+                    return domainFilter
+                }
+                if (authorizedDomains.includes(domainFilter)) {
+                    return domainFilter
+                }
+
+                return null
+            },
+        ],
         webAnalyticsFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.domainFilter, s.deviceTypeFilter],
+            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.validatedDomainFilter, s.deviceTypeFilter],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
@@ -859,7 +881,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.isGreaterThanMd,
                 s.tileVisualizations,
                 s.preAggregatedEnabled,
-                s.marketingTiles,
                 s.hiddenTiles,
             ],
             (
@@ -880,7 +901,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isGreaterThanMd,
                 tileVisualizations,
                 preAggregatedEnabled,
-                marketingTiles,
                 hiddenTiles
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
@@ -976,6 +996,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
                     canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                    canOpenModal: true,
                 })
 
                 const createTableTab = (
@@ -1034,7 +1055,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                             },
                             canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
-                            canOpenModal: false,
+                            canOpenModal: true,
                         }
                     }
 
@@ -1062,7 +1083,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             columns,
                         },
                         canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
-                        canOpenModal: false,
+                        canOpenModal: true,
                     }
                 }
 
@@ -1155,10 +1176,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ]
                 }
 
-                if (productTab === ProductTab.MARKETING) {
-                    return marketingTiles as unknown as WebAnalyticsTile[]
-                }
-
                 const allTiles: (WebAnalyticsTile | null)[] = [
                     {
                         kind: 'query',
@@ -1178,6 +1195,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenModal: false,
                     },
                     {
                         kind: 'tabs',
@@ -2192,8 +2210,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
-            } else if (productTab === ProductTab.MARKETING) {
-                basePath = '/web/marketing'
             }
 
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
@@ -2247,13 +2263,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }: Record<string, any>
         ): void => {
             if (
-                ![
-                    ProductTab.ANALYTICS,
-                    ProductTab.WEB_VITALS,
-                    ProductTab.PAGE_REPORTS,
-                    ProductTab.MARKETING,
-                    ProductTab.HEALTH,
-                ].includes(productTab)
+                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.HEALTH].includes(
+                    productTab
+                )
             ) {
                 return
             }
@@ -2354,6 +2366,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
 
         return {
+            setProductTab: ({ tab }) => {
+                if (tab === ProductTab.HEALTH) {
+                    actions.trackTabViewed()
+                }
+            },
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
             },
@@ -2368,19 +2385,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         actions.setConversionGoalWarning
                     ),
             ],
-            [teamLogic.actionTypes.updateCurrentTeam]: async (action) => {
-                const isPreAggregatedEnabled =
-                    values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    action?.modifiers?.useWebAnalyticsPreAggregatedTables
-                const hasConversionGoalPreAggFlag =
-                    values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]
-
-                if (isPreAggregatedEnabled && values.conversionGoal && !hasConversionGoalPreAggFlag) {
-                    actions.setConversionGoal(null)
-                    lemonToast.info(
-                        'Your conversion goal has been cleared as the new query engine does not support it (yet!)'
-                    )
-                }
+            addAuthorizedUrl: ({ url }) => {
+                actions.setDomainFilter(url)
             },
         }
     }),
