@@ -14,11 +14,12 @@ from typing import Any
 
 import structlog
 import temporalio
+from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.constants import ALLOWED_TEAM_IDS
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringWorkflowInputs
+from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringResult, ClusteringWorkflowInputs
 from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceClusteringWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -103,7 +104,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             batch = team_ids[batch_start : batch_start + max_concurrent]
 
             # Start all workflows in batch concurrently
-            workflow_handles = []
+            workflow_handles: list[tuple[int, ChildWorkflowHandle[ClusteringResult]]] = []
             for team_id in batch:
                 handle = await temporalio.workflow.start_child_workflow(
                     DailyTraceClusteringWorkflow.run,

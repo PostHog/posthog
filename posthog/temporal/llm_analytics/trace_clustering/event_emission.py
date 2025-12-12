@@ -14,7 +14,12 @@ import numpy as np
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusterData, ClusterLabel, TraceId
+from posthog.temporal.llm_analytics.trace_clustering.models import (
+    ClusterData,
+    ClusterLabel,
+    TraceClusterMetadata,
+    TraceId,
+)
 
 
 class _TraceDistanceData(TypedDict):
@@ -126,11 +131,11 @@ def _build_cluster_data(
         cluster_trace_data.sort(key=lambda x: x["distance_to_centroid"])
 
         # Build traces dict keyed by trace_id
-        traces_dict = {
-            t["trace_id"]: {
-                "distance_to_centroid": t["distance_to_centroid"],
-                "rank": rank,
-            }
+        traces_dict: dict[str, TraceClusterMetadata] = {
+            t["trace_id"]: TraceClusterMetadata(
+                distance_to_centroid=t["distance_to_centroid"],
+                rank=rank,
+            )
             for rank, t in enumerate(cluster_trace_data)
         }
 
