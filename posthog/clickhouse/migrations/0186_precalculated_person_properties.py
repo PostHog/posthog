@@ -9,7 +9,7 @@ from posthog.models.precalculated_person_properties.sql import (
 )
 
 operations = [
-    # Create precalculated_person_properties tables
+    # Create precalculated_person_properties tables with distinct_id
     run_sql_with_exceptions(PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),

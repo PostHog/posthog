@@ -279,9 +279,9 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                                 // CRITICAL: Always emit - both matches AND non-matches
                                 // Person properties are mutable state, need to track changes
                                 const personPropertyEvent: ProducedPersonPropertiesEvent = {
-                                    key: clickHouseEvent.person_id!,
+                                    key: clickHouseEvent.distinct_id,
                                     payload: {
-                                        person_id: clickHouseEvent.person_id!,
+                                        distinct_id: clickHouseEvent.distinct_id,
                                         team_id: clickHouseEvent.team_id,
                                         condition: filter.conditionHash,
                                         matches: matches,

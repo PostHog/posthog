@@ -106,15 +106,25 @@ async def backfill_precalculated_person_properties_activity(
 
             heartbeater.details = (f"Fetching batch at offset {current_offset} (batch_size={current_batch_size})",)
 
-            # Query person table for current batch
+            # Query person table for current batch with their distinct_ids
             persons_query = """
                 SELECT
-                    id,
-                    properties
-                FROM person FINAL
-                WHERE team_id = %(team_id)s
-                  AND is_deleted = 0
-                ORDER BY id
+                    p.id as person_id,
+                    p.properties,
+                    groupArray(pdi.distinct_id) as distinct_ids
+                FROM person FINAL p
+                INNER JOIN (
+                    SELECT
+                        person_id,
+                        distinct_id
+                    FROM person_distinct_id FINAL
+                    WHERE team_id = %(team_id)s
+                      AND is_deleted = 0
+                ) pdi ON p.id = pdi.person_id
+                WHERE p.team_id = %(team_id)s
+                  AND p.is_deleted = 0
+                GROUP BY p.id, p.properties
+                ORDER BY p.id
                 LIMIT %(limit)s
                 OFFSET %(offset)s
                 FORMAT JSONEachRow
@@ -147,8 +157,9 @@ async def backfill_precalculated_person_properties_activity(
             events_to_produce = []
 
             for person in persons:
-                person_id = str(person["id"])
+                person_id = str(person["person_id"])
                 person_properties = json.loads(person["properties"]) if person["properties"] else {}
+                distinct_ids = person["distinct_ids"]
 
                 for filter_info in inputs.filters:
                     # Evaluate person against filter using HogQL bytecode
@@ -176,15 +187,16 @@ async def backfill_precalculated_person_properties_activity(
                         )
                         matches = False
 
-                    # ALWAYS emit - both matches and non-matches
-                    event = {
-                        "person_id": person_id,
-                        "team_id": inputs.team_id,
-                        "condition": filter_info.condition_hash,
-                        "matches": matches,
-                        "source": f"cohort_backfill_{inputs.cohort_id}",
-                    }
-                    events_to_produce.append(event)
+                    # ALWAYS emit - both matches and non-matches for EACH distinct_id
+                    for distinct_id in distinct_ids:
+                        event = {
+                            "distinct_id": distinct_id,
+                            "team_id": inputs.team_id,
+                            "condition": filter_info.condition_hash,
+                            "matches": matches,
+                            "source": f"cohort_backfill_{inputs.cohort_id}",
+                        }
+                        events_to_produce.append(event)
 
             # Produce events to Kafka in batches
             if events_to_produce:
@@ -194,7 +206,7 @@ async def backfill_precalculated_person_properties_activity(
                     await asyncio.to_thread(
                         kafka_producer.produce,
                         topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                        key=event["person_id"],
+                        key=event["distinct_id"],
                         data=event,
                     )
 

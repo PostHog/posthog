@@ -61,14 +61,14 @@ def PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL():
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    person_id UUID,
+    distinct_id String,
     condition String,
     matches Bool,
     source String,
     _timestamp DateTime64(6),
     _offset UInt64
 ) ENGINE = {engine}
-ORDER BY (team_id, condition, person_id)
+ORDER BY (team_id, condition, distinct_id)
 """.format(
         table_name=PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE,
         engine=ReplacingMergeTree(
@@ -84,7 +84,7 @@ def PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(table_name: str = PREC
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    person_id UUID,
+    distinct_id String,
     condition String,
     matches Bool,
     source String,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
         engine=Distributed(
             data_table=PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE,
             cluster=CLICKHOUSE_CLUSTER,
-            sharding_key="sipHash64(person_id)",
+            sharding_key="sipHash64(distinct_id)",
         ),
     )
 
@@ -112,7 +112,7 @@ def KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL():
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    person_id UUID,
+    distinct_id String,
     condition String,
     matches Bool,
     source String
@@ -131,7 +131,7 @@ def PRECALCULATED_PERSON_PROPERTIES_MV_SQL():
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
 AS SELECT
     team_id,
-    person_id,
+    distinct_id,
     condition,
     matches,
     source,

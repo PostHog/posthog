@@ -796,21 +796,30 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
 
         # Build query using precalculated_person_properties with argMax pattern
         query_str = """
-            SELECT person_id as id
-            FROM (
+            SELECT
+                pdi2.person_id as id
+            FROM
+            (
                 SELECT
-                    person_id,
+                    distinct_id,
                     argMax(matches, _timestamp) as latest_matches
                 FROM precalculated_person_properties
                 WHERE
                     team_id = {team_id}
                     AND condition = {condition_hash}
-                GROUP BY person_id
+                GROUP BY distinct_id
                 HAVING latest_matches = 1
-            )
-            WHERE person_id IN (
-                SELECT id FROM persons WHERE team_id = {team_id}
-            )
+            ) AS ppp
+            INNER JOIN
+            (
+                SELECT
+                    distinct_id,
+                    argMax(person_id, version) as person_id
+                FROM raw_person_distinct_ids
+                WHERE team_id = {team_id}
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+            ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
         """
 
         return cast(
