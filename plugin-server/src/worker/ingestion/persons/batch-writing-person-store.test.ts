@@ -117,6 +117,7 @@ describe('BatchWritingPersonStore', () => {
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
             addPersonlessDistinctId: jest.fn().mockResolvedValue(true),
             addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
+            addPersonlessDistinctIdsBatch: jest.fn().mockResolvedValue(new Map()),
             personPropertiesSize: jest.fn().mockResolvedValue(1024),
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
             inTransaction: jest.fn().mockImplementation(async (description, transaction) => {
