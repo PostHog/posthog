@@ -585,9 +585,14 @@ export function BIScene(): JSX.Element {
         <div className="flex flex-col gap-4 h-full" onClick={closePopovers}>
             <div className="flex gap-4 h-full min-h-0">
                 <div className="w-80 shrink-0 h-full min-h-0 flex flex-col" hoverEffect={false}>
-                    <div className="flex items-center gap-2 p-2">
+                    <div className="flex items-center gap-1">
                         {selectedTableObject && (
-                            <LemonButton type="tertiary" icon={<IconArrowLeft />} onClick={() => resetSelection()} />
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                icon={<IconArrowLeft />}
+                                onClick={() => resetSelection()}
+                            />
                         )}
                         <SearchAutocomplete
                             inputPlaceholder={selectedTableObject ? 'Search columns' : 'Search tables'}
@@ -598,10 +603,10 @@ export function BIScene(): JSX.Element {
                             onClear={() => (selectedTableObject ? setColumnSearchTerm('') : setTableSearchTerm(''))}
                         />
                     </div>
-                    <div className="flex-1 overflow-y-auto p-2">
+                    <div className="flex-1 overflow-y-auto">
                         {selectedTableObject ? (
                             <>
-                                <div className="flex items-start justify-between gap-2 px-1">
+                                <div className="flex items-start justify-between gap-2 px-1 py-2">
                                     <div>
                                         <div className="font-semibold">{selectedTableObject.name}</div>
                                         {selectedTableObject?.source?.source_type === 'Postgres' ? (
@@ -628,13 +633,23 @@ export function BIScene(): JSX.Element {
                                         tableName={selectedTableObject.name}
                                         expandedFields={expandedFields}
                                         onSetExpandedFields={setExpandedFields}
-                                        onSelect={(path, field) =>
-                                            addColumn({
+                                        onSelect={(path, field) => {
+                                            const column = {
                                                 table: selectedTableObject.name,
                                                 field: path,
                                                 ...(field && isTemporalField(field) ? { timeInterval: 'day' } : {}),
-                                            })
-                                        }
+                                            }
+
+                                            if (
+                                                selectedColumns.some(
+                                                    (selectedColumn) => columnKey(selectedColumn) === columnKey(column)
+                                                )
+                                            ) {
+                                                removeColumn(column)
+                                            } else {
+                                                addColumn(column)
+                                            }
+                                        }}
                                     />
                                 ) : (
                                     <div className="text-muted">No columns match your search.</div>
@@ -650,15 +665,6 @@ export function BIScene(): JSX.Element {
                                 data={tableTreeData}
                                 expandedItemIds={expandedTableGroups}
                                 onSetExpandedItemIds={setExpandedTableGroups}
-                                onFolderClick={(folder, isExpanded) => {
-                                    if (!folder) {
-                                        return
-                                    }
-
-                                    setExpandedTableGroups((current) =>
-                                        isExpanded ? current.filter((id) => id !== folder.id) : [...current, folder.id]
-                                    )
-                                }}
                                 onItemClick={(item) => {
                                     if (item.record?.type === 'table') {
                                         selectTable(item.record.tableName)
