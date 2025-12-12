@@ -104,7 +104,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             batch = team_ids[batch_start : batch_start + max_concurrent]
 
             # Start all workflows in batch concurrently
-            workflow_handles: list[tuple[int, ChildWorkflowHandle[ClusteringWorkflowInputs, ClusteringResult]]] = []
+            workflow_handles: list[tuple[int, ChildWorkflowHandle[DailyTraceClusteringWorkflow, ClusteringResult]]] = []
             for team_id in batch:
                 handle = await temporalio.workflow.start_child_workflow(
                     DailyTraceClusteringWorkflow.run,
