@@ -1,5 +1,6 @@
 import io
 import json
+import time
 import typing
 import asyncio
 import datetime as dt
@@ -386,11 +387,40 @@ class BigQueryClient:
             table = await self.create_table(table)
             return table
 
-    async def execute_query(self, query: str) -> RowIterator | _EmptyRowIterator:
+    async def execute_query(
+        self, query: str, start_query_timeout: float = 10 * 60, poll_interval: float = 0.2
+    ) -> RowIterator | _EmptyRowIterator:
+        """Execute a query and wait for it to complete.
+
+        Args:
+            query: The query to execute.
+            start_query_timeout: The timeout (in seconds) to wait for the query to start.
+            poll_interval: The interval (in seconds) to poll for results.
+
+        Returns:
+            The query result.
+
+        Raises:
+            BigQueryStartQueryTimeoutError: If the query took too long to start (i.e. remained in "PENDING" state for
+                longer than the timeout duration).
+        """
         job_config = bigquery.QueryJobConfig()
         query_job = await asyncio.to_thread(self.sync_client.query, query, job_config=job_config)
-        result = await asyncio.to_thread(query_job.result)
-        return result
+
+        # wait for the query to start (and timeout if it takes too long)
+        query_start_time = time.monotonic()
+        while True:
+            await asyncio.sleep(poll_interval)
+            await asyncio.to_thread(query_job.reload)
+            if query_job.state != "PENDING":
+                break
+            query_duration = time.monotonic() - query_start_time
+            if query_duration > start_query_timeout:
+                assert query_job.job_id is not None
+                raise BigQueryStartQueryTimeoutError(query_job.job_id, start_query_timeout)
+
+        # wait for the query to complete and return the result
+        return await asyncio.to_thread(query_job.result)
 
     async def check_for_query_permissions(
         self,
@@ -679,6 +709,13 @@ class BigQueryQuotaExceededError(Exception):
 
     def __init__(self, message: str):
         super().__init__(f"A BigQuery quota has been exceeded. Error: {message}")
+
+
+class BigQueryStartQueryTimeoutError(TimeoutError):
+    """Exception raised when a query takes too long to start."""
+
+    def __init__(self, job_id: str, timeout: float):
+        super().__init__(f"Query '{job_id}' still in 'PENDING' state after {timeout} seconds")
 
 
 class BigQueryConsumer(Consumer):
