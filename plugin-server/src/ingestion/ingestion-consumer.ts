@@ -163,6 +163,7 @@ export class IngestionConsumer {
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+            updateAllProperties: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
         })
 
         this.groupStore = new BatchWritingGroupStore(this.hub, {
