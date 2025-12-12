@@ -585,7 +585,7 @@ export function BIScene(): JSX.Element {
         <div className="flex flex-col gap-4 h-full" onClick={closePopovers}>
             <div className="flex gap-4 h-full min-h-0">
                 <div className="w-80 shrink-0 h-full min-h-0 flex flex-col" hoverEffect={false}>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 mb-2">
                         {selectedTableObject && (
                             <LemonButton
                                 type="tertiary"
@@ -606,7 +606,7 @@ export function BIScene(): JSX.Element {
                     <div className="flex-1 overflow-y-auto">
                         {selectedTableObject ? (
                             <>
-                                <div className="flex items-start justify-between gap-2 px-1 py-2">
+                                <div className="flex items-start justify-between gap-2 px-1">
                                     <div>
                                         <div className="font-semibold">{selectedTableObject.name}</div>
                                         {selectedTableObject?.source?.source_type === 'Postgres' ? (
