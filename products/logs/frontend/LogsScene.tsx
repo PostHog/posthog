@@ -369,7 +369,7 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
     const { expandedAttributeBreaksdowns, tabId } = useValues(logsLogic)
     const { addFilter, toggleAttributeBreakdown } = useActions(logsLogic)
 
-    const attributes = log.attributes
+    const attributes = { ...log.resource_attributes, ...log.attributes }
     const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
 
     return (
