@@ -128,6 +128,14 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
         help_text="Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'",
     )
 
+    # Trace filters
+    trace_filters = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+        help_text="Property filters to scope which traces are included in clustering (PostHog standard format)",
+    )
+
 
 class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """ViewSet for triggering and managing clustering workflow runs."""
@@ -155,6 +163,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         run_label = serializer.validated_data["run_label"]
         clustering_method = serializer.validated_data["clustering_method"]
         visualization_method = serializer.validated_data["visualization_method"]
+        trace_filters = serializer.validated_data["trace_filters"]
 
         # Build method-specific params dict
         clustering_method_params: dict = {}
@@ -181,6 +190,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             clustering_method=clustering_method,
             clustering_method_params=clustering_method_params,
             visualization_method=visualization_method,
+            trace_filters=trace_filters,
         )
 
         # Generate unique workflow ID
@@ -220,6 +230,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
                 run_label=run_label,
                 clustering_method=clustering_method,
                 clustering_method_params=clustering_method_params,
+                trace_filters_count=len(trace_filters),
             )
 
             # Track workflow triggered
@@ -236,6 +247,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
                     "run_label": run_label,
                     "clustering_method": clustering_method,
                     "clustering_method_params": clustering_method_params,
+                    "trace_filters_count": len(trace_filters),
                     "trigger_type": "manual",
                 },
                 self.team,
@@ -255,6 +267,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
                         "clustering_method": clustering_method,
                         "clustering_method_params": clustering_method_params,
                         "run_label": run_label,
+                        "trace_filters": trace_filters,
                     },
                 },
                 status=202,

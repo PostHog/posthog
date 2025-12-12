@@ -69,6 +69,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         window_start=window_start,
         window_end=window_end,
         max_samples=inputs.max_samples,
+        trace_filters=inputs.trace_filters if inputs.trace_filters else None,
     )
 
     embeddings_array = np.array(list(embeddings_map.values()))

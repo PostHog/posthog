@@ -2,6 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import { DEFAULT_CLUSTERING_PARAMS, clustersAdminLogic } from './clustersAdminLogic'
 
 export function ClusteringAdminModal(): JSX.Element {
@@ -54,6 +57,31 @@ export function ClusteringAdminModal(): JSX.Element {
                         <div className="text-xs text-muted mt-1">
                             Optional label added as suffix to run ID for tracking experiments
                         </div>
+                    </div>
+                </div>
+
+                {/* Trace Filters */}
+                <div>
+                    <h4 className="font-semibold mb-3">Trace filters</h4>
+                    <div className="text-sm text-muted mb-3">
+                        Only cluster traces matching these criteria. Leave empty to include all traces with embeddings.
+                    </div>
+                    <PropertyFilters
+                        propertyFilters={params.trace_filters}
+                        onChange={(properties) => setParams({ trace_filters: properties })}
+                        pageKey="clustering-trace-filters"
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.EventMetadata,
+                        ]}
+                        addText="Add trace filter"
+                        hasRowOperator={false}
+                        sendAllKeyUpdates
+                        allowRelativeDateOptions={false}
+                    />
+                    <div className="text-xs text-muted mt-2">
+                        <strong>Examples:</strong> $ai_model = "gpt-4", $ai_provider = "openai", $ai_total_cost_usd &gt;
+                        0.01
                     </div>
                 </div>
 

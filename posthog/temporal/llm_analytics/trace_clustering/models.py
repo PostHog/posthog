@@ -33,6 +33,9 @@ class ClusteringWorkflowInputs:
     # For k-means: min_k, max_k (uses silhouette score to pick best k)
     clustering_method_params: dict = field(default_factory=dict)
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
+    # Optional property filters to scope which traces are included in clustering
+    # Uses PostHog's standard property filter format (same as evaluations, feature flags, etc.)
+    trace_filters: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -55,6 +58,8 @@ class ClusteringActivityInputs:
     clustering_method: str = "hdbscan"  # "hdbscan" or "kmeans"
     clustering_method_params: dict = field(default_factory=dict)
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
+    # Optional property filters to scope which traces are included in clustering
+    trace_filters: list[dict] = field(default_factory=list)
 
 
 @dataclass
