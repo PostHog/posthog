@@ -24,9 +24,9 @@ import { endpointsUsageLogic } from './endpointsUsageLogic'
 import { OverlayForNewEndpointMenu } from './newEndpointMenu'
 
 const ENDPOINTS_PRODUCT_DESCRIPTION =
-    'Endpoints help you create pre-built SQL queries that you can easily use in your application via our API. Please note that endpoints is in beta and may not be fully reliable or set in stone.'
+    'Create reusable SQL queries and expose them as API endpoints. Query your data programmatically from any application. Note: Endpoints is in beta - features and APIs may change.'
 const ENDPOINTS_API_USAGE_PRODUCT_DESCRIPTION =
-    'Monitor your API usage and cost. Please note that endpoints is in beta and may not be fully reliable. Things will change as we learn what you need.'
+    'Monitor API request volume, response times, and costs for your endpoints. Track which endpoints are most used and identify performance issues.'
 
 export const scene: SceneExport = {
     component: EndpointsScene,

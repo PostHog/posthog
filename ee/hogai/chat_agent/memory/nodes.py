@@ -4,7 +4,6 @@ from uuid import uuid4
 
 from django.utils import timezone
 
-from asgiref.sync import async_to_sync
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -23,19 +22,22 @@ from posthog.schema import (
     AssistantMessage,
     AssistantMessageMetadata,
     CachedEventTaxonomyQueryResponse,
+    CacheMissResponse,
     ContextMessage,
     EventTaxonomyItem,
     EventTaxonomyQuery,
     HumanMessage,
+    QueryStatusResponse,
 )
 
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.sync import database_sync_to_async
 from posthog.utils import human_list
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
-from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
+from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
@@ -68,23 +70,17 @@ from .prompts import (
 
 
 class MemoryInitializerContextMixin(AssistantContextMixin):
-    def _retrieve_context(self, *, config: RunnableConfig | None = None) -> EventTaxonomyItem | None:
+    async def _aretrieve_context(self, *, config: RunnableConfig | None = None) -> EventTaxonomyItem | None:
         if config and "_mock_memory_onboarding_context" in config.get("configurable", {}):
             # Only for evals/tests (as patch() doesn't work because of evals running concurrently async)
             return config["configurable"]["_mock_memory_onboarding_context"]
         # Retrieve the origin domain.
-        runner = EventTaxonomyQueryRunner(
-            team=self._team, query=EventTaxonomyQuery(event="$pageview", properties=["$host"])
-        )
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+        response = await self._arun_taxonomy_query("$pageview", "$host")
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             raise ValueError("Failed to query the event taxonomy.")
         # Otherwise, retrieve the app bundle ID.
         if not response.results:
-            runner = EventTaxonomyQueryRunner(
-                team=self._team, query=EventTaxonomyQuery(event="$screen", properties=["$app_namespace"])
-            )
-            response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            response = await self._arun_taxonomy_query("$screen", "$app_namespace")
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             raise ValueError("Failed to query the event taxonomy.")
         if not response.results:
@@ -102,15 +98,26 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
             return None
         return item
 
+    async def _arun_taxonomy_query(
+        self, event: str, property: str
+    ) -> CacheMissResponse | QueryStatusResponse | CachedEventTaxonomyQueryResponse:
+        def run_query() -> CacheMissResponse | QueryStatusResponse | CachedEventTaxonomyQueryResponse:
+            runner = EventTaxonomyQueryRunner(
+                team=self._team, query=EventTaxonomyQuery(event=event, properties=[property])
+            )
+            return runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+
+        return await database_sync_to_async(run_query, thread_sensitive=False)()
+
 
 class MemoryOnboardingShouldRunMixin(AssistantNode):
-    def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
+    async def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
         """
         Only trigger memory onboarding when explicitly requested with /init command.
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
         If no messages are to be found in the AssistantState, do not run onboarding.
         """
-        core_memory = self.core_memory
+        core_memory = await self._aget_core_memory()
 
         if core_memory and core_memory.is_scraping_pending:
             # a user has already started the onboarding, we don't allow other users to start it concurrently until timeout is reached
@@ -121,23 +128,23 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
 
         last_message = state.messages[-1]
         if isinstance(last_message, HumanMessage) and last_message.content.startswith("/"):
-            report_user_action(
+            await database_sync_to_async(report_user_action)(
                 self._user, "Max slash command used", {"slash_command": last_message.content}, team=self._team
             )
-        if isinstance(last_message, HumanMessage) and last_message.content == SLASH_COMMAND_INIT:
+        if isinstance(last_message, HumanMessage) and last_message.content == SlashCommandName.FIELD_INIT:
             return "memory_onboarding"
         return "continue"
 
 
 class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
-    def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
-        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
-        core_memory.change_status_to_pending()
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
+        core_memory, _ = await CoreMemory.objects.aget_or_create(team=self._team)
+        await core_memory.achange_status_to_pending()
 
         # The team has a product description, initialize the memory with it.
-        if self._team.project.product_description:
-            core_memory.append_question_to_initial_text("What does the company do?")
-            core_memory.append_answer_to_initial_text(self._team.project.product_description)
+        if product_description := await database_sync_to_async(lambda: self._team.project.product_description)():
+            await core_memory.aappend_question_to_initial_text("What does the company do?")
+            await core_memory.aappend_answer_to_initial_text(product_description)
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
@@ -147,7 +154,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
                 ]
             )
 
-        retrieved_prop = self._retrieve_context(config=config)
+        retrieved_prop = await self._aretrieve_context(config=config)
 
         # No host or app bundle ID found
         if not retrieved_prop:
@@ -177,13 +184,13 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
     Scrapes the product description from the given origin or app bundle IDs.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        core_memory, _ = await CoreMemory.objects.aget_or_create(team=self._team)
         if core_memory.initial_text:
             # Reset the initial text if it's not the first time /init is ran
             core_memory.initial_text = ""
-            core_memory.save()
-        retrieved_prop = self._retrieve_context(config=config)
+            await core_memory.asave()
+        retrieved_prop = await self._aretrieve_context(config=config)
         # No host or app bundle ID found, continue.
         if not retrieved_prop:
             return None
@@ -201,13 +208,13 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             ).partial(bundle_ids=", ".join(retrieved_prop.sample_values))
 
         chain = prompt | self._model() | StrOutputParser()
-        answer = chain.invoke({}, config=config)
+        answer = await chain.ainvoke({}, config=config)
         # The model has failed to scrape the data, continue.
         if answer == SCRAPING_TERMINATION_MESSAGE:
             return PartialAssistantState(messages=[AssistantMessage(content=answer, id=str(uuid4()))])
         # Otherwise, proceed to confirmation that the memory is correct.
-        core_memory.append_question_to_initial_text("What does the company do?")
-        core_memory.append_answer_to_initial_text(answer)
+        await core_memory.aappend_question_to_initial_text("What does the company do?")
+        await core_memory.aappend_answer_to_initial_text(answer)
         return PartialAssistantState(messages=[AssistantMessage(content=answer, id=str(uuid4()))])
 
     def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
@@ -235,7 +242,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
     Prompts the user to confirm or reject the scraped memory.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NodeInterrupt(
             AssistantMessage(
                 content=SCRAPING_VERIFICATION_MESSAGE,
@@ -257,23 +264,23 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
     Prompts the user to give more information about the product, feature, business, etc.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         human_message = find_last_message_of_type(state.messages, HumanMessage)
         if not human_message:
             raise ValueError("No human message found.")
 
-        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
+        core_memory, _ = await CoreMemory.objects.aget_or_create(team=self._team)
         if (
             human_message.content not in [SCRAPING_CONFIRMATION_MESSAGE, SCRAPING_REJECTION_MESSAGE]
             and not human_message.content.startswith("/")  # Ignore slash commands
             and core_memory.initial_text.endswith("Answer:")
         ):
             # The user is answering to a question
-            core_memory.append_answer_to_initial_text(human_message.content)
+            await core_memory.aappend_answer_to_initial_text(human_message.content)
 
         if human_message.content == SCRAPING_REJECTION_MESSAGE:
             core_memory.initial_text = ""
-            core_memory.save()
+            await core_memory.asave()
 
         answers_left = core_memory.answers_left
         if answers_left > 0:
@@ -282,11 +289,11 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             ).partial(core_memory=core_memory.initial_text, questions_left=answers_left)
 
             chain = prompt | self._model | StrOutputParser()
-            response = chain.invoke({}, config=config)
+            response = await chain.ainvoke({}, config=config)
 
             if "[Done]" not in response and "===" in response:
                 question = self._format_question(response)
-                core_memory.append_question_to_initial_text(question)
+                await core_memory.aappend_question_to_initial_text(question)
                 return PartialAssistantState(onboarding_question=question)
         return PartialAssistantState(onboarding_question=None, answers_left=None)
 
@@ -301,8 +308,8 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             team=self._team,
         )
 
-    def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
-        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
+    async def arouter(self, state: AssistantState) -> Literal["continue", "interrupt"]:
+        core_memory, _ = await CoreMemory.objects.aget_or_create(team=self._team)
         if state.onboarding_question and core_memory.answers_left > 0:
             return "interrupt"
         return "continue"
@@ -324,8 +331,8 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
 
 
 class MemoryOnboardingFinalizeNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        core_memory, _ = await CoreMemory.objects.aget_or_create(team=self._team)
         # Compress the question/answer memory before saving it
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -334,9 +341,9 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
             ]
         )
         chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
-        compressed_memory = cast(str, chain.invoke({"memory_content": core_memory.initial_text}, config=config))
+        compressed_memory = cast(str, await chain.ainvoke({"memory_content": core_memory.initial_text}, config=config))
         compressed_memory = compressed_memory.replace("\n", " ").strip()
-        core_memory.set_core_memory(compressed_memory)
+        await core_memory.aset_core_memory(compressed_memory)
 
         context_message = ContextMessage(
             content=format_prompt_string(MEMORY_INITIALIZED_CONTEXT_PROMPT, core_memory=core_memory.initial_text),
@@ -387,8 +394,8 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        if self.should_run_onboarding_at_start(state) != "continue":
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        if await self.should_run_onboarding_at_start(state) != "continue":
             return None
 
         # Check if an interrupt had an unhandled tool, so it should go to tools first.
@@ -403,13 +410,13 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
         prompt = ChatPromptTemplate.from_messages(
             [("system", MEMORY_COLLECTOR_PROMPT)], template_format="mustache"
-        ) + self._construct_messages(state)
+        ) + await self._aconstruct_messages(state)
         chain = prompt | self._model | raise_memory_updated
 
         try:
-            response = chain.invoke(
+            response = await chain.ainvoke(
                 {
-                    "core_memory": self.core_memory_text,
+                    "core_memory": await self._aget_core_memory_text(),
                     "date": timezone.now().strftime("%Y-%m-%d"),
                 },
                 config=config,
@@ -429,13 +436,13 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
             model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
         ).bind_tools(memory_collector_tools)
 
-    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
+    async def _aconstruct_messages(self, state: AssistantState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []
 
         filtered_messages = filter_and_merge_messages(
             state.messages, entity_filter=(HumanMessage, AssistantMessage, ArtifactRefMessage)
         )
-        enriched_messages = async_to_sync(self.context_manager.artifacts.aenrich_messages)(filtered_messages)
+        enriched_messages = await self.context_manager.artifacts.aenrich_messages(filtered_messages)
 
         conversation: list[BaseMessage] = []
         for message in enriched_messages:
@@ -462,13 +469,13 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         last_message = state.messages[-1] if state.messages else None
         if (
             not isinstance(last_message, HumanMessage)
-            or not last_message.content.split(" ", 1)[0] == SLASH_COMMAND_REMEMBER
+            or not last_message.content.split(" ", 1)[0] == SlashCommandName.FIELD_REMEMBER
         ):
             # Not a /remember command, skip!
             return None
 
         # Extract the content to remember (everything after "/remember ")
-        remember_content = last_message.content[len(SLASH_COMMAND_REMEMBER) :].strip()
+        remember_content = last_message.content[len(SlashCommandName.FIELD_REMEMBER) :].strip()
         if remember_content:
             # Create a direct memory append tool call
             return LangchainAIMessage(
@@ -492,18 +499,18 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
 
 class MemoryCollectorToolsNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         node_messages = state.memory_collection_messages
         if not node_messages:
             raise ValueError("No memory collection messages found.")
         last_message = node_messages[-1]
         if not isinstance(last_message, LangchainAIMessage):
             raise ValueError("Last message must be an AI message.")
-        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
+        core_memory, _ = await CoreMemory.objects.aget_or_create(team=self._team)
 
         tools_parser = PydanticToolsParser(tools=memory_collector_tools)
         try:
-            tool_calls: list[Union[core_memory_append, core_memory_replace]] = tools_parser.invoke(
+            tool_calls: list[Union[core_memory_append, core_memory_replace]] = await tools_parser.ainvoke(
                 last_message, config=config
             )
         except ValidationError as e:
@@ -517,11 +524,11 @@ class MemoryCollectorToolsNode(AssistantNode):
         new_messages: list[LangchainToolMessage] = []
         for tool_call, schema in zip(last_message.tool_calls, tool_calls):
             if isinstance(schema, core_memory_append):
-                core_memory.append_core_memory(schema.memory_content)
+                await core_memory.aappend_core_memory(schema.memory_content)
                 new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
             if isinstance(schema, core_memory_replace):
                 try:
-                    core_memory.replace_core_memory(schema.original_fragment, schema.new_fragment)
+                    await core_memory.areplace_core_memory(schema.original_fragment, schema.new_fragment)
                     new_messages.append(LangchainToolMessage(content="Memory replaced.", tool_call_id=tool_call["id"]))
                 except ValueError as e:
                     new_messages.append(LangchainToolMessage(content=str(e), tool_call_id=tool_call["id"]))

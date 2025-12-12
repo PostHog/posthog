@@ -17,7 +17,66 @@ var (
 	_ easyjson.Marshaler
 )
 
-func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Lexer, out *PostHogEventWrapper) {
+func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Lexer, out *PostHogKafkaConsumer) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(out *jwriter.Writer, in PostHogKafkaConsumer) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	out.RawByte('}')
+}
+
+// MarshalJSON supports json.Marshaler interface
+func (v PostHogKafkaConsumer) MarshalJSON() ([]byte, error) {
+	w := jwriter.Writer{}
+	easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(&w, v)
+	return w.Buffer.BuildBytes(), w.Error
+}
+
+// MarshalEasyJSON supports easyjson.Marshaler interface
+func (v PostHogKafkaConsumer) MarshalEasyJSON(w *jwriter.Writer) {
+	easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(w, v)
+}
+
+// UnmarshalJSON supports json.Unmarshaler interface
+func (v *PostHogKafkaConsumer) UnmarshalJSON(data []byte) error {
+	r := jlexer.Lexer{Data: data}
+	easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(&r, v)
+	return r.Error()
+}
+
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
+func (v *PostHogKafkaConsumer) UnmarshalEasyJSON(l *jlexer.Lexer) {
+	easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(l, v)
+}
+func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.Lexer, out *PostHogEventWrapper) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -39,7 +98,7 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Le
 		case "uuid":
 			out.Uuid = string(in.String())
 		case "distinct_id":
-			out.DistinctId = string(in.String())
+			(out.DistinctId).UnmarshalEasyJSON(in)
 		case "ip":
 			out.Ip = string(in.String())
 		case "data":
@@ -56,7 +115,7 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Le
 		in.Consumed()
 	}
 }
-func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(out *jwriter.Writer, in PostHogEventWrapper) {
+func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter.Writer, in PostHogEventWrapper) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -68,7 +127,7 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(out *jwriter.
 	{
 		const prefix string = ",\"distinct_id\":"
 		out.RawString(prefix)
-		out.String(string(in.DistinctId))
+		(in.DistinctId).MarshalEasyJSON(out)
 	}
 	{
 		const prefix string = ",\"ip\":"
@@ -91,27 +150,27 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(out *jwriter.
 // MarshalJSON supports json.Marshaler interface
 func (v PostHogEventWrapper) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(&w, v)
+	easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v PostHogEventWrapper) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(w, v)
+	easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *PostHogEventWrapper) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(&r, v)
+	easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *PostHogEventWrapper) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(l, v)
+	easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(l, v)
 }
-func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.Lexer, out *PostHogEvent) {
+func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents2(in *jlexer.Lexer, out *PostHogEvent) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -164,13 +223,13 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.L
 			} else {
 				out.Timestamp = in.Interface()
 			}
-		case "uuid":
+		case "Uuid":
 			out.Uuid = string(in.String())
-		case "distinct_id":
+		case "DistinctId":
 			out.DistinctId = string(in.String())
-		case "lat":
+		case "Lat":
 			out.Lat = float64(in.Float64())
-		case "lng":
+		case "Lng":
 			out.Lng = float64(in.Float64())
 		default:
 			in.SkipRecursive()
@@ -182,7 +241,7 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.L
 		in.Consumed()
 	}
 }
-func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter.Writer, in PostHogEvent) {
+func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents2(out *jwriter.Writer, in PostHogEvent) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -241,22 +300,22 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter
 		}
 	}
 	{
-		const prefix string = ",\"uuid\":"
+		const prefix string = ",\"Uuid\":"
 		out.RawString(prefix)
 		out.String(string(in.Uuid))
 	}
 	{
-		const prefix string = ",\"distinct_id\":"
+		const prefix string = ",\"DistinctId\":"
 		out.RawString(prefix)
 		out.String(string(in.DistinctId))
 	}
 	{
-		const prefix string = ",\"lat\":"
+		const prefix string = ",\"Lat\":"
 		out.RawString(prefix)
 		out.Float64(float64(in.Lat))
 	}
 	{
-		const prefix string = ",\"lng\":"
+		const prefix string = ",\"Lng\":"
 		out.RawString(prefix)
 		out.Float64(float64(in.Lng))
 	}
@@ -266,23 +325,23 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter
 // MarshalJSON supports json.Marshaler interface
 func (v PostHogEvent) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(&w, v)
+	easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents2(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v PostHogEvent) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(w, v)
+	easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents2(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *PostHogEvent) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(&r, v)
+	easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents2(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *PostHogEvent) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(l, v)
+	easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents2(l, v)
 }

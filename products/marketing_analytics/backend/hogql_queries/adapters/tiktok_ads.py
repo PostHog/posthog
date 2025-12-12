@@ -135,16 +135,16 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
 
-        # Check if total_complete_payment_value column exists
+        # Check if total_complete_payment_rate column exists
         try:
             columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "total_complete_payment_value" in columns:
+            if columns and hasattr(columns, "__contains__") and "total_complete_payment_rate" in columns:
                 field_as_float = ast.Call(
                     name="ifNull",
                     args=[
                         ast.Call(
                             name="toFloat",
-                            args=[ast.Field(chain=[stats_table_name, "total_complete_payment_value"])],
+                            args=[ast.Field(chain=[stats_table_name, "total_complete_payment_rate"])],
                         ),
                         ast.Constant(value=0),
                     ],
