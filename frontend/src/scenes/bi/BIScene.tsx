@@ -337,7 +337,7 @@ export function BIScene(): JSX.Element {
         }
     }, [_queryString])
 
-    const rows = useMemo(() => {
+    const rawRows = useMemo(() => {
         if (!queryResponse?.results || selectedFields.length === 0 || queryResponseLoading) {
             return []
         }
@@ -352,6 +352,9 @@ export function BIScene(): JSX.Element {
             return asObject
         })
     }, [queryResponse, selectedFields, queryResponseLoading])
+
+    const rows = useMemo(() => rawRows.slice(0, limit), [rawRows, limit])
+    const hasMoreRows = rawRows.length > rows.length
 
     const numericColumns = useMemo(() => {
         if (rows.length === 0) {
@@ -706,70 +709,84 @@ export function BIScene(): JSX.Element {
                         {selectedFields.length === 0 ? (
                             <div className="text-muted">Select a table from the left to start the analysis.</div>
                         ) : (
-                            <div className="flex-1 min-h-0 overflow-auto max-w-full">
-                                <LemonTable
-                                    dataSource={rows}
-                                    loading={queryResponseLoading && selectedFields.length > 0}
-                                    columns={selectedFields.map(({ column, field, alias }) => ({
-                                        title: (
-                                            <ColumnHeader
-                                                column={column}
-                                                alias={alias}
-                                                field={field}
-                                                onRemove={() => removeColumn(column)}
-                                                onAddFilter={(expression) =>
-                                                    addFilter({ column, expression: expression || '= ""' })
+                            <div className="flex-1 min-h-0 flex flex-col max-w-full">
+                                <div className="flex-1 min-h-0 overflow-auto">
+                                    <LemonTable
+                                        dataSource={rows}
+                                        loading={queryResponseLoading && selectedFields.length > 0}
+                                        columns={selectedFields.map(({ column, field, alias }) => ({
+                                            title: (
+                                                <ColumnHeader
+                                                    column={column}
+                                                    alias={alias}
+                                                    field={field}
+                                                    onRemove={() => removeColumn(column)}
+                                                    onAddFilter={(expression) =>
+                                                        addFilter({ column, expression: expression || '= ""' })
+                                                    }
+                                                    sortDirection={
+                                                        sort && columnKey(sort.column) === columnKey(column)
+                                                            ? sort.direction
+                                                            : null
+                                                    }
+                                                    onSort={(direction) => setSort(column, direction)}
+                                                    onSetAggregation={(aggregation) =>
+                                                        setColumnAggregation(
+                                                            column,
+                                                            aggregation === column.aggregation ? null : aggregation
+                                                        )
+                                                    }
+                                                    onSetTimeInterval={(timeInterval) =>
+                                                        setColumnTimeInterval(
+                                                            column,
+                                                            timeInterval === column.timeInterval ? null : timeInterval
+                                                        )
+                                                    }
+                                                    isPopoverOpen={openColumnPopover === columnKey(column)}
+                                                    onPopoverVisibilityChange={(visible) => {
+                                                        setOpenFilterPopover(null)
+                                                        setOpenColumnPopover(visible ? columnKey(column) : null)
+                                                    }}
+                                                />
+                                            ),
+                                            dataIndex: alias,
+                                            key: columnKey(column),
+                                            render: function RenderCell(value) {
+                                                if (typeof value === 'number') {
+                                                    return humanFriendlyNumber(value)
                                                 }
-                                                sortDirection={
-                                                    sort && columnKey(sort.column) === columnKey(column)
-                                                        ? sort.direction
-                                                        : null
+
+                                                if (value === null || value === undefined) {
+                                                    return '—'
                                                 }
-                                                onSort={(direction) => setSort(column, direction)}
-                                                onSetAggregation={(aggregation) =>
-                                                    setColumnAggregation(
-                                                        column,
-                                                        aggregation === column.aggregation ? null : aggregation
+
+                                                if (typeof value === 'string') {
+                                                    const dayMatch = value.match(
+                                                        /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/
                                                     )
+
+                                                    if (dayMatch) {
+                                                        return dayMatch[1]
+                                                    }
                                                 }
-                                                onSetTimeInterval={(timeInterval) =>
-                                                    setColumnTimeInterval(
-                                                        column,
-                                                        timeInterval === column.timeInterval ? null : timeInterval
-                                                    )
-                                                }
-                                                isPopoverOpen={openColumnPopover === columnKey(column)}
-                                                onPopoverVisibilityChange={(visible) => {
-                                                    setOpenFilterPopover(null)
-                                                    setOpenColumnPopover(visible ? columnKey(column) : null)
-                                                }}
-                                            />
-                                        ),
-                                        dataIndex: alias,
-                                        key: columnKey(column),
-                                        render: function RenderCell(value) {
-                                            if (typeof value === 'number') {
-                                                return humanFriendlyNumber(value)
-                                            }
 
-                                            if (value === null || value === undefined) {
-                                                return '—'
-                                            }
-
-                                            if (typeof value === 'string') {
-                                                const dayMatch = value.match(
-                                                    /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/
-                                                )
-
-                                                if (dayMatch) {
-                                                    return dayMatch[1]
-                                                }
-                                            }
-
-                                            return String(value)
-                                        },
-                                    }))}
-                                />
+                                                return String(value)
+                                            },
+                                        }))}
+                                    />
+                                </div>
+                                {hasMoreRows && (
+                                    <div className="pt-2">
+                                        <LemonButton
+                                            type="secondary"
+                                            fullWidth
+                                            onClick={() => setLimit(limit + rows.length)}
+                                            loading={queryResponseLoading}
+                                        >
+                                            Load {rows.length} more rows
+                                        </LemonButton>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </LemonCard>

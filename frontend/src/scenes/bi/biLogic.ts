@@ -156,7 +156,7 @@ export const biLogic = kea<biLogicType>([
                 resetSelection: () => null,
             },
         ],
-        limit: [50 as number, { setLimit: (_, { limit }) => limit, resetSelection: () => 50 }],
+        limit: [50 as number, { setLimit: (_, { limit }) => limit, resetSelection: () => 50, selectTable: () => 50 }],
         tableSearchTerm: [
             '',
             {
@@ -291,7 +291,7 @@ export const biLogic = kea<biLogicType>([
                 const groupBy =
                     hasAggregations && groupByColumns.length > 0 ? `\nGROUP BY ${groupByColumns.join(', ')}` : ''
                 const having = havingParts.length > 0 ? `\nHAVING ${havingParts.join(' AND ')}` : ''
-                const limitSql = limit ? `\nLIMIT ${limit}` : ''
+                const limitSql = limit ? `\nLIMIT ${limit + 1}` : ''
 
                 return `SELECT ${selectParts.join(', ')}\nFROM ${table.name} ${where}${groupBy}${having}${orderBy}${limitSql}`
             },
