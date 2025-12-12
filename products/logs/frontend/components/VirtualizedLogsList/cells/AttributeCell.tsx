@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { LogsViewerCellPopover } from 'products/logs/frontend/components/LogsViewer/LogsViewerCellPopover'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
@@ -11,7 +12,11 @@ export interface AttributeCellProps {
     width: number
 }
 
-export function AttributeCell({ attributeKey, value, width }: AttributeCellProps): JSX.Element {
+export const AttributeCell = memo(function AttributeCell({
+    attributeKey,
+    value,
+    width,
+}: AttributeCellProps): JSX.Element {
     const { isAttributeColumn } = useValues(logsViewerLogic)
     const { addFilter, toggleAttributeColumn } = useActions(logsViewerLogic)
 
@@ -41,4 +46,4 @@ export function AttributeCell({ attributeKey, value, width }: AttributeCellProps
             </div>
         </LogsViewerCellPopover>
     )
-}
+})
