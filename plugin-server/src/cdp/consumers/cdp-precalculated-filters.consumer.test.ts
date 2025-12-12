@@ -616,7 +616,7 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
             // Should create person property event
             expect(precalculatedPersonProperties).toHaveLength(1)
             expect(precalculatedPersonProperties[0].payload).toMatchObject({
-                person_id: personId,
+                distinct_id: distinctId,
                 team_id: team.id,
                 condition: 'person_prop_test_001',
                 matches: true,
