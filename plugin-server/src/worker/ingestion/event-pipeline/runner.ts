@@ -65,7 +65,7 @@ export class EventPipelineRunner {
     mergeMode: MergeMode
 
     constructor(
-        private config: {
+        private options: {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
             TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
             PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
@@ -77,8 +77,8 @@ export class EventPipelineRunner {
             PERSON_PROPERTIES_UPDATE_ALL: boolean
         },
         private kafkaProducer: KafkaProducerWrapper,
-        private teamManager: TeamManager,
-        private groupTypeManager: GroupTypeManager,
+        teamManager: TeamManager,
+        groupTypeManager: GroupTypeManager,
         private originalEvent: PipelineEvent,
         private hogTransformer: HogTransformerService | null = null,
         private personsStore: PersonsStore,
@@ -88,13 +88,13 @@ export class EventPipelineRunner {
         this.eventsProcessor = new EventsProcessor(
             teamManager,
             groupTypeManager,
-            this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
+            options.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
         )
         this.mergeMode = determineMergeMode(
-            this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
-            this.config.PERSON_MERGE_ASYNC_ENABLED,
-            this.config.PERSON_MERGE_ASYNC_TOPIC,
-            this.config.PERSON_MERGE_SYNC_BATCH_SIZE
+            options.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+            options.PERSON_MERGE_ASYNC_ENABLED,
+            options.PERSON_MERGE_ASYNC_TOPIC,
+            options.PERSON_MERGE_SYNC_BATCH_SIZE
         )
     }
 
@@ -240,7 +240,7 @@ export class EventPipelineRunner {
 
         const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
             normalizeEventStep,
-            [transformedEvent, processPerson, this.headers, this.config.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
+            [transformedEvent, processPerson, this.headers, this.options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
             team.id,
             true,
             kafkaAcks,
@@ -341,8 +341,8 @@ export class EventPipelineRunner {
                 [
                     this.kafkaProducer,
                     this.mergeMode,
-                    this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-                    this.config.PERSON_PROPERTIES_UPDATE_ALL,
+                    this.options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                    this.options.PERSON_PROPERTIES_UPDATE_ALL,
                     event,
                     team,
                     timestamp,
@@ -396,14 +396,14 @@ export class EventPipelineRunner {
         const timer = new Date()
         const sendException = false
         const timeout = timeoutGuard(
-            `Event pipeline step stalled. Timeout warning after ${this.config.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
+            `Event pipeline step stalled. Timeout warning after ${this.options.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
             () => ({
                 step: step.name,
                 teamId: teamId,
                 event_name: this.originalEvent.event,
                 distinctId: this.originalEvent.distinct_id,
             }),
-            this.config.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
+            this.options.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
             sendException,
             this.reportStalled.bind(this, step.name)
         )
@@ -429,14 +429,14 @@ export class EventPipelineRunner {
         const timer = new Date()
         const sendException = false
         const timeout = timeoutGuard(
-            `Event pipeline step stalled. Timeout warning after ${this.config.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
+            `Event pipeline step stalled. Timeout warning after ${this.options.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
             () => ({
                 step: step.name,
                 teamId: teamId,
                 event_name: this.originalEvent.event,
                 distinctId: this.originalEvent.distinct_id,
             }),
-            this.config.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
+            this.options.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
             sendException,
             this.reportStalled.bind(this, step.name)
         )
