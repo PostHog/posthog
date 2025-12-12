@@ -88,7 +88,6 @@ impl KafkaLogRow {
                 )
             })
             .collect();
-        attributes.extend(resource_attributes.clone());
 
         let instrumentation_scope = match scope {
             Some(s) => format!("{}@{}", s.name, s.version),
