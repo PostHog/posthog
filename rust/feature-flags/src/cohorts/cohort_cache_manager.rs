@@ -124,13 +124,35 @@ impl CohortCacheManager {
         }
     }
 
+    /// Starts periodic monitoring of cache metrics.
+    ///
+    /// Reports `flags_cohort_cache_size_bytes` and `flags_cohort_cache_entries` gauges
+    /// at the specified interval. This ensures metrics stay fresh regardless of cache
+    /// hit/miss patterns, since `report_cache_metrics()` is otherwise only called on
+    /// cache misses.
+    pub async fn start_monitoring(&self, interval_secs: u64) {
+        let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
+
+        tracing::info!(
+            "Starting cohort cache monitoring (interval: {}s)",
+            interval_secs
+        );
+
+        loop {
+            ticker.tick().await;
+            self.report_cache_metrics();
+
+            tracing::debug!(
+                "Cohort cache metrics - size: {} bytes, entries: {}",
+                self.cache.weighted_size(),
+                self.cache.entry_count()
+            );
+        }
+    }
+
     /// Reports cache size metrics for observability.
     ///
-    /// Called after cache insertions to track memory usage. The values are estimates
-    /// since Moka runs maintenance asynchronously, but this is fine for observability.
-    /// Metrics are updated after cache insertions (which occur on cache misses), not when
-    /// entries are evicted due to TTL expiration or capacity limits. This is acceptable
-    /// since Prometheus scrapes periodically and metrics will update through normal operations.
+    /// Called after cache insertions and periodically by `start_monitoring()`.
     fn report_cache_metrics(&self) {
         common_metrics::gauge(
             COHORT_CACHE_SIZE_BYTES_GAUGE,
