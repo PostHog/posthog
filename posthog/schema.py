@@ -5013,6 +5013,7 @@ class MaxRecordingEventFilter(BaseModel):
         extra="forbid",
     )
     id: str = Field(..., description="Name of the event.")
+    name: str | None = Field(default=None, description="Optional display name for this event.")
     properties: (
         list[
             AssistantGenericPropertyFilter1

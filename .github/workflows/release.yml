@@ -16,6 +16,7 @@
 name: Release
 permissions:
     'contents': 'write'
+    'id-token': 'write'
 
 # This task will run whenever you push a git tag that looks like a version
 # like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
@@ -63,7 +64,7 @@ jobs:
               # we specify bash to get pipefail; it guards against the `curl` command
               # failing. otherwise `sh` won't catch that `curl` returned non-0
               shell: bash
-              run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.30.0/cargo-dist-installer.sh | sh"
+              run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.30.2/cargo-dist-installer.sh | sh"
             - name: Cache dist
               uses: actions/upload-artifact@v4
               with:
@@ -219,7 +220,7 @@ jobs:
         # Only run if we're "publishing", and only if local and global didn't fail (skipped is fine)
         if: ${{ always() && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
         env:
-            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT }}
         runs-on: 'ubuntu-22.04'
         outputs:
             val: ${{ steps.host.outputs.manifest }}
@@ -273,7 +274,6 @@ jobs:
               run: |
                   # Write and read notes from a file to avoid quoting breaking things
                   echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
-
                   gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
     publish-npm:
@@ -294,15 +294,18 @@ jobs:
                   merge-multiple: true
             - uses: actions/setup-node@v4
               with:
-                  node-version: '20.x'
+                  node-version: '22.x'
                   registry-url: 'https://registry.npmjs.org'
+            - name: Ensure modern npm (OIDC support)
+              run: npm install -g npm@11.6.4
             - run: |
                   for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
                     pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
                     npm publish --access public "./npm/${pkg}"
                   done
               env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+                  NPM_CONFIG_PROVENANCE: true
+                  NODE_AUTH_TOKEN: ''
 
     announce:
         needs:

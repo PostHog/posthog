@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
+from unittest.mock import MagicMock, patch
 
 from clickhouse_driver.errors import SocketTimeoutError
 from parameterized import parameterized
@@ -22,6 +23,7 @@ from posthog.models.cohort.util import (
     CohortErrorCode,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    get_static_cohort_size,
     parse_error_code,
     print_cohort_hogql_query,
     simplified_cohort_filter_properties,
@@ -395,6 +397,33 @@ class TestCohortUtils(BaseTest):
         self.assertIn("max_execution_time=60", sql)
         self.assertIn("allow_experimental_object_type=1", sql)
         self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
+
+    def test_get_static_cohort_size_uses_specified_database(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+
+        mock_qs = MagicMock()
+        mock_qs.filter.return_value = mock_qs
+        mock_qs.using.return_value = mock_qs
+        mock_qs.count.return_value = 42
+
+        with patch("posthog.models.cohort.util.CohortPeople.objects", mock_qs):
+            result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id, using_database="test_db")
+
+        mock_qs.using.assert_called_once_with("test_db")
+        self.assertEqual(result, 42)
+
+    def test_get_static_cohort_size_without_database_does_not_call_using(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+
+        mock_qs = MagicMock()
+        mock_qs.filter.return_value = mock_qs
+        mock_qs.count.return_value = 10
+
+        with patch("posthog.models.cohort.util.CohortPeople.objects", mock_qs):
+            result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
+
+        mock_qs.using.assert_not_called()
+        self.assertEqual(result, 10)
 
 
 class TestDependentCohorts(BaseTest):

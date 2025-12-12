@@ -3234,10 +3234,20 @@ export type SurveyRawResults = SurveyResponseRow[]
 
 // Product Tours
 export interface ProductTourStep {
+    id: string
     selector: string
     /** Rich text content in tiptap JSONContent format */
     content: Record<string, any> | null
     position?: 'top' | 'bottom' | 'left' | 'right'
+}
+
+/** Tracks a snapshot of steps at a point in time for funnel analysis */
+export interface StepOrderVersion {
+    id: string
+    /** Full snapshot of steps as they existed when this version was created */
+    steps: ProductTourStep[]
+    /** When this version became active */
+    created_at: string
 }
 
 export interface ProductTourContent {
@@ -3246,7 +3256,10 @@ export interface ProductTourContent {
     conditions?: {
         url?: string
         urlMatchType?: 'exact' | 'contains' | 'regex'
+        selector?: string
     }
+    /** History of step order changes for funnel analysis */
+    step_order_history?: StepOrderVersion[]
 }
 
 export interface ProductTour {
@@ -3257,6 +3270,7 @@ export interface ProductTour {
     feature_flag_key: string | null
     targeting_flag_filters: FeatureFlagFilters | null
     content: ProductTourContent
+    auto_launch: boolean
     start_date: string | null
     end_date: string | null
     created_at: string
@@ -4246,6 +4260,8 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Action/event filter defition */
         action?: ActionFilter | null
         yAxisID?: string
+        /** Total number of respondents for survey questions (for per-respondent percentage calculation) */
+        totalResponses?: number
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
@@ -4657,6 +4673,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'llm_provider_key'
     | 'logs'
     | 'notebook'
     | 'organization'
@@ -5861,6 +5878,8 @@ export interface Conversation {
     type: ConversationType
     has_unsupported_content?: boolean
     agent_mode?: string | null
+    slack_thread_key?: string | null
+    slack_workspace_domain?: string | null
 }
 
 export interface ConversationDetail extends Conversation {
@@ -6089,8 +6108,6 @@ export enum OnboardingStepKey {
     PRODUCT_CONFIGURATION = 'configure',
     REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
-    DASHBOARD_TEMPLATE = 'dashboard_template',
-    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
     SESSION_REPLAY = 'session_replay',
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
