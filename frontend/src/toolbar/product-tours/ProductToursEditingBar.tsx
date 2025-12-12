@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCheck, IconMagicWand, IconPlus, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -19,18 +19,65 @@ const GENERATION_STATUS: Record<string, string> = {
     error: '',
 }
 
+/** Get display title for a step */
+function getStepTitle(step: TourStep, index: number): string {
+    return step.content?.content?.[0]?.content?.[0]?.text || `Step ${index + 1}`
+}
+
+/** Check if step has content */
+function stepHasContent(step: TourStep): boolean {
+    return !!(step.content?.content && step.content.content.length > 0)
+}
+
+/** PostHog brand blue - used for step indicators */
+const POSTHOG_BLUE = '#1d4aff'
+
 const BAR_HEIGHT = 56
 
 export function ProductToursEditingBar(): JSX.Element | null {
     const { theme } = useValues(toolbarLogic)
     const { selectedTourId, tourForm, tourFormErrors, inspectingElement, aiGenerating, aiGenerationStep, stepCount } =
         useValues(productToursLogic)
-    const { selectTour, editStep, removeStep, inspectForElementWithIndex, saveTour, generateWithAI, setTourFormValue } =
-        useActions(productToursLogic)
+    const {
+        selectTour,
+        editStep,
+        removeStep,
+        inspectForElementWithIndex,
+        saveTour,
+        generateWithAI,
+        setTourFormValue,
+        addModalStep,
+    } = useActions(productToursLogic)
 
     const themeProps = { theme } as { theme?: string }
     const steps = tourForm?.steps || []
     const generationStatus = GENERATION_STATUS[aiGenerationStep] || ''
+
+    // Drag state for reordering
+    const [dragIndex, setDragIndex] = useState<number | null>(null)
+    const [dropIndex, setDropIndex] = useState<number | null>(null)
+
+    const handleDragStart = (index: number): void => {
+        setDragIndex(index)
+    }
+
+    const handleDragOver = (e: React.DragEvent, index: number): void => {
+        e.preventDefault()
+        if (dragIndex !== null && dragIndex !== index) {
+            setDropIndex(index)
+        }
+    }
+
+    const handleDragEnd = (): void => {
+        if (dragIndex !== null && dropIndex !== null && dragIndex !== dropIndex) {
+            const newSteps = [...steps]
+            const [moved] = newSteps.splice(dragIndex, 1)
+            newSteps.splice(dropIndex, 0, moved)
+            setTourFormValue('steps', newSteps)
+        }
+        setDragIndex(null)
+        setDropIndex(null)
+    }
 
     useEffect(() => {
         if (selectedTourId !== null) {
@@ -65,44 +112,84 @@ export function ProductToursEditingBar(): JSX.Element | null {
                 />
             </div>
 
-            {/* Center: Step buttons (like Product Fruits) */}
-            <div className="flex-1 flex items-center justify-center gap-1">
+            {/* Center: Step buttons with titles */}
+            <div className="flex-1 flex items-center justify-center gap-1.5">
                 {stepCount === 0 && (
                     <span className="text-muted text-sm">Click an element on the page to add a step</span>
                 )}
                 {steps.map((step: TourStep, index: number) => {
                     const isActive = inspectingElement === index
+                    const isDragging = dragIndex === index
+                    const isDropTarget = dropIndex === index && dragIndex !== index
+                    const hasContent = stepHasContent(step)
+                    const title = getStepTitle(step, index)
+                    // Truncate to ~15 chars for compact display
+                    const displayTitle = title.length > 15 ? title.slice(0, 14) + '…' : title
+
                     return (
-                        <div key={step.id} className="flex items-center gap-1 toolbar-animate-blur-right">
-                            {index > 0 && <span className="text-muted-alt">+</span>}
-                            <LemonButton
-                                size="small"
-                                type={isActive ? 'primary' : 'secondary'}
-                                onClick={() => {
-                                    if (isActive) {
-                                        inspectForElementWithIndex(null)
-                                    } else {
-                                        editStep(index)
-                                    }
-                                }}
-                                sideAction={{
-                                    icon: <IconTrash className="w-3 h-3" />,
-                                    tooltip: 'Remove step',
-                                    onClick: () => removeStep(index),
-                                }}
+                        <div
+                            key={step.id}
+                            className={`flex items-center toolbar-animate-blur-right transition-all ${
+                                isDragging ? 'opacity-50 scale-95' : ''
+                            } ${isDropTarget ? 'translate-x-1' : ''}`}
+                            draggable
+                            onDragStart={() => handleDragStart(index)}
+                            onDragOver={(e) => handleDragOver(e, index)}
+                            onDragEnd={handleDragEnd}
+                        >
+                            {index > 0 && <span className="text-muted text-xs mx-0.5">→</span>}
+                            <Tooltip title={title !== displayTitle ? title : undefined}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (isActive) {
+                                            inspectForElementWithIndex(null)
+                                        } else {
+                                            editStep(index)
+                                        }
+                                    }}
+                                    className={`
+                                        flex items-center gap-1.5 px-2 py-1 rounded-md text-xs
+                                        cursor-grab active:cursor-grabbing transition-all
+                                        ${
+                                            isActive
+                                                ? 'bg-primary text-white'
+                                                : 'bg-bg-3000 hover:bg-border text-default'
+                                        }
+                                    `}
+                                >
+                                    <span
+                                        className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{ backgroundColor: POSTHOG_BLUE }}
+                                    >
+                                        {index + 1}
+                                    </span>
+                                    <span className="font-medium">{displayTitle}</span>
+                                    {!hasContent && <span className="w-1.5 h-1.5 rounded-full bg-warning shrink-0" />}
+                                </button>
+                            </Tooltip>
+                            <button
+                                type="button"
+                                onClick={() => removeStep(index)}
+                                className="ml-0.5 w-5 h-5 rounded flex items-center justify-center text-muted hover:text-danger transition-colors opacity-60 hover:opacity-100"
+                                title="Remove step"
                             >
-                                Step #{index + 1}
-                            </LemonButton>
+                                <IconTrash className="w-3 h-3" />
+                            </button>
                         </div>
                     )
                 })}
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    icon={<IconPlus />}
-                    onClick={() => inspectForElementWithIndex(steps.length)}
-                    disabled={aiGenerating}
-                />
+                <Tooltip title="Add modal step (not attached to element)">
+                    <button
+                        type="button"
+                        onClick={() => addModalStep()}
+                        disabled={aiGenerating}
+                        className="w-6 h-6 rounded-md border border-dashed border-border flex items-center justify-center text-muted hover:border-primary hover:text-primary transition-colors disabled:opacity-50 ml-1"
+                    >
+                        <IconPlus className="w-3 h-3" />
+                    </button>
+                </Tooltip>
             </div>
 
             {/* Right: Actions */}

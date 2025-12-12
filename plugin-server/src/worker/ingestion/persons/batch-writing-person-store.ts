@@ -120,6 +120,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private updateLatencyPerDistinctIdSeconds: Map<string, Map<UpdateType, number>>
     private cacheMetrics: CacheMetrics
     private options: BatchWritingPersonsStoreOptions
+    // Cache for batch personless distinct ID insert results (is_merged values)
+    private personlessBatchResults: Map<string, boolean>
 
     constructor(
         private personRepository: PersonRepository,
@@ -135,6 +137,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.methodCountsPerDistinctId = new Map()
         this.databaseOperationCountsPerDistinctId = new Map()
         this.updateLatencyPerDistinctIdSeconds = new Map()
+        this.personlessBatchResults = new Map()
         this.cacheMetrics = {
             updateCacheHits: 0,
             updateCacheMisses: 0,
@@ -868,7 +871,30 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         tx?: PersonRepositoryTransaction
     ): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctIdForMerge', distinctId)
-        return await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
+        const isMerged = await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
+        // Update the batch results cache so processPersonlessStep knows this was merged
+        if (isMerged) {
+            this.personlessBatchResults.set(`${teamId}|${distinctId}`, true)
+        }
+        return isMerged
+    }
+
+    async processPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<void> {
+        if (entries.length === 0) {
+            return
+        }
+
+        const results = await this.personRepository.addPersonlessDistinctIdsBatch(entries)
+        // Only store merged distinct IDs - these need force_upgrade handling
+        for (const [key, isMerged] of results) {
+            if (isMerged) {
+                this.personlessBatchResults.set(key, true)
+            }
+        }
+    }
+
+    getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
+        return this.personlessBatchResults.get(`${teamId}|${distinctId}`)
     }
 
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {
@@ -909,6 +935,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.methodCountsPerDistinctId.clear()
         this.databaseOperationCountsPerDistinctId.clear()
         this.updateLatencyPerDistinctIdSeconds.clear()
+        this.personlessBatchResults.clear()
         this.cacheMetrics = {
             updateCacheHits: 0,
             updateCacheMisses: 0,
@@ -1112,11 +1139,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[],
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonRepositoryTransaction
     ): Promise<CreatePersonResult> {
-        this.incrementCount('createPerson', distinctIds?.[0].distinctId ?? '')
-        this.incrementDatabaseOperation('createPerson', distinctIds?.[0]?.distinctId ?? '')
+        this.incrementCount('createPerson', primaryDistinctId.distinctId)
+        this.incrementDatabaseOperation('createPerson', primaryDistinctId.distinctId)
         const result = await (tx || this.personRepository).createPerson(
             createdAt,
             properties,
@@ -1126,23 +1154,24 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             isUserId,
             isIdentified,
             uuid,
-            distinctIds
+            primaryDistinctId,
+            extraDistinctIds
         )
 
         if (result.success) {
             const { person } = result
-            this.setCheckCachedPerson(teamId, distinctIds?.[0]?.distinctId ?? '', person)
+            this.setCheckCachedPerson(teamId, primaryDistinctId.distinctId, person)
             this.setCachedPersonForUpdate(
                 teamId,
-                distinctIds?.[0]?.distinctId ?? '',
-                fromInternalPerson(person, distinctIds?.[0]?.distinctId ?? '')
+                primaryDistinctId.distinctId,
+                fromInternalPerson(person, primaryDistinctId.distinctId)
             )
-            if (distinctIds?.[1]) {
-                this.setDistinctIdToPersonId(teamId, distinctIds[1].distinctId, person.id)
+            for (const extraDistinctId of extraDistinctIds || []) {
+                this.setDistinctIdToPersonId(teamId, extraDistinctId.distinctId, person.id)
                 this.setCachedPersonForUpdate(
                     teamId,
-                    distinctIds[1].distinctId,
-                    fromInternalPerson(person, distinctIds[1].distinctId)
+                    extraDistinctId.distinctId,
+                    fromInternalPerson(person, extraDistinctId.distinctId)
                 )
             }
         }

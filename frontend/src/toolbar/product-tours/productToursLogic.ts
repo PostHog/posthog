@@ -13,7 +13,7 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement } from '~/toolbar/utils'
-import { ProductTour } from '~/types'
+import { ProductTour, ProductTourStep, StepOrderVersion } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
 import { captureScreenshot, getElementMetadata } from './utils'
@@ -60,7 +60,7 @@ function tourToForm(tour: ProductTour): TourForm {
         id: tour.id,
         name: tour.name,
         steps: (tour.content?.steps ?? []).map((step) => ({
-            id: uuid(),
+            id: step.id || uuid(), // Preserve existing ID, generate new one only if missing
             selector: step.selector,
             content: step.content,
         })),
@@ -70,6 +70,36 @@ function tourToForm(tour: ProductTour): TourForm {
 function isToolbarElement(element: HTMLElement): boolean {
     const toolbar = document.getElementById(TOOLBAR_ID)
     return toolbar?.contains(element) ?? false
+}
+
+/** Check if steps have changed compared to the latest version in history */
+function hasStepsChanged(currentSteps: ProductTourStep[], history: StepOrderVersion[] | undefined): boolean {
+    if (!history || history.length === 0) {
+        return true // No history means we need to create the first version
+    }
+    const latestVersion = history[history.length - 1]
+    if (currentSteps.length !== latestVersion.steps.length) {
+        return true
+    }
+    return currentSteps.some((step, index) => step.id !== latestVersion.steps[index].id)
+}
+
+/** Create updated step order history, appending a new version if steps changed */
+function getUpdatedStepOrderHistory(
+    currentSteps: ProductTourStep[],
+    existingHistory: StepOrderVersion[] | undefined
+): StepOrderVersion[] {
+    const history = existingHistory ? [...existingHistory] : []
+
+    if (hasStepsChanged(currentSteps, history)) {
+        history.push({
+            id: uuid(),
+            steps: currentSteps,
+            created_at: new Date().toISOString(),
+        })
+    }
+
+    return history
 }
 
 export const productToursLogic = kea<productToursLogicType>([
@@ -87,6 +117,8 @@ export const productToursLogic = kea<productToursLogicType>([
         selectTour: (id: string | null) => ({ id }),
         newTour: true,
         addStep: true,
+        addModalStep: true,
+        setEditingModalStep: (isModal: boolean) => ({ isModal }),
         removeStep: (index: number) => ({ index }),
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         updateRects: true,
@@ -170,8 +202,23 @@ export const productToursLogic = kea<productToursLogicType>([
                 selectElement: (_, { element }) => element,
                 cancelStep: () => null,
                 inspectForElementWithIndex: () => null,
+                addModalStep: () => null,
+                setEditingModalStep: (state, { isModal }) => (isModal ? null : state),
                 hideButtonProductTours: () => null,
                 // Note: confirmStep clears this AFTER the listener runs via actions.cancelStep()
+            },
+        ],
+        editingModalStep: [
+            false,
+            {
+                addModalStep: () => true,
+                setEditingModalStep: (_, { isModal }) => isModal,
+                selectElement: () => false,
+                cancelStep: () => false,
+                confirmStep: () => false,
+                inspectForElementWithIndex: () => false,
+                selectTour: () => false,
+                hideButtonProductTours: () => false,
             },
         ],
         rectUpdateCounter: [
@@ -250,11 +297,24 @@ export const productToursLogic = kea<productToursLogicType>([
             },
             submit: async (formValues) => {
                 const { id, name, steps } = formValues
-                // Strip element references from steps before saving
-                const stepsForApi = steps.map(({ selector, content }) => ({ selector, content }))
+                // Strip element references from steps before saving (element is a local-only DOM ref)
+                const stepsForApi = steps.map(({ element: _, ...step }) => step)
+
+                // Get existing step_order_history if updating an existing tour
+                const existingTour = id ? values.tours.find((t: ProductTour) => t.id === id) : null
+                const existingHistory = existingTour?.content?.step_order_history
+
+                // Update history if step order changed (or create initial version for new tours)
+                const stepOrderHistory = getUpdatedStepOrderHistory(stepsForApi, existingHistory)
+
                 const payload = {
                     name,
-                    content: { steps: stepsForApi },
+                    content: {
+                        // Preserve existing content fields (appearance, conditions) when updating
+                        ...existingTour?.content,
+                        steps: stepsForApi,
+                        step_order_history: stepOrderHistory,
+                    },
                 }
 
                 const isUpdate = !!id
@@ -330,7 +390,10 @@ export const productToursLogic = kea<productToursLogicType>([
                 return getRectForElement(selectedElement)
             },
         ],
-        isEditingStep: [(s) => [s.selectedElement], (selectedElement) => selectedElement !== null],
+        isEditingStep: [
+            (s) => [s.selectedElement, s.editingModalStep],
+            (selectedElement, editingModalStep) => selectedElement !== null || editingModalStep,
+        ],
         editingStep: [
             (s) => [s.inspectingElement, s.tourForm],
             (inspectingElement, tourForm): TourStep | null => {
@@ -358,9 +421,14 @@ export const productToursLogic = kea<productToursLogicType>([
 
     listeners(({ actions, values }) => ({
         confirmStep: ({ content, selector: selectorOverride }) => {
-            if (values.tourForm && values.selectedElement) {
-                const actionStep = elementToActionStep(values.selectedElement, values.dataAttributes)
-                const selector = selectorOverride ?? actionStep.selector ?? ''
+            // Check inspectingElement since editingModalStep reducer runs before listener
+            if (values.tourForm && values.inspectingElement !== null) {
+                // For modal steps (no element), selector is empty by default
+                const selector = values.selectedElement
+                    ? (selectorOverride ??
+                      elementToActionStep(values.selectedElement, values.dataAttributes).selector ??
+                      '')
+                    : (selectorOverride ?? '')
 
                 const steps = [...(values.tourForm.steps || [])]
                 const index = values.inspectingElement
@@ -373,7 +441,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     id: stepId,
                     selector,
                     content,
-                    element: values.selectedElement,
+                    element: values.selectedElement ?? undefined,
                 }
 
                 if (index !== null && index < steps.length) {
@@ -406,6 +474,9 @@ export const productToursLogic = kea<productToursLogicType>([
                 // Scroll element into view so the card is visible
                 element.scrollIntoView({ behavior: 'smooth', block: 'center' })
                 actions.selectElement(element)
+            } else {
+                // Modal step (no selector/element) - edit in centered modal mode
+                actions.setEditingModalStep(true)
             }
         },
         selectElement: ({ element }) => {
@@ -422,6 +493,10 @@ export const productToursLogic = kea<productToursLogicType>([
         addStep: () => {
             const nextIndex = values.tourForm?.steps?.length ?? 0
             actions.inspectForElementWithIndex(nextIndex)
+        },
+        addModalStep: () => {
+            const nextIndex = values.tourForm?.steps?.length ?? 0
+            actions.setInspectingElementIndex(nextIndex)
         },
         removeStep: ({ index }) => {
             if (values.tourForm) {

@@ -1386,18 +1386,18 @@
         "model": "deepseek/deepseek-v3.2",
         "cost": {
             "default": {
-                "prompt_token": 2.6e-7,
-                "completion_token": 3.9e-7,
-                "cache_read_token": 2e-7
+                "prompt_token": 2.5e-7,
+                "completion_token": 3.8e-7,
+                "cache_read_token": 1.9e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 2.8e-7,
                 "completion_token": 4e-7
             },
             "avian-fp8": {
-                "prompt_token": 2.6e-7,
-                "completion_token": 3.9e-7,
-                "cache_read_token": 2e-7
+                "prompt_token": 2.5e-7,
+                "completion_token": 3.8e-7,
+                "cache_read_token": 1.9e-7
             },
             "baseten-fp4": {
                 "prompt_token": 3e-7,
@@ -1420,6 +1420,10 @@
             "gmicloud-fp8": {
                 "prompt_token": 2.8e-7,
                 "completion_token": 4e-7
+            },
+            "google-vertex": {
+                "prompt_token": 5.6e-7,
+                "completion_token": 0.00000168
             },
             "novita-fp8": {
                 "prompt_token": 2.69e-7,
@@ -4609,6 +4613,55 @@
         }
     },
     {
+        "model": "openai/gpt-5.2",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000175,
+                "completion_token": 0.000014,
+                "cache_read_token": 1.75e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.00000175,
+                "completion_token": 0.000014,
+                "cache_read_token": 1.75e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.2-chat",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000175,
+                "completion_token": 0.000014,
+                "cache_read_token": 1.75e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.00000175,
+                "completion_token": 0.000014,
+                "cache_read_token": 1.75e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.2-pro",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000021,
+                "completion_token": 0.000168,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.000021,
+                "completion_token": 0.000168,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "openai/gpt-oss-120b",
         "cost": {
             "default": {
@@ -4767,6 +4820,10 @@
             "fireworks": {
                 "prompt_token": 7e-8,
                 "completion_token": 3e-7
+            },
+            "gmicloud-fp4": {
+                "prompt_token": 4e-8,
+                "completion_token": 1.5e-7
             },
             "google-vertex": {
                 "prompt_token": 7e-8,
@@ -5694,6 +5751,10 @@
             "default": {
                 "prompt_token": 8e-8,
                 "completion_token": 2.4e-7
+            },
+            "atlas-cloud-fp8": {
+                "prompt_token": 1e-7,
+                "completion_token": 4.5e-7
             },
             "cerebras": {
                 "prompt_token": 4e-7,
@@ -6864,14 +6925,8 @@
         "model": "z-ai/glm-4.6:exacto",
         "cost": {
             "default": {
-                "prompt_token": 4.3e-7,
-                "completion_token": 0.00000175,
-                "cache_read_token": 7.99999993e-8
-            },
-            "deepinfra-fp4": {
-                "prompt_token": 4.3e-7,
-                "completion_token": 0.00000175,
-                "cache_read_token": 7.99999993e-8
+                "prompt_token": 4.4e-7,
+                "completion_token": 0.00000176
             },
             "novita-bf16": {
                 "prompt_token": 4.4e-7,
