@@ -10,8 +10,8 @@ import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboar
 import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
+import { TerraformExportModal } from 'lib/components/ExportButton/TerraformExportModal'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { generateInsightHCL } from 'lib/components/ExportButton/hclExporter'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
@@ -140,6 +140,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
     const [endpointModalOpen, setEndpointModalOpen] = useState<boolean>(false)
+    const [terraformModalOpen, setTerraformModalOpen] = useState<boolean>(false)
 
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
@@ -224,6 +225,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     />
                 </>
             )}
+
+            <TerraformExportModal
+                isOpen={terraformModalOpen}
+                onClose={() => setTerraformModalOpen(false)}
+                insight={{ ...insight, query }}
+            />
 
             <ScenePanel>
                 <>
@@ -354,19 +361,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         context: exportContext,
                                         dataAttr: `${RESOURCE_TYPE}-export-xlsx`,
                                     },
-                                    {
-                                        format: ExporterFormat.HCL,
-                                        label: '.tf',
-                                        context: {
-                                            localData: generateInsightHCL(insight),
-                                            filename: `${insight.name || insight.derived_name || `insight_${insight.id}`}.tf`,
-                                            mediaType: ExporterFormat.HCL,
-                                        },
-                                        dataAttr: `${RESOURCE_TYPE}-export-hcl`,
-                                    },
                                 ]}
                             />
                         ) : null}
+
+                        <ButtonPrimitive
+                            onClick={() => setTerraformModalOpen(true)}
+                            menuItem
+                            data-attr="insight-manage-terraform"
+                        >
+                            <IconCode2 />
+                            Manage with Terraform...
+                        </ButtonPrimitive>
 
                         {hasDashboardItemId && featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
                             <ButtonPrimitive onClick={() => setEndpointModalOpen(true)} menuItem>
