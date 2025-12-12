@@ -161,8 +161,8 @@ class TestSlashCommandHandlerNode(BaseTest):
         result = self.node._get_command(state)
         self.assertEqual(result, SlashCommandName.FIELD_TICKET)
 
-    def test_router_returns_end_for_ticket_command(self):
+    async def test_router_returns_end_for_ticket_command(self):
         """Test that /ticket command routes to END."""
         state = AssistantState(messages=[HumanMessage(content="/ticket")])
-        result = self.node.router(state)
+        result = await self.node.arouter(state)
         self.assertEqual(result, AssistantNodeName.END)
