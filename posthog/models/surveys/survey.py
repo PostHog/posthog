@@ -71,6 +71,16 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_name="surveys_targeting_flag",
         related_query_name="survey_targeting_flag",
     )
+    linked_insight = models.ForeignKey(
+        "posthog.Insight",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="surveys_linked_insight",
+        related_query_name="survey_linked_insight",
+        db_index=True,
+        db_constraint=True,
+    )
     internal_targeting_flag = models.ForeignKey(
         "posthog.FeatureFlag",
         null=True,
@@ -128,6 +138,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
@@ -227,6 +238,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         blank=True,
     )
     enable_partial_responses = models.BooleanField(default=False, null=True)
+
+    # AI-generated headline summary
+    headline_summary = models.TextField(blank=True, null=True)
+    headline_response_count = models.PositiveIntegerField(null=True, blank=True)
+
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(
         models.BooleanField(

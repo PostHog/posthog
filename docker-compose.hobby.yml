@@ -13,8 +13,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: db
-        # Pin to postgres 12 until we have a process for pg_upgrade to postgres 15 for exsisting installations
-        image: ${DOCKER_REGISTRY_PREFIX:-}postgres:12-alpine
+        image: ${DOCKER_REGISTRY_PREFIX:-}postgres:15.12-alpine
         volumes:
             - postgres-data:/var/lib/postgresql/data
 
@@ -139,6 +138,8 @@ services:
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
+            LOGS_REDIS_HOST: redis7
+            LOGS_REDIS_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -186,9 +187,6 @@ services:
         restart: on-failure
         volumes:
             - seaweedfs:/data
-        ports:
-            - '8333:8333'
-            - '9333:9333'
 
     asyncmigrationscheck:
         extends:

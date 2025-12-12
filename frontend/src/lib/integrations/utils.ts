@@ -2,6 +2,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { IntegrationKind } from '~/types'
 
+import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
 import IconDatabricks from 'public/services/databricks.png'
 import IconGitHub from 'public/services/github.png'
@@ -44,6 +45,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'reddit-ads': IconReddit,
     databricks: IconDatabricks,
     'tiktok-ads': IconTikTok,
+    'bing-ads': IconBingAds,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
@@ -60,6 +62,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Reddit Ads'
         case 'tiktok-ads':
             return 'TikTok Ads'
+        case 'bing-ads':
+            return 'Bing Ads'
         case 'email':
             return 'email'
         case 'github':

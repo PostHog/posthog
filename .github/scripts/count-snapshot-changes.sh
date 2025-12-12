@@ -35,23 +35,20 @@ DELETED=$(grep '^D' /tmp/snapshot-diff.txt | wc -l | xargs)
 # Track which file to read from for JSON building
 DIFF_FILE="/tmp/snapshot-diff.txt"
 
-# Run OptiPNG if there are added or modified files
-if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
-    echo "Running OptiPNG optimization on $((ADDED + MODIFIED)) files..." >&2
-    sudo apt-get update -qq && sudo apt-get install -y -qq optipng >/dev/null 2>&1 || true
+# Run Oxipng if there are added or modified PNG files
+PNG_FILES=$(grep -E '^[AM].*\.png$' /tmp/snapshot-diff.txt | awk '{print $2}' | tr '\n' ' ' || true)
+if [ -n "$PNG_FILES" ]; then
+    echo "Running Oxipng optimization on PNG files..." >&2
 
-    # Find PNG files that were added or modified
-    while IFS= read -r line; do
-        status=$(echo "$line" | awk '{print $1}')
-        file=$(echo "$line" | awk '{print $2}')
-        if [[ "$status" == "A" || "$status" == "M" ]] && [[ "$file" == *.png ]]; then
-            if [ -f "$file" ]; then
-                optipng -clobber -o4 -strip all "$file" 2>/dev/null || true
-            fi
-        fi
-    done < /tmp/snapshot-diff.txt
+    echo "::group::Oxipng optimization" >&2
+    # Optimize changed PNGs using Oxipng via npx
+    # Oxipng auto-detects CPU cores and parallelizes internally
+    # --opt max for best compression, --strip safe for deterministic output
+    # --alpha to optimize transparent pixels, oxipng is deterministic by default
+    npx --yes oxipng@latest --opt max --strip safe --alpha $PNG_FILES
+    echo "::endgroup::" >&2
 
-    # Re-count after OptiPNG (may have eliminated some diffs)
+    # Re-count after Oxipng (may have eliminated some diffs)
     git diff --cached --name-status "$SNAPSHOT_DIR" > /tmp/snapshot-diff-after.txt || true
     DIFF_FILE="/tmp/snapshot-diff-after.txt"
     ADDED=$(grep '^A' /tmp/snapshot-diff-after.txt | wc -l | xargs)

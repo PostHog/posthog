@@ -14,6 +14,7 @@ from django.utils import timezone
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
@@ -1986,3 +1987,210 @@ class TestOAuthAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["error"], "invalid_request")
         self.assertIn("Invalid JSON", response_data["error_description"])
+
+    def _create_access_and_refresh_tokens(self, scopes: str = "openid") -> tuple[OAuthAccessToken, OAuthRefreshToken]:
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "scope": scopes},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        access_token = OAuthAccessToken.objects.get(token=data["access_token"])
+        refresh_token = OAuthRefreshToken.objects.get(token=data["refresh_token"])
+
+        return access_token, refresh_token
+
+    @parameterized.expand([("access_token", True), ("refresh_token", False)])
+    def test_introspection_with_http_basic_auth(self, token_type, expected_active):
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token.token},
+            headers={"Authorization": authorization_header},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["active"], expected_active)
+
+        if expected_active:
+            self.assertEqual(data["scope"], "openid")
+            self.assertEqual(data["client_id"], "test_confidential_client_id")
+            self.assertIn("scoped_teams", data)
+            self.assertIn("scoped_organizations", data)
+            self.assertIn("exp", data)
+
+    @parameterized.expand([("access_token", True), ("refresh_token", False)])
+    def test_introspection_with_client_credentials_in_body(self, token_type, expected_active):
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        response = self.post(
+            "/oauth/introspect/",
+            {
+                "token": token.token,
+                "client_id": "test_confidential_client_id",
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["active"], expected_active)
+
+        if expected_active:
+            self.assertEqual(data["scope"], "openid")
+            self.assertEqual(data["client_id"], "test_confidential_client_id")
+
+    def test_introspection_with_bearer_token_requires_introspection_scope(self):
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+        token_to_introspect, _ = self._create_access_and_refresh_tokens()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token_to_introspect.token},
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand([("access_token", True), ("refresh_token", False)])
+    def test_introspection_with_bearer_token_with_introspection_scope(self, token_type, expected_active):
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid introspection")
+        token_to_introspect_access, token_to_introspect_refresh = self._create_access_and_refresh_tokens()
+        token_to_introspect = (
+            token_to_introspect_access if token_type == "access_token" else token_to_introspect_refresh
+        )
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token_to_introspect.token},
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["active"], expected_active)
+
+        if expected_active:
+            self.assertEqual(data["scope"], "openid")
+
+    def test_introspection_with_invalid_token(self):
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": "invalid_token"},
+            headers={"Authorization": authorization_header},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
+    def test_introspection_without_authentication_fails(self):
+        access_token, _ = self._create_access_and_refresh_tokens()
+
+        response = self.post("/oauth/introspect/", {"token": access_token.token})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_introspection_with_wrong_client_credentials_fails(self):
+        access_token, _ = self._create_access_and_refresh_tokens()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {
+                "token": access_token.token,
+                "client_id": "test_confidential_client_id",
+                "client_secret": "wrong_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_introspection_with_expired_token(self):
+        access_token, _ = self._create_access_and_refresh_tokens()
+
+        access_token.expires = timezone.now() - timedelta(hours=1)
+        access_token.save()
+
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": access_token.token},
+            headers={"Authorization": authorization_header},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+
+    def test_introspection_via_get_method(self):
+        access_token, _ = self._create_access_and_refresh_tokens()
+
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+
+        response = self.client.get(
+            f"/oauth/introspect/?token={access_token.token}",
+            headers={"Authorization": authorization_header},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+
+    def test_introspection_with_json_body(self):
+        access_token, _ = self._create_access_and_refresh_tokens()
+
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+
+        response = self.client.post(
+            "/oauth/introspect/",
+            {"token": access_token.token},
+            content_type="application/json",
+            headers={"Authorization": authorization_header},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["scope"], "openid")
+
+    def test_introspection_with_missing_token_returns_inactive(self):
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+
+        response = self.post(
+            "/oauth/introspect/",
+            {},
+            headers={"Authorization": authorization_header},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])

@@ -36,9 +36,7 @@ export const getLLMCostsHandler: ToolBase<typeof schema>['handler'] = async (con
     if (!costsResult.success) {
         throw new Error(`Failed to get LLM costs: ${costsResult.error.message}`)
     }
-    return {
-        content: [{ type: 'text', text: JSON.stringify(costsResult.data.results) }],
-    }
+    return costsResult.data.results
 }
 
 const tool = (): ToolBase<typeof schema> => ({

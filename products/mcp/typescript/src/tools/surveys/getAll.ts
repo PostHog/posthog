@@ -22,9 +22,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         results: formattedSurveys,
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(response) }],
-    }
+    return response
 }
 
 const tool = (): ToolBase<typeof schema> => ({

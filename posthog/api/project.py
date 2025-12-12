@@ -11,6 +11,8 @@ from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
+from posthog.schema import ProductKey
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import TEAM_CONFIG_FIELDS_SET, TeamSerializer, validate_team_attrs
@@ -143,6 +145,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
+            "business_model",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -212,6 +215,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token",
             "secret_api_token_backup",
             "receive_org_level_activity_logs",
+            "business_model",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -383,6 +387,13 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             validated_data["session_replay_config"] = {
                 **team.session_replay_config,
                 **validated_data["session_replay_config"],
+            }
+
+        # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
+            validated_data["modifiers"] = {
+                **(team.modifiers or {}),
+                **validated_data["modifiers"],
             }
 
         should_team_be_saved_too = False
@@ -677,9 +688,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         ProductIntent.register(
             team=team,
             product_type=serializer.validated_data["product_type"],
-            context=serializer.validated_data["intent_context"],
+            context=serializer.validated_data.get("intent_context"),
             user=cast(User, user),
             metadata={**serializer.validated_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+            is_onboarding=False,
         )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
@@ -692,22 +704,25 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
         team = project.passthrough_team
-        product_type = request.data.get("product_type")
         user = request.user
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
 
+        product_type = cast(ProductKey | None, request.data.get("product_type"))
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
+        elif product_type not in ProductKey:
+            return response.Response({"error": f"invalid product_type, expected one of {list(ProductKey)}"}, status=400)
 
         product_intent_serializer = ProductIntentSerializer(data=request.data)
         product_intent_serializer.is_valid(raise_exception=True)
         intent_data = product_intent_serializer.validated_data
+        intent_context = intent_data.get("intent_context")
 
         product_intent = ProductIntent.register(
             team=team,
             product_type=product_type,
-            context=intent_data["intent_context"],
+            context=intent_context,
             user=cast(User, user),
             metadata={**intent_data["metadata"], "$current_url": current_url, "$session_id": session_id},
             is_onboarding=True,
@@ -721,7 +736,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
-                    "intent_context": intent_data["intent_context"],
+                    "intent_context": intent_context,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),

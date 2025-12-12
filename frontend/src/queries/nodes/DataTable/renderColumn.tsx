@@ -42,6 +42,8 @@ import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llm
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
+const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'session_start', 'session_end']
+
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
 const productColumnRenderers: Record<string, QueryContextColumn> = {
@@ -91,6 +93,7 @@ export function renderColumn(
                 query={query}
                 recordIndex={recordIndex}
                 rowCount={rowCount}
+                context={context}
             />
         )
     } else if (context?.columns?.[key] && context?.columns?.[key].render) {
@@ -103,6 +106,7 @@ export function renderColumn(
                 query={query}
                 recordIndex={recordIndex}
                 rowCount={rowCount}
+                context={context}
             />
         ) : (
             String(value)
@@ -186,7 +190,7 @@ export function renderColumn(
         ) : (
             content
         )
-    } else if (key === 'timestamp' || key === 'created_at' || key === 'session_start' || key === 'session_end') {
+    } else if (DATETIME_KEYS.includes(key)) {
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         // TODO: remove after removing the old events table
@@ -314,7 +318,7 @@ export function renderColumn(
         const noPopover = isActorsQuery(query.source)
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            person: { id: value.id },
+            person: { id: value.id, distinct_id: value.distinct_id },
             displayName: value.display_name,
             noPopover,
         }

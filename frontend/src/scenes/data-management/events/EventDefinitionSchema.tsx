@@ -18,9 +18,9 @@ import { buildPropertyGroupTrendsQuery } from './propertyGroupTrendsQuery'
 
 function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): JSX.Element {
     return (
-        <div className="flex items-center gap-4 py-3 px-4 border-b last:border-b-0 bg-white">
+        <div className="flex items-center gap-4 py-3 px-4 border-b last:border-b-0">
             <div className="flex-1">
-                <span className="font-semibold">{property.name}</span>
+                <span className="font-semibold text-default">{property.name}</span>
             </div>
             <div className="w-32">
                 <PropertyTypeTag propertyName={property.name} schemaPropertyType={property.property_type} />
@@ -67,7 +67,7 @@ function PropertyGroupCard({
     const insightUrl = useMemo(() => urls.insightNew({ query: linkQuery }), [linkQuery])
 
     return (
-        <div className="border rounded overflow-hidden">
+        <div className="border rounded overflow-hidden bg-bg-light">
             <div className="flex items-center justify-between p-4 bg-bg-light border-b">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">{schema.property_group.name}</span>

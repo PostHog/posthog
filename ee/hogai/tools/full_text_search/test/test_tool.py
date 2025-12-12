@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.tools.full_text_search.tool import ENTITY_MAP, EntitySearchTool, FTSKind
 from ee.hogai.utils.types.base import AssistantState
 
@@ -174,3 +174,23 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         result = await self.toolkit.execute(query="test query", search_kind="invalid_type")  # type: ignore
 
         assert "Invalid entity kind: invalid_type. Will not perform search for it." in result
+
+    @parameterized.expand(
+        [
+            ({"a": 1, "b": None, "c": 3}, {"a": 1, "c": 3}),
+            ({"nested": {"x": 1, "y": None, "z": 2}}, {"nested": {"x": 1, "z": 2}}),
+            ({"list": [1, None, 3, None, 5]}, {"list": [1, 3, 5]}),
+            ({"tuple": (1, None, 3)}, {"tuple": (1, 3)}),
+            (
+                {"a": {"b": {"c": None, "d": 4}}, "e": [None, {"f": None, "g": 7}]},
+                {"a": {"b": {"d": 4}}, "e": [{"g": 7}]},
+            ),
+            ({"empty_dict": {}, "empty_list": []}, {"empty_dict": {}, "empty_list": []}),
+            ({"all_none": None}, {}),
+            ({}, {}),
+            ([], []),
+        ]
+    )
+    def test_omit_none_values(self, input_obj, expected_output):
+        result = self.toolkit._omit_none_values(input_obj)
+        assert result == expected_output

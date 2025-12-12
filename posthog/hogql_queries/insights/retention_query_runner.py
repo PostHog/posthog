@@ -8,6 +8,7 @@ from posthog.schema import (
     CachedRetentionQueryResponse,
     EntityType,
     HogQLQueryModifiers,
+    InCohortVia,
     IntervalType,
     RetentionEntity,
     RetentionQuery,
@@ -88,6 +89,58 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             # Clean up old fields
             self.query.breakdownFilter.breakdown = None
             self.query.breakdownFilter.breakdown_type = None
+
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        """
+        Called after __init__ and after dashboard filters are applied.
+        This ensures cohort optimizations work for both direct filters and dashboard-level filters.
+        """
+        self.update_hogql_modifiers()
+
+    def update_hogql_modifiers(self) -> None:
+        """
+        Update HogQL modifiers to optimize cohort filtering performance.
+        Use LEFTJOIN mode instead of SUBQUERY for cohort filters to enable better query optimization.
+        """
+        if self.modifiers.inCohortVia == InCohortVia.AUTO:
+            # Check if we have cohort filters in properties
+            has_cohort_filter = False
+
+            if self.query.properties:
+                has_cohort_filter = self._has_cohort_property(self.query.properties)
+
+            # Check if we have cohort breakdown
+            if not has_cohort_filter and self.query.breakdownFilter:
+                if self.query.breakdownFilter.breakdown_type == "cohort" or (
+                    self.query.breakdownFilter.breakdowns
+                    and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
+                ):
+                    has_cohort_filter = True
+
+            # Use LEFTJOIN for cohort filters to avoid slow subquery evaluation
+            if has_cohort_filter:
+                self.modifiers.inCohortVia = InCohortVia.LEFTJOIN
+
+    def _has_cohort_property(self, properties) -> bool:
+        """Recursively check if properties contain cohort filters."""
+        if isinstance(properties, list):
+            for prop in properties:
+                if self._has_cohort_property(prop):
+                    return True
+        elif isinstance(properties, dict):
+            if properties.get("type") == "cohort":
+                return True
+            # Check nested property groups
+            if "values" in properties:
+                return self._has_cohort_property(properties["values"])
+        elif hasattr(properties, "type") and properties.type == "cohort":
+            return True
+        elif hasattr(properties, "values"):
+            return self._has_cohort_property(properties.values)
+
+        return False
 
     @cached_property
     def group_type_index(self) -> int | None:
@@ -894,7 +947,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     actor_id,
                     max(intervals_from_base) as max_interval,
                     start_interval_index,
-                    any(breakdown_value) as breakdown_value
+                    breakdown_value
                 FROM {actor_query}
                 GROUP BY actor_id, start_interval_index, breakdown_value
                 """,

@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from pydantic import BaseModel
 
-from ee.hogai.graph.base.context import set_node_path
+from ee.hogai.core.context import set_node_path
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.types.base import NodePath
@@ -12,13 +12,30 @@ class DummyToolInput(BaseModel):
     input_value: str
 
 
-class TestNodePathTool(MaxTool):
+class DummyTool(MaxTool):
     name: str = "read_taxonomy"
     description: str = "A test tool for node_path testing"
     args_schema: type[BaseModel] = DummyToolInput
 
     async def _arun_impl(self, input_value: str):
         return ("result", {})
+
+
+class TestMaxTool(BaseTest):
+    def test_format_context_prompt_injection_no_template(self):
+        tool = DummyTool(team=self.team, user=self.user)
+        result = tool.format_context_prompt_injection({})
+        assert result is None
+
+    def test_format_context_prompt_injection(self):
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template="Test")
+        result = tool.format_context_prompt_injection({})
+        assert result == "Test"
+
+    def test_format_context_prompt_injection_missing_key_defaults_to_none(self):
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template="Value: {expected_key}")
+        result = tool.format_context_prompt_injection({})
+        assert result == "Value: None"
 
 
 class TestMaxToolNodePath(BaseTest):
@@ -29,7 +46,7 @@ class TestMaxToolNodePath(BaseTest):
         )
 
         with set_node_path(context_path):
-            tool = TestNodePathTool(team=self.team, user=self.user)
+            tool = DummyTool(team=self.team, user=self.user)
 
             result = tool.node_path
 
@@ -39,7 +56,7 @@ class TestMaxToolNodePath(BaseTest):
             self.assertEqual(result[2].name, "max_tool.read_taxonomy")
 
     def test_node_path_uses_empty_tuple_when_no_context(self):
-        tool = TestNodePathTool(team=self.team, user=self.user, node_path=None)
+        tool = DummyTool(team=self.team, user=self.user, node_path=None)
 
         result = tool.node_path
 
@@ -52,7 +69,7 @@ class TestMaxToolNodePath(BaseTest):
             NodePath(name="explicit_child"),
         )
 
-        tool = TestNodePathTool(team=self.team, user=self.user, node_path=provided_path)
+        tool = DummyTool(team=self.team, user=self.user, node_path=provided_path)
 
         result = tool.node_path
 

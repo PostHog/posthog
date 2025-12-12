@@ -36,6 +36,7 @@ from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_
 from posthog.utils_cors import cors_response
 
 from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
+from products.product_tours.backend.models import ProductTour
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -182,6 +183,20 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     response["heatmaps"] = True if team.heatmaps_opt_in else False
     response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
+
+    # Product tours - only query if opt-in flag is set (auto-set when a tour is created)
+    has_active_tours = False
+    if team.product_tours_opt_in and not skip_db:
+        try:
+            with execute_with_timeout(200):
+                has_active_tours = ProductTour.objects.filter(
+                    team=team,
+                    archived=False,
+                    start_date__isnull=False,
+                ).exists()
+        except Exception:
+            pass
+    response["productTours"] = has_active_tours
 
     suppression_rules = []
     # errors mean the database is unavailable, no-op in this case
@@ -590,12 +605,12 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
 
             rrweb_script_config = None
 
-            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
-                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-            ):
+            recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
+            if not recorder_script and settings.DEBUG:
+                recorder_script = "posthog-recorder"
+            if recorder_script:
                 rrweb_script_config = {
-                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                    "script": recorder_script,
                 }
 
             session_recording_config_response = {

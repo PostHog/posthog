@@ -1143,7 +1143,7 @@ class TestSignupAPI(APIBaseTest):
                     "password": VALID_TEST_PASSWORD,
                     "organization_name": f"Org{i}",
                 },
-                HTTP_X_FORWARDED_FOR="192.168.1.100",
+                headers={"x-forwarded-for": "192.168.1.100"},
             )
 
             if i < 5:
@@ -1177,7 +1177,7 @@ class TestSignupAPI(APIBaseTest):
                         "password": VALID_TEST_PASSWORD,
                         "organization_name": f"Org{ip_suffix}_{i}",
                     },
-                    HTTP_X_FORWARDED_FOR=ip,
+                    headers={"x-forwarded-for": ip},
                 )
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request from IP {ip} should succeed")
                 # Clean up the created org and user to allow next signup
@@ -1566,8 +1566,8 @@ class TestInviteSignupAPI(APIBaseTest):
             self.assertEqual(len(mail.outbox), 2)
             # Someone joined email is sent to the initial user
             self.assertListEqual(mail.outbox[0].to, [initial_user.email])
-            # Verify email is sent to the new user
-            self.assertListEqual(mail.outbox[1].to, [invite.target_email])
+            # Verify email is sent to the new user (formatted with name)
+            self.assertListEqual(mail.outbox[1].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
         self.organization.is_member_join_email_enabled = False

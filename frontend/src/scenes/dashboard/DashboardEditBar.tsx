@@ -7,6 +7,8 @@ import { LemonButton, Popover } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -30,6 +32,9 @@ export function DashboardEditBar(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardMode, applyFilters } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE]
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',
@@ -82,13 +87,15 @@ export function DashboardEditBar(): JSX.Element {
                 <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
                     <DateFilter
                         showCustom
+                        showExplicitDateToggle={canAccessExplicitDateToggle}
                         dateFrom={effectiveEditBarFilters.date_from}
                         dateTo={effectiveEditBarFilters.date_to}
-                        onChange={(from_date, to_date) => {
+                        explicitDate={effectiveEditBarFilters.explicitDate}
+                        onChange={(from_date, to_date, explicitDate) => {
                             if (dashboardMode !== DashboardMode.Edit) {
                                 setDashboardMode(DashboardMode.Edit, null)
                             }
-                            setDates(from_date, to_date)
+                            setDates(from_date, to_date, explicitDate)
                         }}
                         makeLabel={(key) => (
                             <>

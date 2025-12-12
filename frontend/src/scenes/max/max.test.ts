@@ -43,6 +43,8 @@ describe('Max Logics Integration Tests', () => {
 
         logic = maxLogic({ tabId: 'test' })
         logic.mount()
+        // Set the conversation ID so activeThreadKey matches the thread logic's conversationId
+        logic.actions.setConversationId(MOCK_CONVERSATION_ID)
         threadLogic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
         threadLogic.mount()
 

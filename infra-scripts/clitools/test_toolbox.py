@@ -83,6 +83,29 @@ class TestToolbox(unittest.TestCase):
             ["kubectl", "auth", "whoami", "-o", "json"], capture_output=True, text=True, check=True
         )
 
+    @patch("sys.exit")
+    @patch("builtins.print")
+    @patch("subprocess.run")
+    def test_get_current_user_token_expired(self, mock_run, mock_print, mock_exit):
+        """Test getting current user when token has expired and refresh failed."""
+        # Mock kubectl auth whoami to raise error with token expiration message
+        error = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["kubectl", "auth", "whoami", "-o", "json"],
+            stderr="Token has expired and refresh failed",
+        )
+        mock_run.side_effect = error
+
+        get_current_user()
+
+        mock_run.assert_called_once_with(
+            ["kubectl", "auth", "whoami", "-o", "json"], capture_output=True, text=True, check=True
+        )
+        mock_print.assert_any_call(
+            "Token has expired and refresh failed, please reauthenticate with `aws sso login --profile=<your-profile>`"
+        )
+        mock_exit.assert_called_once_with(1)
+
     @patch("subprocess.run")
     def test_get_toolbox_pod(self, mock_run):
         """Test getting available toolbox pod."""

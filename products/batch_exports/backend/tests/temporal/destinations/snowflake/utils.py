@@ -2,9 +2,11 @@ import os
 import re
 import gzip
 import json
+import typing
 import typing as t
 import datetime as dt
 import operator
+import collections.abc
 from collections import deque
 from uuid import uuid4
 
@@ -89,6 +91,12 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 ]
 
 
+class FakeMetadata(typing.NamedTuple):
+    name: str
+    type_code: int
+    is_nullable: bool
+
+
 class FakeSnowflakeCursor:
     """A fake Snowflake cursor that can fail on PUT and COPY queries."""
 
@@ -149,8 +157,9 @@ class FakeSnowflakeCursor:
         else:
             return [("test", "LOADED", 100, 99, 1, 1, "Some error on copy", 3)]
 
+    @property
     def description(self):
-        return []
+        return [FakeMetadata("uuid", 2, False)]
 
 
 class FakeSnowflakeConnection:
@@ -370,6 +379,9 @@ async def assert_clickhouse_records_in_snowflake(
     expected_fields: list[str] | None = None,
     expect_duplicates: bool = False,
     primary_key: list[str] | None = None,
+    timestamp_columns: collections.abc.Sequence[str] = (),
+    uppercase_columns: list[str] | None = None,
+    extra_fields: dict[str, t.Any] | None = None,
 ):
     """Assert ClickHouse records are written to Snowflake table.
 
@@ -385,6 +397,7 @@ async def assert_clickhouse_records_in_snowflake(
         batch_export_model: The model, or custom schema, used in the batch export.
         expected_fields: List of fields expected to be in the destination table.
         expect_duplicates: Whether duplicates are expected (e.g. when testing retrying logic).
+        extra_fields: Additional fields present in the Snowflake table (that are not present in the ClickHouse table).
     """
     snowflake_cursor.execute(f'SELECT * FROM "{table_name}"')
 
@@ -396,15 +409,18 @@ async def assert_clickhouse_records_in_snowflake(
     # Rows are tuples, so we construct a dictionary using the metadata from cursor.description.
     # We rely on the order of the columns in each row matching the order set in cursor.description.
     # This seems to be the case, at least for now.
-    inserted_records = [
-        {
-            columns[index]: json.loads(row[index])
-            if columns[index] in json_columns and row[index] is not None
-            else row[index]
-            for index in columns.keys()
-        }
-        for row in rows
-    ]
+    inserted_records = []
+    for row in rows:
+        record = {}
+
+        for index in columns.keys():
+            if columns[index] in json_columns and row[index] is not None:
+                record[columns[index]] = json.loads(row[index])
+            elif isinstance(row[index], int) and columns[index] in timestamp_columns:
+                record[columns[index]] = dt.datetime.fromtimestamp(row[index])
+            else:
+                record[columns[index]] = row[index]
+        inserted_records.append(record)
 
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
@@ -475,6 +491,14 @@ async def assert_clickhouse_records_in_snowflake(
                     expected_record[k] = json.dumps(v)
                 else:
                     expected_record[k] = v
+
+                if uppercase_columns and k in uppercase_columns:
+                    expected_record[k.upper()] = expected_record[k]
+                    del expected_record[k]
+
+            if extra_fields:
+                for field, value in extra_fields.items():
+                    expected_record[field] = value
 
             expected_records.append(expected_record)
 

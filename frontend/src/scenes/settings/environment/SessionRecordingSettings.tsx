@@ -1,21 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode, memo, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import {
-    IconCalendar,
-    IconCheck,
-    IconClock,
-    IconHourglass,
-    IconInfinity,
-    IconInfo,
-    IconPlus,
-    IconX,
-} from '@posthog/icons'
+import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfinity, IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
-    LemonButton,
     LemonDialog,
-    LemonDivider,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
     LemonSelect,
@@ -27,14 +16,11 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
+import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { IconSelectEvents } from 'lib/lemon-ui/icons'
-import { isObject, objectsEqual } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
+import { isObject } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { InternalMultipleChoiceSurvey } from 'scenes/session-recordings/components/InternalSurvey/InternalMultipleChoiceSurvey'
@@ -45,114 +31,9 @@ import { urls } from 'scenes/urls'
 import {
     AccessControlLevel,
     AccessControlResourceType,
-    SessionRecordingAIConfig,
     type SessionRecordingMaskingLevel,
     type SessionRecordingRetentionPeriod,
 } from '~/types'
-
-interface SupportedPlatformProps {
-    note?: ReactNode
-    label: string
-    supportedSinceVersion: false | string
-}
-
-function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
-    const node = (
-        <div
-            className={cn(
-                props.supportedSinceVersion ? 'bg-fill-success-highlight' : 'bg-fill-warning-highlight',
-                'px-1 py-0.5 h-full flex items-center gap-1',
-                props.note && props.supportedSinceVersion && 'cursor-help'
-            )}
-        >
-            {props.note ? <IconInfo /> : props.supportedSinceVersion ? <IconCheck /> : <IconX />} {props.label}
-        </div>
-    )
-    let tooltip = null
-    if (props.supportedSinceVersion || props.note) {
-        tooltip = (
-            <div className="flex flex-col gap-1 cursor-help">
-                {props.supportedSinceVersion && <div>Since version {props.supportedSinceVersion}</div>}
-                {props.note && <div>{props.note}</div>}
-            </div>
-        )
-    }
-    if (tooltip) {
-        return (
-            <Tooltip delayMs={200} title={tooltip}>
-                {node}
-            </Tooltip>
-        )
-    }
-    return node
-}
-
-export const SupportedPlatforms = memo(function SupportedPlatforms(props: {
-    web?: false | { note?: ReactNode; version?: string }
-    android?: false | { note?: ReactNode; version?: string }
-    ios?: false | { note?: ReactNode; version?: string }
-    reactNative?: false | { note?: ReactNode; version?: string }
-    flutter?: false | { note?: ReactNode; version?: string }
-}): JSX.Element | null {
-    const allSupported = props && Object.keys(props).length === 5 && Object.values(props).every((value) => !!value)
-    return allSupported ? null : (
-        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
-            <Tooltip delayMs={200} title="We support lots of platforms! But not every feature works everywhere (yet)">
-                <span className="px-1 py-0.5 font-semibold cursor-help">Supported platforms:</span>
-            </Tooltip>
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform
-                note={isObject(props.web) ? props.web.note : undefined}
-                label="Web"
-                supportedSinceVersion={
-                    isObject(props.web) && typeof props.web?.version === 'string' ? props.web.version : false
-                }
-            />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform
-                note={isObject(props.android) ? props.android.note : undefined}
-                label="Android"
-                supportedSinceVersion={
-                    isObject(props.android) && typeof props.android?.version === 'string'
-                        ? props.android.version
-                        : false
-                }
-            />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform
-                note={isObject(props.ios) ? props.ios.note : undefined}
-                label="iOS"
-                supportedSinceVersion={
-                    isObject(props.ios) && typeof props.ios?.version === 'string' ? props.ios.version : false
-                }
-            />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform
-                note={isObject(props.reactNative) ? props.reactNative.note : undefined}
-                label="React Native"
-                supportedSinceVersion={
-                    isObject(props.reactNative) && typeof props.reactNative?.version === 'string'
-                        ? props.reactNative.version
-                        : false
-                }
-            />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform
-                note={isObject(props.flutter) ? props.flutter.note : undefined}
-                label="Flutter"
-                supportedSinceVersion={
-                    isObject(props.flutter) && typeof props.flutter?.version === 'string'
-                        ? props.flutter.version
-                        : false
-                }
-            />
-        </div>
-    )
-})
 
 export function Since(props: {
     web?: false | { version?: string }
@@ -190,16 +71,7 @@ function LogCaptureSettings(): JSX.Element {
         <div>
             <div className="flex flex-row justify-between">
                 <h3>Log capture</h3>
-                <SupportedPlatforms
-                    android={{ version: '1.0.0' }}
-                    ios={{ version: '3.26.0' }}
-                    flutter={false}
-                    web={{ version: '1.18.0' }}
-                    reactNative={{
-                        version: '3.9.0',
-                        note: <>Android only</>,
-                    }}
-                />
+                <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayLogCapture} />
             </div>
             <p>Show browser or app logs in session recordings to spot issues faster.</p>
             <p>
@@ -238,21 +110,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
         <div>
             <div className="flex flex-row justify-between">
                 <h3>Canvas capture</h3>
-                <SupportedPlatforms
-                    android={false}
-                    ios={false}
-                    flutter={{
-                        version: '4.7.0',
-                        note: (
-                            <>
-                                If you're using the <code>canvaskit</code> renderer on Flutter Web, you must also enable
-                                canvas capture
-                            </>
-                        ),
-                    }}
-                    web={{ version: '1.101.0' }}
-                    reactNative={false}
-                />
+                <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayCanvasCapture} />
             </div>
             <p>
                 This setting controls if browser canvas elements will be captured as part of recordings.{' '}
@@ -317,13 +175,7 @@ export function NetworkCaptureSettings(): JSX.Element {
         <>
             <div className="flex flex-row justify-between">
                 <h3>Capture requests</h3>
-                <SupportedPlatforms
-                    android={{ version: '3.1.0' }}
-                    ios={{ version: '3.12.6' }}
-                    flutter={false}
-                    web={{ version: '1.39.0' }}
-                    reactNative={{ note: <>RN network capture is only supported on iOS</> }}
-                />
+                <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayCaptureRequests} />
             </div>
             <p>
                 Capture performance and network data with your session recordings. You’ll see requests and timings right
@@ -355,13 +207,7 @@ export function NetworkCaptureSettings(): JSX.Element {
             <div className="mt-4">
                 <div className="flex flex-row justify-between">
                     <h3>Capture headers and payloads</h3>
-                    <SupportedPlatforms
-                        android={false}
-                        ios={false}
-                        flutter={false}
-                        web={{ version: '1.104.4' }}
-                        reactNative={false}
-                    />
+                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayCaptureHeadersAndPayloads} />
                 </div>
                 <p>
                     When network capture’s on, we’ll always record request timings. Use these options to also capture
@@ -483,13 +329,7 @@ export function NetworkCaptureSettings(): JSX.Element {
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
         <div className="gap-y-2">
-            <SupportedPlatforms
-                android={false}
-                ios={false}
-                flutter={false}
-                web={{ version: '1.5.0' }}
-                reactNative={false}
-            />
+            <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayAuthorizedDomains} />
             <LemonBanner type="warning">
                 <strong>This setting is now deprecated and cannot be updated.</strong> Instead we recommend deleting the
                 domains below and using URL triggers in your recording conditions to control which domains you record.
@@ -499,164 +339,6 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 wildcarded top-level domains cannot be used (for security reasons).
             </p>
             <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} showLaunch={false} allowAdd={false} />
-        </div>
-    )
-}
-
-export function ReplayAISettings(): JSX.Element | null {
-    const { updateCurrentTeam } = useActions(teamLogic)
-
-    const { currentTeam } = useValues(teamLogic)
-
-    if (!currentTeam) {
-        return null
-    }
-
-    const defaultConfig = {
-        opt_in: false,
-        preferred_events: [],
-        excluded_events: ['$feature_flag_called'],
-        included_event_properties: ['elements_chain', '$window_id', '$current_url', '$event_type'],
-        important_user_properties: [],
-    }
-    const sessionReplayConfig = currentTeam.session_replay_config || {}
-    const currentConfig: SessionRecordingAIConfig = sessionReplayConfig.ai_config || defaultConfig
-
-    const updateSummaryConfig = (summaryConfig: SessionRecordingAIConfig): void => {
-        updateCurrentTeam({
-            session_replay_config: { ai_config: summaryConfig },
-        })
-    }
-
-    const { opt_in: _discardCurrentOptIn, ...currentComparable } = currentConfig
-    const { opt_in: _discardDefaultOptIn, ...defaultComparable } = defaultConfig
-
-    return (
-        <div className="flex flex-col gap-2">
-            <div>
-                <p>
-                    We use several machine learning technologies to process sessions. Some of those are powered by{' '}
-                    <Link to="https://openai.com/" target="_blank">
-                        OpenAI
-                    </Link>
-                    . No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
-                    send the data selected below. <strong>Data submitted is not used to train OpenAI's models</strong>
-                </p>
-                <LemonSwitch
-                    checked={currentConfig.opt_in}
-                    onChange={(checked) => {
-                        updateSummaryConfig({
-                            ...currentConfig,
-                            opt_in: checked,
-                        })
-                    }}
-                    bordered
-                    label="Opt in to enable AI processing"
-                />
-            </div>
-            {currentConfig.opt_in && (
-                <>
-                    {!objectsEqual(currentComparable, defaultComparable) && (
-                        <div>
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => updateSummaryConfig({ ...defaultConfig, opt_in: true })}
-                            >
-                                Reset config to default
-                            </LemonButton>
-                        </div>
-                    )}
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Preferred events
-                        </h3>
-                        <p>
-                            These events are treated as more interesting when generating a summary. We recommend you
-                            include events that represent value for your user
-                        </p>
-                        <EventSelect
-                            onChange={(includedEvents) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    preferred_events: includedEvents,
-                                })
-                            }}
-                            selectedEvents={currentConfig.preferred_events || []}
-                            addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
-                                    Add event
-                                </LemonButton>
-                            }
-                        />
-                    </div>
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Excluded events
-                        </h3>
-                        <p>These events are never submitted even when they are present in the session.</p>
-                        <EventSelect
-                            onChange={(excludedEvents) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    excluded_events: excludedEvents,
-                                })
-                            }}
-                            selectedEvents={currentConfig.excluded_events || []}
-                            addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
-                                    Exclude event
-                                </LemonButton>
-                            }
-                        />
-                    </div>
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Included event properties
-                        </h3>
-                        <p>
-                            We always send the event name and timestamp. The only event data sent are values of the
-                            properties selected here.
-                        </p>
-                        <PropertySelect
-                            taxonomicFilterGroup={TaxonomicFilterGroupType.EventProperties}
-                            sortable={false}
-                            onChange={(properties: string[]) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    included_event_properties: properties,
-                                })
-                            }}
-                            selectedProperties={currentConfig.included_event_properties || []}
-                            addText="Add property"
-                        />
-                    </div>
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Important user properties
-                        </h3>
-                        <p>
-                            We always send the first and last seen dates. The only user data sent are values of the
-                            properties selected here.
-                        </p>
-                        <PropertySelect
-                            taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
-                            sortable={false}
-                            onChange={(properties) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    important_user_properties: properties,
-                                })
-                            }}
-                            selectedProperties={currentConfig.important_user_properties || []}
-                            addText="Add property"
-                        />
-                    </div>
-                </>
-            )}
         </div>
     )
 }
@@ -681,7 +363,7 @@ export function ReplayMaskingSettings(): JSX.Element {
 
     return (
         <div>
-            <SupportedPlatforms web={{ version: '1.227.0' }} />
+            <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayMasking} />
             <p>Choose what data gets masked in your session recordings.</p>
             <p>
                 For more control (or to adjust masking on other platforms), set it up directly in your code{' '}

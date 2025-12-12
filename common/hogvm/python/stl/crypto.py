@@ -18,6 +18,7 @@ def encode_digest(encoding: Literal["hex", "base64", "base64url", "binary"], dig
 def md5(data: str | None, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str | None:
     if data is None:
         return None
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     digest = hashlib.md5(data.encode()).digest()
 
     return encode_digest(encoding, digest)

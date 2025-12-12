@@ -43,6 +43,7 @@ export const FeatureFlagCreateSchema = z.object({
 ```typescript
 import type { z } from 'zod'
 
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { FeatureFlagCreateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -69,7 +70,7 @@ export const createHandler = async (context: Context, params: Params) => {
   }
 
   return {
-    content: [{ type: 'text', text: JSON.stringify(featureFlagWithUrl) }],
+    content: [{ type: 'text', text: formatResponse(featureFlagWithUrl) }],
   }
 }
 

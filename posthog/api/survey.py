@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -46,9 +47,11 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_question_ids, surveys_hypercache
+from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 from posthog.models.surveys.util import (
     SurveyEventName,
     SurveyEventProperties,
+    get_archived_response_uuids,
     get_unique_survey_event_uuids_sql_subquery,
 )
 from posthog.models.team.team import Team
@@ -58,6 +61,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from ee.surveys.summaries.headline_summary import generate_survey_headline
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 
 # Constants for better maintainability
@@ -132,6 +136,7 @@ SurveyStats = TypedDict(
 class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_insight_id = serializers.IntegerField(required=False, allow_null=True, source="linked_insight.id")
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
@@ -168,6 +173,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "schedule",
             "linked_flag",
             "linked_flag_id",
+            "linked_insight_id",
             "targeting_flag",
             "internal_targeting_flag",
             "questions",
@@ -208,6 +214,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
 class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
+    linked_insight_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
     remove_targeting_flag = serializers.BooleanField(required=False, write_only=True, allow_null=True)
@@ -232,6 +239,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "schedule",
             "linked_flag",
             "linked_flag_id",
+            "linked_insight_id",
             "targeting_flag_id",
             "targeting_flag",
             "internal_targeting_flag",
@@ -482,6 +490,32 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     "response_sampling_start_date": "Response sampling start date should be set if response_sampling_start_date is not zero."
                 }
             )
+
+        # Validate that question shuffling and branching are not used together
+        # Check both incoming data and existing survey data (existing_survey is None for POST)
+        appearance = data.get("appearance")
+        questions = data.get("questions")
+
+        effective_appearance = {}
+        if existing_survey and existing_survey.appearance:
+            effective_appearance = dict(existing_survey.appearance)
+        if appearance is not None:
+            effective_appearance.update(appearance)
+
+        effective_questions = (
+            questions if questions is not None else (existing_survey.questions if existing_survey else [])
+        )
+
+        shuffle_questions = effective_appearance.get("shuffleQuestions", False)
+
+        if shuffle_questions and effective_questions:
+            has_branching = any(question.get("branching") is not None for question in effective_questions)
+
+            if has_branching:
+                raise serializers.ValidationError(
+                    "Question shuffling and question branching cannot be used together. "
+                    "Please disable one of these features."
+                )
 
         # Validate external survey constraints
         if data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
@@ -770,7 +804,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if instance.internal_targeting_flag:
             existing_targeting_flag = instance.internal_targeting_flag
-            serialized_data_filters = {**user_submitted_dismissed_filter, **existing_targeting_flag.filters}
+            # Note: new filters must come LAST to overwrite old iteration-unaware properties
+            serialized_data_filters = {**existing_targeting_flag.filters, **user_submitted_dismissed_filter}
 
             internal_targeting_flag = self._create_or_update_targeting_flag(
                 instance.internal_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"
@@ -829,7 +864,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
-    queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
+    queryset = Survey.objects.select_related(
+        "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
+    ).all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
 
@@ -869,8 +906,29 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         return f"uuid IN {unique_uuids_subquery}"
 
+    def _get_archived_responses_filter(self, survey_id: str | None = None) -> tuple[str, dict]:
+        archived_uuids = get_archived_response_uuids(survey_id, self.team_id)
+
+        if not archived_uuids:
+            return "", {}
+
+        params = {"archived_uuids": list(archived_uuids)}
+        return "uuid NOT IN %(archived_uuids)s", params
+
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
+        """Get response counts for all surveys.
+
+        Args:
+            exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+            survey_ids: Optional comma-separated list of survey IDs to filter by
+
+        Returns:
+            Dictionary mapping survey IDs to response counts
+        """
+        exclude_archived = request.query_params.get("exclude_archived", "false").lower() == "true"
+        survey_ids_param = request.query_params.get("survey_ids")
+
         earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
             Min("start_date")
         )["start_date__min"]
@@ -879,12 +937,30 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             # If there are no surveys or none have a start date, there can be no responses.
             return Response({})
 
+        params = {"team_id": self.team_id, "timestamp": earliest_survey_start_date}
+
         partial_responses_filter = self._get_partial_responses_filter(
             base_conditions_sql=[
                 "team_id = %(team_id)s",
                 "timestamp >= %(timestamp)s",
             ],
         )
+
+        archived_filter = ""
+        if exclude_archived:
+            archived_filter_sql, archived_params = self._get_archived_responses_filter()
+            if archived_filter_sql:
+                archived_filter = f"AND {archived_filter_sql}"
+                params.update(archived_params)
+
+        survey_ids_filter = ""
+        if survey_ids_param:
+            survey_ids = [sid.strip() for sid in survey_ids_param.split(",") if sid.strip()]
+            if survey_ids:
+                survey_ids_filter = (
+                    f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
+                )
+                params["survey_ids"] = survey_ids
 
         query = f"""
             SELECT
@@ -896,13 +972,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 AND event = '{SurveyEventName.SENT}'
                 AND timestamp >= %(timestamp)s
                 AND {partial_responses_filter}
+                {archived_filter}
+                {survey_ids_filter}
             GROUP BY survey_id
         """
 
-        data = sync_execute(
-            query,
-            {"team_id": self.team_id, "timestamp": earliest_survey_start_date},
-        )
+        data = sync_execute(query, params)
 
         counts = {}
         for survey_id, count in data:
@@ -1039,13 +1114,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             }
         return rates
 
-    def _get_survey_stats(self, date_from: str | None, date_to: str | None, survey_id: str | None = None) -> dict:
+    def _get_survey_stats(
+        self, date_from: str | None, date_to: str | None, survey_id: str | None = None, exclude_archived: bool = False
+    ) -> dict:
         """Get survey statistics from ClickHouse.
 
         Args:
             date_from: Optional ISO timestamp for start date with timezone info
             date_to: Optional ISO timestamp for end date with timezone info
             survey_id: Optional survey ID to filter for. If None, gets stats for all surveys.
+            exclude_archived: If True, exclude archived responses. Defaults to False (includes archived).
 
         Returns:
             Dictionary containing survey statistics and rates
@@ -1062,6 +1140,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if parsed_to:
             date_filter += " AND timestamp <= %(date_to)s"
             params["date_to"] = parsed_to
+
+        # Add archive filter if needed
+        archive_filter = ""
+        if survey_id and exclude_archived:
+            archive_filter_sql, archive_params = self._get_archived_responses_filter(survey_id)
+            if archive_filter_sql:
+                archive_filter = f"AND {archive_filter_sql}"
+                params.update(archive_params)
 
         # Add survey filter if specific survey
         survey_filter = ""
@@ -1105,6 +1191,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
             {survey_filter}
             {date_filter}
+            {archive_filter}
             AND (
                 event != %(dismissed)s
                 OR
@@ -1135,6 +1222,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                   AND event IN (%(dismissed)s, %(sent)s)
                   {survey_filter}
                   {date_filter}
+                  {archive_filter}
                 AND (
                     event != %(dismissed)s
                     OR
@@ -1203,6 +1291,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         Args:
             date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
             date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+            exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
 
         Returns:
             Survey statistics including event counts, unique respondents, and conversion rates
@@ -1210,13 +1299,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         survey_id = kwargs["pk"]
         date_from = request.query_params.get("date_from", None)
         date_to = request.query_params.get("date_to", None)
+        exclude_archived = request.query_params.get("exclude_archived", "false").lower() == "true"
 
         try:
             survey = self.get_object()
         except Survey.DoesNotExist:
             raise exceptions.NotFound("Survey not found")
 
-        response_data = self._get_survey_stats(date_from, date_to, survey_id)
+        response_data = self._get_survey_stats(date_from, date_to, survey_id, exclude_archived)
 
         # Add survey metadata
         response_data["survey_id"] = survey_id
@@ -1224,6 +1314,86 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         response_data["end_date"] = survey.end_date
 
         return Response(response_data)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="responses/(?P<response_uuid>[^/]+)/archive",
+        required_scopes=["survey:write"],
+    )
+    def archive_response(self, request: request.Request, response_uuid: str, **kwargs) -> Response:
+        """Archive a single survey response."""
+        survey = self.get_object()
+
+        try:
+            UUID(response_uuid)
+        except ValueError:
+            return Response({"detail": "Invalid UUID format"}, status=400)
+
+        archive, created = SurveyResponseArchive.objects.get_or_create(
+            team_id=self.team_id,
+            survey=survey,
+            response_uuid=response_uuid,
+        )
+
+        if created:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=survey.id,
+                scope="Survey",
+                activity="response_archived",
+                detail=Detail(name=f"Response {response_uuid}"),
+            )
+
+        return Response(status.HTTP_200_OK)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="responses/(?P<response_uuid>[^/]+)/unarchive",
+        required_scopes=["survey:write"],
+    )
+    def unarchive_response(self, request: request.Request, response_uuid: str, **kwargs) -> Response:
+        """Unarchive a single survey response."""
+        survey = self.get_object()
+
+        try:
+            UUID(response_uuid)
+        except ValueError:
+            return Response({"detail": "Invalid UUID format"}, status=400)
+
+        deleted_count, _ = SurveyResponseArchive.objects.filter(
+            team_id=self.team_id, survey=survey, response_uuid=response_uuid
+        ).delete()
+
+        if deleted_count > 0:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=survey.id,
+                scope="Survey",
+                activity="response_unarchived",
+                detail=Detail(name=f"Response {response_uuid}"),
+            )
+
+        return Response(status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=True, url_path="archived-response-uuids", required_scopes=["survey:read"])
+    def archived_response_uuids(self, request: request.Request, **kwargs) -> Response:
+        """
+        Get list of archived response UUIDs for HogQL filtering.
+
+        Returns list of UUIDs that the frontend can use to filter out archived responses
+        in HogQL queries.
+        """
+        survey = self.get_object()
+        uuids = get_archived_response_uuids(str(survey.id), self.team_id)
+        return Response(list(uuids))
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["survey:read"])
     def global_stats(self, request: request.Request, **kwargs) -> Response:
@@ -1344,6 +1514,68 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         # let the browser cache for half the time we cache on the server
         r = Response(summary, headers={"Cache-Control": "max-age=15"})
+        if timings_header:
+            r.headers["Server-Timing"] = timings_header
+        return r
+
+    @action(methods=["POST"], detail=True, url_path="summary_headline", required_scopes=["survey:read"])
+    def summary_headline(self, request: request.Request, **kwargs):
+        survey_id = kwargs["pk"]
+        logger.info("[summary_headline] request received", survey_id=survey_id)
+
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        user = cast(User, request.user)
+
+        logger.info("[summary_headline] checking survey exists", survey_id=survey_id)
+        if not Survey.objects.filter(id=survey_id, team__project_id=self.project_id).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        logger.info("[summary_headline] fetching survey", survey_id=survey_id)
+        survey = self.get_object()
+        logger.info("[summary_headline] survey fetched", survey_id=survey_id)
+        force_refresh = request.data.get("force_refresh", False)
+
+        if not force_refresh and survey.headline_summary and survey.headline_response_count:
+            return Response(
+                {
+                    "headline": survey.headline_summary,
+                    "responses_sampled": survey.headline_response_count,
+                    "has_more": False,
+                }
+            )
+
+        if not self.team.organization.is_ai_data_processing_approved:
+            return Response(
+                {"error": "AI data processing must be approved to generate summaries"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        logger.info("[summary_headline] calling generate_survey_headline", survey_id=survey_id)
+        result = generate_survey_headline(
+            survey=survey,
+            team=self.team,
+            user=user,
+        )
+
+        timings_header = result.pop("timings_header", None)
+
+        survey.headline_summary = result.get("headline")
+        survey.headline_response_count = result.get("responses_sampled", 0)
+        survey.save(update_fields=["headline_summary", "headline_response_count"])
+
+        posthoganalytics.capture(
+            event="survey headline generated",
+            distinct_id=str(user.distinct_id),
+            properties={
+                "survey_id": survey_id,
+                "responses_sampled": result.get("responses_sampled", 0),
+                "has_more": result.get("has_more", False),
+            },
+        )
+
+        r = Response(result)
         if timings_header:
             r.headers["Server-Timing"] = timings_header
         return r

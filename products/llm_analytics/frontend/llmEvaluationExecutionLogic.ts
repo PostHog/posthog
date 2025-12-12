@@ -13,27 +13,48 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
         values: [teamLogic, ['currentTeamId']],
     })),
     actions({
-        runEvaluation: (evaluationId: string, targetEventId: string, timestamp: string) => ({
+        runEvaluation: (
+            evaluationId: string,
+            targetEventId: string,
+            timestamp: string,
+            event: string,
+            distinctId?: string
+        ) => ({
             evaluationId,
             targetEventId,
             timestamp,
+            event,
+            distinctId,
         }),
     }),
     loaders(({ values }) => ({
         evaluationRun: [
             null as { workflow_id: string } | null,
             {
-                runEvaluation: async ({ evaluationId, targetEventId, timestamp }) => {
+                runEvaluation: async ({ evaluationId, targetEventId, timestamp, event, distinctId }) => {
                     if (!values.currentTeamId) {
                         throw new Error('No team selected')
                     }
 
                     try {
-                        const response = await api.evaluationRuns.create({
+                        const payload: {
+                            evaluation_id: string
+                            target_event_id: string
+                            timestamp: string
+                            event: string
+                            distinct_id?: string
+                        } = {
                             evaluation_id: evaluationId,
                             target_event_id: targetEventId,
                             timestamp: timestamp,
-                        })
+                            event: event,
+                        }
+
+                        if (distinctId) {
+                            payload.distinct_id = distinctId
+                        }
+
+                        const response = await api.evaluationRuns.create(payload)
 
                         lemonToast.success('Evaluation started successfully')
                         return response

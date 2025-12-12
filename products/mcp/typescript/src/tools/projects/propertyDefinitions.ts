@@ -23,7 +23,8 @@ export const propertyDefinitionsHandler: ToolBase<typeof schema>['handler'] = as
         eventNames: params.eventName ? [params.eventName] : undefined,
         filterByEventNames: params.type === 'event',
         isFeatureFlag: false,
-        limit: 200,
+        limit: params.limit,
+        offset: params.offset,
         type: params.type,
         excludeCoreProperties: !params.includePredefinedProperties,
     })
@@ -34,9 +35,7 @@ export const propertyDefinitionsHandler: ToolBase<typeof schema>['handler'] = as
 
     const simplifiedProperties = PropertyDefinitionSchema.array().parse(propDefsResult.data)
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(simplifiedProperties) }],
-    }
+    return simplifiedProperties
 }
 
 const tool = (): ToolBase<typeof schema> => ({

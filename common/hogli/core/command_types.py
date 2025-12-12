@@ -18,9 +18,15 @@ def _run(command: list[str] | str, *, env: dict[str, str] | None = None, shell: 
 
     if isinstance(command, list):
         display = " ".join(command)
-    else:
+        click.echo(f"🚀 {display}")
+    elif "\n" not in command:
+        # Only show single-line commands
         display = command
-    click.echo(f"🚀 {display}")
+        click.echo(f"🚀 {command}")
+    else:
+        # Multiline command - no display
+        display = "<multiline command>"
+
     try:
         subprocess.run(
             command,
@@ -84,6 +90,30 @@ class Command:
         """Generate formatted help text with service context and underlying command."""
         return _format_command_help(self.name, self.config, self.get_underlying_command())
 
+    def _confirm(self, yes: bool = False) -> bool:
+        """Prompt for confirmation if required.
+
+        Returns True if confirmation was given (via --yes flag or user prompt), False otherwise.
+        """
+        if not self.config.get("destructive", False):
+            return False
+
+        if yes:
+            return True
+
+        click.echo()
+        click.echo(click.style("⚠️  This command may be destructive!", fg="yellow", bold=True))
+        click.echo(f"   Command: {self.name}")
+        if self.description:
+            click.echo(f"   {self.description}")
+        click.echo()
+
+        if not click.confirm("Are you sure you want to continue?", default=False):
+            click.echo(click.style("Aborted.", fg="red"))
+            raise SystemExit(0)
+
+        return True
+
     def execute(self, *args: str) -> None:
         """Override in subclasses."""
         raise NotImplementedError("Subclasses must implement execute()")
@@ -93,8 +123,11 @@ class Command:
         help_text = self.get_help_text()
 
         @cli_group.command(self.name, help=help_text)
-        def cmd() -> None:
+        @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+        @click.pass_context
+        def cmd(ctx: click.Context, yes: bool) -> None:
             try:
+                self._confirm(yes=yes)
                 self.execute()
             except SystemExit:
                 raise
@@ -131,9 +164,11 @@ class BinScriptCommand(Command):
             help=help_text,
             context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
         )
+        @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
         @click.pass_context
-        def cmd(ctx: click.Context) -> None:
+        def cmd(ctx: click.Context, yes: bool) -> None:
             try:
+                self._confirm(yes=yes)
                 self.execute(*ctx.args)
             except SystemExit:
                 raise
@@ -163,9 +198,11 @@ class DirectCommand(Command):
             help=help_text,
             context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
         )
+        @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
         @click.pass_context
-        def cmd(ctx: click.Context) -> None:
+        def cmd(ctx: click.Context, yes: bool) -> None:
             try:
+                self._confirm(yes=yes)
                 self.execute(*ctx.args)
             except SystemExit:
                 raise
@@ -177,14 +214,14 @@ class DirectCommand(Command):
     def execute(self, *args: str) -> None:
         """Execute the shell command with any passed arguments."""
         cmd_str = self.config.get("cmd", "")
-        # Use shell=True if command contains operators like && or ||
-        has_operators = " && " in cmd_str or " || " in cmd_str
+        # Use shell=True if command contains shell operators or is multiline
+        has_operators = any(op in cmd_str for op in [" && ", " || ", "|", "\n"])
         if has_operators:
-            # Append args to the command string when using shell
-            # Use shlex.quote() to safely escape arguments for shell execution
+            # For shell commands, pass args as positional parameters using sh -c
             if args:
+                # Pass args as positional parameters: _ is placeholder for $0, then actual args as $1, $2, etc.
                 escaped_args = " ".join(shlex.quote(arg) for arg in args)
-                cmd_str = f"{cmd_str} {escaped_args}"
+                cmd_str = f"sh -c {shlex.quote(cmd_str)} _ {escaped_args}"
             _run(cmd_str, shell=True)
         else:
             # Use list format for simple commands without shell operators
@@ -200,6 +237,27 @@ class CompositeCommand(Command):
         steps = self.config.get("steps", [])
         return f"hogli {' && hogli '.join(steps)}"
 
+    def register(self, cli_group: click.Group) -> Any:
+        """Register command with extra args support."""
+        help_text = self.get_help_text()
+
+        @cli_group.command(self.name, help=help_text)
+        @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+        @click.pass_context
+        def cmd(ctx: click.Context, yes: bool) -> None:
+            try:
+                confirmed = self._confirm(yes=yes)
+                # Store whether confirmation was given (via --yes or prompt)
+                # Child commands should always get --yes if parent was confirmed
+                self._confirmed = confirmed or yes
+                self.execute()
+            except SystemExit:
+                raise
+
+        # Store config on the Click command for visibility filtering
+        cmd.hogli_config = self.config  # type: ignore[attr-defined]
+        return cmd
+
     def execute(self, *args: str) -> None:
         """Execute each step in sequence."""
         from hogli.core.manifest import REPO_ROOT
@@ -207,10 +265,18 @@ class CompositeCommand(Command):
         steps = self.config.get("steps", [])
         bin_hogli = str(REPO_ROOT / "bin" / "hogli")
 
+        # Pass --yes to children if parent required confirmation and it was confirmed
+        confirmed = getattr(self, "_confirmed", False)
+
         for step in steps:
             click.echo(f"✨ Executing: {step}")
             try:
                 # Use bin/hogli for both Flox and non-Flox compatibility
-                _run([bin_hogli, step])
+                # Always pass --yes to child commands if parent was confirmed
+                # This ensures children don't prompt again even if they require confirmation
+                if confirmed:
+                    _run([bin_hogli, step, "--yes"])
+                else:
+                    _run([bin_hogli, step])
             except SystemExit:
                 raise

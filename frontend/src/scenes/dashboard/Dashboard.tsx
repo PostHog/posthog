@@ -8,10 +8,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
@@ -71,7 +69,7 @@ function DashboardScene(): JSX.Element {
         hasVariables,
     } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useFileSystemLogView({
         type: 'dashboard',
@@ -86,35 +84,6 @@ function DashboardScene(): JSX.Element {
         // request cancellation of any running queries when this component is no longer in the dom
         return () => abortAnyRunningQuery()
     })
-
-    useKeyboardHotkeys(
-        placement == DashboardPlacement.Dashboard
-            ? {
-                  e: {
-                      action: () =>
-                          setDashboardMode(
-                              dashboardMode === DashboardMode.Edit ? null : DashboardMode.Edit,
-                              DashboardEventSource.Hotkey
-                          ),
-                      disabled: !canEditDashboard || (dashboardMode !== null && dashboardMode !== DashboardMode.Edit),
-                  },
-                  f: {
-                      action: () =>
-                          setDashboardMode(
-                              dashboardMode === DashboardMode.Fullscreen ? null : DashboardMode.Fullscreen,
-                              DashboardEventSource.Hotkey
-                          ),
-                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Fullscreen,
-                  },
-                  escape: {
-                      // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
-                      action: () => setDashboardMode(null, DashboardEventSource.Hotkey),
-                      disabled: dashboardMode !== DashboardMode.Edit,
-                  },
-              }
-            : {},
-        [setDashboardMode, dashboardMode, placement]
-    )
 
     if (!dashboard && !itemsLoading && !dashboardFailedToLoad) {
         return <NotFound object="dashboard" />

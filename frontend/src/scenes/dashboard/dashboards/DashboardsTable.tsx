@@ -239,7 +239,7 @@ export function DashboardsTable({
                     onChange={(x) => setFilters({ search: x })}
                     value={filters.search}
                 />
-                <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
                         <span>Filter to:</span>
                         {currentTab !== DashboardsTab.Pinned && (

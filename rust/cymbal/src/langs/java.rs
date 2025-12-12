@@ -33,8 +33,6 @@ pub struct RawJavaFrame {
     pub method_synthetic: bool,
     #[serde(flatten)]
     pub meta: CommonFrameMetadata,
-    #[serde(skip)]
-    pub exception_type: Option<String>,
 }
 
 impl RawJavaFrame {
@@ -97,18 +95,10 @@ impl RawJavaFrame {
             ),
         };
 
-        let mut res: Vec<Frame> = mapper
+        let res: Vec<Frame> = mapper
             .remap_frame(&frame)
             .map(|re| (self, re).into())
             .collect();
-
-        for res in res.iter_mut() {
-            res.exception_type = self
-                .exception_type
-                .as_ref()
-                .and_then(|t| mapper.remap_class(t))
-                .map(|s| s.to_string());
-        }
 
         if res.is_empty() {
             warn!(
@@ -136,6 +126,22 @@ impl RawJavaFrame {
             .map(|id| OrChunkId::chunk_id(id.clone()))
             .ok_or(ProguardError::NoMapId)
     }
+
+    pub async fn remap_class<C>(
+        &self,
+        team_id: i32,
+        class: &str,
+        catalog: &C,
+    ) -> Result<Option<String>, ResolveError>
+    where
+        C: SymbolCatalog<OrChunkId<ProguardRef>, FetchedMapping>,
+    {
+        let r = self.get_ref()?;
+        let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone()).await?;
+        let mapper = map.get_mapper();
+        let result = mapper.remap_class(class).map(|s| s.to_string());
+        Ok(result)
+    }
 }
 
 impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
@@ -158,7 +164,6 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
             context: None,
             suspicious: false,
             module: Some(remapped.class().to_string()),
-            exception_type: None,
         };
 
         add_raw_to_junk(&mut f, raw);
@@ -187,7 +192,6 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             context: None,
             suspicious: false,
             module: Some(raw.module.clone()),
-            exception_type: raw.exception_type.clone(),
         };
 
         add_raw_to_junk(&mut f, raw);

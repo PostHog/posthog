@@ -11,7 +11,7 @@ from django.db import models, transaction
 import structlog
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
@@ -62,11 +62,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         RUNNING = "Running"
 
     class Origin(models.TextChoices):
-        """Possible origin of this SavedQuery."""
+        """Possible origin of this SavedQuery"""
 
-        DATA_WAREHOUSE = "data_warehouse"
-        ENDPOINT = "endpoint"
-        MANAGED_VIEWSET = "managed_viewset"
+        DATA_WAREHOUSE = DataWarehouseSavedQueryOrigin.DATA_WAREHOUSE
+        ENDPOINT = DataWarehouseSavedQueryOrigin.ENDPOINT
+        MANAGED_VIEWSET = DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -129,7 +129,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
-    def enable_materialization(self, unpause: bool = False):
+    def schedule_materialization(self, unpause: bool = False):
         """
         It will schedule the saved query workflow to run at the configured frequency.
         If unpause is True, it will unpause the saved query workflow if it already exists.

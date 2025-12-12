@@ -6,9 +6,11 @@ import { twMerge } from 'tailwind-merge'
 
 import {
     IconBrain,
+    IconBug,
     IconCheck,
     IconChevronRight,
     IconCollapse,
+    IconCopy,
     IconExpand,
     IconEye,
     IconHide,
@@ -38,17 +40,18 @@ import {
     SeriesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { pluralize } from 'lib/utils'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { inStorybookTestRunner, pluralize } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { copyToClipboard } from '~/lib/utils/copyToClipboard'
+import { stripMarkdown } from '~/lib/utils/stripMarkdown'
 import { openNotebook } from '~/models/notebooksModel'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -58,42 +61,50 @@ import {
     AssistantToolCallMessage,
     TaskExecutionStatus as ExecutionStatus,
     FailureMessage,
+    MultiQuestionForm,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     PlanningStep,
     PlanningStepStatus,
     VisualizationItem,
-    VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
-import { InsightShortId } from '~/types'
+import { isHogQLQuery } from '~/queries/utils'
+import { Region } from '~/types'
 
 import { ContextSummary } from './Context'
+import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
-import { ToolRegistration, getToolDefinition } from './max-constants'
+import { VisualizationArtifactAnswer } from './VisualizationArtifactAnswer'
+import { FeedbackDisplay } from './components/FeedbackDisplay'
+import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
+import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
-import { UIPayloadAnswer } from './messages/UIPayloadAnswer'
-import { MAX_SLASH_COMMANDS } from './slash-commands'
+import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
+import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
+import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
+    isArtifactMessage,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isDeepResearchReportCompletion,
     isFailureMessage,
     isHumanMessage,
+    isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
     isNotebookUpdateMessage,
-    isVisualizationMessage,
+    isVisualizationArtifactContent,
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     return (
         <div
@@ -113,20 +124,49 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
             ) : threadGrouped.length > 0 ? (
-                threadGrouped.map((message, index) => {
-                    const nextMessage = threadGrouped[index + 1]
-                    const isLastInGroup = !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
+                <>
+                    {threadGrouped.map((message, index) => {
+                        const nextMessage = threadGrouped[index + 1]
+                        const isLastInGroup =
+                            !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
-                    return (
-                        <Message
-                            key={`${conversationId}-${index}`}
-                            message={message}
-                            isLastInGroup={isLastInGroup}
-                            isFinal={index === threadGrouped.length - 1}
-                            streamingActive={streamingActive}
-                        />
-                    )
-                })
+                        // Hiding rating buttons after /feedback command output
+                        const prevMessage = threadGrouped[index - 1]
+                        const isFeedbackCommandResponse =
+                            message.type !== 'human' &&
+                            prevMessage?.type === 'human' &&
+                            'content' in prevMessage &&
+                            prevMessage.content.startsWith(SlashCommandName.SlashFeedback)
+
+                        return (
+                            <Message
+                                key={`${conversationId}-${index}`}
+                                message={message}
+                                nextMessage={nextMessage}
+                                isLastInGroup={isLastInGroup}
+                                isFinal={index === threadGrouped.length - 1}
+                                streamingActive={streamingActive}
+                                isFeedbackCommandResponse={isFeedbackCommandResponse}
+                            />
+                        )
+                    })}
+                    {conversationId && isPromptVisible && !streamingActive && (
+                        <MessageTemplate type="ai">
+                            <div className="flex flex-col gap-2">
+                                <span className="text-xs text-muted">How is PostHog AI doing? (optional)</span>
+                                <FeedbackDisplay conversationId={conversationId} />
+                            </div>
+                        </MessageTemplate>
+                    )}
+                    {conversationId && isDetailedFeedbackVisible && !streamingActive && (
+                        <FeedbackPrompt conversationId={conversationId} traceId={traceId} />
+                    )}
+                    {conversationId && isThankYouVisible && !streamingActive && (
+                        <MessageTemplate type="ai">
+                            <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
+                        </MessageTemplate>
+                    )}
+                </>
             ) : (
                 conversationId && (
                     <div className="flex flex-1 items-center justify-center">
@@ -169,15 +209,23 @@ export interface EnhancedToolCall extends AssistantToolCall {
 
 interface MessageProps {
     message: ThreadMessage
+    nextMessage?: ThreadMessage
     isLastInGroup: boolean
     isFinal: boolean
     streamingActive: boolean
+    isFeedbackCommandResponse?: boolean
 }
 
-function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
+function Message({
+    message,
+    nextMessage,
+    isLastInGroup,
+    isFinal,
+    isFeedbackCommandResponse,
+}: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
-    const { threadLoading } = useValues(maxThreadLogic)
+    const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
@@ -251,6 +299,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                     id={message.id || key}
                                     completed={isThinkingComplete}
                                     showCompletionIcon={false}
+                                    animate={!inStorybookTestRunner() && message.id === 'loader'} // Avoiding flaky snapshots in Storybook
                                 />
                             )
                         }
@@ -265,13 +314,53 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 />
                             ) : null
 
+                        // Allow action to be rendered in the middle if it has hrefs (like, links to open a report)
+                        const ifActionInTheMiddle =
+                            message.meta?.form?.options && message.meta.form.options.some((option) => option.href)
                         // Render main text content
                         const textElement = message.content ? (
-                            <TextAnswer key={`${key}-text`} message={message} withActions={false} />
+                            <TextAnswer
+                                key={`${key}-text`}
+                                message={message}
+                                withActions={ifActionInTheMiddle}
+                                interactable={ifActionInTheMiddle}
+                            />
                         ) : null
 
                         // Compute actions separately to render after tool calls
                         const retriable = !!(isLastInGroup && isFinal)
+                        // Check if message has a multi-question form
+                        const multiQuestionFormElement = isMultiQuestionFormMessage(message)
+                            ? (() => {
+                                  if (message.status !== 'completed') {
+                                      // Don't show streaming forms
+                                      return null
+                                  }
+                                  const formArgs = message.tool_calls?.find(
+                                      (toolCall) => toolCall.name === 'create_form'
+                                  )?.args
+                                  // Validate the form args have the expected structure
+                                  if (!formArgs || !Array.isArray(formArgs.questions)) {
+                                      return null
+                                  }
+                                  const form = formArgs as unknown as MultiQuestionForm
+                                  // Extract saved answers from the next message's ui_payload if available
+                                  const savedAnswers =
+                                      isAssistantToolCallMessage(nextMessage) &&
+                                      nextMessage.ui_payload?.create_form?.answers
+                                          ? (nextMessage.ui_payload.create_form.answers as Record<string, string>)
+                                          : undefined
+                                  return (
+                                      <MultiQuestionFormComponent
+                                          key={`${key}-multi-form`}
+                                          form={form}
+                                          isFinal={isFinal}
+                                          savedAnswers={savedAnswers}
+                                      />
+                                  )
+                              })()
+                            : null
+
                         const actionsElement = (() => {
                             if (threadLoading) {
                                 return null
@@ -284,13 +373,24 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             }
 
                             if (isLastInGroup) {
-                                // Message has been interrupted with a form
+                                if (isMultiQuestionFormMessage(message)) {
+                                    return null
+                                }
+                                // Message has been interrupted with quick replies
                                 if (message.meta?.form?.options && isFinal) {
                                     return <AssistantMessageForm key={`${key}-form`} form={message.meta.form} />
                                 }
 
                                 // Show answer actions if the assistant's response is complete at this point
-                                return <SuccessActions key={`${key}-actions`} retriable={retriable} />
+                                // For feedback command responses, only show the trace button (hide rating/retry)
+                                return (
+                                    <SuccessActions
+                                        key={`${key}-actions`}
+                                        retriable={retriable}
+                                        hideRatingAndRetry={isFeedbackCommandResponse}
+                                        content={message.content}
+                                    />
+                                )
                             }
 
                             return null
@@ -301,6 +401,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 {thinkingElement}
                                 {textElement}
                                 {toolCallElements}
+                                {multiQuestionFormElement}
                                 {actionsElement}
                             </div>
                         )
@@ -323,15 +424,20 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                interactable={isLastInGroup}
+                                interactable={!isSharedThread && isLastInGroup}
                                 isFinalGroup={isFinal}
                             />
                         )
-                    } else if (isVisualizationMessage(message)) {
+                    } else if (isArtifactMessage(message)) {
+                        if (!isVisualizationArtifactContent(message.content)) {
+                            return null
+                        }
+
                         return (
-                            <VisualizationAnswer
+                            <VisualizationArtifactAnswer
                                 key={key}
                                 message={message}
+                                content={message.content}
                                 status={message.status}
                                 isEditingInsight={editInsightToolRegistered}
                                 activeTabId={activeTabId}
@@ -370,7 +476,6 @@ function MessageGroupSkeleton({
 }): JSX.Element {
     return (
         <MessageContainer className={clsx('items-center', className)} groupType={groupType}>
-            <LemonSkeleton className="w-8 h-8 rounded-full hidden border @md/thread:flex" />
             <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
         </MessageContainer>
     )
@@ -406,12 +511,15 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
               if (isAssistantMessage(message) && interactable) {
                   // Message has been interrupted with a form
-                  if (message.meta?.form?.options && isFinalGroup) {
-                      return <AssistantMessageForm form={message.meta.form} />
+                  if (
+                      message.meta?.form?.options &&
+                      (isFinalGroup || message.meta.form.options.some((option) => option.href))
+                  ) {
+                      return <AssistantMessageForm form={message.meta.form} linksOnly={!isFinalGroup} />
                   }
 
                   // Show answer actions if the assistant's response is complete at this point
-                  return <SuccessActions retriable={retriable} />
+                  return <SuccessActions retriable={retriable} content={message.content} />
               }
 
               return null
@@ -439,17 +547,25 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
 interface AssistantMessageFormProps {
     form: AssistantForm
+    linksOnly?: boolean
 }
 
-function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
+function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxThreadLogic)
+
+    const options = linksOnly ? form.options.filter((option) => option.href) : form.options
+
     return (
-        <div className="flex flex-wrap gap-1.5 mt-1">
-            {form.options.map((option) => (
+        // ml-1 is because buttons have radius of 0.375rem, while messages of 0.65rem, where diff = 0.25rem
+        // Also makes it clear the form is subservient to the message. *Harmony*
+        <div className="flex flex-wrap gap-1.5 ml-1 mt-1">
+            {options.map((option) => (
                 <LemonButton
                     key={option.value}
-                    onClick={() => askMax(option.value)}
+                    onClick={!option.href ? () => askMax(option.value) : undefined}
+                    to={option.href}
                     size="small"
+                    targetBlank={!!option.href}
                     type={
                         option.variant && ['primary', 'secondary', 'tertiary'].includes(option.variant)
                             ? (option.variant as LemonButtonPropsBase['type'])
@@ -553,7 +669,6 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
         </MessageTemplate>
     )
 }
-
 interface PlanningAnswerProps {
     toolCall: EnhancedToolCall
     isLastPlanningMessage?: boolean
@@ -580,7 +695,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     const hasMultipleSteps = steps.length > 1
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col text-xs">
             <div
                 className={clsx('flex items-center', !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer')}
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
@@ -683,6 +798,7 @@ function AssistantActionComponent({
     icon,
     animate = true,
     showCompletionIcon = true,
+    widget = null,
 }: {
     id: string
     content: string
@@ -691,6 +807,7 @@ function AssistantActionComponent({
     icon?: React.ReactNode
     animate?: boolean
     showCompletionIcon?: boolean
+    widget?: JSX.Element | null
 }): JSX.Element {
     const isPending = state === 'pending'
     const isCompleted = state === 'completed'
@@ -707,7 +824,7 @@ function AssistantActionComponent({
     let markdownContent = <MarkdownMessage id={id} content={content} />
 
     return (
-        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1">
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
                 className={clsx(
                     'transition-all duration-500 flex',
@@ -719,11 +836,11 @@ function AssistantActionComponent({
                 aria-label={!showChevron ? undefined : isExpanded ? 'Collapse history' : 'Expand history'}
             >
                 {icon && (
-                    <div className="flex items-center justify-center size-6">
+                    <div className="flex items-center justify-center size-5">
                         {isInProgress && animate ? (
                             <ShimmeringContent>{icon}</ShimmeringContent>
                         ) : (
-                            <span className="inline-flex">{icon}</span>
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{icon}</span>
                         )}
                     </div>
                 )}
@@ -732,7 +849,7 @@ function AssistantActionComponent({
                         {isInProgress && animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
-                            markdownContent
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
                         )}
                     </div>
                     {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
@@ -782,6 +899,7 @@ function AssistantActionComponent({
                     })}
                 </div>
             )}
+            {widget}
         </div>
     )
 }
@@ -791,17 +909,24 @@ interface ReasoningAnswerProps {
     completed: boolean
     id: string
     showCompletionIcon?: boolean
+    animate?: boolean
 }
 
-function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: ReasoningAnswerProps): JSX.Element {
+function ReasoningAnswer({
+    content,
+    completed,
+    id,
+    showCompletionIcon = true,
+    animate = false,
+}: ReasoningAnswerProps): JSX.Element {
     return (
         <AssistantActionComponent
             id={id}
             content={completed ? 'Thought' : content}
             substeps={completed ? [content] : []}
             state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
-            icon={<IconBrain className="pt-[0.03rem]" />} // The brain icon is slightly too high, so we need to offset it
-            animate={true}
+            icon={<IconBrain />}
+            animate={!inStorybookTestRunner() && animate} // Avoiding flaky snapshots in Storybook
             showCompletionIcon={showCompletionIcon}
         />
     )
@@ -813,6 +938,9 @@ interface ToolCallsAnswerProps {
 }
 
 function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
+    const { isDev } = useValues(preflightLogic)
+    const [showToolCallsJson, setShowToolCallsJson] = useState(false)
+
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -839,11 +967,31 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                     {regularToolCalls.map((toolCall) => {
                         const commentary = toolCall.args.commentary as string
                         const updates = toolCall.updates ?? []
-                        const definition = getToolDefinition(toolCall.name)
+                        const definition = getToolDefinitionFromToolCall(toolCall)
                         let description = `Executing ${toolCall.name}`
+                        let widget: JSX.Element | null = null
                         if (definition) {
                             if (definition.displayFormatter) {
-                                description = definition.displayFormatter(toolCall, { registeredToolMap })
+                                const displayFormatterResult = definition.displayFormatter(toolCall, {
+                                    registeredToolMap,
+                                })
+                                if (typeof displayFormatterResult === 'string') {
+                                    description = displayFormatterResult
+                                } else {
+                                    description = displayFormatterResult[0]
+                                    switch (displayFormatterResult[1]?.widget) {
+                                        case 'recordings':
+                                            widget = (
+                                                <RecordingsWidget
+                                                    toolCallId={toolCall.id}
+                                                    filters={displayFormatterResult[1].args}
+                                                />
+                                            )
+                                            break
+                                        default:
+                                            break
+                                    }
+                                }
                             }
                             if (commentary) {
                                 description = commentary
@@ -858,9 +1006,29 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                                 state={toolCall.status}
                                 icon={definition?.icon || <IconWrench />}
                                 showCompletionIcon={true}
+                                widget={widget}
                             />
                         )
                     })}
+                </div>
+            )}
+
+            {isDev && toolCalls.length > 0 && (
+                <div className="ml-5 flex flex-col gap-1">
+                    <LemonButton
+                        size="xxsmall"
+                        type="secondary"
+                        icon={<IconBug />}
+                        onClick={() => setShowToolCallsJson(!showToolCallsJson)}
+                        tooltip="Development-only. Note: The JSON here is prettified"
+                        tooltipPlacement="top-start"
+                        className="w-fit"
+                    >
+                        {showToolCallsJson ? 'Hide' : 'Show'} above tool call(s) as JSON
+                    </LemonButton>
+                    {showToolCallsJson && (
+                        <CodeSnippet language={Language.JSON}>{JSON.stringify(toolCalls, null, 2)}</CodeSnippet>
+                    )}
                 </div>
             )}
         </>
@@ -932,139 +1100,6 @@ const Visualization = React.memo(function Visualization({
             )}
         </>
     )
-})
-
-function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
-    const { insight } = useValues(insightSceneLogic({ tabId }))
-    const insightProps = { dashboardItemId: insight?.short_id }
-    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
-    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
-
-    return (
-        <>
-            {suggestedQuery && (
-                <LemonButton
-                    onClick={() => {
-                        if (previousQuery) {
-                            onRejectSuggestedInsight()
-                        } else {
-                            onReapplySuggestedInsight()
-                        }
-                    }}
-                    sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
-                    size="xsmall"
-                    tooltip={previousQuery ? 'Reject changes' : 'Reapply changes'}
-                />
-            )}
-        </>
-    )
-}
-
-const VisualizationAnswer = React.memo(function VisualizationAnswer({
-    message,
-    status,
-    isEditingInsight,
-    activeTabId,
-    activeSceneId,
-}: {
-    message: VisualizationMessage
-    status?: MessageStatus
-    isEditingInsight: boolean
-    activeTabId?: string | null
-    activeSceneId?: string | null
-}): JSX.Element | null {
-    const [isSummaryShown, setIsSummaryShown] = useState(false)
-    const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-
-    useLayoutEffect(() => {
-        setIsCollapsed(isEditingInsight)
-    }, [isEditingInsight])
-
-    const query = useMemo(() => visualizationTypeToQuery(message), [message])
-    const queryWithShowHeader = useMemo(() => {
-        if (query && isInsightVizNode(query)) {
-            return { ...query, showHeader: true }
-        }
-        return query
-    }, [query])
-
-    return status !== 'completed'
-        ? null
-        : query && (
-              <>
-                  <MessageTemplate
-                      type="ai"
-                      className="w-full"
-                      wrapperClassName="w-full"
-                      boxClassName="flex flex-col w-full"
-                  >
-                      {!isCollapsed && (
-                          <div
-                              className={clsx(
-                                  'flex flex-col overflow-auto',
-                                  isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96'
-                              )}
-                          >
-                              <Query query={query} readOnly embedded />
-                          </div>
-                      )}
-                      <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
-                          <div className="flex items-center gap-1.5">
-                              <LemonButton
-                                  sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                                  onClick={() => setIsSummaryShown(!isSummaryShown)}
-                                  size="xsmall"
-                                  className="-m-1 shrink"
-                                  tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                              >
-                                  <h5 className="m-0 leading-none">
-                                      <TopHeading query={query} />
-                                  </h5>
-                              </LemonButton>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                              {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
-                                  <InsightSuggestionButton tabId={activeTabId} />
-                              )}
-                              {!isEditingInsight && (
-                                  <LemonButton
-                                      to={
-                                          message.short_id
-                                              ? urls.insightView(message.short_id as InsightShortId)
-                                              : urls.insightNew({
-                                                    query: queryWithShowHeader as
-                                                        | InsightVizNode
-                                                        | DataVisualizationNode,
-                                                })
-                                      }
-                                      icon={<IconOpenInNew />}
-                                      size="xsmall"
-                                      tooltip={message.short_id ? 'Open insight' : 'Open as new insight'}
-                                  />
-                              )}
-                              <LemonButton
-                                  icon={isCollapsed ? <IconEye /> : <IconHide />}
-                                  onClick={() => setIsCollapsed(!isCollapsed)}
-                                  size="xsmall"
-                                  className="-m-1 shrink"
-                                  tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
-                              />
-                          </div>
-                      </div>
-                      {isSummaryShown && (
-                          <>
-                              <SeriesSummary query={query.source} heading={null} />
-                              {!isHogQLQuery(query.source) && (
-                                  <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                                      <PropertiesSummary properties={query.source.properties} />
-                                      <InsightBreakdownSummary query={query.source} />
-                                  </div>
-                              )}
-                          </>
-                      )}
-                  </MessageTemplate>
-              </>
-          )
 })
 
 interface MultiVisualizationAnswerProps {
@@ -1227,10 +1262,19 @@ function RetriableFailureActions(): JSX.Element {
     )
 }
 
-function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
+function SuccessActions({
+    retriable,
+    hideRatingAndRetry,
+    content,
+}: {
+    retriable: boolean
+    hideRatingAndRetry?: boolean
+    content?: string | null
+}): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
+    const { isDev, preflight } = useValues(preflightLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
@@ -1258,7 +1302,16 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     return (
         <>
             <div className="flex items-center ml-1">
-                {rating !== 'bad' && (
+                {content && (
+                    <LemonButton
+                        icon={<IconCopy />}
+                        type="tertiary"
+                        size="xsmall"
+                        tooltip="Copy answer"
+                        onClick={() => copyToClipboard(stripMarkdown(content))}
+                    />
+                )}
+                {!hideRatingAndRetry && rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                         type="tertiary"
@@ -1267,7 +1320,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         onClick={() => submitRating('good')}
                     />
                 )}
-                {rating !== 'good' && (
+                {!hideRatingAndRetry && rating !== 'good' && (
                     <LemonButton
                         icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                         type="tertiary"
@@ -1276,7 +1329,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         onClick={() => submitRating('bad')}
                     />
                 )}
-                {retriable && (
+                {!hideRatingAndRetry && retriable && (
                     <LemonButton
                         icon={<IconRefresh />}
                         type="tertiary"
@@ -1285,13 +1338,9 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         onClick={() => retryLastMessage()}
                     />
                 )}
-                {(user?.is_staff || location.hostname === 'localhost') && traceId && (
+                {(user?.is_staff || isDev) && traceId && (
                     <LemonButton
-                        to={`${
-                            location.hostname !== 'localhost'
-                                ? 'https://us.posthog.com/project/2'
-                                : `${window.location.origin}/project/2`
-                        }${urls.llmAnalyticsTrace(traceId)}`}
+                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.llmAnalyticsTrace(traceId)}`}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"
@@ -1299,7 +1348,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                     />
                 )}
             </div>
-            {feedbackInputStatus !== 'hidden' && (
+            {!hideRatingAndRetry && feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
                     <div className="flex items-center gap-1">
                         <h4 className="m-0 text-sm grow">

@@ -9,13 +9,11 @@ export const SearchTermFilter = (): JSX.Element => {
     const { setSearchTerm } = useActions(logsLogic)
 
     return (
-        <span className="rounded bg-surface-primary">
-            <LemonInput
-                size="small"
-                value={searchTerm}
-                onChange={(value) => setSearchTerm(value)}
-                placeholder="Search logs..."
-            />
-        </span>
+        <LemonInput
+            size="small"
+            value={searchTerm}
+            onChange={(value) => setSearchTerm(value)}
+            placeholder="Search logs..."
+        />
     )
 }

@@ -15,7 +15,7 @@ from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.ph_client import get_client as get_ph_client
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
@@ -290,7 +290,6 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                     parameters = {
                         "team_id": team.id,
                         "python_now": datetime.now(UTC),
-                        "ttl_days": await database_sync_to_async(ttl_days)(team),
                         "ttl_threshold": TTL_THRESHOLD,
                     }
 
@@ -405,21 +404,36 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                             ]
                         )
 
-                        digest_data: list[str] = ["[]" if v is None else v for v in results]
+                        defaults = [
+                            DashboardList(root=[]),
+                            EventDefinitionList(root=[]),
+                            ExperimentList(root=[]),
+                            ExperimentList(root=[]),
+                            ExternalDataSourceList(root=[]),
+                            FeatureFlagList(root=[]),
+                            FilterList(root=[]),
+                            RecordingCount(recording_count=0),
+                            SurveyList(root=[]),
+                        ]
+
+                        digest_data = [
+                            default if result is None else default.__class__.model_validate_json(result)
+                            for default, result in zip(defaults, results)
+                        ]
 
                         team_digests.append(
                             TeamDigest(
                                 id=team.id,
                                 name=team.name,
-                                dashboards=DashboardList.model_validate_json(digest_data[0]),
-                                event_definitions=EventDefinitionList.model_validate_json(digest_data[1]),
-                                experiments_launched=ExperimentList.model_validate_json(digest_data[2]),
-                                experiments_completed=ExperimentList.model_validate_json(digest_data[3]),
-                                external_data_sources=ExternalDataSourceList.model_validate_json(digest_data[4]),
-                                feature_flags=FeatureFlagList.model_validate_json(digest_data[5]),
-                                filters=FilterList.model_validate_json(digest_data[6]),
-                                expiring_recordings=RecordingCount.model_validate_json(digest_data[7]),
-                                surveys_launched=SurveyList.model_validate_json(digest_data[8]),
+                                dashboards=digest_data[0],
+                                event_definitions=digest_data[1],
+                                experiments_launched=digest_data[2],
+                                experiments_completed=digest_data[3],
+                                external_data_sources=digest_data[4],
+                                feature_flags=digest_data[5],
+                                filters=digest_data[6],
+                                expiring_recordings=digest_data[7],
+                                surveys_launched=digest_data[8],
                             )
                         )
                         team_count += 1
@@ -500,7 +514,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
                     )
 
-                    if not created and messaging_record.sent_at:
+                    if not created and messaging_record.sent_at and not input.allow_already_sent:
                         logger.info(
                             f"Digest already sent for organization, skipping...", organization_id=organization.id
                         )

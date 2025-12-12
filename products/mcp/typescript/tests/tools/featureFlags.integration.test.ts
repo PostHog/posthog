@@ -276,6 +276,30 @@ describe('Feature Flags', { concurrent: false }, () => {
                 expect(flag).toHaveProperty('active')
             }
         })
+
+        it('should respect limit parameter', async () => {
+            const result = await getAllTool.handler(context, { data: { limit: 2 } })
+            const flags = parseToolResponse(result)
+            expect(flags.length).toBeLessThanOrEqual(2)
+        })
+
+        it('should respect offset parameter', async () => {
+            const allResult = await getAllTool.handler(context, { data: { limit: 10 } })
+            const allFlags = parseToolResponse(allResult)
+
+            if (allFlags.length > 1) {
+                const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
+                const offsetFlags = parseToolResponse(offsetResult)
+                // Verify offset is working by checking first result is different from original first result
+                expect(offsetFlags[0].id).not.toBe(allFlags[0].id)
+            }
+        })
+
+        it('should use default limit when not specified', async () => {
+            const result = await getAllTool.handler(context, {})
+            const flags = parseToolResponse(result)
+            expect(flags.length).toBeLessThanOrEqual(50)
+        })
     })
 
     describe('get-feature-flag-definition tool', () => {
@@ -319,7 +343,7 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await getDefinitionTool.handler(context, { flagKey: nonExistentKey })
 
-            expect(result.content[0].text).toBe(`Error: Flag with key "${nonExistentKey}" not found.`)
+            expect(result).toEqual({ error: `Flag with key "${nonExistentKey}" not found.` })
         })
     })
 
@@ -349,8 +373,6 @@ describe('Feature Flags', { concurrent: false }, () => {
             // Delete the flag
             const deleteResult = await deleteTool.handler(context, { flagKey: createParams.key })
 
-            expect(deleteResult.content).toBeTruthy()
-            expect(deleteResult.content[0].type).toBe('text')
             const deleteResponse = parseToolResponse(deleteResult)
             expect(deleteResponse.success).toBe(true)
             expect(deleteResponse.message).toContain('deleted successfully')
@@ -360,14 +382,14 @@ describe('Feature Flags', { concurrent: false }, () => {
             const getResult = await getDefinitionTool.handler(context, {
                 flagKey: createParams.key,
             })
-            expect(getResult.content[0].text).toBe(`Error: Flag with key "${createParams.key}" not found.`)
+            expect(getResult).toEqual({ error: `Flag with key "${createParams.key}" not found.` })
         })
 
         it('should handle deletion of non-existent flag', async () => {
             const nonExistentKey = generateUniqueKey('non-existent-delete')
 
             const result = await deleteTool.handler(context, { flagKey: nonExistentKey })
-            expect(result.content[0].text).toBe('Feature flag is already deleted.')
+            expect(result).toEqual({ message: 'Feature flag is already deleted.' })
         })
     })
 

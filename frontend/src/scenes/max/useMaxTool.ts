@@ -3,8 +3,6 @@ import React, { useEffect } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
@@ -20,6 +18,8 @@ export interface UseMaxToolOptions extends Omit<ToolRegistration, 'name' | 'desc
     initialMaxPrompt?: string
     /** Callback when Max panel opens */
     onMaxOpen?: () => void
+    /** Optional: Describes what kind of context information is being provided */
+    contextDescription?: ToolRegistration['contextDescription']
 }
 
 export interface UseMaxToolReturn {
@@ -35,6 +35,7 @@ export interface UseMaxToolReturn {
 export function useMaxTool({
     identifier,
     context,
+    contextDescription,
     introOverride,
     callback,
     suggestions,
@@ -48,12 +49,7 @@ export function useMaxTool({
     const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
 
     const definition = getToolDefinition(identifier)
-    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')
-    const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
-
-    if (!isMaxAvailable) {
-        active = false
-    }
+    const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
         // Register/deregister tool
@@ -63,6 +59,7 @@ export function useMaxTool({
                 name: definition.name,
                 description: definition.description,
                 context,
+                contextDescription,
                 introOverride,
                 suggestions,
                 callback,
@@ -74,6 +71,7 @@ export function useMaxTool({
         identifier,
         definition,
         JSON.stringify(context), // oxlint-disable-line react-hooks/exhaustive-deps
+        contextDescription,
         introOverride,
         suggestions,
         callback,

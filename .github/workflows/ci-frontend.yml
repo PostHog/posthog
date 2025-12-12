@@ -1,13 +1,14 @@
 name: Frontend CI
 on:
     pull_request:
+    merge_group:
     push:
         branches:
             - master
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     # Job to decide if we should run frontend ci
@@ -19,7 +20,7 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
-            frontend: ${{ steps.filter.outputs.frontend }}
+            frontend: ${{ steps.filter.outputs.frontend || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -27,6 +28,7 @@ jobs:
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       frontend:
@@ -93,7 +95,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend prettier:check
 
             - name: Lint with Stylelint
-              run: pnpm --filter=@posthog/frontend lint:css
+              run: pnpm run lint:css
 
             - name: Lint with Oxlint
               run: pnpm --filter=@posthog/frontend lint:js -f github
@@ -107,7 +109,7 @@ jobs:
     frontend-toolbar-checks:
         name: Frontend toolbar checks
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@v4
@@ -141,6 +143,7 @@ jobs:
 
             - name: Check toolbar bundle size
               uses: preactjs/compressed-size-action@946a292cd35bd1088e0d7eb92b69d1a8d5b5d76a # v2
+              if: github.event_name != 'merge_group'
               with:
                   build-script: '--filter=@posthog/frontend build'
                   install-script: 'pnpm --filter=@posthog/frontend... install'
@@ -195,6 +198,9 @@ jobs:
             - name: Build products
               run: pnpm --filter=@posthog/frontend build:products
 
+            - name: Check if products.tsx and products.json are up to date
+              run: pnpm --filter=@posthog/frontend build:products && git diff --exit-code
+
             - name: Kea typegen
               run: pnpm --filter=@posthog/frontend typegen:write
 
@@ -207,7 +213,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
 
             - name: Check if mobile replay "schema.json" is up to date
-              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
+              run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
 
     jest:
         runs-on: depot-ubuntu-24.04
@@ -242,7 +248,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              run: bin/turbo run test --filter=@posthog/frontend
+              run: bin/turbo run test --filter=@posthog/frontend -- --runInBand
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}

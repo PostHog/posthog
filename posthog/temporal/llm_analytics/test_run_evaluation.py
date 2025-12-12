@@ -16,7 +16,6 @@ from .run_evaluation import (
     emit_evaluation_event_activity,
     execute_llm_judge_activity,
     fetch_evaluation_activity,
-    fetch_legacy_event_activity,
 )
 
 
@@ -159,54 +158,12 @@ class TestRunEvaluationWorkflow:
                 assert call_kwargs["event"] == "$ai_evaluation"
                 assert call_kwargs["properties"]["$ai_evaluation_result"] is True
 
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_fetch_legacy_event_activity(self, setup_data):
-        """Test backward compatibility with legacy event fetching"""
-        team = setup_data["team"]
-        event_id = str(uuid.uuid4())
-        timestamp = datetime.now().isoformat()
+    def test_parse_inputs(self):
+        """Test that parse_inputs correctly parses workflow inputs"""
+        event_data = create_mock_event_data(team_id=1)
+        inputs = ["eval-123", json.dumps(event_data)]
 
-        with patch("posthog.temporal.llm_analytics.run_evaluation.sync_execute") as mock_execute:
-            person_id = uuid.uuid4()
-            mock_execute.return_value = [
-                (
-                    event_id,
-                    "$ai_generation",
-                    '{"$ai_input": "test", "$ai_output": "response"}',
-                    timestamp,
-                    team.id,
-                    "test-user",
-                    person_id,
-                )
-            ]
-
-            result = await fetch_legacy_event_activity(event_id, team.id, timestamp)
-
-            assert result["uuid"] == event_id
-            assert result["event"] == "$ai_generation"
-            assert result["team_id"] == team.id
-            assert result["properties"]["$ai_input"] == "test"
-
-    def test_parse_inputs_legacy_format(self):
-        """Test that parse_inputs handles legacy 3-argument format"""
-        legacy_inputs = ["eval-123", "event-456", "2024-01-01T00:00:00Z"]
-
-        parsed = RunEvaluationWorkflow.parse_inputs(legacy_inputs)
-
-        assert parsed.evaluation_id == "eval-123"
-        assert parsed.target_event_id == "event-456"
-        assert parsed.timestamp == "2024-01-01T00:00:00Z"
-        assert parsed.event_data is None
-
-    def test_parse_inputs_new_format(self):
-        """Test that parse_inputs handles new 2-argument format"""
-        event_data = {"uuid": "event-456", "event": "$ai_generation", "team_id": 1}
-        new_inputs = ["eval-123", json.dumps(event_data)]
-
-        parsed = RunEvaluationWorkflow.parse_inputs(new_inputs)
+        parsed = RunEvaluationWorkflow.parse_inputs(inputs)
 
         assert parsed.evaluation_id == "eval-123"
         assert parsed.event_data == event_data
-        assert parsed.target_event_id is None
-        assert parsed.timestamp is None

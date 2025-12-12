@@ -4,11 +4,13 @@ on:
     pull_request:
         paths:
             - 'docs/published/**'
+            - 'docs/onboarding/**'
     push:
         branches:
             - master
         paths:
             - 'docs/published/**'
+            - 'docs/onboarding/**'
 
 permissions:
     pull-requests: write

@@ -59,6 +59,8 @@ pub struct FlagRequest {
     pub group_properties: Option<HashMap<String, HashMap<String, Value>>>,
     #[serde(alias = "$anon_distinct_id", skip_serializing_if = "Option::is_none")]
     pub anon_distinct_id: Option<String>,
+    #[serde(alias = "$device_id", skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
     pub ip_address: Option<String>,
     #[serde(default, alias = "flag_keys_to_evaluate")]
     pub flag_keys: Option<Vec<String>>,
@@ -480,9 +482,7 @@ mod tests {
 
         let flag_service = FlagService::new(
             redis_client.clone(),
-            redis_client.clone(),
             None, // No dedicated flags Redis in tests
-            None,
             pg_client.clone(),
             DEFAULT_CACHE_TTL_SECONDS,
             DEFAULT_CACHE_TTL_SECONDS,
@@ -497,8 +497,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_cases() {
-        let redis_reader_client = setup_redis_client(None).await;
-        let redis_writer_client = setup_redis_client(None).await;
+        let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
 
         // Test invalid token
@@ -511,10 +510,8 @@ mod tests {
             .expect("failed to extract token");
 
         let flag_service = FlagService::new(
-            redis_reader_client.clone(),
-            redis_writer_client.clone(),
+            redis_client.clone(),
             None, // No dedicated flags Redis in tests
-            None,
             pg_client.clone(),
             DEFAULT_CACHE_TTL_SECONDS,
             DEFAULT_CACHE_TTL_SECONDS,

@@ -135,16 +135,22 @@ interface SearchProps {
     placeholder?: string
     className?: string
     autoFocus?: boolean
+    wrapperClassName?: string
 }
 
-const Search = ({ placeholder = 'Search...', className, autoFocus = true }: SearchProps): JSX.Element => {
+const Search = ({
+    placeholder = 'Search...',
+    className,
+    autoFocus = true,
+    wrapperClassName,
+}: SearchProps): JSX.Element => {
     const context = useContext(ComboboxContext)
     if (!context) {
         throw new Error('Combobox.Search must be used inside Combobox')
     }
 
     return (
-        <div className={cn('p-1', context.insideMenu && 'px-0 pt-0')}>
+        <div className={cn('p-1', context.insideMenu && 'px-0 pt-0', wrapperClassName)}>
             <TextInputPrimitive
                 type="text"
                 value={context.searchValue}
@@ -155,6 +161,7 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
                 role="combobox"
                 size="default"
                 aria-controls="combobox-listbox"
+                showFocusPulse
             />
         </div>
     )

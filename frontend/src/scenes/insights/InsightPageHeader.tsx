@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { combineUrl } from 'kea-router'
 import { useState } from 'react'
 
 import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } from '@posthog/icons'
@@ -85,7 +86,8 @@ const RESOURCE_TYPE = 'insight'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
-    const { insightMode, itemId, alertId, filtersOverride, variablesOverride } = useValues(insightSceneLogic)
+    const { insightMode, itemId, alertId, filtersOverride, variablesOverride, dashboardId } =
+        useValues(insightSceneLogic)
 
     const { setInsightMode } = useActions(insightSceneLogic)
 
@@ -116,7 +118,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightQuery,
         insightData,
     } = useValues(insightDataLogic(insightProps))
-    const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
+    const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges } = useActions(insightDataLogic(insightProps))
     const { createStaticCohort } = useActions(exportsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -217,6 +219,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         closeModal={() => setEndpointModalOpen(false)}
                         tabId={insightProps.tabId || ''}
                         insightQuery={insightQuery as HogQLQuery | InsightQueryNode}
+                        insightShortId={insight.short_id}
                     />
                 </>
             )}
@@ -337,6 +340,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {
                                         format: ExporterFormat.PNG,
                                         insight: insight.id,
+                                        context: exportContext,
                                         dataAttr: `${RESOURCE_TYPE}-export-png`,
                                     },
                                     {
@@ -353,7 +357,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        {featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
+                        {hasDashboardItemId && featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
                             <ButtonPrimitive onClick={() => setEndpointModalOpen(true)} menuItem>
                                 <IconCode2 />
                                 Create endpoint
@@ -516,7 +520,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
                             <LemonButton
                                 type="secondary"
-                                onClick={() => setInsightMode(ItemMode.View, null)}
+                                onClick={() => {
+                                    cancelChanges()
+                                    setInsightMode(ItemMode.View, null)
+                                }}
                                 data-attr="insight-cancel-edit-button"
                                 size="small"
                             >
@@ -541,7 +548,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     urls.sqlEditor(undefined, undefined, insight.short_id)
                                                 )
                                             } else if (insight.short_id) {
-                                                push(urls.insightEdit(insight.short_id))
+                                                const editUrl = dashboardId
+                                                    ? combineUrl(urls.insightEdit(insight.short_id), {
+                                                          dashboard: dashboardId,
+                                                      }).url
+                                                    : urls.insightEdit(insight.short_id)
+                                                push(editUrl)
                                             } else {
                                                 setInsightMode(ItemMode.Edit, null)
                                             }

@@ -11,15 +11,17 @@ import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { cn } from 'lib/utils/css-classes'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { getSurveyVersionWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Survey } from '~/types'
 
 export function SurveysTable(): JSX.Element {
@@ -34,6 +36,7 @@ export function SurveysTable(): JSX.Element {
         tab,
         hasNextPage,
         hasNextSearchPage,
+        teamSdkVersions,
     } = useValues(surveysLogic)
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, loadNextPage, loadNextSearchPage } =
@@ -188,13 +191,22 @@ export function SurveysTable(): JSX.Element {
                                                 >
                                                     <LemonButton
                                                         fullWidth
-                                                        onClick={() =>
+                                                        onClick={() => {
+                                                            const versionWarnings = getSurveyVersionWarnings(
+                                                                survey,
+                                                                teamSdkVersions
+                                                            )
                                                             LemonDialog.open({
                                                                 title: 'Launch this survey?',
                                                                 content: (
-                                                                    <div className="text-sm text-secondary">
-                                                                        The survey will immediately start displaying to
-                                                                        users matching the display conditions.
+                                                                    <div>
+                                                                        <div className="text-sm text-secondary">
+                                                                            The survey will immediately start displaying
+                                                                            to users matching the display conditions.
+                                                                        </div>
+                                                                        <SdkVersionWarnings
+                                                                            warnings={versionWarnings}
+                                                                        />
                                                                     </div>
                                                                 ),
                                                                 primaryButton: {
@@ -218,7 +230,7 @@ export function SurveysTable(): JSX.Element {
                                                                     size: 'small',
                                                                 },
                                                             })
-                                                        }
+                                                        }}
                                                     >
                                                         Launch survey
                                                     </LemonButton>

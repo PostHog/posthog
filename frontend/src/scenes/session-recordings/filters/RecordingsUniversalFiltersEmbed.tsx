@@ -33,6 +33,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
@@ -58,7 +59,7 @@ import {
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
-import { playlistLogic } from '../playlist/playlistLogic'
+import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -178,26 +179,30 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     filters,
     setFilters,
     totalFiltersCount,
+    currentSessionRecordingId,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     totalFiltersCount?: number
+    currentSessionRecordingId?: string
 }): JSX.Element => {
-    const { isFiltersExpanded } = useValues(playlistLogic)
-    const { setIsFiltersExpanded } = useActions(playlistLogic)
+    const { isFiltersExpanded } = useValues(playlistFiltersLogic)
+    const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
 
     return (
         <>
             <MaxTool
-                identifier="search_session_recordings"
+                identifier={hasAgentModesFeatureFlag ? 'filter_session_recordings' : 'search_session_recordings'}
                 context={{
                     current_filters: filters,
+                    current_session_id: currentSessionRecordingId,
                 }}
                 callback={(toolOutput: Record<string, any>) => {
                     // Improve type
-                    setFilters(toolOutput)
+                    setFilters(hasAgentModesFeatureFlag ? toolOutput.recordings_filters : toolOutput)
                     setIsFiltersExpanded(true)
                 }}
                 initialMaxPrompt="Show me recordings where "
@@ -263,7 +268,6 @@ export const RecordingsUniversalFiltersEmbed = ({
     totalFiltersCount,
     className,
     allowReplayHogQLFilters = false,
-    allowReplayGroupsFilters = false,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
@@ -271,7 +275,6 @@ export const RecordingsUniversalFiltersEmbed = ({
     totalFiltersCount?: number
     className?: string
     allowReplayHogQLFilters?: boolean
-    allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
     const [savedFilterName, setSavedFilterName] = useState('')
@@ -283,8 +286,8 @@ export const RecordingsUniversalFiltersEmbed = ({
 
     const durationFilter = filters.duration?.[0] ?? defaultRecordingDurationFilter
 
-    const { activeFilterTab } = useValues(playlistLogic)
-    const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistLogic)
+    const { activeFilterTab } = useValues(playlistFiltersLogic)
+    const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const taxonomicGroupTypes = [
@@ -295,14 +298,11 @@ export const RecordingsUniversalFiltersEmbed = ({
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,
+        ...groupsTaxonomicTypes,
     ]
 
     if (allowReplayHogQLFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
-    }
-
-    if (allowReplayGroupsFilters) {
-        taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
     const { savedFilters, appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)

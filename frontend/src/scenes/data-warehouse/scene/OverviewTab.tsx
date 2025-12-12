@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
+import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { DataWarehouseActivityRecord } from '~/types'
 
 import { dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'
@@ -15,6 +16,13 @@ import { JobStatsChart } from './components/JobStatsChart'
 import { StatusIcon, StatusTag } from './components/StatusComponents'
 
 const LIST_SIZE = 8
+
+function formatOrigin(origin: DataWarehouseSavedQueryOrigin | null | undefined): string {
+    if (!origin || origin === DataWarehouseSavedQueryOrigin.DATA_WAREHOUSE) {
+        return ''
+    }
+    return origin.replace(/_/g, ' ')
+}
 
 export function OverviewTab(): JSX.Element {
     const {
@@ -60,15 +68,19 @@ export function OverviewTab(): JSX.Element {
         {
             title: 'Activity',
             key: 'name',
-            render: (_, activity) => (
-                <div className="flex items-center gap-1">
-                    <StatusIcon status={activity.status} />
-                    <span>{activity.name}</span>
-                    <LemonTag size="medium" type="muted" className="px-1 rounded-lg ml-1">
-                        {activity.type}
-                    </LemonTag>
-                </div>
-            ),
+            render: (_, activity) => {
+                const formattedOrigin = formatOrigin(activity.origin)
+                const tagText = formattedOrigin ? `${activity.type} created by ${formattedOrigin}` : activity.type
+                return (
+                    <div className="flex items-center gap-1">
+                        <StatusIcon status={activity.status} />
+                        <span>{activity.name}</span>
+                        <LemonTag size="medium" type="muted" className="px-1 rounded-lg ml-1">
+                            {tagText}
+                        </LemonTag>
+                    </div>
+                )
+            },
         },
         {
             title: 'When',
@@ -96,7 +108,7 @@ export function OverviewTab(): JSX.Element {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="flex items-start gap-1">
-                        <div className="text-sm text-muted">Rows Processed</div>
+                        <div className="text-sm text-muted">Rows processed</div>
                         <Tooltip
                             title="Total rows processed this month by all data sources and materialized views"
                             placement="bottom"
@@ -162,7 +174,7 @@ export function OverviewTab(): JSX.Element {
                         <div className="flex items-center justify-between mb-4 flex-shrink-0">
                             <div className="flex items-center gap-2">
                                 <div className="flex items-start gap-1">
-                                    <div className="text-lg font-medium">Sync Success Rate</div>
+                                    <div className="text-lg font-medium">Sync success rate</div>
                                 </div>
                                 {jobStatsLoading && <Spinner className="text-muted" />}
                             </div>

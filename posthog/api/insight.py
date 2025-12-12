@@ -42,11 +42,12 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import groups
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -109,6 +110,11 @@ INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
     "insight_refresh_initiated",
     "Insight refreshes initiated, based on should_refresh_insight().",
     labelnames=["is_shared"],
+)
+
+EXPORT_QUERY_CACHE_MISS = Counter(
+    "export_query_cache_miss",
+    "Cache misses during PNG export rendering when expected cache key was not found",
 )
 
 
@@ -349,6 +355,7 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
+    resolved_date_range = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
 
@@ -389,6 +396,7 @@ class InsightSerializer(InsightBasicSerializer):
             "query_status",
             "hogql",
             "types",
+            "resolved_date_range",
             "_create_in_folder",
             "alerts",
             "last_viewed_at",
@@ -464,7 +472,7 @@ class InsightSerializer(InsightBasicSerializer):
         session_id = self.context["request"].headers.get("X-Posthog-Session-Id")
         dashboards_before_change: list[Union[str, dict]] = []
         try:
-            # since it is possible to be undeleting a soft deleted insight
+            # since it is possible to be restoring a soft deleted insight
             # the state captured before the update has to include soft deleted insights
             # or we can't capture undeletes to the activity log
             before_update = Insight.objects_including_soft_deleted.prefetch_related(
@@ -527,8 +535,16 @@ class InsightSerializer(InsightBasicSerializer):
         properties["$current_url"] = current_url
         properties["$session_id"] = session_id
 
+        activity = "updated"
+        deleted_change = next((change for change in changes if change.field == "deleted"), None)
+        if deleted_change:
+            if bool(deleted_change.after):
+                activity = "deleted"
+            elif bool(deleted_change.before):
+                activity = "restored"
+
         log_and_report_insight_activity(
-            activity="updated",
+            activity=activity,
             insight=updated_insight,
             insight_id=updated_insight.id,
             insight_short_id=updated_insight.short_id,
@@ -639,6 +655,9 @@ class InsightSerializer(InsightBasicSerializer):
 
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
+
+    def get_resolved_date_range(self, insight: Insight):
+        return self.insight_result(insight).resolved_date_range
 
     def get_alerts(self, insight: Insight):
         if not are_alerts_supported_for_insight(insight):
@@ -752,6 +771,36 @@ class InsightSerializer(InsightBasicSerializer):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
 
+        # Check if we have an expected cache key from the image exporter
+        export_cache_keys: Optional[dict[int, str]] = self.context.get("export_cache_keys")
+        if export_cache_keys and insight.id in export_cache_keys:
+            expected_cache_key = export_cache_keys[insight.id]
+            cached_response = fetch_cached_response_by_key(expected_cache_key)
+            if cached_response:
+                return InsightResult(
+                    result=cached_response.get("results"),
+                    has_more=cached_response.get("hasMore"),
+                    columns=cached_response.get("columns"),
+                    last_refresh=cached_response.get("last_refresh"),
+                    cache_key=expected_cache_key,
+                    is_cached=True,
+                    timezone=cached_response.get("timezone"),
+                    next_allowed_client_refresh=cached_response.get("next_allowed_client_refresh"),
+                    cache_target_age=cached_response.get("cache_target_age"),
+                    timings=cached_response.get("timings"),
+                    query_status=cached_response.get("query_status"),
+                    hogql=cached_response.get("hogql"),
+                    types=cached_response.get("types"),
+                )
+            else:
+                EXPORT_QUERY_CACHE_MISS.inc()
+                logger.error(
+                    "export_cache_key_miss",
+                    insight_id=insight.id,
+                    expected_cache_key=expected_cache_key,
+                    message="Expected cache key not found during export - falling back to normal calculation",
+                )
+
         with upgrade_query(insight):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
@@ -779,8 +828,8 @@ class InsightSerializer(InsightBasicSerializer):
                     variables_override=variables_override,
                     tile_filters_override=tile_filters_override,
                 )
-            except ExposedHogQLError as e:
-                raise ValidationError(str(e))
+            except (ExposedHogQLError, ExposedCHQueryError) as e:
+                raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
                 logger.warn(
                     "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
@@ -832,7 +881,7 @@ class InsightSerializer(InsightBasicSerializer):
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""
-Whether to refresh the retrieved insights, how aggresively, and if sync or async:
+Whether to refresh the retrieved insights, how aggressively, and if sync or async:
 - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
 - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
 - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -905,7 +954,7 @@ class InsightViewSet(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
         elif self.action == "partial_update" and self.request.data.get("deleted") is False:
-            # an insight can be un-deleted by patching {"deleted": False}
+            # an insight can be restored by patching {"deleted": False}
             include_deleted = True
 
         if not include_deleted:
@@ -1109,7 +1158,10 @@ When set, the specified dashboard's filters and date range override will be appl
             # context is used in the to_representation method to report filters used
             serializer_context.update({"dashboard": dashboard_tile.dashboard})
 
-        serialized_data = self.get_serializer(instance, context=serializer_context).data
+        try:
+            serialized_data = self.get_serializer(instance, context=serializer_context).data
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
 
         if dashboard_tile is not None:
             serialized_data["color"] = dashboard_tile.color
@@ -1137,8 +1189,8 @@ When set, the specified dashboard's filters and date range override will be appl
                     result = self.calculate_trends_hogql(request)
                 else:
                     result = self.calculate_trends(request)
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except Cohort.DoesNotExist as e:
@@ -1233,8 +1285,8 @@ When set, the specified dashboard's filters and date range override will be appl
                 else:
                     funnel = self.calculate_funnel(request)
 
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
 
         if isinstance(funnel["result"], BaseModel):
             funnel["result"] = funnel["result"].model_dump()

@@ -16,11 +16,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -55,7 +55,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_aggregation_with_groups_across_persons
@@ -75,11 +76,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -96,7 +97,7 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -122,7 +123,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds
@@ -147,11 +149,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 15, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                      and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                      and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                     and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                     and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 15, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                   and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                   and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                  and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                  and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -169,12 +171,12 @@
                   if(equals(e.event, 'step three'), 1, 0) AS step_2
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -195,7 +197,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds.1
@@ -209,11 +212,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 15, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                      and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                      and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                     and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                     and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 15, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                   and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                   and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                  and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                  and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -231,12 +234,12 @@
                   if(equals(e.event, 'step three'), 1, 0) AS step_2
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -256,7 +259,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_events_with_person_on_events_v2
@@ -290,11 +294,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -312,12 +316,12 @@
                   if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(^|;)a(\\.|$|;|:)'), equals(e.elements_chain_href, '/movie')), 1, 0) AS step_2
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$autocapture', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -338,45 +342,88 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter
   '''
-  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
-  SELECT query_id,
-         query_duration_ms,
-         read_rows,
-         read_bytes,
-         written_rows,
-         memory_usage,
-  exception
-  FROM query_log_archive
-  WHERE lc_cohort_id = 99999
-    AND team_id = 99999
-    AND query LIKE '%cohort_calc:00000000%'
-    AND event_date >= 'today'
-    AND event_time >= 'today 00:00:00'
-  ORDER BY event_time DESC
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.1
   '''
-  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
-  SELECT query_id,
-         query_duration_ms,
-         read_rows,
-         read_bytes,
-         written_rows,
-         memory_usage,
-  exception
-  FROM query_log_archive
-  WHERE lc_cohort_id = 99999
-    AND team_id = 99999
-    AND query LIKE '%cohort_calc:00000000%'
-    AND event_date >= 'today'
-    AND event_time >= 'today 00:00:00'
-  ORDER BY event_time DESC
+  SELECT sum(step_1) AS step_1,
+         sum(step_2) AS step_2,
+         arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         groupArray(row_number) AS row_number,
+         final_prop AS final_prop
+  FROM
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+            countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
+            groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            rowNumberInAllBlocks() AS row_number,
+            breakdown AS final_prop
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               [''] AS prop,
+               arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.5 AS steps_bitfield,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(and(equals(e.event, 'user signed up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                 (SELECT cohortpeople.person_id AS person_id
+                                                                  FROM cohortpeople
+                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))), 1, 0) AS step_0,
+                  if(equals(e.event, 'paid'), 1, 0) AS step_1
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+        GROUP BY aggregation_target
+        HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+     GROUP BY breakdown
+     ORDER BY step_2 DESC, step_1 DESC)
+  GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
+  LIMIT 100 SETTINGS join_algorithm='auto',
+                     readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.2
@@ -480,11 +527,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -502,12 +549,12 @@
                   if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
@@ -539,7 +586,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups.1
@@ -553,11 +601,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -575,12 +623,12 @@
                   if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
@@ -611,7 +659,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups.2
@@ -625,11 +674,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -647,12 +696,12 @@
                   if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
@@ -683,7 +732,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups.3
@@ -697,11 +747,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -719,12 +769,12 @@
                   if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
@@ -755,7 +805,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_static_cohort_step_filter
@@ -775,11 +826,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -799,12 +850,12 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -824,7 +875,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_timezones
@@ -844,11 +896,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -865,12 +917,12 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -890,7 +942,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen
@@ -910,11 +963,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic))) AS prop,
-               arrayJoin(aggregate_funnel_array_v9(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), [''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                                          and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                                          and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                         and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                                         and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), [''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -933,12 +986,12 @@
                   prop_basic AS prop
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -958,7 +1011,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -977,12 +1031,12 @@
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               groupUniqArrayIf(arrayMap(x -> ifNull(x, ''), prop_1), notEmpty(prop_1)) AS prop,
-               arrayJoin(aggregate_funnel_array_v9(2, 1209600, 'step_1', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                           and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               groupUniqArrayIf(arrayMap(x -> ifNull(x, ''), prop), notEmpty(prop)) AS prop,
+               arrayJoin(aggregate_funnel_array(2, 1209600, 'step_1', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                         and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                         and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                        and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                        and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -998,17 +1052,15 @@
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
                   [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
-                  if(ifNull(equals(step_0, 1), 0), prop_basic, []) AS prop_0,
-                  if(ifNull(equals(step_1, 1), 0), prop_basic, []) AS prop_1,
-                  prop_1 AS prop
+                  if(ifNull(equals(step_1, 1), 0), prop_basic, []) AS prop
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1028,7 +1080,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_step_multiple_breakdown_snapshot
@@ -1048,11 +1101,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic))) AS prop,
-               arrayJoin(aggregate_funnel_array_v9(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), ['', ''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                                              and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                                              and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                             and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                                             and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), ['', ''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1071,12 +1124,12 @@
                   prop_basic AS prop
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1096,7 +1149,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -1121,11 +1175,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1145,7 +1199,7 @@
                   prop_basic AS prop
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1172,7 +1226,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -1197,11 +1252,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1221,7 +1276,7 @@
                   prop_basic AS prop
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1248,7 +1303,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group
@@ -1273,11 +1329,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1297,14 +1353,14 @@
                   prop_basic AS prop
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1331,7 +1387,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.1
@@ -1344,11 +1401,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1368,14 +1425,14 @@
                   prop_basic AS prop
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1402,7 +1459,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.2
@@ -1415,11 +1473,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1439,14 +1497,14 @@
                   prop_basic AS prop
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1473,7 +1531,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.3
@@ -1486,11 +1545,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1510,14 +1569,14 @@
                   prop_basic AS prop
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1544,7 +1603,8 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.4
@@ -1557,11 +1617,11 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                          and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1581,14 +1641,14 @@
                   prop_basic AS prop
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1615,6 +1675,7 @@
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---

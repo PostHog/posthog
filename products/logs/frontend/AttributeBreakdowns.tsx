@@ -10,11 +10,13 @@ import { attributeBreakdownLogic } from './attributeBreakdownLogic'
 export const AttributeBreakdowns = ({
     attribute,
     addFilter,
+    tabId,
 }: {
     attribute: string
     addFilter: (key: string, value: string, operator?: PropertyOperator) => void
+    tabId: string
 }): JSX.Element => {
-    const logic = attributeBreakdownLogic({ attribute })
+    const logic = attributeBreakdownLogic({ attribute, tabId })
     const { attributeValues, logCount, breakdowns } = useValues(logic)
 
     const dataSource = Object.entries(breakdowns)
@@ -30,6 +32,7 @@ export const AttributeBreakdowns = ({
         <div className="flex flex-col p-2 gap-y-2">
             {attributeValues.length} of the {logCount} logs have the label {attribute}
             <LemonTable
+                className="w-fit"
                 hideScrollbar
                 dataSource={dataSource}
                 size="small"

@@ -30,6 +30,14 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLESHEETS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "the header row in the worksheet contains duplicates": "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated.",
+            "can't be found": None,
+            "SpreadsheetNotFound": None,
+            "must be real number, not str": "Import failed: all cells in a numerical column must have a value and not be blank",
+        }
+
     def get_schemas(
         self, config: GoogleSheetsSourceConfig, team_id: int, with_counts: bool = False
     ) -> list[SourceSchema]:
@@ -96,4 +104,5 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                     )
                 ],
             ),
+            featured=True,
         )

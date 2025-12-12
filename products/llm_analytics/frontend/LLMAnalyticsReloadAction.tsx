@@ -23,7 +23,9 @@ export function LLMAnalyticsReloadAction(): JSX.Element {
     const { activeTab, selectedDashboardId, isRefreshing: oldTilesRefreshing } = useValues(llmAnalyticsLogic)
     const { refreshAllDashboardItems } = useActions(llmAnalyticsLogic)
 
-    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
+    const useCustomizableDashboard =
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
     const shouldUseDashboardLogic = selectedDashboardId && useCustomizableDashboard && activeTab === 'dashboard'
     const dashboardLogicInstance = dashboardLogic({

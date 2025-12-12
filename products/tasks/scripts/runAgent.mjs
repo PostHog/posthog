@@ -14,15 +14,17 @@ function parseArgs() {
     return parsed
 }
 
-export async function runAgent(
+export async function runAgent({
     taskId,
+    runId,
     repositoryPath,
     posthogApiUrl,
     posthogApiKey,
     posthogProjectId,
     prompt,
-    maxTurns
-) {
+    maxTurns,
+    createPR,
+}) {
     const envOverrides = {
         POSTHOG_API_KEY: posthogApiKey,
         POSTHOG_API_HOST: posthogApiUrl,
@@ -32,16 +34,14 @@ export async function runAgent(
         ANTHROPIC_BASE_URL: `${posthogApiUrl}/api/projects/${parseInt(posthogProjectId, 10)}/llm_gateway`,
     }
 
+    Object.assign(process.env, envOverrides)
+
     const agent = new Agent({
         workingDirectory: repositoryPath,
         posthogApiUrl,
         posthogApiKey,
+        posthogProjectId: parseInt(posthogProjectId, 10),
         debug: true,
-        onEvent: (event) => {
-            if (event.type !== 'token') {
-                console.info(JSON.stringify({ type: 'event', data: event }))
-            }
-        },
     })
 
     if (prompt) {
@@ -59,34 +59,28 @@ export async function runAgent(
 
         await agent.run(prompt, options)
     } else {
-        await agent.runTask(taskId, {
+        await agent.runTaskCloud(taskId, runId, {
             repositoryPath,
-            permissionMode: PermissionMode.BYPASS,
-            isCloudMode: true,
-            createPR: true,
-            autoProgress: true,
-            queryOverrides: {
-                env: envOverrides,
-            },
+            createPR,
         })
     }
 }
 
 async function main() {
-    const { taskId, repositoryPath, prompt, 'max-turns': maxTurns } = parseArgs()
+    const { taskId, runId, repositoryPath, prompt, 'max-turns': maxTurns, createPR } = parseArgs()
 
     if (!prompt && !taskId) {
         console.error('Missing required argument: either --prompt or --taskId must be provided')
         process.exit(1)
     }
 
-    if (!prompt && !taskId) {
-        console.error('Missing required argument: taskId (required when using taskId)')
+    if (taskId && !runId) {
+        console.error('Missing required argument: --runId (required when using --taskId)')
         process.exit(1)
     }
 
     if (!repositoryPath) {
-        console.error('Missing required argument: repositoryPath')
+        console.error('Missing required argument: --repositoryPath')
         process.exit(1)
     }
 
@@ -95,22 +89,32 @@ async function main() {
     const posthogProjectId = process.env.POSTHOG_PROJECT_ID
 
     if (!posthogApiUrl) {
-        console.error('Missing required environment variables: POSTHOG_API_URL')
+        console.error('Missing required environment variable: POSTHOG_API_URL')
         process.exit(1)
     }
 
     if (!posthogApiKey) {
-        console.error('Missing required environment variables: POSTHOG_PERSONAL_API_KEY')
+        console.error('Missing required environment variable: POSTHOG_PERSONAL_API_KEY')
         process.exit(1)
     }
 
-    if (!prompt && !posthogProjectId) {
-        console.error('Missing required environment variables: POSTHOG_PROJECT_ID')
+    if (taskId && !posthogProjectId) {
+        console.error('Missing required environment variable: POSTHOG_PROJECT_ID')
         process.exit(1)
     }
 
     try {
-        await runAgent(taskId, repositoryPath, posthogApiUrl, posthogApiKey, posthogProjectId, prompt, maxTurns)
+        await runAgent({
+            taskId,
+            runId,
+            repositoryPath,
+            posthogApiUrl,
+            posthogApiKey,
+            posthogProjectId,
+            prompt,
+            maxTurns,
+            createPR: createPR === 'true',
+        })
         process.exit(0)
     } catch (error) {
         console.error(

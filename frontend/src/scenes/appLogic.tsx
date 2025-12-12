@@ -14,6 +14,7 @@ export const appLogic = kea<appLogicType>([
 
     connect([teamLogic, organizationLogic, preflightLogic]),
     actions({
+        exitAIOnlyMode: true,
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
         showDevTools: true,
@@ -22,6 +23,7 @@ export const appLogic = kea<appLogicType>([
         showingDelayedSpinner: [false, { enableDelayedSpinner: () => true }],
         featureFlagsTimedOut: [false, { ignoreFeatureFlags: () => true }],
         showingDevTools: [false, { showDevTools: () => true }],
+        hasExitedAIOnlyMode: [false, { exitAIOnlyMode: () => true }],
     }),
     selectors({
         showApp: [

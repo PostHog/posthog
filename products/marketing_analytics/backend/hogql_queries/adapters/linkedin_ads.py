@@ -1,7 +1,10 @@
 # LinkedIn Ads Marketing Source Adapter
 
+from posthog.schema import NativeMarketingSource
+
 from posthog.hogql import ast
 
+from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, INTEGRATION_PRIMARY_SOURCE
 from .base import LinkedinAdsConfig, MarketingSourceAdapter, ValidationResult
 
 
@@ -13,10 +16,14 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    _source_type = NativeMarketingSource.LINKEDIN_ADS
+
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
         """LinkedIn Ads campaigns typically use 'linkedin' as the UTM source"""
-        return {"linkedin": ["linkedin", "li"]}
+        primary = INTEGRATION_PRIMARY_SOURCE[cls._source_type]
+        sources = INTEGRATION_DEFAULT_SOURCES[cls._source_type]
+        return {primary: list(sources)}
 
     def get_source_type(self) -> str:
         """Return unique identifier for this source type"""
@@ -45,25 +52,48 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
 
     def _get_campaign_name_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
-        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["name_field"]
+        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, field_name])])
+
+    def _get_campaign_id_field(self) -> ast.Expr:
+        campaign_table_name = self.config.campaign_table.name
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["id_field"]
+        field_expr = ast.Field(chain=[campaign_table_name, field_name])
+        return ast.Call(name="toString", args=[field_expr])
 
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "impressions"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "impressions"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_clicks_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "clicks"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "clicks"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         base_currency = self.context.base_currency
 
-        # Get cost
         cost_field = ast.Field(chain=[stats_table_name, "cost_in_usd"])
-        cost_float = ast.Call(name="toFloat", args=[cost_field])
+        cost_float = ast.Call(
+            name="ifNull",
+            args=[ast.Call(name="toFloat", args=[cost_field]), ast.Constant(value=0)],
+        )
         sum = ast.Call(name="SUM", args=[cost_float])
 
         # LinkedIn Ads costs are already in USD, convert to base currency if not USD
@@ -79,8 +109,39 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "external_website_conversions"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "external_website_conversions"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
+
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        stats_table_name = self.config.stats_table.name
+
+        # Check if conversion_value_in_local_currency column exists
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "conversion_value_in_local_currency" in columns:
+                field_as_float = ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Call(
+                            name="toFloat",
+                            args=[ast.Field(chain=[stats_table_name, "conversion_value_in_local_currency"])],
+                        ),
+                        ast.Constant(value=0),
+                    ],
+                )
+                sum = ast.Call(name="SUM", args=[field_as_float])
+                return ast.Call(name="toFloat", args=[sum])
+        except (TypeError, AttributeError, KeyError):
+            pass
+        # Column doesn't exist or can't be checked, return 0
+        return ast.Constant(value=0)
 
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""
@@ -133,5 +194,5 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
         return conditions
 
     def _get_group_by(self) -> list[ast.Expr]:
-        """Build GROUP BY expressions"""
-        return [self._get_campaign_name_field()]
+        """Build GROUP BY expressions - group by both name and ID"""
+        return [self._get_campaign_name_field(), self._get_campaign_id_field()]

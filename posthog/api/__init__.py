@@ -1,11 +1,12 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, hog_flow, llm_gateway, metalytics, my_notifications, project
+from posthog.api import data_color_theme, feed, hog_flow, llm_gateway, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
+from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 
@@ -47,16 +48,23 @@ from products.error_tracking.backend.api import (
 from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
+    EvaluationConfigViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
+    LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
+    LLMAnalyticsTranslateViewSet,
+    LLMProviderKeyValidationViewSet,
+    LLMProviderKeyViewSet,
     LLMProxyViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
+from products.product_tours.backend.api import ProductTourViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
-from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
+from ee.api.session_summaries import SessionGroupSummaryViewSet
+from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
 from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -86,6 +94,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    materialized_column_slot,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -96,6 +105,7 @@ from . import (
     plugin_log_entry,
     proxy_record,
     query,
+    quick_filters,
     scheduled_change,
     schema_property_group,
     search,
@@ -108,10 +118,11 @@ from . import (
     user_home_settings,
     web_vitals,
 )
+from .column_configuration import ColumnConfigurationViewSet
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
-from .file_system import file_system, file_system_shortcut, persisted_folder
+from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
 
@@ -242,6 +253,7 @@ project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs"
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
+projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
@@ -250,6 +262,13 @@ projects_router.register(
 )
 environment_dashboards_router, legacy_project_dashboards_router = register_grandfathered_environment_nested_viewset(
     r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
+)
+
+environments_router.register(
+    r"column_configurations",
+    ColumnConfigurationViewSet,
+    "environment_column_configurations",
+    ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(
@@ -270,6 +289,13 @@ projects_router.register(
     DataManagementViewSet,
     "project_data_management",
     ["project_id"],
+)
+
+environments_router.register(
+    r"materialized_column_slots",
+    materialized_column_slot.MaterializedColumnSlotViewSet,
+    "environment_materialized_column_slots",
+    ["team_id"],
 )
 
 projects_router.register(
@@ -294,6 +320,13 @@ register_grandfathered_environment_nested_viewset(
     r"persisted_folder",
     persisted_folder.PersistedFolderViewSet,
     "environment_persisted_folder",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"user_product_list",
+    user_product_list.UserProductListViewSet,
+    "environment_user_product_list",
     ["team_id"],
 )
 
@@ -628,6 +661,11 @@ if EE_AVAILABLE:
         vercel_product.VercelProductViewSet,
         "vercel_products",
     )
+    router.register(
+        r"vercel/proxy",
+        vercel_proxy.VercelProxyViewSet,
+        "vercel_proxy",
+    )
 
 else:
     environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
@@ -695,73 +733,101 @@ projects_router.register(
     ["project_id"],
 )
 
+projects_router.register(
+    r"session_group_summaries",
+    SessionGroupSummaryViewSet,
+    "project_session_group_summaries",
+    ["project_id"],
+)
+
 environments_router.register(
     r"error_tracking/releases",
     ErrorTrackingReleaseViewSet,
-    "project_error_tracking_release",
+    "environment_error_tracking_release",
     ["team_id"],
+)
+
+projects_router.register(
+    r"error_tracking/releases",
+    ErrorTrackingReleaseViewSet,
+    "project_error_tracking_release",
+    ["project_id"],
 )
 
 environments_router.register(
     r"error_tracking/symbol_sets",
     ErrorTrackingSymbolSetViewSet,
-    "project_error_tracking_symbol_set",
+    "environment_error_tracking_symbol_set",
     ["team_id"],
+)
+
+projects_router.register(
+    r"error_tracking/symbol_sets",
+    ErrorTrackingSymbolSetViewSet,
+    "project_error_tracking_symbol_set",
+    ["project_id"],
 )
 
 environments_router.register(
     r"error_tracking/assignment_rules",
     ErrorTrackingAssignmentRuleViewSet,
-    "project_error_tracking_assignment_rule",
+    "environment_error_tracking_assignment_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/grouping_rules",
     ErrorTrackingGroupingRuleViewSet,
-    "project_error_tracking_grouping_rule",
+    "environment_error_tracking_grouping_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/suppression_rules",
     ErrorTrackingSuppressionRuleViewSet,
-    "project_error_tracking_suppression_rule",
+    "environment_error_tracking_suppression_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/fingerprints",
     ErrorTrackingFingerprintViewSet,
-    "project_error_tracking_fingerprint",
+    "environment_error_tracking_fingerprint",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/issues",
     ErrorTrackingIssueViewSet,
-    "project_error_tracking_issue",
+    "environment_error_tracking_issue",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/external_references",
     ErrorTrackingExternalReferenceViewSet,
-    "project_error_tracking_external_references",
+    "environment_error_tracking_external_references",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/stack_frames",
     ErrorTrackingStackFrameViewSet,
-    "project_error_tracking_stack_frames",
+    "environment_error_tracking_stack_frames",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
-    "project_error_tracking_git_provider_file_links",
+    "environment_error_tracking_git_provider_file_links",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"quick_filters",
+    quick_filters.QuickFilterViewSet,
+    "project_quick_filters",
     ["team_id"],
 )
 
@@ -838,6 +904,22 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
+
+projects_router.register(r"feed", feed.FeedViewSet, "project_feed", ["project_id"])
+
+projects_router.register(
+    r"change_requests",
+    approval_api.ChangeRequestViewSet,
+    "project_change_requests",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"approval_policies",
+    approval_api.ApprovalPolicyViewSet,
+    "project_approval_policies",
+    ["team_id"],
+)
 
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
@@ -956,5 +1038,40 @@ environments_router.register(
     r"llm_analytics/text_repr",
     LLMAnalyticsTextReprViewSet,
     "environment_llm_analytics_text_repr",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/summarization",
+    LLMAnalyticsSummarizationViewSet,
+    "environment_llm_analytics_summarization",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/translate",
+    LLMAnalyticsTranslateViewSet,
+    "environment_llm_analytics_translate",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/provider_keys",
+    LLMProviderKeyViewSet,
+    "environment_llm_analytics_provider_keys",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/provider_key_validations",
+    LLMProviderKeyValidationViewSet,
+    "environment_llm_analytics_provider_key_validations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/evaluation_config",
+    EvaluationConfigViewSet,
+    "environment_llm_analytics_evaluation_config",
     ["team_id"],
 )

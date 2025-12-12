@@ -240,7 +240,7 @@ const featureFlagActionsMapping: Record<
     deleted: function onSoftDelete(change, logItem) {
         const isDeleted = detectBoolean(change?.after)
         return {
-            description: [<>{isDeleted ? 'deleted' : 'un-deleted'}</>],
+            description: [<>{isDeleted ? 'deleted' : 'restored'}</>],
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },

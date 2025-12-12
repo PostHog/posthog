@@ -18,6 +18,7 @@ from posthog.management.migration_analysis.operations import (
     RunPythonAnalyzer,
     RunSQLAnalyzer,
     SeparateDatabaseAndStateAnalyzer,
+    is_unmanaged_model,
 )
 from posthog.management.migration_analysis.policies import POSTHOG_POLICIES
 from posthog.management.migration_analysis.utils import OperationCategorizer
@@ -28,9 +29,8 @@ class RiskAnalyzer:
     Analyzes Django migration operations and assigns risk scores.
 
     Risk scoring rules:
-    0: Safe - No contention risk (new tables, concurrent operations)
-    1: Needs Review - Brief lock required, review for high-traffic tables
-    2-3: Needs Review - Extended operations or performance impact
+    0-1: Safe - Brief or no lock, backwards compatible
+    2-3: Needs Review - May have performance impact
     4-5: Blocked - Table rewrites, breaks backwards compatibility, or can't rollback
     """
 
@@ -68,11 +68,17 @@ class RiskAnalyzer:
             loader: Optional Django MigrationLoader for checking migration history
         """
         # Collect newly created models for this migration (normalized to lowercase for case-insensitive matching)
-        self.newly_created_models = {
-            op.name.lower()
-            for op in migration.operations
-            if op.__class__.__name__ == "CreateModel" and hasattr(op, "name")
-        }
+        # Only count models that are managed=True (skipping unmanaged ones to avoid misleading messages)
+        self.newly_created_models = set()
+        self.unmanaged_models = set()
+
+        for op in migration.operations:
+            if op.__class__.__name__ == "CreateModel" and hasattr(op, "name"):
+                model_name = op.name.lower()
+                if is_unmanaged_model(op, migration):
+                    self.unmanaged_models.add(model_name)
+                else:
+                    self.newly_created_models.add(model_name)
 
         # Store loader for operations that need it
         self.loader = loader
@@ -81,6 +87,10 @@ class RiskAnalyzer:
         operation_risks = []
 
         for op in migration.operations:
+            # Skip operations on managed=False models - Django won't execute DDL for them
+            if is_unmanaged_model(op, migration):
+                continue
+
             risk = self.analyze_operation(op)
 
             # Skip AddIndex/AddConstraint on newly created tables - they're safe
@@ -112,6 +122,10 @@ class RiskAnalyzer:
         if self.newly_created_models:
             info_messages.append(
                 "ℹ️  Skipped operations on newly created tables (empty tables don't cause lock contention)."
+            )
+        if self.unmanaged_models:
+            info_messages.append(
+                "ℹ️  Skipped operations on unmanaged models (managed=False) - schema managed externally."
             )
 
         return MigrationRisk(

@@ -182,7 +182,7 @@ export function LogsViewer({
                 <div className="flex items-center gap-2 flex-1 min-w-100">
                     <LemonInput
                         type="search"
-                        placeholder="Search for messages containing…"
+                        placeholder="Search messages or invocation ID…"
                         fullWidth
                         onChange={(value) => setFilters({ search: value })}
                         value={filters.search}

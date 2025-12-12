@@ -10,9 +10,14 @@ from langchain_core.messages import (
     BaseMessage as LangchainBaseMessage,
 )
 from langgraph.graph import END, START
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, field_validator
+from pydantic_core import CoreSchema, core_schema
 
 from posthog.schema import (
+    AgentMode,
+    ArtifactContentType,
+    ArtifactMessage,
+    ArtifactSource,
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -22,6 +27,7 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     AssistantUpdateEvent,
+    BaseAssistantMessage,
     ContextMessage,
     FailureMessage,
     FunnelsQuery,
@@ -45,9 +51,19 @@ from posthog.schema import (
 
 from ee.models import Conversation
 
+
+class ArtifactRefMessage(BaseAssistantMessage):
+    """Backend-only artifact message without the enriched content field."""
+
+    content_type: ArtifactContentType
+    artifact_id: str
+    source: ArtifactSource
+
+
 AIMessageUnion = Union[
     AssistantMessage,
-    VisualizationMessage,
+    VisualizationMessage,  # IMPORTANT: Keep it here for backwards compatibility with old states, as they're persisted in the database
+    ArtifactRefMessage,
     FailureMessage,
     AssistantToolCallMessage,
     MultiVisualizationMessage,
@@ -56,11 +72,12 @@ AIMessageUnion = Union[
     TaskExecutionMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
-AssistantResultUnion = Union[AssistantMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent]
+AssistantStreamedMessageUnion = Union[AssistantMessageUnion, ArtifactMessage]
+AssistantResultUnion = Union[AssistantStreamedMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
-    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
+    | tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]
     | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusEvent]
     | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent]
 )
@@ -84,6 +101,7 @@ ASSISTANT_MESSAGE_TYPES = (
     NotebookUpdateMessage,
     AssistantMessage,
     VisualizationMessage,
+    ArtifactRefMessage,
     FailureMessage,
     AssistantToolCallMessage,
     MultiVisualizationMessage,
@@ -112,6 +130,19 @@ class ReplaceMessages(Generic[T], list[T]):
     """
     Replaces the existing messages with the new messages.
     """
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+        def validate_replace_messages(value: Any) -> "ReplaceMessages[T]":
+            if isinstance(value, ReplaceMessages):
+                return value
+            # Don't accept plain lists - let the union fall through to Sequence
+            raise ValueError(f"Expected ReplaceMessages, got {type(value)}")
+
+        return core_schema.no_info_plain_validator_function(
+            validate_replace_messages,
+            serialization=core_schema.plain_serializer_function_ser_schema(list, info_arg=False),
+        )
 
 
 def add_and_merge_messages(
@@ -247,6 +278,55 @@ class BaseStateWithMessages(BaseState):
     """
     Messages exposed to the user.
     """
+    agent_mode: AgentMode | None = Field(default=None)
+    """
+    The mode of the agent.
+    """
+
+    @field_validator("messages", mode="after")
+    @classmethod
+    def convert_visualization_messages_to_artifacts(
+        cls, messages: Sequence[AssistantMessageUnion] | ReplaceMessages[AssistantMessageUnion]
+    ) -> Sequence[AssistantMessageUnion] | ReplaceMessages[AssistantMessageUnion]:
+        """
+        Convert legacy VisualizationMessage to ArtifactRefMessage with State source.
+        The original VisualizationMessage is kept in state for content lookup.
+        The ArtifactRefMessage's artifact_id references the VisualizationMessage's id.
+        """
+        # Collect existing ArtifactRefMessage artifact_ids to avoid duplicates when validator
+        # runs multiple times (e.g., during model_validate on already-converted state)
+        existing_artifact_ids = {msg.artifact_id for msg in messages if isinstance(msg, ArtifactRefMessage)}
+
+        converted: list[AssistantMessageUnion] = []
+        for message in messages:
+            # If a message doesn't have an ID, it should have not been persisted.
+            # Pass through it as is.
+            converted.append(message)
+
+            if message.id and isinstance(message, VisualizationMessage):
+                # Only create ArtifactRefMessage if one doesn't already exist for this VisualizationMessage
+                if message.id not in existing_artifact_ids:
+                    # Create ArtifactRefMessage that references the VisualizationMessage
+                    converted.append(
+                        ArtifactRefMessage(
+                            id=str(
+                                uuid.uuid4()
+                            ),  # TRICKY: Keep this ID unique, so we don't deduplicate artifacts and visualization messages.
+                            content_type=ArtifactContentType.VISUALIZATION,
+                            artifact_id=message.id,  # References the VisualizationMessage ID
+                            source=ArtifactSource.STATE,
+                        )
+                    )
+
+        # Preserve the ReplaceMessages wrapper if present
+        if isinstance(messages, ReplaceMessages):
+            return ReplaceMessages(converted)
+
+        return converted
+
+    @property
+    def agent_mode_or_default(self) -> AgentMode:
+        return self.agent_mode or AgentMode.PRODUCT_ANALYTICS
 
 
 class BaseStateWithTasks(BaseState):
@@ -331,6 +411,13 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
     """
+    specific_session_ids_to_summarize: Optional[list[str]] = Field(default=None)
+    """
+    List of specific session IDs (UUIDs) to summarize. Can be populated from:
+    - Session IDs extracted from user's natural language query
+    - Current session ID from context when user refers to "this session"
+    - Multiple session IDs when user specifies several sessions
+    """
     should_use_current_filters: Optional[bool] = Field(default=None)
     """
     Whether to use current filters from user's UI to find relevant sessions.
@@ -341,7 +428,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     session_summarization_limit: Optional[int] = Field(default=None)
     """
-    The maximum number of sessions to summarize.
+    DEPRECATED (now included in replay filters). The maximum number of sessions to summarize.
     """
     notebook_short_id: Optional[str] = Field(default=None)
     """
@@ -363,6 +450,10 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The ID of the dashboard to be edited.
     """
+    visualization_title: Optional[str] = Field(default=None)
+    """
+    The title of the visualization to be created.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -373,7 +464,8 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    pass
+    # This must be kept here, so we don't loose type annotation for the ReplaceMessages type.
+    messages: ReplaceMessages[AssistantMessageUnion] | list[AssistantMessageUnion] = Field(default=[])
 
 
 class AssistantNodeName(StrEnum):
@@ -388,6 +480,7 @@ class AssistantNodeName(StrEnum):
     MEMORY_ONBOARDING_FINALIZE = "memory_onboarding_finalize"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
+    SLASH_COMMAND_HANDLER = "slash_command_handler"
     TRENDS_GENERATOR = "trends_generator"
     TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
     FUNNEL_GENERATOR = "funnel_generator"

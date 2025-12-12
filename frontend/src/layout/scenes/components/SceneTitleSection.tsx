@@ -109,6 +109,10 @@ type SceneMainTitleProps = {
      */
     saveOnBlur?: boolean
     /**
+     * If true, removes the border from the title section
+     * */
+    noBorder?: boolean
+    /**
      * If true, the actions from PageHeader will be shown
      * @default false
      */
@@ -132,6 +136,7 @@ export function SceneTitleSection({
     forceEdit = false,
     renameDebounceMs,
     saveOnBlur = false,
+    noBorder = false,
     actions,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -175,12 +180,13 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    '@2xl/main-content:h-[var(--scene-title-section-height)] bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 border-b border-transparent transition-border duration-300',
+                    'bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent'
                 )}
             >
                 <div
-                    className="scene-title-section @2xl/main-content:h-[var(--scene-title-section-height)] flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2"
+                    className="scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2"
                     data-editable={canEdit}
                 >
                     <div
@@ -222,7 +228,7 @@ export function SceneTitleSection({
                         </div>
                     )}
                 </div>
-                {effectiveDescription == null && <SceneDivider />}
+                {effectiveDescription == null && !noBorder && <SceneDivider />}
             </div>
             {effectiveDescription != null && (effectiveDescription || canEdit) && (
                 <div className="[&_svg]:size-6">
@@ -236,7 +242,7 @@ export function SceneTitleSection({
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
                     />
-                    <SceneDivider />
+                    {!noBorder && <SceneDivider />}
                 </div>
             )}
         </>
@@ -346,7 +352,7 @@ function SceneName({
                         <ButtonPrimitive
                             className={cn(
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 pl-[var(--button-padding-x-sm)]'
+                                'flex text-left [&_.LemonIcon]:size-4 pl-[var(--button-padding-x-sm)] focus-visible:z-50'
                             )}
                             onClick={() => setIsEditing(true)}
                             fullWidth
@@ -366,13 +372,13 @@ function SceneName({
 
     if (isLoading) {
         return (
-            <div className="w-full flex-1">
+            <div className="w-full flex-1 focus-within:z-50">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
     }
 
-    return <div className={cn('scene-name flex-1', onChange && canEdit && 'truncate')}>{Element}</div>
+    return <div className={cn('scene-name flex-1', !isEditing && onChange && canEdit && 'truncate ')}>{Element}</div>
 }
 
 type SceneDescriptionProps = {
@@ -475,7 +481,7 @@ function SceneDescription({
                     >
                         <ButtonPrimitive
                             onClick={() => setIsEditing(true)}
-                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4"
+                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
                             autoHeight
                             fullWidth
                             size="base"
@@ -524,7 +530,7 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description -mt-4">
+        <div className="scene-description -mt-4 relative focus-within:z-50">
             <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0">{Element}</div>
         </div>
     )

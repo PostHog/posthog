@@ -38,13 +38,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
-from products.batch_exports.backend.temporal.pipeline.table import (
-    TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
-    Field,
-    Table,
-    TableReference,
-    TypeTupleToCastMapping,
-)
+from products.batch_exports.backend.temporal.pipeline.table import Field, Table, TableReference
 from products.batch_exports.backend.temporal.pipeline.transformer import (
     ChunkTransformerProtocol,
     JSONLStreamTransformer,
@@ -75,18 +69,6 @@ NON_RETRYABLE_ERROR_TYPES = (
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
-
-COMPATIBLE_TYPES: TypeTupleToCastMapping = {
-    # We assume this is a destination field created from a ClickHouse `DateTime` that
-    # has  been updated to `DateTime64(3)`.
-    # This would mean the field would have been created as a BigQuery 'INT64', but we
-    # are now receiving a `pa.timestamp("ms", tz="UTC")`.
-    # So, since `DateTime` is seconds since the EPOCH, we maintain that here.
-    # This technically truncates the millisecond part of the value, but if it came from
-    # a `DateTime` then we assume it is empty (as it would have been empty before).
-    (pa.timestamp("ms", tz="UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
-    (pa.timestamp("ms", tz="Etc/UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
-}
 
 FileFormat = typing.Literal["Parquet", "JSONLines"]
 BigQueryTypeName = typing.Literal[
@@ -208,6 +190,7 @@ class BigQueryField(Field):
 
     def __init__(self, name: str, type: BigQueryType, nullable: bool):
         self.name = name
+        self.alias = name
         self.bigquery_type = type
         self.nullable = nullable
         self.data_type = bigquery_type_to_data_type(type)
@@ -216,9 +199,6 @@ class BigQueryField(Field):
     def from_arrow_field(cls, field: pa.Field) -> typing.Self:
         type = data_type_to_bigquery_type(field.type)
         return cls(field.name, type, nullable=field.nullable)
-
-    def to_arrow_field(self) -> pa.Field:
-        return pa.field(self.name, self.data_type)
 
     @classmethod
     def from_destination_field(cls, field: bigquery.SchemaField) -> typing.Self:
@@ -512,7 +492,7 @@ class BigQueryClient:
         # with the valid pair in both cases.
         stage_table_fields = ",".join(
             f"""
-            PARSE_JSON(
+            SAFE.PARSE_JSON(
               REGEXP_REPLACE(
                 REGEXP_REPLACE(
                   REGEXP_REPLACE(
@@ -594,7 +574,7 @@ class BigQueryClient:
             # with the valid pair in both cases.
             stage_field = (
                 f"""
-                PARSE_JSON(
+                SAFE.PARSE_JSON(
                   REGEXP_REPLACE(
                     REGEXP_REPLACE(
                       REGEXP_REPLACE(
@@ -926,7 +906,6 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         transformers=(
                             SchemaTransformer(
                                 table=bigquery_consumer_table,
-                                extra_compatible_types=COMPATIBLE_TYPES,
                             ),
                             ParquetStreamTransformer(
                                 compression="zstd",
@@ -939,7 +918,6 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         transformers=(
                             SchemaTransformer(
                                 table=bigquery_consumer_table,
-                                extra_compatible_types=COMPATIBLE_TYPES,
                             ),
                             JSONLStreamTransformer(
                                 max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES

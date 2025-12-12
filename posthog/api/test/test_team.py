@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
@@ -43,7 +43,7 @@ from ee.models.rbac.access_control import AccessControl
 
 
 def team_api_test_factory():
-    class TestTeamAPI(APIBaseTest):
+    class TestTeamAPI(APIBaseTest, QueryMatchingTest):
         """Tests for /api/environments/."""
 
         def _assert_activity_log(self, expected: list[dict], team_id: int | None = None) -> None:
@@ -594,7 +594,10 @@ def team_api_test_factory():
             )
 
             # if something is missing then teardown fails
-            response = self.client.delete(f"/api/environments/{team.id}")
+            with snapshot_postgres_queries_context(
+                self, custom_query_matcher=lambda query: "DELETE" in query and "posthog_person" in query
+            ):
+                response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, 204)
 
         def test_delete_batch_exports(self):
@@ -1444,12 +1447,49 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
+        def test_modifiers_are_merged_on_patch(self) -> None:
+            # Set initial modifiers with personsOnEventsMode
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"personsOnEventsMode": "person_id_override_properties_on_events"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"] == {"personsOnEventsMode": "person_id_override_properties_on_events"}
+
+            # Patch with customChannelTypeRules - should preserve personsOnEventsMode
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "modifiers": {
+                        "customChannelTypeRules": [
+                            {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+                        ]
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"]["personsOnEventsMode"] == "person_id_override_properties_on_events"
+            assert response.json()["modifiers"]["customChannelTypeRules"] == [
+                {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+            ]
+
+            # Patch with a different personsOnEventsMode - should update it while keeping customChannelTypeRules
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"]["personsOnEventsMode"] == "person_id_override_properties_joined"
+            assert response.json()["modifiers"]["customChannelTypeRules"] == [
+                {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+            ]
+
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
         def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/add_product_intent/",
-                {"product_type": "product_analytics", "intent_context": "onboarding product selected"},
+                {"product_type": "product_analytics", "intent_context": "onboarding product selected - primary"},
                 headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
             )
             assert response.status_code == status.HTTP_201_CREATED
@@ -1464,7 +1504,7 @@ def team_api_test_factory():
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
                     "$set_once": {},
-                    "intent_context": "onboarding product selected",
+                    "intent_context": "onboarding product selected - primary",
                     "is_first_intent_for_product": True,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
@@ -1510,7 +1550,7 @@ def team_api_test_factory():
                         "$current_url": "https://posthogtest.com/my-url",
                         "$session_id": "test_session_id",
                         "$set_once": {},
-                        "intent_context": "unknown",
+                        "intent_context": None,
                         "is_first_intent_for_product": False,
                         "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                         "intent_updated_at": datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC),
@@ -1546,7 +1586,7 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
-                    "intent_context": "unknown",
+                    "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
@@ -1602,7 +1642,7 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
-                    "intent_context": "unknown",
+                    "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
@@ -1915,7 +1955,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             scoped_teams=[other_team_in_project.id],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -1935,7 +1975,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             scoped_organizations=[other_org.id],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -1976,7 +2016,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             scoped_teams=[other_team_in_project.id],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -2008,7 +2048,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             scoped_organizations=[str(other_org.id)],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -2327,3 +2367,80 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         self.assertEqual(self.team.timezone, "Europe/Lisbon")
         self.assertEqual(self.team.session_recording_opt_in, True)
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    def test_settings_as_of_requires_at_param(self):
+        response = self.client.get("/api/environments/@current/settings_as_of/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Response may contain either a DRF detail or field-specific error
+        payload = response.json()
+        assert (payload.get("detail")) or (payload.get("at"))
+
+    def test_settings_as_of_returns_snapshot_with_scope(self):
+        # Initial state at T0 is UTC (default)
+        with freeze_time("2025-01-01T00:00:00Z"):
+            # no change, timezone remains "UTC"
+            pass
+
+        # Change timezone at T1
+        with freeze_time("2025-01-02T00:00:00Z"):
+            patch_response = self.client.patch("/api/environments/@current/", {"timezone": "Europe/Lisbon"})
+            assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
+
+        # Query snapshot as of T0 + 12h - expect UTC
+        response = self.client.get(
+            "/api/environments/@current/settings_as_of/?at=2025-01-01T12:00:00Z"
+            "&scope=timezone&scope=session_recording_sample_rate"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert set(data.keys()) == {"timezone", "session_recording_sample_rate"}
+        assert data["timezone"] == "UTC"
+        # May be null if not set at that time
+        assert "session_recording_sample_rate" in data
+
+    def test_settings_as_of_full_snapshot_and_filtering(self):
+        # Set some configs over time to create activity
+        with freeze_time("2025-02-01T00:00:00Z"):
+            # Set opt_in true
+            r1 = self.client.patch("/api/environments/@current/", {"session_recording_opt_in": True})
+            assert r1.status_code == status.HTTP_200_OK
+
+        with freeze_time("2025-02-02T00:00:00Z"):
+            # Set sample rate and masking config
+            r2 = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "session_recording_sample_rate": 0.5,
+                    "session_recording_masking_config": {"maskAllInputs": True},
+                },
+            )
+            assert r2.status_code == status.HTTP_200_OK
+
+        # Snapshot as of between the two changes - should include first change, not the second
+        response = self.client.get(
+            "/api/environments/@current/settings_as_of/?at=2025-02-01T12:00:00Z"
+            "&scope=session_recording_opt_in&scope=session_recording_sample_rate&scope=session_recording_masking_config"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        # opt_in should be True (set on 2025-02-01)
+        assert data["session_recording_opt_in"] is True
+        # sample_rate and masking_config should reflect pre-change values at that time
+        assert "session_recording_sample_rate" in data
+        assert data["session_recording_masking_config"] is None
+
+    def test_settings_as_of_scope_only_includes_requested_keys(self):
+        with freeze_time("2025-03-01T00:00:00Z"):
+            r = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/London", "session_recording_opt_in": False},
+            )
+            assert r.status_code == status.HTTP_200_OK
+
+        # Ask only for timezone key
+        response = self.client.get("/api/environments/@current/settings_as_of/?at=2025-03-01T00:00:01Z&scope=timezone")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert sorted(data.keys()) == ["timezone"]
+        assert data["timezone"] in ("UTC", "Europe/London")

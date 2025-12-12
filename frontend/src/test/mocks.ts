@@ -60,6 +60,7 @@ export const mockEventDefinitions: EventDefinition[] = [
     name: name || `misc-${index}-generated`,
     description: `${name || 'name generation'} is the best!`,
     tags: [],
+    last_seen_at: '2022-01-24T21:32:38.359756Z',
 }))
 
 export const mockEventPropertyDefinition = {

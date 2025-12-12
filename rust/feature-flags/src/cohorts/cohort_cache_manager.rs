@@ -5,7 +5,7 @@ use crate::metrics::consts::{
     DB_COHORT_READS_COUNTER,
 };
 use common_database::PostgresReader;
-use common_types::ProjectId;
+use common_types::TeamId;
 use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,7 +20,7 @@ use tokio::sync::Mutex;
 /// ```text
 /// CohortCacheManager {
 ///     reader: PostgresReader,
-///     cache: Cache<ProjectId, Vec<Cohort>> {
+///     cache: Cache<TeamId, Vec<Cohort>> {
 ///         // Example:
 ///         2: [
 ///             Cohort { id: 1, name: "Power Users", filters: {...} },
@@ -37,7 +37,7 @@ use tokio::sync::Mutex;
 #[derive(Clone)]
 pub struct CohortCacheManager {
     reader: PostgresReader,
-    cache: Cache<ProjectId, Vec<Cohort>>,
+    cache: Cache<TeamId, Vec<Cohort>>,
     fetch_lock: Arc<Mutex<()>>, // Added fetch_lock
 }
 
@@ -48,7 +48,7 @@ impl CohortCacheManager {
         ttl_seconds: Option<u64>,
     ) -> Self {
         // We use the size of the cohort list (i.e., the number of cohorts for a given team) as the weight of the entry
-        let weigher = |_: &ProjectId, value: &Vec<Cohort>| -> u32 { value.len() as u32 };
+        let weigher = |_: &TeamId, value: &Vec<Cohort>| -> u32 { value.len() as u32 };
 
         let cache = Cache::builder()
             .time_to_live(Duration::from_secs(ttl_seconds.unwrap_or(300))) // Default to 5 minutes
@@ -63,13 +63,13 @@ impl CohortCacheManager {
         }
     }
 
-    /// Retrieves cohorts for a given project.
+    /// Retrieves cohorts for a given team.
     ///
     /// If the cohorts are not present in the cache or have expired, it fetches them from the database,
     /// caches the result upon successful retrieval, and then returns it.
-    pub async fn get_cohorts(&self, project_id: ProjectId) -> Result<Vec<Cohort>, FlagError> {
+    pub async fn get_cohorts(&self, team_id: TeamId) -> Result<Vec<Cohort>, FlagError> {
         // First check cache before acquiring lock
-        if let Some(cached_cohorts) = self.cache.get(&project_id).await {
+        if let Some(cached_cohorts) = self.cache.get(&team_id).await {
             common_metrics::inc(COHORT_CACHE_HIT_COUNTER, &[], 1);
             return Ok(cached_cohorts.clone());
         }
@@ -78,7 +78,7 @@ impl CohortCacheManager {
         let _lock = self.fetch_lock.lock().await;
 
         // Double-check the cache after acquiring lock
-        if let Some(cached_cohorts) = self.cache.get(&project_id).await {
+        if let Some(cached_cohorts) = self.cache.get(&team_id).await {
             common_metrics::inc(COHORT_CACHE_HIT_COUNTER, &[], 1);
             return Ok(cached_cohorts.clone());
         }
@@ -87,10 +87,10 @@ impl CohortCacheManager {
         common_metrics::inc(COHORT_CACHE_MISS_COUNTER, &[], 1);
 
         // Attempt to fetch from DB
-        match Cohort::list_from_pg(self.reader.clone(), project_id).await {
+        match Cohort::list_from_pg(self.reader.clone(), team_id).await {
             Ok(fetched_cohorts) => {
                 common_metrics::inc(DB_COHORT_READS_COUNTER, &[], 1);
-                self.cache.insert(project_id, fetched_cohorts.clone()).await;
+                self.cache.insert(team_id, fetched_cohorts.clone()).await;
                 Ok(fetched_cohorts)
             }
             Err(e) => {
@@ -123,18 +123,18 @@ mod tests {
             Some(1), // 1-second TTL
         );
 
-        let cohorts = cohort_cache.get_cohorts(team.project_id()).await?;
+        let cohorts = cohort_cache.get_cohorts(team.id).await?;
         assert_eq!(cohorts.len(), 1);
         assert_eq!(cohorts[0].team_id, team.id);
 
-        let cached_cohorts = cohort_cache.cache.get(&team.project_id()).await;
+        let cached_cohorts = cohort_cache.cache.get(&team.id).await;
         assert!(cached_cohorts.is_some());
 
         // Wait for TTL to expire
         sleep(Duration::from_secs(2)).await;
 
         // Attempt to retrieve from cache again
-        let cached_cohorts = cohort_cache.cache.get(&team.project_id()).await;
+        let cached_cohorts = cohort_cache.cache.get(&team.id).await;
         assert!(cached_cohorts.is_none(), "Cache entry should have expired");
 
         Ok(())
@@ -157,7 +157,7 @@ mod tests {
         let filters = serde_json::json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$active", "type": "person", "value": [true], "negation": false, "operator": "exact"}]}]}});
         for _ in 0..max_capacity {
             let team = context.insert_new_team(None).await?;
-            let project_id = team.project_id();
+            let project_id = team.id;
             inserted_project_ids.push(project_id);
             context
                 .insert_cohort(team.id, None, filters.clone(), false)
@@ -173,7 +173,7 @@ mod tests {
         );
 
         let new_team = context.insert_new_team(None).await?;
-        let new_project_id = new_team.project_id();
+        let new_project_id = new_team.id;
         let new_team_id = new_team.id;
         context
             .insert_cohort(new_team_id, None, filters, false)
@@ -207,7 +207,7 @@ mod tests {
     async fn test_get_cohorts() -> Result<(), anyhow::Error> {
         let context = TestContext::new(None).await;
         let team = context.insert_new_team(None).await?;
-        let project_id = team.project_id();
+        let project_id = team.id;
         let team_id = team.id;
 
         let filters = serde_json::json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$active", "type": "person", "value": [true], "negation": false, "operator": "exact"}]}]}});

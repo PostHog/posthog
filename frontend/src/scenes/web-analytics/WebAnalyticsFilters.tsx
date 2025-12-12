@@ -1,22 +1,24 @@
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 
-import { IconGear, IconGlobe, IconPhone } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
-import { IconBranch, IconMonitor } from 'lib/lemon-ui/icons/icons'
+import { IconMonitor } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import MaxTool from 'scenes/max/MaxTool'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { AvailableFeature, PropertyMathType } from '~/types'
+import { PropertyMathType } from '~/types'
 
+import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 import { WebConversionGoal } from './WebConversionGoal'
@@ -27,10 +29,9 @@ import { webAnalyticsLogic } from './webAnalyticsLogic'
 export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
-        preAggregatedEnabled,
+        isPathCleaningEnabled,
     } = useValues(webAnalyticsLogic)
-    const { setDates } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
 
     return (
         <FilterBar
@@ -38,6 +39,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
             left={
                 <>
                     <ReloadAll iconOnly />
+                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
 
                     <WebAnalyticsDomainSelector />
                     <WebAnalyticsDeviceToggle />
@@ -50,16 +52,13 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
             }
             right={
                 <>
-                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                     <WebAnalyticsCompareFilter />
 
-                    {(!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]) && (
-                        <WebConversionGoal />
-                    )}
+                    <WebConversionGoal />
                     <TableSortingIndicator />
 
                     <WebVitalsPercentileToggle />
-                    <PathCleaningToggle />
+                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
 
                     <WebAnalyticsAIFilters />
                 </>
@@ -95,6 +94,10 @@ const WebAnalyticsAIFilters = (): JSX.Element => {
                     compareFilter: compareFilter,
                 },
             }}
+            contextDescription={{
+                text: 'Current filters',
+                icon: <IconFilter />,
+            }}
             callback={(toolOutput: Record<string, any>) => {
                 if (toolOutput.properties !== undefined) {
                     setWebAnalyticsFilters(toolOutput.properties)
@@ -121,78 +124,19 @@ const WebAnalyticsAIFilters = (): JSX.Element => {
     )
 }
 
-const PathCleaningToggle = (): JSX.Element | null => {
-    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
-    const { setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
-
-    const { hasAvailableFeature } = useValues(userLogic)
-    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
-
-    if (!hasAdvancedPaths) {
-        return null
-    }
-
-    return (
-        <Tooltip
-            title={
-                <div className="p-2">
-                    <p className="mb-2">
-                        Path cleaning helps standardize URLs by removing unnecessary parameters and fragments.
-                    </p>
-                    <div className="mb-2">
-                        <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
-                            Learn more about path cleaning rules
-                        </Link>
-                    </div>
-                    <LemonButton
-                        icon={<IconGear />}
-                        type="primary"
-                        size="small"
-                        to={urls.settings('project-product-analytics', 'path-cleaning')}
-                        targetBlank
-                        className="w-full"
-                    >
-                        Edit path cleaning settings
-                    </LemonButton>
-                </div>
-            }
-            placement="top"
-            interactive={true}
-        >
-            <LemonButton
-                icon={<IconBranch />}
-                onClick={() => setIsPathCleaningEnabled(!isPathCleaningEnabled)}
-                type="secondary"
-                size="small"
-            >
-                Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" />
-            </LemonButton>
-        </Tooltip>
-    )
-}
-
-const DomainSettingsLink = (): JSX.Element => (
-    <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>settings</Link>
-)
-
 const WebAnalyticsDomainSelector = (): JSX.Element => {
-    const { domainFilter, hasHostFilter, authorizedDomains } = useValues(webAnalyticsLogic)
+    const { validatedDomainFilter, hasHostFilter, authorizedDomains, showProposedURLForm } =
+        useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
 
     return (
         <LemonSelect
             className="grow md:grow-0"
             size="small"
-            value={hasHostFilter ? 'host' : (domainFilter ?? 'all')}
+            value={hasHostFilter ? 'host' : (validatedDomainFilter ?? 'all')}
             icon={<IconGlobe />}
             onChange={(value) => setDomainFilter(value)}
-            disabledReason={
-                authorizedDomains.length === 0 ? (
-                    <span>
-                        No authorized domains, authorize them on <DomainSettingsLink />
-                    </span>
-                ) : undefined
-            }
+            menu={{ closeParentPopoverOnClickInside: !showProposedURLForm }}
             options={[
                 {
                     options: [
@@ -210,11 +154,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                             : []),
                         ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
                     ],
-                    footer: (
-                        <span className="text-xs px-2">
-                            Have more domains? Go to <DomainSettingsLink />
-                        </span>
-                    ),
+                    footer: showProposedURLForm ? <AddAuthorizedUrlForm /> : <AddSuggestedAuthorizedUrlList />,
                 },
             ]}
         />
@@ -283,4 +223,65 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
     }
 
     return <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+}
+
+const AddAuthorizedUrlForm = (): JSX.Element => {
+    const { isProposedUrlSubmitting } = useValues(webAnalyticsLogic)
+    const { cancelProposingAuthorizedUrl } = useActions(webAnalyticsLogic)
+
+    return (
+        <Form
+            logic={authorizedUrlListLogic}
+            props={{
+                actionId: null,
+                experimentId: null,
+                type: AuthorizedUrlListType.WEB_ANALYTICS,
+                allowWildCards: false,
+            }}
+            formKey="proposedUrl"
+            enableFormOnSubmit
+        >
+            <div className="p-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                <LemonField name="url">
+                    <LemonInput size="small" placeholder="https://example.com" autoFocus />
+                </LemonField>
+                <div className="flex gap-2 justify-end">
+                    <LemonButton size="small" type="secondary" onClick={cancelProposingAuthorizedUrl}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton size="small" type="primary" htmlType="submit" loading={isProposedUrlSubmitting}>
+                        Add
+                    </LemonButton>
+                </div>
+            </div>
+        </Form>
+    )
+}
+
+const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
+    const { urlSuggestions } = useValues(webAnalyticsLogic)
+    const { addAuthorizedUrl, newAuthorizedUrl } = useActions(webAnalyticsLogic)
+
+    return (
+        <div className="flex flex-col gap-1 p-1" onClick={(e) => e.stopPropagation()}>
+            {urlSuggestions.length > 0 && (
+                <div className="flex flex-col gap-1">
+                    <span className="text-xs text-muted px-1">Suggestions</span>
+                    {urlSuggestions.slice(0, 3).map((suggestion) => (
+                        <div key={suggestion.url} className="flex items-center justify-between gap-2 px-1">
+                            <span className="text-xs truncate flex-1" title={suggestion.url}>
+                                {suggestion.url}
+                            </span>
+                            <LemonButton size="xsmall" type="primary" onClick={() => addAuthorizedUrl(suggestion.url)}>
+                                Add
+                            </LemonButton>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <LemonButton size="small" icon={<IconPlus />} onClick={newAuthorizedUrl} fullWidth>
+                Add authorized URL
+            </LemonButton>
+        </div>
+    )
 }

@@ -133,6 +133,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
     [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API Key', plural: 'Personal API Keys' },
+    [ActivityScope.LLM_TRACE]: { singular: 'LLM trace', plural: 'LLM traces' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
@@ -179,6 +180,16 @@ export function defaultDescriber(
             description: (
                 <>
                     <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'restored') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> restored <b>{resource}</b>
                 </>
             ),
         }

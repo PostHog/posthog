@@ -93,7 +93,7 @@ const insightActionsMapping: Record<
     },
     deleted: function onSoftDelete(change, logItem, asNotification) {
         const isDeleted = detectBoolean(change?.after)
-        const describeChange = isDeleted ? 'deleted' : 'un-deleted'
+        const describeChange = isDeleted ? 'deleted' : 'restored'
         return {
             description: [
                 <>
@@ -415,5 +415,9 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         }
     }
 
-    return defaultDescriber(logItem, asNotification, nameOrLinkToInsight(logItem?.detail.short_id))
+    return defaultDescriber(
+        logItem,
+        asNotification,
+        nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)
+    )
 }

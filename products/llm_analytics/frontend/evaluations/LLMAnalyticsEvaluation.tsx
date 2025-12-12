@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import {
@@ -37,6 +38,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
     const { setEvaluationName, setEvaluationDescription, setEvaluationEnabled, saveEvaluation, resetEvaluation } =
         useActions(llmEvaluationLogic)
     const { push } = useActions(router)
+    const triggersRef = useRef<HTMLDivElement>(null)
 
     if (evaluationLoading) {
         return <LemonSkeleton className="w-full h-96" />
@@ -46,8 +48,21 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
 
+    const basicFieldsValid = evaluation.name.length > 0 && evaluation.evaluation_config.prompt.length > 0
+    const percentageUnset = evaluation.conditions.some((c) => c.rollout_percentage === 0)
+    const saveButtonDisabled = !basicFieldsValid
+
     const handleSave = (): void => {
-        saveEvaluation()
+        // If percentage is unset but other fields are valid, scroll to triggers
+        if (basicFieldsValid && percentageUnset) {
+            triggersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            return
+        }
+
+        // Otherwise proceed with save if form is valid
+        if (formValid) {
+            saveEvaluation()
+        }
     }
 
     const handleCancel = (): void => {
@@ -84,7 +99,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={handleSave}
-                        disabled={!formValid}
+                        disabled={saveButtonDisabled}
                         loading={evaluationFormSubmitting}
                     >
                         {isNewEvaluation ? 'Create Evaluation' : 'Save Changes'}
@@ -140,7 +155,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     </div>
 
                     {/* Trigger Configuration */}
-                    <div className="bg-bg-light border rounded p-6">
+                    <div ref={triggersRef} className="bg-bg-light border rounded p-6">
                         <h3 className="text-lg font-semibold mb-4">Triggers</h3>
                         <p className="text-muted text-sm mb-4">
                             Configure when this evaluation should run on your LLM generations.
@@ -190,7 +205,8 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
 export const scene: SceneExport<LLMEvaluationLogicProps> = {
     component: LLMAnalyticsEvaluation,
     logic: llmEvaluationLogic,
-    paramsToProps: ({ params: { id } }) => ({
+    paramsToProps: ({ params: { id }, searchParams }) => ({
         evaluationId: id && id !== 'new' ? id : 'new',
+        templateKey: typeof searchParams.template === 'string' ? searchParams.template : undefined,
     }),
 }

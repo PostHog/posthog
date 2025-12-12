@@ -32,10 +32,19 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
+    release = serializers.SerializerMethodField()
+
     class Meta:
         model = ErrorTrackingSymbolSet
-        fields = ["id", "ref", "team_id", "created_at", "storage_ptr", "failure_reason"]
+        fields = ["id", "ref", "team_id", "created_at", "last_used", "storage_ptr", "failure_reason", "release"]
         read_only_fields = ["team_id"]
+
+    def get_release(self, obj):
+        from products.error_tracking.backend.api.releases import ErrorTrackingReleaseSerializer
+
+        if obj.release:
+            return ErrorTrackingReleaseSerializer(obj.release).data
+        return None
 
 
 @dataclass
@@ -67,7 +76,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     ]
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(team_id=self.team.id)
+        queryset = queryset.filter(team_id=self.team.id).select_related("release")
         params = self.request.GET.dict()
         status = params.get("status")
         order_by = params.get("order_by")
@@ -78,7 +87,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             queryset = queryset.filter(storage_ptr__isnull=True)
 
         if order_by:
-            allowed_fields = ["created_at", "-created_at", "ref", "-ref"]
+            allowed_fields = ["created_at", "-created_at", "ref", "-ref", "last_used", "-last_used"]
             if order_by in allowed_fields:
                 queryset = queryset.order_by(order_by)
 
@@ -101,6 +110,17 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set.save()
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def list(self, request, *args, **kwargs) -> Response:
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Fallback for non-paginated responses
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     # DEPRECATED: newer versions of the CLI use bulk uploads
     def create(self, request, *args, **kwargs) -> Response:

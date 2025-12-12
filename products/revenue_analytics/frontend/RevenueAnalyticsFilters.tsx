@@ -137,6 +137,10 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                     properties: revenueAnalyticsFilter,
                 },
             }}
+            contextDescription={{
+                text: 'Current filters',
+                icon: <IconFilter />,
+            }}
             callback={(toolOutput: Record<string, any>) => {
                 // Types suck here, but they *should* be correct if pydantic does its job correctly
                 setRevenueAnalyticsFilters(toolOutput.properties)
@@ -215,7 +219,7 @@ const AddBreakdownButton = (): JSX.Element => {
                 disabledReason={breakdownProperties.length >= 2 ? 'You can only have up to 2 breakdowns' : undefined}
                 size="small"
             >
-                Add breakdown
+                Breakdown
             </LemonButton>
         </BreakdownPopover>
     )

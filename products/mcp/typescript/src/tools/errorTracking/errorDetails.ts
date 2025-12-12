@@ -27,9 +27,7 @@ export const errorDetailsHandler: ToolBase<typeof schema>['handler'] = async (co
         throw new Error(`Failed to get error details: ${errorsResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(errorsResult.data.results) }],
-    }
+    return errorsResult.data.results
 }
 
 const tool = (): ToolBase<typeof schema> => ({

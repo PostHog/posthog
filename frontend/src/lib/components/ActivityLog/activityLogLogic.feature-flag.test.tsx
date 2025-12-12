@@ -45,7 +45,7 @@ describe('the activity log logic', () => {
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter deleted test flag')
         })
 
-        it('can handle soft un-deletion', async () => {
+        it('can handle soft restoration', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
                     type: ActivityScope.FEATURE_FLAG,
@@ -56,7 +56,7 @@ describe('the activity log logic', () => {
             ])
 
             const actual = logic.values.humanizedActivity
-            expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter un-deleted test flag')
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter restored test flag')
         })
 
         it('can handle soft enabling flag', async () => {

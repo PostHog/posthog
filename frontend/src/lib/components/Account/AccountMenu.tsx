@@ -5,6 +5,7 @@ import {
     IconCake,
     IconConfetti,
     IconCopy,
+    IconDatabase,
     IconDay,
     IconFeatures,
     IconGear,
@@ -32,7 +33,6 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
-    DropdownMenuOpenIndicator,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -40,6 +40,7 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -49,6 +50,7 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
@@ -56,6 +58,8 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getTreeItemsGames } from '~/products'
 import { SidePanelTab, UserTheme } from '~/types'
 
+import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
+import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
 
 interface AccountMenuProps extends DropdownMenuContentProps {
@@ -79,7 +83,7 @@ function ThemeMenu(): JSX.Element {
                     Color theme
                     <div className="ml-auto flex items-center gap-1">
                         <LemonTag>{themeMode}</LemonTag>
-                        <DropdownMenuOpenIndicator intent="sub" />
+                        <MenuOpenIndicator intent="sub" className="ml-auto" />
                     </div>
                 </ButtonPrimitive>
             </DropdownMenuSubTrigger>
@@ -135,7 +139,7 @@ function ThemeMenu(): JSX.Element {
 export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { isCloudOrDev, isCloud } = useValues(preflightLogic)
+    const { isCloudOrDev, isCloud, preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -144,6 +148,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { logout } = useActions(userLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
 
     return (
         <DropdownMenu>
@@ -258,7 +263,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             <ButtonPrimitive menuItem>
                                 <IconBlank />
                                 Other organizations
-                                <DropdownMenuOpenIndicator intent="sub" />
+                                <MenuOpenIndicator intent="sub" />
                             </ButtonPrimitive>
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="min-w-[var(--project-panel-width)]">
@@ -308,6 +313,23 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                     <ThemeMenu />
 
                     <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            tooltip="Open shortcut menu"
+                            tooltipPlacement="right"
+                            onClick={() => setAppShortcutMenuOpen(true)}
+                            menuItem
+                        >
+                            <span className="size-4 flex items-center justify-center">⌘</span>
+                            Shortcuts
+                            <div className="flex gap-1 ml-auto items-center">
+                                <KeyboardShortcut command option k />
+                                <span className="text-xs opacity-75">or</span>
+                                <KeyboardShortcut command shift k />
+                            </div>
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem asChild>
                         <Link
                             to="https://posthog.com/changelog"
                             buttonProps={{
@@ -350,14 +372,14 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                     <IconCake />
                                     Game center
                                     <div className="ml-auto">
-                                        <DropdownMenuOpenIndicator intent="sub" />
+                                        <MenuOpenIndicator intent="sub" className="ml-auto" />
                                     </div>
                                 </ButtonPrimitive>
                             </DropdownMenuSubTrigger>
                             <DropdownMenuSubContent>
                                 <DropdownMenuGroup>
                                     {getTreeItemsGames().map((game) => (
-                                        <DropdownMenuItem asChild>
+                                        <DropdownMenuItem asChild key={game.path}>
                                             <Link to={game.href} buttonProps={{ menuItem: true }}>
                                                 {game.path}
                                             </Link>
@@ -396,6 +418,24 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                     Instance panel
                                 </Link>
                             </DropdownMenuItem>
+
+                            {user?.is_impersonated ||
+                            preflight?.is_debug ||
+                            preflight?.instance_preferences?.debug_queries ? (
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => {
+                                            openCHQueriesDebugModal()
+                                        }}
+                                        data-attr="menu-item-debug-ch-queries"
+                                    >
+                                        <IconDatabase />
+                                        Debug CH queries
+                                        <KeyboardShortcut command option tab className="ml-auto" />
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                         </>
                     )}
                     {!isCloud && (

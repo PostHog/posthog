@@ -48,6 +48,7 @@ describe('JWT', () => {
 
     it('should try all secrets for verification', () => {
         const payload = { foo: 'bar' }
+        // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
         const token = jwtLib.sign(payload, 'testsecret2', { audience: PosthogJwtAudience.SUBSCRIPTION_PREFERENCES })
         expect((jwtUtil.verify(token, PosthogJwtAudience.SUBSCRIPTION_PREFERENCES) as any).foo).toBe('bar')
     })

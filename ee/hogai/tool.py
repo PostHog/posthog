@@ -1,8 +1,10 @@
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from string import Formatter
 from typing import Any, Literal, Self
 
+import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -13,10 +15,12 @@ from posthog.schema import AssistantTool
 from posthog.models import Team, User
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.base.context import get_node_path, set_node_path
-from ee.hogai.graph.mixins import AssistantContextMixin, AssistantDispatcherMixin
+from ee.hogai.core.context import get_node_path, set_node_path
+from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
+
+logger = structlog.get_logger(__name__)
 
 
 class ToolMessagesArtifact(BaseModel):
@@ -33,7 +37,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     billable: bool = False
     """Whether LLM generations triggered by this tool should count toward billing."""
 
-    context_prompt_template: str = "No context provided for this tool."
+    context_prompt_template: str | None = None
     """The template for context associated with this tool, that will be injected into the root node's context messages.
     Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.
     It will be formatted like an f-string, with the tool context as the variables.
@@ -137,11 +141,28 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     def context(self) -> dict:
         return self._context_manager.get_contextual_tools().get(self.get_name(), {})
 
-    def format_context_prompt_injection(self, context: dict[str, Any]) -> str:
+    def format_context_prompt_injection(self, context: dict[str, Any]) -> str | None:
+        if not self.context_prompt_template:
+            return None
+        # Build initial context
         formatted_context = {
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
+        # Extract expected keys from template
+        expected_keys = {
+            field for _, field, _, _ in Formatter().parse(self.context_prompt_template) if field is not None
+        }
+        # If they expect key is not present in the context (for example, cached FE) - use None as a default
+        for key in expected_keys:
+            if key not in formatted_context:
+                formatted_context[key] = None
+                logger.warning(
+                    f"Context prompt template for {self.get_name()} expects key {key} but it is not present in the context"
+                )
         return self.context_prompt_template.format(**formatted_context)
+
+    def set_node_path(self, node_path: tuple[NodePath, ...]):
+        self._node_path = node_path
 
     @classmethod
     async def create_tool_class(

@@ -578,7 +578,9 @@ async def test_generate_organization_digest_batch(mock_redis, common_input, dige
 async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
     """Test sending weekly digest batch with mock Redis and PostHog client."""
     batch = (0, 1)
-    input_data = SendWeeklyDigestBatchInput(batch=batch, dry_run=False, digest=digest, common=common_input)
+    input_data = SendWeeklyDigestBatchInput(
+        batch=batch, dry_run=False, allow_already_sent=False, digest=digest, common=common_input
+    )
 
     mock_org = MagicMock()
     mock_org.id = UUID("12345678-1234-1234-1234-123456789abc")
@@ -653,7 +655,9 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
 async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest):
     """Test sending weekly digest batch in dry run mode."""
     batch = (0, 1)
-    input_data = SendWeeklyDigestBatchInput(batch=batch, dry_run=True, digest=digest, common=common_input)
+    input_data = SendWeeklyDigestBatchInput(
+        batch=batch, dry_run=True, allow_already_sent=False, digest=digest, common=common_input
+    )
 
     mock_org = MagicMock()
     mock_org.id = UUID("12345678-1234-1234-1234-123456789abc")

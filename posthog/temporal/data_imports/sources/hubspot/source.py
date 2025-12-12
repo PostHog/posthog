@@ -40,6 +40,7 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
             caption="Select an existing Hubspot account to link to PostHog or create a new connection",
             iconPath="/static/services/hubspot.png",
             docsUrl="https://posthog.com/docs/cdp/sources/hubspot",
+            featured=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -49,6 +50,12 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
                 ],
             ),
         )
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
+            "missing or unknown hub id": None,
+        }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
     def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:

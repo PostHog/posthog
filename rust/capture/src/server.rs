@@ -133,9 +133,23 @@ where
         HealthRegistry::new_with_strategy("liveness", config.healthcheck_strategy.clone());
 
     let redis_client = Arc::new(
-        RedisClient::new(config.redis_url.clone())
-            .await
-            .expect("failed to create redis client"),
+        RedisClient::with_config(
+            config.redis_url.clone(),
+            common_redis::CompressionConfig::disabled(),
+            common_redis::RedisValueFormat::default(),
+            if config.redis_response_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(config.redis_response_timeout_ms))
+            },
+            if config.redis_connection_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(config.redis_connection_timeout_ms))
+            },
+        )
+        .await
+        .expect("failed to create redis client"),
     );
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
@@ -178,6 +192,7 @@ where
         token_dropper,
         config.export_prometheus,
         config.capture_mode,
+        config.otel_service_name.clone(), // this matches k8s role label in prod deploy envs
         config.concurrency_limit,
         event_max_bytes,
         config.enable_historical_rerouting,
@@ -195,11 +210,15 @@ where
         config.is_mirror_deploy,
         config.log_level
     );
-    axum::serve(
+
+    if let Err(e) = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown)
     .await
-    .unwrap()
+    {
+        tracing::error!("HTTP server graceful shutdown failed: {}", e);
+    }
+    tracing::info!("HTTP server graceful shutdown completed");
 }

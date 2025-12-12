@@ -48,5 +48,10 @@ pub const MESSAGES_SKIPPED_REVOKED: &str = "kafka_messages_skipped_revoked_total
 /// Counter for messages received by the batch consumer, tagged by deserialization status
 pub const BATCH_CONSUMER_MESSAGES_RECEIVED: &str = "kafka_batch_consumer_messages_received";
 
+/// Histogram for the number of messages per batch processed by the batch consumer
+pub const BATCH_CONSUMER_BATCH_SIZE: &str = "kafka_batch_consumer_batch_size";
+
 /// rdkafka consumption errors received
-pub const BATCH_CONSUMER_KAFKA_ERRORS: &str = "kafka_batch_consumer_kafka_errors";
+pub const BATCH_CONSUMER_KAFKA_ERROR: &str = "kafka_batch_consumer_kafka_error";
+
+pub const BATCH_CONSUMER_MESSAGE_ERROR: &str = "kafka_batch_consumer_message_error";

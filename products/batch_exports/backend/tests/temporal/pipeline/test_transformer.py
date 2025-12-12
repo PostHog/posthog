@@ -152,6 +152,7 @@ async def test_csv_stream_transformer_writes_record_batches():
 class TestField(Field):
     def __init__(self, name: str, data_type: pa.DataType):
         self.name = name
+        self.alias = name
         self.data_type = data_type
 
     @classmethod
@@ -315,7 +316,7 @@ async def test_schema_transformer(
     class TestTable(Table):
         pass
 
-    t = TestTable(name="test", fields=[TestField(record_batch[0]._name, target_type)])  # type: ignore[attr-defined]
+    t = TestTable(name="test", fields=[TestField(record_batch[0]._name, target_type), TestField("extra", pa.string())])  # type: ignore[attr-defined]
     transformer = SchemaTransformer(t, compatible_types)
 
     transformed_record_batches = [record_batch async for record_batch in transformer.iter(record_batch_iter())]

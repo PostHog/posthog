@@ -2,6 +2,9 @@ debug: true
 kafka:
     brokers: 'localhost:9092,localhost:9093'
     topic: 'topic'
+    session_recording_enabled: true  # set to false to disable session recording stats
+    session_recording_topic: 'session_recording_snapshot_item_events'  # defaults to this value when enabled
+    # session_recording_brokers: 'localhost:9094'  # optional, defaults to brokers
     group_id: 'livestream-dev'
 mmdb:
     path: 'mmdb.db'

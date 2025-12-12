@@ -5,6 +5,11 @@ on:
         branches:
             - master
     pull_request:
+    merge_group:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     # Job to decide if we should run python ci
@@ -15,7 +20,7 @@ jobs:
         name: Determine need to run python checks
         # Set job outputs to values from filter step
         outputs:
-            python: ${{ steps.filter.outputs.python }}
+            python: ${{ steps.filter.outputs.python || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -23,12 +28,12 @@ jobs:
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       python:
                         - 'pyproject.toml'
                         - 'uv.lock'
-                        - 'dags/**'
                         - 'ee/**/*.py'
                         - 'posthog/**/*'
                         - 'products/**/*.py'
@@ -40,9 +45,13 @@ jobs:
                         - bin/check_uv_python_compatibility.py
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
+                        # Products changes need to trigger Python CI to validate the json usage is still valid
+                        - 'frontend/src/products.json'
                         # hogli CLI changes need validation
                         - 'common/hogli/**'
                         - 'bin/**'
+                        # LLM Gateway service
+                        - 'services/llm-gateway/**/*.py'
 
     code-quality:
         needs: changes
@@ -53,13 +62,6 @@ jobs:
         runs-on: depot-ubuntu-latest
 
         steps:
-            # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
-            # there are backend changes, cancel previous runs
-            - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
-              if: github.actor != 'posthog-bot'
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-
             - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
@@ -67,14 +69,14 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.12.11
+                  python-version: 3.12.12
 
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.8.19
+                  version: 0.9.9
 
             - name: Check uv and Python version compatibility
               shell: bash
@@ -134,6 +136,11 @@ jobs:
               shell: bash -e {0}
               run: |
                   mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
+
+            - name: Check if "schema.py" is up to date
+              shell: bash
+              run: |
+                  npm run schema:build:python && git diff --exit-code
 
             - name: Check hogli manifest completeness
               shell: bash

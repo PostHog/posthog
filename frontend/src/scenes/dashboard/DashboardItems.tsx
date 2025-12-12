@@ -15,6 +15,8 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
+import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
+import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -54,6 +56,13 @@ export function DashboardItems(): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
+        skip: !featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL],
+    })
+
+    const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
+        ? null
+        : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
@@ -68,7 +77,7 @@ export function DashboardItems(): JSX.Element {
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
 
-    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
+    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_TILE_OVERRIDES]
     const duplicate = (tile: DashboardTile<QueryBasedInsightModel>, insight: QueryBasedInsightModel): void => {
         if (canAccessTileOverrides) {
             duplicateTile(tile)
@@ -187,6 +196,7 @@ export function DashboardItems(): JSX.Element {
                                     // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}
+                                    surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                     {...commonTileProps}
                                     // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />

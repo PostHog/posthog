@@ -17,7 +17,7 @@ export default function SimilarIssueCard({
 }): JSX.Element {
     const relatedRuntime = getRuntimeFromLib(issue.library)
     return (
-        <div className="flex items-center justify-between px-2 py-1 border rounded bg-surface-primary">
+        <div className="flex items-center justify-between px-2 py-1">
             <div className="flex flex-col gap-0.5 min-w-0 group flex-grow cursor-pointer" onClick={onClick}>
                 <div className="font-medium flex items-center gap-2 text-sm truncate group-hover:text-accent">
                     <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" className="shrink-0" />

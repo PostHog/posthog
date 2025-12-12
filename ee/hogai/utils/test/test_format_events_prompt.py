@@ -59,8 +59,8 @@ class TestFormatEventsPrompt(BaseTest):
         return CachedTeamTaxonomyQueryResponse(
             cache_key="test_key",
             is_cached=True,
-            last_refresh=datetime.datetime(2023, 1, 1, 0, 0, 0),
-            next_allowed_client_refresh=datetime.datetime(2023, 1, 1, 1, 0, 0),
+            last_refresh=datetime.datetime(2023, 1, 1, 0, 0, 0, tzinfo=datetime.UTC),
+            next_allowed_client_refresh=datetime.datetime(2023, 1, 1, 1, 0, 0, tzinfo=datetime.UTC),
             timezone="UTC",
             results=results,
         )

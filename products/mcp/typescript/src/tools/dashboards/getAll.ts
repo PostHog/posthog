@@ -16,7 +16,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to get dashboards: ${dashboardsResult.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(dashboardsResult.data) }] }
+    return dashboardsResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

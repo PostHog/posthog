@@ -1,5 +1,10 @@
 # Surveys
 
+## Setting up your environment
+
+1. Follow the [local development guide](https://posthog.com/handbook/engineering/developing-locally) to set up your environment.
+2. Run `python manage.py generate_random_surveys 3 --responses 50` to generate some surveys for testing.
+
 ## How to test changes
 
 ### PostHog App Changes (Backend/Frontend)
@@ -11,18 +16,139 @@
 
 Most survey logic lives in the [PostHog JS SDK](https://github.com/PostHog/posthog-js/). To test changes:
 
-1. Use the [NextJS playground](https://github.com/PostHog/posthog-js/tree/main/playground/nextjs) (recommended)
+First, build the package with hot-reload:
 
-2. To test SDK changes in the main PostHog app:
-   - Update `package.json` to use your local SDK:
+```bash
+cd posthog-js # root of repo
+pnpm package:watch # generates tarballs with hot-reload
+```
 
-   ```json
-   "posthog-js": "file:../posthog-js"
-   ```
+This watches for changes and rebuilds automatically. Now pick your testing environment:
 
-   - Restart the frontend process after running `bin/start`
+#### Option 1: NextJS playground (recommended)
 
-Because of RemoteConfig, you'll likely need to run the main PostHog app with your local posthog-js files to see the changes.
+The playground is the fastest way to iterate on SDK changes.
+
+1. Import the surveys module in `playground/nextjs/src/posthog.ts`:
+
+```typescript
+import 'posthog-js/dist/surveys'
+```
+
+2. (Optional) Disable consent checks to simplify testing:
+
+```typescript
+export const configForConsent = (): Partial<PostHogConfig> => {
+  const consentGiven = cookieConsentGiven()
+  return {
+    disable_surveys: false, // force surveys on
+    autocapture: consentGiven === 'granted',
+    disable_session_recording: consentGiven !== 'granted',
+  }
+}
+```
+
+3. Update `playground/nextjs/package.json` to use your local build:
+
+**Manually:**
+
+```json
+{
+  "dependencies": {
+    "posthog-js": "file:/path/to/posthog-js/target/posthog-js.tgz"
+  }
+}
+```
+
+**Or via script** (run from posthog-js root):
+
+```bash
+TGZ_PATH="$(pwd)/target/posthog-js.tgz"
+sed -i '' "s|\"posthog-js\": \".*\"|\"posthog-js\": \"file:$TGZ_PATH\"|" playground/nextjs/package.json
+```
+
+4. Clean & run:
+
+```bash
+cd playground/nextjs
+rm -rf node_modules .next && pnpm install && pnpm dev
+```
+
+Changes are picked up automatically via `package:watch`.
+
+#### Option 2: Main PostHog repo
+
+1. Update `frontend/package.json` to use your local build:
+
+**Manually:**
+
+```json
+{
+  "dependencies": {
+    "posthog-js": "file:/path/to/posthog-js/target/posthog-js.tgz"
+  }
+}
+```
+
+**Or via script:**
+
+```bash
+# Adjust these paths to match your setup
+POSTHOG_JS_DIR=~/src/posthog-js
+DOTCOM_DIR=~/src/dotcom
+
+TGZ_PATH="$POSTHOG_JS_DIR/target/posthog-js.tgz"
+sed -i '' "s|\"posthog-js\": \".*\"|\"posthog-js\": \"file:$TGZ_PATH\"|" "$DOTCOM_DIR/frontend/package.json"
+cd "$DOTCOM_DIR" && pnpm install
+# restart the frontend
+```
+
+#### External (hosted) surveys
+
+**Quick context:**
+
+- The external survey template is in the main repo at `posthog/templates/surveys/public_survey.html`
+- This template is served from the backend at `posthog/api/survey.py`
+  - Look for function: `public_survey_page(request, survey_id: str)`
+
+**How to test**
+
+1. Build the JS SDK, either with `pnpm package:watch` or just `pnpm build`
+
+2. Copy the dist file to the main repo:
+
+```bash
+cp /path/to/posthog-js/packages/browser/dist/array.full.js /path/to/posthog/frontend/dist/
+```
+
+3. Update `posthog/templates/surveys/public_survey.html` to load your local SDK file:
+
+```html
+<!-- keep this project config script as-is -->
+<!-- PostHog JavaScript -->
+<script nonce="{{ request.csp_nonce }}">
+  // Project config from Django and helper functions
+  const survey = {{ survey_data | safe }};
+  const projectConfig = {{ project_config_json | safe }};
+  ...
+</script>
+
+<!-- add this just above the existing CDN loader -->
+<script src="/static/array.full.js" nonce="{{ request.csp_nonce }}"></script>
+
+<script nonce="{{ request.csp_nonce }}">
+  // Load PostHog from CDN
+  !function (t, e) ...; // remove/comment this line!
+</script>
+```
+
+4. Start the backend services however you normally do, e.g. `hogli start`
+
+5. You should be able to see a survey with your local SDK changes on port `8010` or `8000`, e.g.:
+
+```text
+http://localhost:8000/external_surveys/019aea73-43d7-0000-9638-02f9368f964b?q0=5&auto_submit=true
+```
 
 ### Mobile Device Testing
 
@@ -88,10 +214,10 @@ Here's how to run it in the Django shell:
 ```python
 # In python manage.py shell
 from posthog.tasks.usage_report import get_teams_with_survey_responses_count_in_period
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 # Define the period for the last 60 days
-now = datetime.now(tz=timezone.utc)
+now = datetime.now(tz=UTC)
 start_time = now - timedelta(days=60)
 end_time = now
 

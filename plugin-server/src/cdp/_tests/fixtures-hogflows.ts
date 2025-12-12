@@ -47,7 +47,7 @@ export const createExampleHogFlowInvocation = (
         properties: {
             name: 'John Doe',
         },
-        name: '',
+        name: 'John Doe',
         url: '',
         ..._person,
     }
@@ -65,6 +65,7 @@ export const createExampleHogFlowInvocation = (
             event: context.event,
             person,
             groups: {},
+            variables: context.variables || {},
         }),
         queue: 'hogflow',
         queuePriority: 0,
