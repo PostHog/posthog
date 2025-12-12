@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ee", "0032_scimprovisioneduser_and_more"),
+        ("ee", "0035_conversation_slack_index"),
     ]
 
     operations = [
@@ -13,6 +13,7 @@ class Migration(migrations.Migration):
             model_name="conversation",
             name="is_internal",
             field=models.BooleanField(
+                null=True,
                 default=False,
                 help_text="Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.",
             ),
