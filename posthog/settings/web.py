@@ -113,6 +113,7 @@ MIDDLEWARE = [
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
+    "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
@@ -246,7 +247,15 @@ IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
 )
 # Disallow impersonating other staff
-CAN_LOGIN_AS = lambda request, target_user: request.user.is_staff and not target_user.is_staff
+CAN_LOGIN_AS = (
+    lambda request, target_user:
+    # user performing action must be a staff member
+    request.user.is_staff
+    # cannot impersonate other staff
+    and not target_user.is_staff
+    # target user must not have opted out of impersonation (None treated as allowed)
+    and target_user.allow_impersonation is not False
+)
 
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
 
