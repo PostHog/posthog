@@ -634,21 +634,26 @@ export function BIScene(): JSX.Element {
                                         expandedFields={expandedFields}
                                         onSetExpandedFields={setExpandedFields}
                                         onSelect={(path, field) => {
+                                            const matchingColumns = selectedColumns.filter(
+                                                (selectedColumn) =>
+                                                    selectedColumn.table === selectedTableObject.name &&
+                                                    selectedColumn.field === path
+                                            )
+
+                                            if (matchingColumns.length > 0) {
+                                                matchingColumns.forEach((matchingColumn) =>
+                                                    removeColumn(matchingColumn)
+                                                )
+                                                return
+                                            }
+
                                             const column = {
                                                 table: selectedTableObject.name,
                                                 field: path,
                                                 ...(field && isTemporalField(field) ? { timeInterval: 'day' } : {}),
                                             }
 
-                                            if (
-                                                selectedColumns.some(
-                                                    (selectedColumn) => columnKey(selectedColumn) === columnKey(column)
-                                                )
-                                            ) {
-                                                removeColumn(column)
-                                            } else {
-                                                addColumn(column)
-                                            }
+                                            addColumn(column)
                                         }}
                                     />
                                 ) : (
