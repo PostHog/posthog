@@ -102,7 +102,7 @@ export function TerraformExportModal({ isOpen, onClose, insight }: TerraformExpo
                     </LemonBanner>
                 )}
 
-                <CodeSnippet language={Language.Bash} wrap thing="Terraform configuration">
+                <CodeSnippet language={Language.HCL} wrap thing="Terraform configuration">
                     {result.hcl}
                 </CodeSnippet>
             </div>

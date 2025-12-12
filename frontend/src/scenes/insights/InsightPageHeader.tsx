@@ -93,8 +93,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId, insightLoading } =
-        useValues(insightLogic(insightLogicProps))
+    const {
+        insightProps,
+        canEditInsight,
+        insight,
+        insightChanged,
+        insightSaving,
+        hasDashboardItemId,
+        insightLoading,
+        derivedName,
+    } = useValues(insightLogic(insightLogicProps))
     const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
         insightLogic(insightLogicProps)
     )
@@ -229,7 +237,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
             <TerraformExportModal
                 isOpen={terraformModalOpen}
                 onClose={() => setTerraformModalOpen(false)}
-                insight={{ ...insight, query }}
+                insight={{ ...insight, query, derived_name: derivedName }}
             />
 
             <ScenePanel>
