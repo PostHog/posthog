@@ -55,7 +55,7 @@ export function MessageCell({ message, wrapBody, prettifyJson, parsedBody, style
                                     wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
                                 )}
                             >
-                                {message}
+                                {displayValue}
                             </span>
                         )}
                     </div>
