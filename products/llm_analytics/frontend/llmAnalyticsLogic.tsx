@@ -860,7 +860,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                             type: PropertyFilterType.Event,
                             key: '$ai_is_error',
                             operator: PropertyOperator.Exact,
-                            value: true,
+                            value: 'true',
                         }),
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -882,7 +882,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                                             type: PropertyFilterType.Event,
                                             key: '$ai_is_error',
                                             operator: PropertyOperator.Exact,
-                                            value: true,
+                                            value: 'true',
                                         },
                                     ] as AnyPropertyFilter[],
                                 })
