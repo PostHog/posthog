@@ -1,5 +1,5 @@
 // Metrics that make sense across all Kafka consumers
-import { Counter, Gauge, Summary } from 'prom-client'
+import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 export const kafkaRebalancePartitionCount = new Gauge({
     name: 'kafka_rebalance_partition_count',
@@ -59,6 +59,13 @@ export const destinationE2eLagMsSummary = new Summary({
     name: 'destination_e2e_lag_ms',
     help: 'Time difference in ms between event capture time and destination finishing time',
     percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+export const destinationIngestedToProcessedLagMs = new Histogram({
+    name: 'destination_ingested_to_processed_lag_ms',
+    help: 'Time difference in ms between event ingestion and destination finishing time',
+    buckets: [1000, 5000, 10000, 30000, 100000, 1000000, Infinity],
+    labelNames: ['destinationType'],
 })
 
 export const cookielessRedisErrorCounter = new Counter({

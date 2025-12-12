@@ -71,6 +71,12 @@ export function convertToHogFunctionInvocationGlobals(
             : clickHouseTimestampToISO(event.captured_at)
         : null
 
+    const eventIngestedAt = event.ingested_at
+        ? DateTime.fromISO(event.ingested_at).isValid
+            ? event.ingested_at
+            : clickHouseTimestampToISO(event.ingested_at)
+        : null
+
     const context: HogFunctionInvocationGlobals = {
         project: {
             id: team.id,
@@ -85,6 +91,7 @@ export function convertToHogFunctionInvocationGlobals(
             properties,
             timestamp: eventTimestamp,
             captured_at: eventCapturedAt,
+            ingested_at: eventIngestedAt,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
         },
         person,

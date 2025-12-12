@@ -87,6 +87,7 @@ export type HogFunctionInvocationGlobals = {
         elements_chain: string
         timestamp: string
         captured_at?: string | null
+        ingested_at?: string | null
 
         /* Special fields in Hog */
         url: string

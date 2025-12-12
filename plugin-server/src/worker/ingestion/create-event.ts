@@ -103,6 +103,7 @@ export function createEvent(
             capturedAt !== null
                 ? castTimestampToClickhouseFormat(DateTime.fromJSDate(capturedAt), TimestampFormat.ClickHouse)
                 : null,
+        ingested_at: castTimestampToClickhouseFormat(DateTime.utc(), TimestampFormat.ClickHouse),
         person_id: person.uuid,
         person_properties: eventPersonProperties,
         person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),

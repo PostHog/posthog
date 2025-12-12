@@ -95,6 +95,9 @@ export class HogFlowFunctionsService {
         invocation: CyclotronJobInvocationHogFunction,
         hogExecutorOptions?: HogExecutorExecuteAsyncOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        return this.hogFunctionExecutor.executeWithAsyncFunctions(invocation, hogExecutorOptions)
+        return this.hogFunctionExecutor.executeWithAsyncFunctions(invocation, {
+            ...hogExecutorOptions,
+            skipE2eLagMetrics: true,
+        })
     }
 }

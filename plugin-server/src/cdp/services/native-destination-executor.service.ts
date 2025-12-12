@@ -1,6 +1,6 @@
 import { Histogram } from 'prom-client'
 
-import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
+import { destinationE2eLagMsSummary, destinationIngestedToProcessedLagMs } from '~/main/ingestion-queues/metrics'
 import { PluginsServerConfig } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 
@@ -231,6 +231,13 @@ export class NativeDestinationExecutorService {
                 if (capturedAt) {
                     const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
                     destinationE2eLagMsSummary.observe(e2eLagMs)
+                }
+                const ingestedAt = invocation.state.globals.event?.ingested_at
+                if (ingestedAt) {
+                    const ingestedToProcessedLagMs = Date.now() - new Date(ingestedAt).getTime()
+                    destinationIngestedToProcessedLagMs
+                        .labels({ destinationType: 'native' })
+                        .observe(ingestedToProcessedLagMs)
                 }
             }
         } catch (e) {

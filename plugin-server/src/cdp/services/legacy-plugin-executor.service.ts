@@ -2,7 +2,7 @@ import { Histogram } from 'prom-client'
 
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 
-import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
+import { destinationE2eLagMsSummary, destinationIngestedToProcessedLagMs } from '~/main/ingestion-queues/metrics'
 
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
@@ -314,6 +314,13 @@ export class LegacyPluginExecutorService {
                 if (capturedAt) {
                     const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
                     destinationE2eLagMsSummary.observe(e2eLagMs)
+                }
+                const ingestedAt = invocation.state.globals.event?.ingested_at
+                if (ingestedAt) {
+                    const ingestedToProcessedLagMs = Date.now() - new Date(ingestedAt).getTime()
+                    destinationIngestedToProcessedLagMs
+                        .labels({ destinationType: 'legacy-plugin' })
+                        .observe(ingestedToProcessedLagMs)
                 }
             }
         } catch (e) {
