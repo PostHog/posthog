@@ -159,6 +159,12 @@ export interface PersonsStore extends BatchWritingStore {
     removeDistinctIdFromCache(teamId: number, distinctId: string): void
 
     /**
+     * Prefetches persons by team ID and distinct ID to warm up the cache
+     * @param teamDistinctIds - A list of team IDs and distinct IDs to prefetch
+     */
+    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[]): Promise<void>
+
+    /**
      * Flushes the batch
      */
     flush(): Promise<FlushResult[]>

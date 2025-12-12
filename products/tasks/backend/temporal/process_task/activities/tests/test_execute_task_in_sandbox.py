@@ -19,7 +19,9 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
 class TestExecuteTaskInSandboxActivity:
-    def _create_context(self, github_integration, repository, task_id="test-task-123", run_id="test-run-456"):
+    def _create_context(
+        self, github_integration, repository, task_id="test-task-123", run_id="test-run-456", create_pr=True
+    ):
         return TaskProcessingContext(
             task_id=task_id,
             run_id=run_id,
@@ -27,6 +29,7 @@ class TestExecuteTaskInSandboxActivity:
             github_integration_id=github_integration.id,
             repository=repository,
             distinct_id="test-user-id",
+            create_pr=create_pr,
         )
 
     @pytest.mark.django_db
@@ -53,7 +56,7 @@ class TestExecuteTaskInSandboxActivity:
                 async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
 
                 mock_task_cmd.assert_called_once_with(
-                    "test-task-123", "test-run-456", "/tmp/workspace/repos/posthog/posthog-js"
+                    "test-task-123", "test-run-456", "/tmp/workspace/repos/posthog/posthog-js", True
                 )
 
         finally:
@@ -161,6 +164,7 @@ class TestExecuteTaskInSandboxActivity:
                         f"test-task-{repo.split('/')[1]}",
                         f"test-run-{repo.split('/')[1]}",
                         f"/tmp/workspace/repos/{repo.lower()}",
+                        True,
                     )
 
         finally:

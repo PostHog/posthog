@@ -2,7 +2,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 
@@ -22,8 +22,20 @@ from .activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryOutput,
     get_sandbox_for_repository,
 )
-from .activities.get_task_processing_context import TaskProcessingContext, get_task_processing_context
+from .activities.get_task_processing_context import (
+    GetTaskProcessingContextInput,
+    TaskProcessingContext,
+    get_task_processing_context,
+)
+from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
+
+
+@dataclass
+class ProcessTaskInput:
+    run_id: str
+    create_pr: bool = True
+    slack_thread_context: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -38,6 +50,7 @@ class ProcessTaskOutput:
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._context: Optional[TaskProcessingContext] = None
+        self._slack_thread_context: Optional[dict[str, Any]] = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -46,16 +59,22 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return self._context
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> str:
+    def parse_inputs(inputs: list[str]) -> ProcessTaskInput:
         loaded = json.loads(inputs[0])
-        return loaded["run_id"]
+        return ProcessTaskInput(
+            run_id=loaded["run_id"],
+            create_pr=loaded.get("create_pr", True),
+            slack_thread_context=loaded.get("slack_thread_context"),
+        )
 
     @temporalio.workflow.run
-    async def run(self, run_id: str) -> ProcessTaskOutput:
+    async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
+        run_id = input.run_id
+        self._slack_thread_context = input.slack_thread_context
 
         try:
-            self._context = await self._get_task_processing_context(run_id)
+            self._context = await self._get_task_processing_context(input)
 
             await self._track_workflow_event(
                 "process_task_workflow_started",
@@ -67,11 +86,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
+            await self._post_slack_update()
+
             sandbox_output = await self._get_sandbox_for_repository()
             sandbox_id = sandbox_output.sandbox_id
 
-            if sandbox_output.should_create_snapshot:
-                await self._trigger_snapshot_workflow()
+            # TODO: Re-enable snapshot creation
+            # if sandbox_output.should_create_snapshot:
+            #     await self._trigger_snapshot_workflow()
+
+            await self._post_slack_update()
 
             result = await self._execute_task_in_sandbox(sandbox_id)
 
@@ -84,6 +108,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "used_snapshot": sandbox_output.used_snapshot,
                 },
             )
+
+            await self._post_slack_update()
 
             return ProcessTaskOutput(
                 success=True,
@@ -110,6 +136,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "sandbox_id": sandbox_id,
                     },
                 )
+                await self._post_slack_update()
 
             return ProcessTaskOutput(
                 success=False,
@@ -122,10 +149,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
 
-    async def _get_task_processing_context(self, run_id: str) -> TaskProcessingContext:
+    async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         return await workflow.execute_activity(
             get_task_processing_context,
-            run_id,
+            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -186,4 +213,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             task_queue=settings.TASKS_TASK_QUEUE,
             parent_close_policy=ParentClosePolicy.ABANDON,  # This will allow the snapshot workflow to continue even if the task workflow fails or closes
             retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+    async def _post_slack_update(self) -> None:
+        if not self._slack_thread_context:
+            return
+        await workflow.execute_activity(
+            post_slack_update,
+            PostSlackUpdateInput(
+                run_id=self.context.run_id,
+                slack_thread_context=self._slack_thread_context,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
         )

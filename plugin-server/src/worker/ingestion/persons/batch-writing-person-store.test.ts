@@ -100,6 +100,18 @@ describe('BatchWritingPersonStore', () => {
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             updatePersonAssertVersion: jest.fn().mockResolvedValue([person.version + 1, []]),
+            updatePersonsBatch: jest.fn().mockImplementation((updates) => {
+                // Return a map with success for each update
+                const results = new Map()
+                for (const update of updates) {
+                    results.set(update.uuid, {
+                        success: true,
+                        version: update.version + 1,
+                        kafkaMessage: { topic: 'test', messages: [] },
+                    })
+                }
+                return Promise.resolve(results)
+            }),
             deletePerson: jest.fn().mockResolvedValue([]),
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
@@ -193,12 +205,15 @@ describe('BatchWritingPersonStore', () => {
 
         await personStore.flush()
 
-        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
-            expect.objectContaining({
-                properties: { test: 'test' },
-            }),
-            expect.anything(),
-            'updatePersonNoAssert'
+        // In NO_ASSERT mode, we use batch updates
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    uuid: person.uuid,
+                    properties_to_unset: ['value_to_unset'],
+                }),
+            ])
         )
     })
 
@@ -225,12 +240,16 @@ describe('BatchWritingPersonStore', () => {
 
         await personStore.flush()
 
-        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
-            expect.objectContaining({
-                properties: { test: 'test', prop_to_toggle: 'new_value' },
-            }),
-            expect.anything(),
-            'updatePersonNoAssert'
+        // In NO_ASSERT mode, we use batch updates
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    uuid: person.uuid,
+                    properties_to_set: { test: 'test', prop_to_toggle: 'new_value' },
+                    properties_to_unset: [],
+                }),
+            ])
         )
     })
 
@@ -257,12 +276,15 @@ describe('BatchWritingPersonStore', () => {
 
         await personStore.flush()
 
-        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
-            expect.objectContaining({
-                properties: { test: 'test' },
-            }),
-            expect.anything(),
-            'updatePersonNoAssert'
+        // In NO_ASSERT mode, we use batch updates
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    uuid: person.uuid,
+                    properties_to_unset: ['prop_to_toggle'],
+                }),
+            ])
         )
     })
 
@@ -303,10 +325,10 @@ describe('BatchWritingPersonStore', () => {
         // Add a person update to cache
         await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'new_value' }, [], {}, 'test')
 
-        // Flush should call updatePerson (NO_ASSERT default mode)
+        // Flush should call updatePersonsBatch (NO_ASSERT default mode uses batch updates)
         await personStore.flush()
 
-        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
         expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
     })
 
@@ -515,7 +537,10 @@ describe('BatchWritingPersonStore', () => {
     })
 
     it('should handle database errors gracefully during flush', async () => {
-        mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database connection failed'))
+        // Mock batch update to throw an error - all persons will fail
+        mockRepo.updatePersonsBatch = jest.fn().mockImplementation(() => {
+            throw new Error('Database connection failed')
+        })
 
         await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'new_value' }, [], {}, 'test')
 
@@ -528,15 +553,28 @@ describe('BatchWritingPersonStore', () => {
         await personStore.updatePersonWithPropertiesDiffForUpdate(person, { test: 'value1' }, [], {}, 'test1')
         await personStore.updatePersonWithPropertiesDiffForUpdate(person2, { test: 'value2' }, [], {}, 'test2')
 
-        // Mock first update to succeed, second to fail
-        let callCount = 0
-        mockRepo.updatePerson = jest.fn().mockImplementation(() => {
-            callCount++
-            if (callCount === 1) {
-                return Promise.resolve([person, []]) // success for first person
+        // Mock batch update to fail for person2 (returns error in results map)
+        mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates) => {
+            const results = new Map()
+            for (const update of updates) {
+                if (update.uuid === person.uuid) {
+                    results.set(update.uuid, {
+                        success: true,
+                        version: update.version + 1,
+                        kafkaMessage: { topic: 'test', messages: [] },
+                    })
+                } else {
+                    results.set(update.uuid, {
+                        success: false,
+                        error: new Error('Database error'),
+                    })
+                }
             }
-            throw new Error('Database error') // fail for second person
+            return Promise.resolve(results)
         })
+
+        // Mock fallback to also fail
+        mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
 
         await expect(personStore.flush()).rejects.toThrow('Database error')
     })
@@ -602,17 +640,33 @@ describe('BatchWritingPersonStore', () => {
 
         await personStore.flush()
 
-        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
-            expect.objectContaining({
-                properties: { null_prop: null, undefined_prop: undefined, test: 'test' },
-            }),
-            expect.anything(),
-            'updatePersonNoAssert'
+        // In NO_ASSERT mode, we use batch updates
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    uuid: person.uuid,
+                    properties_to_set: expect.objectContaining({
+                        null_prop: null,
+                        undefined_prop: undefined,
+                    }),
+                }),
+            ])
         )
     })
 
     it('should handle MessageSizeTooLarge errors and capture warning', async () => {
-        // Mock NO_ASSERT update to fail with MessageSizeTooLarge
+        // Mock batch update to fail for this person, then fallback to fail with MessageSizeTooLarge
+        mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates) => {
+            const results = new Map()
+            for (const update of updates) {
+                results.set(update.uuid, {
+                    success: false,
+                    error: new Error('batch failed'),
+                })
+            }
+            return Promise.resolve(results)
+        })
         mockRepo.updatePerson = jest.fn().mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
 
         // Add a person update to cache
@@ -621,7 +675,7 @@ describe('BatchWritingPersonStore', () => {
         // Flush should handle the error and capture warning
         await personStore.flush()
 
-        expect(mockRepo.updatePerson).toHaveBeenCalled()
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalled()
         expect(captureIngestionWarning).toHaveBeenCalledWith(
             db.kafkaProducer,
             teamId,
@@ -635,7 +689,7 @@ describe('BatchWritingPersonStore', () => {
 
     describe('dbWriteMode functionality', () => {
         describe('flush with NO_ASSERT mode', () => {
-            it('should call updatePersonNoAssert directly without retries', async () => {
+            it('should call updatePersonsBatch directly without retries', async () => {
                 const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
                     dbWriteMode: 'NO_ASSERT',
                 })
@@ -649,17 +703,30 @@ describe('BatchWritingPersonStore', () => {
                 )
                 await personStore.flush()
 
-                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+                // NO_ASSERT mode uses batch updates
+                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
                 expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
                 expect(db.postgres.transaction).not.toHaveBeenCalled()
             })
 
-            it('should fallback with NO_ASSERT mode', async () => {
+            it('should fallback with NO_ASSERT mode when batch fails', async () => {
                 const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
                     dbWriteMode: 'NO_ASSERT',
                     maxOptimisticUpdateRetries: 5,
                 })
 
+                // Mock batch update to fail
+                mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+                    for (const update of updates) {
+                        results.set(update.uuid, {
+                            success: false,
+                            error: new Error('Batch failed'),
+                        })
+                    }
+                    return Promise.resolve(results)
+                })
+                // Mock fallback to also fail
                 mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
 
                 await personStore.updatePersonWithPropertiesDiffForUpdate(
@@ -671,7 +738,8 @@ describe('BatchWritingPersonStore', () => {
                 )
 
                 await expect(personStore.flush()).rejects.toThrow('Database error')
-                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(6) // 6 for update (1 fallback + 5 retries)
+                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+                expect(mockRepo.updatePerson).toHaveBeenCalled() // Fallback was attempted
                 expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
         })
@@ -791,7 +859,7 @@ describe('BatchWritingPersonStore', () => {
 
                 await Promise.all([noAssertBatch.flush(), assertVersionBatch.flush()])
 
-                expect(noAssertMockRepo.updatePerson).toHaveBeenCalledTimes(1) // NO_ASSERT mode
+                expect(noAssertMockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1) // NO_ASSERT mode uses batch
                 expect(assertVersionMockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(1) // ASSERT_VERSION mode
             })
         })
@@ -934,34 +1002,22 @@ describe('BatchWritingPersonStore', () => {
 
         expect(cache.size).toBe(1)
 
-        // Flush should consolidate these into a single DB update
+        // Flush should consolidate these into a single DB update (via batch)
         await personStore.flush()
 
-        // ISSUE: Currently this will likely result in 2 separate DB calls for the same person
-        // or only one of the updates will be applied, leading to incomplete data
-        // expect(db.updatePerson).toHaveBeenCalledTimes(1)
-
-        // The updatePerson call should have the correct properties
-        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
-        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
-            expect.objectContaining({
-                id: sharedPerson.id,
-                properties: {
-                    initial_prop: 'initial_value',
-                    prop_from_distinctId1: 'value1',
-                    prop_from_distinctId2: 'value2',
-                },
-            }),
-            // Only mutable fields should be in the update object
-            expect.objectContaining({
-                properties: {
-                    initial_prop: 'initial_value',
-                    prop_from_distinctId1: 'value1',
-                    prop_from_distinctId2: 'value2',
-                },
-                is_identified: expect.any(Boolean),
-            }),
-            'updatePersonNoAssert'
+        // In NO_ASSERT mode, we use batch updates
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: sharedPerson.id,
+                    properties_to_set: {
+                        initial_prop: 'initial_value',
+                        prop_from_distinctId1: 'value1',
+                        prop_from_distinctId2: 'value2',
+                    },
+                }),
+            ])
         )
     })
 
@@ -1015,16 +1071,18 @@ describe('BatchWritingPersonStore', () => {
 
         await personStore.flush()
 
-        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
-        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
-            expect.objectContaining({
-                properties: {
-                    existing_prop: 'existing_value',
-                    conflicting_prop: 'new_value',
-                },
-            }),
-            expect.anything(),
-            'updatePersonNoAssert'
+        // In NO_ASSERT mode, we use batch updates
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    properties_to_set: {
+                        existing_prop: 'existing_value',
+                        conflicting_prop: 'new_value',
+                    },
+                    properties_to_unset: [],
+                }),
+            ])
         )
     })
 
@@ -1077,15 +1135,17 @@ describe('BatchWritingPersonStore', () => {
 
         await personStore.flush()
 
-        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
-        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
-            expect.objectContaining({
-                properties: {
-                    existing_prop: 'existing_value',
-                },
-            }),
-            expect.anything(),
-            'updatePersonNoAssert'
+        // In NO_ASSERT mode, we use batch updates
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    properties_to_set: {
+                        existing_prop: 'existing_value',
+                    },
+                    properties_to_unset: ['conflicting_prop'],
+                }),
+            ])
         )
     })
 
@@ -1573,14 +1633,8 @@ describe('BatchWritingPersonStore', () => {
             // Flush SHOULD write to database since it's a new property
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
-            expect(mockRepo.updatePerson).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    properties: { name: 'John', $browser: 'Chrome' },
-                }),
-                expect.anything(),
-                'updatePersonNoAssert'
-            )
+            // In NO_ASSERT mode, we use batch updates
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
 
             // Verify metrics - should be 'changed' since new property triggers write
             expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
@@ -1612,7 +1666,8 @@ describe('BatchWritingPersonStore', () => {
             // Flush SHOULD write to database because name is not filtered
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+            // In NO_ASSERT mode, we use batch updates
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
 
             // Verify metrics - should be 'changed' since non-filtered property triggers write
             expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
@@ -1644,7 +1699,8 @@ describe('BatchWritingPersonStore', () => {
             // Flush SHOULD write to database because unsetting always triggers a write
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+            // In NO_ASSERT mode, we use batch updates
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
 
             // Verify metrics - should be 'changed' since unsetting triggers write
             expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
@@ -1678,7 +1734,8 @@ describe('BatchWritingPersonStore', () => {
             // Flush SHOULD write to database because force_update bypasses filtering
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+            // In NO_ASSERT mode, we use batch updates
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
 
             // Verify metrics - should be 'changed' because force_update bypasses filtering
             expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
@@ -1794,19 +1851,18 @@ describe('BatchWritingPersonStore', () => {
             // Flush SHOULD write to database because $geoip_country_name is allowed
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
-            expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            // In NO_ASSERT mode, we use batch updates
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    properties: {
+                    properties_to_set: {
                         $geoip_country_name: 'United States',
                         $geoip_city_name: 'San Francisco',
                         $geoip_latitude: 37.7749,
                         $geoip_longitude: -122.4194,
                     },
                 }),
-                expect.anything(),
-                'updatePersonNoAssert'
-            )
+            ])
 
             // Verify metrics - should be 'changed' since allowed geoip property triggers write
             expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
@@ -1869,19 +1925,18 @@ describe('BatchWritingPersonStore', () => {
             // Flush SHOULD write to database because event 3 has non-filtered property
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
-            expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            // In NO_ASSERT mode, we use batch updates
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    properties: {
+                    properties_to_set: {
                         $browser: 'Chrome',
                         $app_build: '200',
                         $os: 'macOS',
                         name: 'John',
                     },
                 }),
-                expect.anything(),
-                'updatePersonNoAssert'
-            )
+            ])
 
             // Verify metrics - should be 'changed' since non-filtered property triggers write
             expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
@@ -1918,18 +1973,16 @@ describe('BatchWritingPersonStore', () => {
             // Flush SHOULD write to database
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
-            expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            // In NO_ASSERT mode, we use batch updates
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    properties: {
-                        test: 'test',
+                    properties_to_set: expect.objectContaining({
                         plan: 'premium',
                         subscription_status: 'active',
-                    },
+                    }),
                 }),
-                expect.anything(),
-                'updatePersonNoAssert'
-            )
+            ])
 
             // Verify metrics - should be 'changed' since custom properties trigger write
             expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
@@ -1989,20 +2042,19 @@ describe('BatchWritingPersonStore', () => {
             // Flush SHOULD write to database because $identify event set force_update=true
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+            // In NO_ASSERT mode, we use batch updates
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
 
             // Verify that ALL property changes from all three events are written
-            expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    properties: expect.objectContaining({
+                    properties_to_set: expect.objectContaining({
                         $browser: 'Safari',
                         utm_source: 'facebook',
                         $geoip_city_name: 'San Francisco',
                     }),
                 }),
-                expect.anything(),
-                'updatePersonNoAssert'
-            )
+            ])
         })
 
         it('integration: chain without $identify/$set should not trigger update', async () => {
@@ -2112,15 +2164,13 @@ describe('BatchWritingPersonStore', () => {
             await personStore.updatePersonWithPropertiesDiffForUpdate(person2, { batch: '2' }, [], {}, 'distinct-2')
             await personStore.flush()
 
-            // Verify second batch wrote correctly
-            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(2)
-            expect(mockRepo.updatePerson).toHaveBeenLastCalledWith(
+            // Verify second batch wrote correctly (NO_ASSERT mode uses batch updates)
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
+            expect(mockRepo.updatePersonsBatch).toHaveBeenLastCalledWith([
                 expect.objectContaining({
-                    properties: expect.objectContaining({ batch: '2' }),
+                    properties_to_set: expect.objectContaining({ batch: '2' }),
                 }),
-                expect.anything(),
-                'updatePersonNoAssert'
-            )
+            ])
         })
 
         it('should not share cached person data between batches', async () => {
@@ -2185,6 +2235,226 @@ describe('BatchWritingPersonStore', () => {
             expect(distinctIdToPersonId.get(`${teamId}:extra-id-1`)).toBe(createdPerson.id)
             expect(distinctIdToPersonId.get(`${teamId}:extra-id-2`)).toBe(createdPerson.id)
             expect(distinctIdToPersonId.get(`${teamId}:extra-id-3`)).toBe(createdPerson.id)
+        })
+    })
+
+    describe('prefetchPersons', () => {
+        it('should fetch persons in a single batched query and populate both caches', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const person1 = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+            const person2 = { ...person, id: '2', team_id: teamId, distinct_id: 'user-2' }
+
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person1, person2])
+
+            await personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            // Should have called fetchPersonsByDistinctIds once with both entries (useReadReplica=false)
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
+                [
+                    { teamId, distinctId: 'user-1' },
+                    { teamId, distinctId: 'user-2' },
+                ],
+                false
+            )
+
+            // Both caches should be populated (check cache stores InternalPerson without distinct_id)
+            const { distinct_id: _1, ...expectedPerson1 } = person1
+            const { distinct_id: _2, ...expectedPerson2 } = person2
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-1`)).toEqual(expectedPerson1)
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-2`)).toEqual(expectedPerson2)
+            expect(personStoreForBatch.getUpdateCache().get(`${teamId}:1`)).toBeDefined()
+            expect(personStoreForBatch.getUpdateCache().get(`${teamId}:2`)).toBeDefined()
+        })
+
+        it('should cache null in check cache only for persons not found', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const person1 = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+
+            // Only return person1, not person2
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person1])
+
+            await personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            // Check cache: person1 should be cached (without distinct_id), person2 should be null
+            const { distinct_id: _, ...expectedPerson1 } = person1
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-1`)).toEqual(expectedPerson1)
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-2`)).toBeNull()
+
+            // Update cache: only person1 should be cached (no null for missing)
+            expect(personStoreForBatch.getUpdateCache().get(`${teamId}:1`)).toBeDefined()
+            expect(personStoreForBatch.getUpdateCache().has(`${teamId}:2`)).toBe(false)
+        })
+
+        it('should skip entries already in check cache', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            // Pre-populate check cache for user-1
+            const existingPerson = { ...person, id: '1', team_id: teamId }
+            personStoreForBatch.getCheckCache().set(`${teamId}:user-1`, existingPerson)
+
+            const person2 = { ...person, id: '2', team_id: teamId, distinct_id: 'user-2' }
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person2])
+
+            await personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            // Should only fetch user-2 since user-1 was already cached
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith([{ teamId, distinctId: 'user-2' }], false)
+        })
+
+        it('should skip entries already in update cache', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            // Pre-populate by fetching for update
+            mockRepo.fetchPerson.mockResolvedValueOnce(person)
+            await personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+
+            const person2 = { ...person, id: '2', team_id: teamId, distinct_id: 'user-2' }
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person2])
+
+            await personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            // Should only fetch user-2 since user-1 was already in update cache
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith([{ teamId, distinctId: 'user-2' }], false)
+        })
+
+        it('should do nothing for empty input', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            await personStoreForBatch.prefetchPersons([])
+
+            expect(mockRepo.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
+        })
+
+        it('should do nothing when all entries are already cached', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            // Pre-populate cache
+            personStoreForBatch.getCheckCache().set(`${teamId}:user-1`, person)
+            personStoreForBatch.getCheckCache().set(`${teamId}:user-2`, null)
+
+            await personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            expect(mockRepo.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
+        })
+
+        it('should allow fetchForChecking to use prefetched data', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([prefetchedPerson])
+
+            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+
+            // Now fetchForChecking should use cached data
+            const result = await personStoreForBatch.fetchForChecking(teamId, 'user-1')
+
+            // Result is InternalPerson (no distinct_id), so compare without it
+            const { distinct_id: _, ...expectedPerson } = prefetchedPerson
+            expect(result).toEqual(expectedPerson)
+            // fetchPerson should not have been called since data was prefetched
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
+        })
+
+        it('should allow fetchForUpdate to use prefetched data', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([prefetchedPerson])
+
+            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+
+            // Now fetchForUpdate should use cached data
+            const result = await personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+
+            // Result is InternalPerson (no distinct_id), so compare without it
+            const { distinct_id: _, ...expectedPerson } = prefetchedPerson
+            expect(result).toEqual(expectedPerson)
+            // fetchPerson should not have been called since data was prefetched
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
+        })
+
+        it('should allow fetchForChecking to wait on in-flight prefetch without duplicate queries', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+
+            // Create a deferred promise so we can control when the prefetch completes
+            let resolvePrefetch: (value: (typeof prefetchedPerson)[]) => void
+            const prefetchPromise = new Promise<(typeof prefetchedPerson)[]>((resolve) => {
+                resolvePrefetch = resolve
+            })
+            mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(prefetchPromise)
+
+            // Start prefetch but don't await it (simulating non-blocking behavior)
+            const prefetchCompletion = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+
+            // Now call fetchForChecking while prefetch is still in flight
+            const fetchCheckingPromise = personStoreForBatch.fetchForChecking(teamId, 'user-1')
+
+            // Resolve the prefetch
+            resolvePrefetch!([prefetchedPerson])
+            await prefetchCompletion
+
+            // fetchForChecking should get the prefetched data
+            const result = await fetchCheckingPromise
+
+            const { distinct_id: _, ...expectedPerson } = prefetchedPerson
+            expect(result).toEqual(expectedPerson)
+
+            // Only the batch fetch should have been called, not individual fetchPerson
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
+        })
+
+        it('should allow fetchForUpdate to wait on in-flight prefetch without duplicate queries', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+
+            // Create a deferred promise so we can control when the prefetch completes
+            let resolvePrefetch: (value: (typeof prefetchedPerson)[]) => void
+            const prefetchPromise = new Promise<(typeof prefetchedPerson)[]>((resolve) => {
+                resolvePrefetch = resolve
+            })
+            mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(prefetchPromise)
+
+            // Start prefetch but don't await it
+            const prefetchCompletion = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+
+            // Now call fetchForUpdate while prefetch is still in flight
+            const fetchUpdatePromise = personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+
+            // Resolve the prefetch
+            resolvePrefetch!([prefetchedPerson])
+            await prefetchCompletion
+
+            // fetchForUpdate should get the prefetched data
+            const result = await fetchUpdatePromise
+
+            const { distinct_id: _, ...expectedPerson } = prefetchedPerson
+            expect(result).toEqual(expectedPerson)
+
+            // Only the batch fetch should have been called, not individual fetchPerson
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
         })
     })
 })

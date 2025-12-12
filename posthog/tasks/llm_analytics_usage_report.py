@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,8 +14,10 @@ from posthog.schema import AIEventType
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
+from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
@@ -43,6 +46,54 @@ QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
 
+# Celery task ID for query attribution
+CELERY_TASK_ID = "posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports"
+
+
+@dataclass
+class TeamMetrics:
+    """All metrics for a single team from the combined query."""
+
+    team_id: int
+
+    # Event counts
+    ai_generation_count: int = 0
+    ai_embedding_count: int = 0
+    ai_span_count: int = 0
+    ai_trace_count: int = 0
+    ai_metric_count: int = 0
+    ai_feedback_count: int = 0
+    ai_evaluation_count: int = 0
+
+    # Cost metrics
+    total_cost: float = 0.0
+    input_cost: float = 0.0
+    output_cost: float = 0.0
+    request_cost: float = 0.0
+    web_search_cost: float = 0.0
+
+    # Token metrics
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    reasoning_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+
+
+@dataclass
+class TeamDimensionBreakdowns:
+    """All dimension breakdowns for a single team."""
+
+    team_id: int
+    model_breakdown: dict[str, int]
+    provider_breakdown: dict[str, int]
+    framework_breakdown: dict[str, int]
+    library_breakdown: dict[str, int]
+    cost_model_used_breakdown: dict[str, int]
+    cost_model_source_breakdown: dict[str, int]
+    cost_model_provider_breakdown: dict[str, int]
+
 
 def _execute_split_query(
     begin: datetime,
@@ -52,6 +103,7 @@ def _execute_split_query(
     num_splits: int = 2,
     combine_results_func: Any | None = None,
     team_ids: list[int] | None = None,
+    query_name: str = "split_query",
 ) -> Any:
     """
     Helper function to execute a query split into multiple parts to reduce memory load.
@@ -96,12 +148,19 @@ def _execute_split_query(
             split_params["team_ids"] = team_ids
 
         # Execute the query for this time split
-        split_result = sync_execute(
-            query_template,
-            split_params,
-            workload=Workload.OFFLINE,
-            settings=CH_LLM_ANALYTICS_SETTINGS,
-        )
+        with tags_context(
+            product=Product.LLM_ANALYTICS,
+            kind="celery",
+            id=CELERY_TASK_ID,
+            name=query_name,
+            workload=Workload.OFFLINE.value,
+        ):
+            split_result = sync_execute(
+                query_template,
+                split_params,
+                workload=Workload.OFFLINE,
+                settings=CH_LLM_ANALYTICS_SETTINGS,
+            )
 
         all_results.append(split_result)
 
@@ -142,110 +201,6 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
     return list(team_counts.items())
 
 
-def _combine_event_type_results(results_list: list) -> list[tuple[int, str, int]]:
-    """
-    Combine results from queries that return (team_id, event, count) tuples.
-
-    Args:
-        results_list: List of query results, each containing (team_id, event, count) tuples
-
-    Returns:
-        Combined list of (team_id, event, count) tuples
-    """
-    team_event_counts: dict[tuple[int, str], int] = {}
-
-    # Combine all results
-    for results in results_list:
-        for row in results:
-            try:
-                team_id, event, count = row
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Skipping malformed row in event type results: {row}, error: {e}")
-                continue
-
-            key = (team_id, event)
-
-            if key in team_event_counts:
-                team_event_counts[key] += count
-            else:
-                team_event_counts[key] = count
-
-    # Convert back to the expected format
-    return [(team_id, event, count) for (team_id, event), count in team_event_counts.items()]
-
-
-def _combine_multi_metric_results(results_list: list) -> list[tuple]:
-    """
-    Combine results from queries that return (team_id, metric1, metric2, ...) tuples.
-
-    Args:
-        results_list: List of query results
-
-    Returns:
-        Combined list of tuples with summed metrics
-    """
-    team_metrics: dict[int, list[float]] = {}
-
-    # Combine all results
-    for results in results_list:
-        for row in results:
-            if not row:
-                logger.warning("Skipping empty row in multi metric results")
-                continue
-
-            team_id = row[0]
-            metrics = row[1:]  # All metrics after team_id
-
-            if team_id in team_metrics:
-                existing = team_metrics[team_id]
-
-                # Ensure we don't go out of bounds - extend if new row has more metrics
-                if len(metrics) > len(existing):
-                    existing.extend([0] * (len(metrics) - len(existing)))
-
-                # Sum each metric
-                for i, metric in enumerate(metrics):
-                    existing[i] += metric or 0
-            else:
-                # Initialize with current metrics
-                team_metrics[team_id] = [metric or 0 for metric in metrics]
-
-    # Convert back to the expected format
-    return [(team_id, *metrics) for team_id, metrics in team_metrics.items()]
-
-
-def _combine_dimension_results(results_list: list) -> list[tuple[int, str, int]]:
-    """
-    Combine results from dimension breakdown queries that return (team_id, dimension_value, count) tuples.
-
-    Args:
-        results_list: List of query results
-
-    Returns:
-        Combined list of (team_id, dimension_value, count) tuples
-    """
-    team_dimension_counts: dict[tuple[int, str], int] = {}
-
-    # Combine all results
-    for results in results_list:
-        for row in results:
-            try:
-                team_id, dimension_value, count = row
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Skipping malformed row in dimension results: {row}, error: {e}")
-                continue
-
-            key = (team_id, dimension_value)
-
-            if key in team_dimension_counts:
-                team_dimension_counts[key] += count
-            else:
-                team_dimension_counts[key] = count
-
-    # Convert back to the expected format
-    return [(team_id, dim_val, count) for (team_id, dim_val), count in team_dimension_counts.items()]
-
-
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
@@ -263,14 +218,247 @@ def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
           AND timestamp < %(end)s
     """
 
-    results = sync_execute(
-        query,
-        {"ai_events": AI_EVENTS, "begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_LLM_ANALYTICS_SETTINGS,
+    with tags_context(
+        product=Product.LLM_ANALYTICS,
+        kind="celery",
+        id=CELERY_TASK_ID,
+        name="Get teams with AI events",
+        workload=Workload.OFFLINE.value,
+    ):
+        results = sync_execute(
+            query,
+            {"ai_events": AI_EVENTS, "begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_LLM_ANALYTICS_SETTINGS,
+        )
+
+        return [row[0] for row in results]
+
+
+def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
+    """
+    Combine results from split queries that return all metrics per team.
+
+    Returns:
+        dict mapping team_id to TeamMetrics
+    """
+    team_metrics: dict[int, TeamMetrics] = {}
+
+    for results in results_list:
+        for row in results:
+            if not row:
+                continue
+
+            team_id = row[0]
+
+            if team_id not in team_metrics:
+                team_metrics[team_id] = TeamMetrics(team_id=team_id)
+
+            metrics = team_metrics[team_id]
+
+            # Event counts (indices 1-7)
+            metrics.ai_generation_count += row[1] or 0
+            metrics.ai_embedding_count += row[2] or 0
+            metrics.ai_span_count += row[3] or 0
+            metrics.ai_trace_count += row[4] or 0
+            metrics.ai_metric_count += row[5] or 0
+            metrics.ai_feedback_count += row[6] or 0
+            metrics.ai_evaluation_count += row[7] or 0
+
+            # Cost metrics (indices 8-12)
+            metrics.total_cost += row[8] or 0.0
+            metrics.input_cost += row[9] or 0.0
+            metrics.output_cost += row[10] or 0.0
+            metrics.request_cost += row[11] or 0.0
+            metrics.web_search_cost += row[12] or 0.0
+
+            # Token metrics (indices 13-18)
+            metrics.prompt_tokens += row[13] or 0
+            metrics.completion_tokens += row[14] or 0
+            metrics.total_tokens += row[15] or 0
+            metrics.reasoning_tokens += row[16] or 0
+            metrics.cache_read_tokens += row[17] or 0
+            metrics.cache_creation_tokens += row[18] or 0
+
+    return team_metrics
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_all_ai_metrics(
+    begin: datetime,
+    end: datetime,
+    team_ids: list[int],
+) -> dict[int, TeamMetrics]:
+    """
+    Get all AI metrics (event counts, costs, tokens) in a single query.
+
+    This combines what was previously 5 separate queries into one, reducing
+    table scans from 5 to 1.
+
+    Returns:
+        dict mapping team_id to TeamMetrics dataclass
+    """
+
+    query_template = """
+        SELECT
+            team_id,
+            -- Event counts by type
+            countIf(event = '$ai_generation') as ai_generation_count,
+            countIf(event = '$ai_embedding') as ai_embedding_count,
+            countIf(event = '$ai_span') as ai_span_count,
+            countIf(event = '$ai_trace') as ai_trace_count,
+            countIf(event = '$ai_metric') as ai_metric_count,
+            countIf(event = '$ai_feedback') as ai_feedback_count,
+            countIf(event = '$ai_evaluation') as ai_evaluation_count,
+            -- Cost metrics
+            SUM(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd'])) as total_cost,
+            SUM(toFloat64OrNull(properties_group_ai['$ai_input_cost_usd'])) as input_cost,
+            SUM(toFloat64OrNull(properties_group_ai['$ai_output_cost_usd'])) as output_cost,
+            SUM(toFloat64OrNull(properties_group_ai['$ai_request_cost_usd'])) as request_cost,
+            SUM(toFloat64OrNull(properties_group_ai['$ai_web_search_cost_usd'])) as web_search_cost,
+            -- Token metrics
+            SUM(toInt64OrNull(properties_group_ai['$ai_input_tokens'])) as prompt_tokens,
+            SUM(toInt64OrNull(properties_group_ai['$ai_output_tokens'])) as completion_tokens,
+            SUM(toInt64OrNull(properties_group_ai['$ai_total_tokens'])) as total_tokens,
+            SUM(toInt64OrNull(properties_group_ai['$ai_reasoning_tokens'])) as reasoning_tokens,
+            SUM(toInt64OrNull(properties_group_ai['$ai_cache_read_input_tokens'])) as cache_read_tokens,
+            SUM(toInt64OrNull(properties_group_ai['$ai_cache_creation_input_tokens'])) as cache_creation_tokens
+        FROM events
+        WHERE team_id IN %(team_ids)s
+          AND event IN %(ai_events)s
+          AND timestamp >= %(begin)s
+          AND timestamp < %(end)s
+        GROUP BY team_id
+    """
+
+    return _execute_split_query(
+        begin,
+        end,
+        query_template,
+        {"ai_events": AI_EVENTS},
+        num_splits=3,
+        combine_results_func=_combine_all_metrics_results,
+        team_ids=team_ids,
+        query_name="Get all AI metrics",
     )
 
-    return [row[0] for row in results]
+
+def _merge_map_breakdowns(existing: dict[str, int], new_map: dict[str, int]) -> None:
+    """Merge a new map into an existing breakdown dict, summing counts."""
+    for key, value in new_map.items():
+        if key in existing:
+            existing[key] += value
+        else:
+            existing[key] = value
+
+
+def _filter_breakdown(breakdown: dict[str, int], allow_empty: bool = False) -> dict[str, int]:
+    """Filter out empty or whitespace-only keys from a breakdown dict."""
+    if allow_empty:
+        return {(k.strip() if k and k.strip() else "none"): v for k, v in breakdown.items()}
+
+    return {k: v for k, v in breakdown.items() if k and k.strip()}
+
+
+def _combine_dimension_breakdown_results(results_list: list) -> dict[int, TeamDimensionBreakdowns]:
+    """
+    Combine results from split queries that return dimension breakdowns using Maps.
+
+    Returns:
+        dict mapping team_id to TeamDimensionBreakdowns
+    """
+    team_breakdowns: dict[int, TeamDimensionBreakdowns] = {}
+
+    for results in results_list:
+        for row in results:
+            if not row:
+                continue
+
+            team_id = row[0]
+
+            if team_id not in team_breakdowns:
+                team_breakdowns[team_id] = TeamDimensionBreakdowns(
+                    team_id=team_id,
+                    model_breakdown={},
+                    provider_breakdown={},
+                    framework_breakdown={},
+                    library_breakdown={},
+                    cost_model_used_breakdown={},
+                    cost_model_source_breakdown={},
+                    cost_model_provider_breakdown={},
+                )
+
+            breakdowns = team_breakdowns[team_id]
+
+            # Each row column (1-7) is a Map(String, UInt64)
+            _merge_map_breakdowns(breakdowns.model_breakdown, row[1] or {})
+            _merge_map_breakdowns(breakdowns.provider_breakdown, row[2] or {})
+            _merge_map_breakdowns(breakdowns.framework_breakdown, row[3] or {})
+            _merge_map_breakdowns(breakdowns.library_breakdown, row[4] or {})
+            _merge_map_breakdowns(breakdowns.cost_model_used_breakdown, row[5] or {})
+            _merge_map_breakdowns(breakdowns.cost_model_source_breakdown, row[6] or {})
+            _merge_map_breakdowns(breakdowns.cost_model_provider_breakdown, row[7] or {})
+
+    # Post-process to filter out empty keys
+    for _team_id, breakdowns in team_breakdowns.items():
+        breakdowns.model_breakdown = _filter_breakdown(breakdowns.model_breakdown)
+        breakdowns.provider_breakdown = _filter_breakdown(breakdowns.provider_breakdown)
+        breakdowns.framework_breakdown = _filter_breakdown(breakdowns.framework_breakdown, allow_empty=True)
+        breakdowns.library_breakdown = _filter_breakdown(breakdowns.library_breakdown)
+        breakdowns.cost_model_used_breakdown = _filter_breakdown(breakdowns.cost_model_used_breakdown)
+        breakdowns.cost_model_source_breakdown = _filter_breakdown(breakdowns.cost_model_source_breakdown)
+        breakdowns.cost_model_provider_breakdown = _filter_breakdown(breakdowns.cost_model_provider_breakdown)
+
+    return team_breakdowns
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_all_ai_dimension_breakdowns(
+    begin: datetime,
+    end: datetime,
+    team_ids: list[int],
+) -> dict[int, TeamDimensionBreakdowns]:
+    """
+    Get all dimension breakdowns (model, provider, framework, etc.) in a single query.
+
+    Uses ClickHouse's sumMap() to aggregate dimension values efficiently.
+
+    Returns:
+        dict mapping team_id to TeamDimensionBreakdowns dataclass
+    """
+
+    lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
+
+    query_template = f"""
+        SELECT
+            team_id,
+            sumMap(map(properties_group_ai['$ai_model'], toUInt64(1))) as model_breakdown,
+            sumMap(map(properties_group_ai['$ai_provider'], toUInt64(1))) as provider_breakdown,
+            sumMap(map(properties_group_ai['$ai_framework'], toUInt64(1))) as framework_breakdown,
+            sumMap(map({lib_expression}, toUInt64(1))) as library_breakdown,
+            sumMap(map(properties_group_ai['$ai_model_cost_used'], toUInt64(1))) as cost_model_used_breakdown,
+            sumMap(map(properties_group_ai['$ai_cost_model_source'], toUInt64(1))) as cost_model_source_breakdown,
+            sumMap(map(properties_group_ai['$ai_cost_model_provider'], toUInt64(1))) as cost_model_provider_breakdown
+        FROM events
+        WHERE team_id IN %(team_ids)s
+          AND event IN %(ai_events)s
+          AND timestamp >= %(begin)s
+          AND timestamp < %(end)s
+        GROUP BY team_id
+    """
+
+    return _execute_split_query(
+        begin,
+        end,
+        query_template,
+        {"ai_events": AI_EVENTS},
+        num_splits=4,
+        combine_results_func=_combine_dimension_breakdown_results,
+        team_ids=team_ids,
+        query_name="Get AI dimension breakdowns",
+    )
 
 
 # Celery task configuration
@@ -286,537 +474,17 @@ LLM_ANALYTICS_USAGE_REPORT_TASK_KWARGS = {
 }
 
 
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_ai_event_counts_by_type(
-    begin: datetime,
-    end: datetime,
-    team_ids: list[int],
-) -> dict[str, list[tuple[int, int]]]:
-    """
-    Get counts for each AI event type per team.
-
-    Returns:
-        dict mapping event type to list of (team_id, count) tuples
-    """
-    query_template = """
-        SELECT team_id, event, COUNT() as count
-        FROM events
-        WHERE team_id IN %(team_ids)s
-          AND event IN %(ai_events)s
-          AND timestamp >= %(begin)s
-          AND timestamp < %(end)s
-        GROUP BY team_id, event
-    """
-
-    results = _execute_split_query(
-        begin,
-        end,
-        query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=3,
-        combine_results_func=_combine_event_type_results,
-        team_ids=team_ids,
-    )
-
-    # Organize results by event type
-    event_counts: dict[str, dict[int, int]] = {event: {} for event in AI_EVENTS}
-
-    for team_id, event, count in results:
-        if event in event_counts:
-            event_counts[event][team_id] = count
-
-    # Convert to list format
-    return {event: list(counts.items()) for event, counts in event_counts.items()}
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_ai_cost_metrics(
-    begin: datetime,
-    end: datetime,
-    team_ids: list[int],
-) -> dict[str, list[tuple[int, float]]]:
-    """
-    Get AI cost metrics per team.
-
-    Returns:
-        dict with keys: 'total_cost', 'input_cost', 'output_cost'
-        Each maps to list of (team_id, cost) tuples
-    """
-    query_template = """
-        SELECT
-            team_id,
-            SUM(toFloat64OrNull(JSONExtractRaw(properties, '$ai_total_cost_usd'))) as total_cost,
-            SUM(toFloat64OrNull(JSONExtractRaw(properties, '$ai_input_cost_usd'))) as input_cost,
-            SUM(toFloat64OrNull(JSONExtractRaw(properties, '$ai_output_cost_usd'))) as output_cost
-        FROM events
-        WHERE team_id IN %(team_ids)s
-          AND event IN %(ai_events)s
-          AND timestamp >= %(begin)s
-          AND timestamp < %(end)s
-        GROUP BY team_id
-    """
-
-    results = _execute_split_query(
-        begin,
-        end,
-        query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=3,
-        combine_results_func=_combine_multi_metric_results,
-        team_ids=team_ids,
-    )
-
-    total_cost: list[tuple[int, float]] = []
-    input_cost: list[tuple[int, float]] = []
-    output_cost: list[tuple[int, float]] = []
-
-    for team_id, total, input_val, output_val in results:
-        total_cost.append((team_id, total or 0.0))
-        input_cost.append((team_id, input_val or 0.0))
-        output_cost.append((team_id, output_val or 0.0))
-
-    return {
-        "total_cost": total_cost,
-        "input_cost": input_cost,
-        "output_cost": output_cost,
-    }
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_ai_additional_cost_metrics(
-    begin: datetime,
-    end: datetime,
-    team_ids: list[int],
-) -> dict[str, list[tuple[int, float]]]:
-    """
-    Get additional AI cost metrics per team (request costs, web search costs).
-
-    Returns:
-        dict with keys: 'request_cost', 'web_search_cost'
-        Each maps to list of (team_id, cost) tuples
-    """
-    query_template = """
-        SELECT
-            team_id,
-            SUM(toFloat64OrNull(JSONExtractRaw(properties, '$ai_request_cost_usd'))) as request_cost,
-            SUM(toFloat64OrNull(JSONExtractRaw(properties, '$ai_web_search_cost_usd'))) as web_search_cost
-        FROM events
-        WHERE team_id IN %(team_ids)s
-          AND event IN %(ai_events)s
-          AND timestamp >= %(begin)s
-          AND timestamp < %(end)s
-        GROUP BY team_id
-    """
-
-    results = _execute_split_query(
-        begin,
-        end,
-        query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=3,
-        combine_results_func=_combine_multi_metric_results,
-        team_ids=team_ids,
-    )
-
-    request_cost: list[tuple[int, float]] = []
-    web_search_cost: list[tuple[int, float]] = []
-
-    for team_id, request, web_search in results:
-        request_cost.append((team_id, request or 0.0))
-        web_search_cost.append((team_id, web_search or 0.0))
-
-    return {
-        "request_cost": request_cost,
-        "web_search_cost": web_search_cost,
-    }
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_ai_token_metrics(
-    begin: datetime,
-    end: datetime,
-    team_ids: list[int],
-) -> dict[str, list[tuple[int, int]]]:
-    """
-    Get AI token metrics per team.
-
-    Returns:
-        dict with keys: 'prompt_tokens', 'completion_tokens', 'total_tokens'
-        Each maps to list of (team_id, count) tuples
-    """
-    query_template = """
-        SELECT
-            team_id,
-            SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_input_tokens'))) as prompt_tokens,
-            SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_output_tokens'))) as completion_tokens,
-            SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_total_tokens'))) as total_tokens
-        FROM events
-        WHERE team_id IN %(team_ids)s
-          AND event IN %(ai_events)s
-          AND timestamp >= %(begin)s
-          AND timestamp < %(end)s
-        GROUP BY team_id
-    """
-
-    results = _execute_split_query(
-        begin,
-        end,
-        query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=3,
-        combine_results_func=_combine_multi_metric_results,
-        team_ids=team_ids,
-    )
-
-    prompt_tokens: list[tuple[int, int]] = []
-    completion_tokens: list[tuple[int, int]] = []
-    total_tokens: list[tuple[int, int]] = []
-
-    for team_id, prompt, completion, total in results:
-        prompt_tokens.append((team_id, prompt or 0))
-        completion_tokens.append((team_id, completion or 0))
-        total_tokens.append((team_id, total or 0))
-
-    return {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": total_tokens,
-    }
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_ai_additional_token_metrics(
-    begin: datetime,
-    end: datetime,
-    team_ids: list[int],
-) -> dict[str, list[tuple[int, int]]]:
-    """
-    Get additional AI token metrics per team (reasoning tokens, cache tokens).
-
-    Returns:
-        dict with keys: 'reasoning_tokens', 'cache_read_tokens', 'cache_creation_tokens'
-        Each maps to list of (team_id, count) tuples
-    """
-    query_template = """
-        SELECT
-            team_id,
-            SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_reasoning_tokens'))) as reasoning_tokens,
-            SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_cache_read_input_tokens'))) as cache_read_tokens,
-            SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_cache_creation_input_tokens'))) as cache_creation_tokens
-        FROM events
-        WHERE team_id IN %(team_ids)s
-          AND event IN %(ai_events)s
-          AND timestamp >= %(begin)s
-          AND timestamp < %(end)s
-        GROUP BY team_id
-    """
-
-    results = _execute_split_query(
-        begin,
-        end,
-        query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=3,
-        combine_results_func=_combine_multi_metric_results,
-        team_ids=team_ids,
-    )
-
-    reasoning_tokens: list[tuple[int, int]] = []
-    cache_read_tokens: list[tuple[int, int]] = []
-    cache_creation_tokens: list[tuple[int, int]] = []
-
-    for team_id, reasoning, cache_read, cache_creation in results:
-        reasoning_tokens.append((team_id, reasoning or 0))
-        cache_read_tokens.append((team_id, cache_read or 0))
-        cache_creation_tokens.append((team_id, cache_creation or 0))
-
-    return {
-        "reasoning_tokens": reasoning_tokens,
-        "cache_read_tokens": cache_read_tokens,
-        "cache_creation_tokens": cache_creation_tokens,
-    }
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_ai_dimension_breakdowns(
-    begin: datetime,
-    end: datetime,
-    team_ids: list[int],
-) -> dict[str, dict[int, dict[str, int]]]:
-    """
-    Get dimension breakdowns (model, provider, framework, library) per team.
-
-    Returns:
-        dict with keys: 'model', 'provider', 'framework', 'library'
-        Each maps to: {team_id: {dimension_value: count}}
-    """
-    # Query for model breakdown
-    model_query_template = """
-        SELECT
-            team_id,
-            JSONExtractString(properties, '$ai_model') as model,
-            COUNT() as count
-        FROM events
-        WHERE team_id IN %(team_ids)s
-            AND event IN %(ai_events)s
-            AND timestamp >= %(begin)s
-            AND timestamp < %(end)s
-        GROUP BY team_id, model
-    """
-    model_results = _execute_split_query(
-        begin,
-        end,
-        model_query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=4,
-        combine_results_func=_combine_dimension_results,
-        team_ids=team_ids,
-    )
-
-    # Query for provider breakdown
-    provider_query_template = """
-        SELECT
-            team_id,
-            JSONExtractString(properties, '$ai_provider') as provider,
-            COUNT() as count
-        FROM events
-        WHERE team_id IN %(team_ids)s
-            AND event IN %(ai_events)s
-            AND timestamp >= %(begin)s
-            AND timestamp < %(end)s
-        GROUP BY team_id, provider
-    """
-    provider_results = _execute_split_query(
-        begin,
-        end,
-        provider_query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=4,
-        combine_results_func=_combine_dimension_results,
-        team_ids=team_ids,
-    )
-
-    # Query for framework breakdown
-    framework_query_template = """
-        SELECT
-            team_id,
-            JSONExtractString(properties, '$ai_framework') as framework,
-            COUNT() as count
-        FROM events
-        WHERE team_id IN %(team_ids)s
-            AND event IN %(ai_events)s
-            AND timestamp >= %(begin)s
-            AND timestamp < %(end)s
-        GROUP BY team_id, framework
-    """
-    framework_results = _execute_split_query(
-        begin,
-        end,
-        framework_query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=4,
-        combine_results_func=_combine_dimension_results,
-        team_ids=team_ids,
-    )
-
-    # Query for library breakdown
-    library_query_template = """
-        SELECT
-            team_id,
-            JSONExtractString(properties, '$lib') as library,
-            COUNT() as count
-        FROM events
-        WHERE team_id IN %(team_ids)s
-            AND event IN %(ai_events)s
-            AND timestamp >= %(begin)s
-            AND timestamp < %(end)s
-        GROUP BY team_id, library
-    """
-    library_results = _execute_split_query(
-        begin,
-        end,
-        library_query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=4,
-        combine_results_func=_combine_dimension_results,
-        team_ids=team_ids,
-    )
-
-    # Query for cost model used breakdown
-    cost_model_used_query_template = """
-        SELECT
-            team_id,
-            JSONExtractString(properties, '$ai_model_cost_used') as cost_model_used,
-            COUNT() as count
-        FROM events
-        WHERE team_id IN %(team_ids)s
-            AND event IN %(ai_events)s
-            AND timestamp >= %(begin)s
-            AND timestamp < %(end)s
-        GROUP BY team_id, cost_model_used
-    """
-    cost_model_used_results = _execute_split_query(
-        begin,
-        end,
-        cost_model_used_query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=4,
-        combine_results_func=_combine_dimension_results,
-        team_ids=team_ids,
-    )
-
-    # Query for cost model source breakdown
-    cost_model_source_query_template = """
-        SELECT
-            team_id,
-            JSONExtractString(properties, '$ai_cost_model_source') as cost_model_source,
-            COUNT() as count
-        FROM events
-        WHERE team_id IN %(team_ids)s
-            AND event IN %(ai_events)s
-            AND timestamp >= %(begin)s
-            AND timestamp < %(end)s
-        GROUP BY team_id, cost_model_source
-    """
-    cost_model_source_results = _execute_split_query(
-        begin,
-        end,
-        cost_model_source_query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=4,
-        combine_results_func=_combine_dimension_results,
-        team_ids=team_ids,
-    )
-
-    # Query for cost model provider breakdown
-    cost_model_provider_query_template = """
-        SELECT
-            team_id,
-            JSONExtractString(properties, '$ai_cost_model_provider') as cost_model_provider,
-            COUNT() as count
-        FROM events
-        WHERE team_id IN %(team_ids)s
-            AND event IN %(ai_events)s
-            AND timestamp >= %(begin)s
-            AND timestamp < %(end)s
-        GROUP BY team_id, cost_model_provider
-    """
-    cost_model_provider_results = _execute_split_query(
-        begin,
-        end,
-        cost_model_provider_query_template,
-        {"ai_events": AI_EVENTS},
-        num_splits=4,
-        combine_results_func=_combine_dimension_results,
-        team_ids=team_ids,
-    )
-
-    # Organize results into nested dicts
-    model_breakdown: dict[int, dict[str, int]] = {}
-
-    for team_id, model, count in model_results:
-        # Filter out empty or whitespace-only model values
-        if not model or not model.strip():
-            continue
-
-        if team_id not in model_breakdown:
-            model_breakdown[team_id] = {}
-
-        model_breakdown[team_id][model] = count
-
-    provider_breakdown: dict[int, dict[str, int]] = {}
-
-    for team_id, provider, count in provider_results:
-        # Filter out empty or whitespace-only provider values
-        if not provider or not provider.strip():
-            continue
-
-        if team_id not in provider_breakdown:
-            provider_breakdown[team_id] = {}
-
-        provider_breakdown[team_id][provider] = count
-
-    framework_breakdown: dict[int, dict[str, int]] = {}
-
-    for team_id, framework, count in framework_results:
-        if team_id not in framework_breakdown:
-            framework_breakdown[team_id] = {}
-
-        # Use "none" for empty/null/whitespace-only frameworks
-        framework_key = framework.strip() if framework and framework.strip() else "none"
-        framework_breakdown[team_id][framework_key] = count
-
-    library_breakdown: dict[int, dict[str, int]] = {}
-
-    for team_id, library, count in library_results:
-        # Filter out empty or whitespace-only library values
-        if not library or not library.strip():
-            continue
-
-        if team_id not in library_breakdown:
-            library_breakdown[team_id] = {}
-
-        library_breakdown[team_id][library] = count
-
-    cost_model_used_breakdown: dict[int, dict[str, int]] = {}
-
-    for team_id, cost_model_used, count in cost_model_used_results:
-        # Filter out empty or whitespace-only values
-        if not cost_model_used or not cost_model_used.strip():
-            continue
-
-        if team_id not in cost_model_used_breakdown:
-            cost_model_used_breakdown[team_id] = {}
-
-        cost_model_used_breakdown[team_id][cost_model_used] = count
-
-    cost_model_source_breakdown: dict[int, dict[str, int]] = {}
-
-    for team_id, cost_model_source, count in cost_model_source_results:
-        # Filter out empty or whitespace-only values
-        if not cost_model_source or not cost_model_source.strip():
-            continue
-
-        if team_id not in cost_model_source_breakdown:
-            cost_model_source_breakdown[team_id] = {}
-
-        cost_model_source_breakdown[team_id][cost_model_source] = count
-
-    cost_model_provider_breakdown: dict[int, dict[str, int]] = {}
-
-    for team_id, cost_model_provider, count in cost_model_provider_results:
-        # Filter out empty or whitespace-only values
-        if not cost_model_provider or not cost_model_provider.strip():
-            continue
-
-        if team_id not in cost_model_provider_breakdown:
-            cost_model_provider_breakdown[team_id] = {}
-
-        cost_model_provider_breakdown[team_id][cost_model_provider] = count
-
-    return {
-        "model": model_breakdown,
-        "provider": provider_breakdown,
-        "framework": framework_breakdown,
-        "library": library_breakdown,
-        "cost_model_used": cost_model_used_breakdown,
-        "cost_model_source": cost_model_source_breakdown,
-        "cost_model_provider": cost_model_provider_breakdown,
-    }
-
-
 def _get_all_llm_analytics_reports(
     period_start: datetime,
     period_end: datetime,
 ) -> dict[str, dict[str, Any]]:
     """
     Gather all LLM Analytics usage data for all organizations.
+
+    This function has been optimized to use only 2 queries instead of 44+:
+    - 1 query to get team_ids with AI events
+    - 1 combined query for all metrics (event counts, costs, tokens)
+    - 1 combined query for all dimension breakdowns (using Maps)
 
     Returns:
         dict mapping organization_id to usage data
@@ -832,25 +500,18 @@ def _get_all_llm_analytics_reports(
 
     logger.info(f"Found {len(team_ids)} teams with AI events")
 
-    # Phase 2: Get detailed metrics filtered by team_ids (uses primary key index)
-    event_counts_by_type = get_ai_event_counts_by_type(period_start, period_end, team_ids)
-    cost_metrics = get_ai_cost_metrics(period_start, period_end, team_ids)
-    additional_cost_metrics = get_ai_additional_cost_metrics(period_start, period_end, team_ids)
-    token_metrics = get_ai_token_metrics(period_start, period_end, team_ids)
-    additional_token_metrics = get_ai_additional_token_metrics(period_start, period_end, team_ids)
-    dimension_breakdowns = get_ai_dimension_breakdowns(period_start, period_end, team_ids)
+    # Phase 2: Get all metrics in a single combined query
+    logger.info("Querying all AI metrics")
+    all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+    logger.info(f"Retrieved metrics for {len(all_metrics)} teams")
 
-    # Convert to dict for easier lookup
-    event_counts_dicts = {event: dict(counts) for event, counts in event_counts_by_type.items()}
-    cost_dicts = {key: dict(values) for key, values in cost_metrics.items()}
-    additional_cost_dicts = {key: dict(values) for key, values in additional_cost_metrics.items()}
-    token_dicts = {key: dict(values) for key, values in token_metrics.items()}
-    additional_token_dicts = {key: dict(values) for key, values in additional_token_metrics.items()}
-
-    all_teams_with_ai = set(team_ids)
+    # Phase 3: Get all dimension breakdowns in a single combined query
+    logger.info("Querying all AI dimension breakdowns")
+    all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+    logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
 
     # Get team to organization mapping
-    teams = Team.objects.filter(id__in=all_teams_with_ai).select_related("organization")
+    teams = Team.objects.filter(id__in=team_ids).select_related("organization")
     team_to_org: dict[int, str] = {team.id: str(team.organization_id) for team in teams}
     org_id_to_name: dict[str, str] = {str(team.organization_id): team.organization.name for team in teams}
 
@@ -893,48 +554,59 @@ def _get_all_llm_analytics_reports(
 
         report = org_reports[org_id]
 
-        # Add event counts by type
-        report["ai_generation_count"] += event_counts_dicts.get("$ai_generation", {}).get(team_id, 0)
-        report["ai_embedding_count"] += event_counts_dicts.get("$ai_embedding", {}).get(team_id, 0)
-        report["ai_span_count"] += event_counts_dicts.get("$ai_span", {}).get(team_id, 0)
-        report["ai_trace_count"] += event_counts_dicts.get("$ai_trace", {}).get(team_id, 0)
-        report["ai_metric_count"] += event_counts_dicts.get("$ai_metric", {}).get(team_id, 0)
-        report["ai_feedback_count"] += event_counts_dicts.get("$ai_feedback", {}).get(team_id, 0)
-        report["ai_evaluation_count"] += event_counts_dicts.get("$ai_evaluation", {}).get(team_id, 0)
+        # Add metrics from TeamMetrics dataclass
+        metrics = all_metrics.get(team_id)
 
-        # Add cost metrics
-        report["total_ai_cost_usd"] += cost_dicts.get("total_cost", {}).get(team_id, 0.0)
-        report["input_cost_usd"] += cost_dicts.get("input_cost", {}).get(team_id, 0.0)
-        report["output_cost_usd"] += cost_dicts.get("output_cost", {}).get(team_id, 0.0)
-        report["request_cost_usd"] += additional_cost_dicts.get("request_cost", {}).get(team_id, 0.0)
-        report["web_search_cost_usd"] += additional_cost_dicts.get("web_search_cost", {}).get(team_id, 0.0)
+        if metrics:
+            report["ai_generation_count"] += metrics.ai_generation_count
+            report["ai_embedding_count"] += metrics.ai_embedding_count
+            report["ai_span_count"] += metrics.ai_span_count
+            report["ai_trace_count"] += metrics.ai_trace_count
+            report["ai_metric_count"] += metrics.ai_metric_count
+            report["ai_feedback_count"] += metrics.ai_feedback_count
+            report["ai_evaluation_count"] += metrics.ai_evaluation_count
 
-        # Add token metrics
-        report["total_prompt_tokens"] += token_dicts.get("prompt_tokens", {}).get(team_id, 0)
-        report["total_completion_tokens"] += token_dicts.get("completion_tokens", {}).get(team_id, 0)
-        report["total_tokens"] += token_dicts.get("total_tokens", {}).get(team_id, 0)
-        report["total_reasoning_tokens"] += additional_token_dicts.get("reasoning_tokens", {}).get(team_id, 0)
-        report["total_cache_read_tokens"] += additional_token_dicts.get("cache_read_tokens", {}).get(team_id, 0)
-        report["total_cache_creation_tokens"] += additional_token_dicts.get("cache_creation_tokens", {}).get(team_id, 0)
+            report["total_ai_cost_usd"] += metrics.total_cost
+            report["input_cost_usd"] += metrics.input_cost
+            report["output_cost_usd"] += metrics.output_cost
+            report["request_cost_usd"] += metrics.request_cost
+            report["web_search_cost_usd"] += metrics.web_search_cost
 
-        # Merge dimension breakdowns
-        for dimension in [
-            "model",
-            "provider",
-            "framework",
-            "library",
-            "cost_model_used",
-            "cost_model_source",
-            "cost_model_provider",
-        ]:
-            breakdown_key = f"{dimension}_breakdown"
-            team_breakdown = dimension_breakdowns[dimension].get(team_id, {})
+            report["total_prompt_tokens"] += metrics.prompt_tokens
+            report["total_completion_tokens"] += metrics.completion_tokens
+            report["total_tokens"] += metrics.total_tokens
+            report["total_reasoning_tokens"] += metrics.reasoning_tokens
+            report["total_cache_read_tokens"] += metrics.cache_read_tokens
+            report["total_cache_creation_tokens"] += metrics.cache_creation_tokens
 
-            for value, count in team_breakdown.items():
-                if value not in report[breakdown_key]:
-                    report[breakdown_key][value] = 0
+        # Add dimension breakdowns from TeamDimensionBreakdowns dataclass
+        breakdowns = all_breakdowns.get(team_id)
 
-                report[breakdown_key][value] += count
+        if breakdowns:
+            for value, count in breakdowns.model_breakdown.items():
+                report["model_breakdown"][value] = report["model_breakdown"].get(value, 0) + count
+
+            for value, count in breakdowns.provider_breakdown.items():
+                report["provider_breakdown"][value] = report["provider_breakdown"].get(value, 0) + count
+
+            for value, count in breakdowns.framework_breakdown.items():
+                report["framework_breakdown"][value] = report["framework_breakdown"].get(value, 0) + count
+
+            for value, count in breakdowns.library_breakdown.items():
+                report["library_breakdown"][value] = report["library_breakdown"].get(value, 0) + count
+
+            for value, count in breakdowns.cost_model_used_breakdown.items():
+                report["cost_model_used_breakdown"][value] = report["cost_model_used_breakdown"].get(value, 0) + count
+
+            for value, count in breakdowns.cost_model_source_breakdown.items():
+                report["cost_model_source_breakdown"][value] = (
+                    report["cost_model_source_breakdown"].get(value, 0) + count
+                )
+
+            for value, count in breakdowns.cost_model_provider_breakdown.items():
+                report["cost_model_provider_breakdown"][value] = (
+                    report["cost_model_provider_breakdown"].get(value, 0) + count
+                )
 
     logger.info(f"Generated LLM Analytics reports for {len(org_reports)} organizations")
     return org_reports

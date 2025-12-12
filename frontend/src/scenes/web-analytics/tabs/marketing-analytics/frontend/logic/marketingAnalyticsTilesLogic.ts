@@ -8,10 +8,9 @@ import {
     CompareFilter,
     ConversionGoalFilter,
     DataTableNode,
-    EventsNode,
+    DataWarehouseNode,
     IntegrationFilter,
     MARKETING_ANALYTICS_SCHEMA,
-    MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
     NodeKind,
@@ -21,7 +20,13 @@ import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
-import { getOrderBy, getSortedColumnsByArray, isDraftConversionGoalColumn, orderArrayByPreference } from './utils'
+import {
+    getOrderBy,
+    getSortedColumnsByArray,
+    isDraftConversionGoalColumn,
+    orderArrayByPreference,
+    validColumnsForTiles,
+} from './utils'
 
 export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
 
@@ -63,10 +68,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     dateTo: string | null
                     interval: IntervalType
                 },
-                createMarketingDataWarehouseNodes: EventsNode[],
+                createMarketingDataWarehouseNodes: DataWarehouseNode[],
                 campaignCostsBreakdown: DataTableNode,
                 chartDisplayType: ChartDisplayType,
-                tileColumnSelection: MarketingAnalyticsColumnsSchemaNames | null,
+                tileColumnSelection: validColumnsForTiles,
                 draftConversionGoal: ConversionGoalFilter | null,
                 integrationFilter: IntegrationFilter
             ) => {
@@ -78,9 +83,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     }
                 }
 
-                const isCurrency = tileColumnSelection
-                    ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
-                    : false
+                const isCurrency =
+                    tileColumnSelection && MARKETING_ANALYTICS_SCHEMA[tileColumnSelection]
+                        ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
+                        : false
 
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
 
@@ -147,7 +153,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             },
                         },
                         showIntervalSelect: true,
-                        insightProps: createInsightProps(TileId.MARKETING, `${chartDisplayType}`),
+                        insightProps: createInsightProps(
+                            TileId.MARKETING,
+                            `${chartDisplayType}-${tileColumnSelection}`
+                        ),
                         canOpenInsight: true,
                         canOpenModal: false,
                         docs: {
