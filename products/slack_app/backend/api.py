@@ -19,7 +19,6 @@ from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflowInputs,
 )
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import get_instance_region
 
 from ee.models.assistant import Conversation
 
@@ -101,11 +100,6 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
         thread_ts=thread_ts,
         slack_team_id=slack_team_id,
     )
-
-    # Temporary: Only allow team_id=2 in US region during development
-    if not settings.DEBUG and not (get_instance_region() == "US" and integration.team_id == 2):
-        logger.warning("slack_app_mention_skipped", team_id=integration.team_id, region=get_instance_region())
-        return
 
     slack_thread_key = _build_slack_thread_key(slack_team_id, channel, thread_ts)
 
