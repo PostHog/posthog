@@ -1,8 +1,9 @@
 import React from 'react'
 
-import { IconCopy, IconMinusSquare, IconPageChart, IconPlusSquare } from '@posthog/icons'
+import { IconCopy, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { PropertyOperator } from '~/types'
@@ -65,7 +66,7 @@ export function LogsViewerCellPopover({
                             {onToggleColumn && (
                                 <LemonButton
                                     size="xsmall"
-                                    icon={<IconPageChart />}
+                                    icon={<IconTableChart />}
                                     tooltip={isColumn ? 'Remove from columns' : 'Add as column'}
                                     active={isColumn}
                                     onClick={() => onToggleColumn(attributeKey)}
