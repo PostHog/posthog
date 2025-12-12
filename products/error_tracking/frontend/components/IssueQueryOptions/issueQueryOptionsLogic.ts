@@ -17,7 +17,15 @@ export type ErrorTrackingQueryRevenueEntity = ErrorTrackingQuery['revenueEntity'
 export type ErrorTrackingQueryAssignee = ErrorTrackingQuery['assignee']
 export type ErrorTrackingQueryStatus = ErrorTrackingQuery['status']
 
-const DEFAULT_ORDER_BY = 'last_seen'
+export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
+    last_seen: 'Last seen',
+    first_seen: 'First seen',
+    occurrences: 'Occurrences',
+    users: 'Users',
+    sessions: 'Sessions',
+    revenue: 'Revenue',
+}
+const DEFAULT_ORDER_BY: ErrorTrackingQueryOrderBy = 'last_seen'
 const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_REVENUE_PERIOD = 'last_30_days'
 const DEFAULT_REVENUE_ENTITY = 'person'
@@ -135,7 +143,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
-                actions.setOrderBy(params.orderBy)
+                if (params.orderBy in ORDER_BY_OPTIONS) {
+                    actions.setOrderBy(params.orderBy)
+                }
             }
             if (params.status && !equal(params.status, values.status)) {
                 actions.setStatus(params.status)

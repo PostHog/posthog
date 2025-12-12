@@ -6,8 +6,8 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ExperimentForm } from './ExperimentForm'
 import { ExperimentView } from './ExperimentView/ExperimentView'
-import { CreateExperiment } from './create/CreateExperiment'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
 
@@ -45,7 +45,7 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
     return (
         <BindLogic logic={experimentLogic} props={logicProps}>
             {formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
-                <CreateExperiment />
+                <ExperimentForm />
             ) : (
                 <ExperimentView tabId={tabId} />
             )}

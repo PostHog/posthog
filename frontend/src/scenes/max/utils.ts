@@ -4,6 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
 import {
+    AgentMode,
     AnyAssistantGeneratedQuery,
     AnyAssistantSupportedQuery,
     ArtifactContent,
@@ -30,7 +31,9 @@ import {
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
+import { Scene } from '../sceneTypes'
 import { EnhancedToolCall } from './Thread'
+import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
@@ -123,6 +126,14 @@ export function formatConversationDate(updatedAt: string | null): string {
         return 'Just now'
     }
     return humanFriendlyDuration(diff, { maxUnits: 1 })
+}
+
+export function getSlackThreadUrl(slackThreadKey: string, slackWorkspaceDomain?: string | null): string {
+    const [_, channel, threadTs] = slackThreadKey.split(':')
+    // threadTs is like "1765374935.148729", URL needs "p1765374935148729"
+    const urlTs = `p${threadTs.replace('.', '')}`
+    const domain = slackWorkspaceDomain || 'slack'
+    return `https://${domain}.slack.com/archives/${channel}/${urlTs}`
 }
 
 /**
@@ -252,4 +263,17 @@ export function captureFeedback(
             $ai_trace_id: traceId,
         })
     }
+}
+
+/** Maps a scene ID to the agent mode that should be activated for that scene */
+export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
+    if (!sceneId) {
+        return null
+    }
+    for (const [mode, def] of Object.entries(MODE_DEFINITIONS)) {
+        if (def.scenes.has(sceneId)) {
+            return mode as AgentMode
+        }
+    }
+    return null
 }

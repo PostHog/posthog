@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,6 +8,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentForm } from '~/scenes/experiments/ExperimentForm'
 import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
 import { ActivityScope, ProgressStatus } from '~/types'
 
@@ -32,13 +33,13 @@ import {
     ResultsQuery,
 } from '../components/ResultsBreakdown'
 import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
-import { CreateExperiment } from '../create/CreateExperiment'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
@@ -217,8 +218,15 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
-        useValues(experimentLogic)
+    const {
+        experimentLoading,
+        experimentId,
+        experiment,
+        usesNewQueryRunner,
+        isExperimentDraft,
+        exposureCriteria,
+        featureFlags,
+    } = useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
 
@@ -247,7 +255,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         experiment.type === 'product' &&
         allPrimaryMetrics.length === 0
     ) {
-        return <CreateExperiment draftExperiment={experiment} tabId={tabId} />
+        return <ExperimentForm draftExperiment={experiment} tabId={tabId} />
     }
 
     return (
@@ -288,6 +296,22 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 label: 'History',
                                 content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
                             },
+                            ...(experiment.feature_flag && featureFlags[FEATURE_FLAGS.SURVEYS_EXPERIMENTS_CROSS_SELL]
+                                ? [
+                                      {
+                                          key: 'feedback',
+                                          label: (
+                                              <div className="flex flex-row">
+                                                  <div>User feedback</div>
+                                                  <LemonTag className="ml-2 float-right uppercase" type="primary">
+                                                      New
+                                                  </LemonTag>
+                                              </div>
+                                          ),
+                                          content: <ExperimentFeedbackTab experiment={experiment} />,
+                                      },
+                                  ]
+                                : []),
                         ]}
                     />
 

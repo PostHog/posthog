@@ -43,12 +43,13 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
+from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
 from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
+from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
 from products.data_warehouse.backend.models import (
     DataWarehouseModelPath,
     DataWarehouseSavedQuery,
@@ -78,6 +79,16 @@ class DataModelingCancelledException(Exception):
     """Exception raised when a data modeling job is cancelled."""
 
     pass
+
+
+class NonRetryableException(Exception):
+    @property
+    def cause(self) -> BaseException | None:
+        """Cause of the exception.
+
+        This is the same as ``Exception.__cause__``.
+        """
+        return self.__cause__
 
 
 @dataclasses.dataclass(frozen=True)
@@ -208,18 +219,15 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
 
     running_tasks = set()
 
-    async with Heartbeater(), ShutdownMonitor() as shutdown_monitor:
+    async with Heartbeater():
         while True:
             message = await queue.get()
-            shutdown_monitor.raise_if_is_worker_shutdown()
 
             match message:
                 case QueueMessage(status=ModelStatus.READY, label=label):
                     await logger.adebug(f"Handling queue message READY. label={label}")
                     model = inputs.dag[label]
-                    task = asyncio.create_task(
-                        handle_model_ready(model, inputs.team_id, queue, inputs.job_id, logger, shutdown_monitor)
-                    )
+                    task = asyncio.create_task(handle_model_ready(model, inputs.team_id, queue, inputs.job_id, logger))
                     running_tasks.add(task)
                     task.add_done_callback(running_tasks.discard)
 
@@ -309,7 +317,6 @@ async def handle_model_ready(
     queue: asyncio.Queue[QueueMessage],
     job_id: str,
     logger: FilteringBoundLogger,
-    shutdown_monitor: ShutdownMonitor,
 ) -> None:
     """Handle a model that is ready to run by materializing.
 
@@ -332,7 +339,7 @@ async def handle_model_ready(
             saved_query = await get_saved_query(team, model.label)
             job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
-            await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor)
+            await materialize_model(model.label, team, saved_query, job, logger)
             ducklake_model = DuckLakeCopyModelInput(
                 model_label=model.label,
                 saved_query_id=str(saved_query.id),
@@ -431,7 +438,6 @@ async def materialize_model(
     saved_query: DataWarehouseSavedQuery,
     job: DataModelingJob,
     logger: FilteringBoundLogger,
-    shutdown_monitor: ShutdownMonitor,
 ) -> tuple[str, DeltaTable, uuid.UUID]:
     """Materialize a given model by running its query and piping the results into a delta table.
 
@@ -475,6 +481,12 @@ async def materialize_model(
             job.rows_expected = rows_expected
             await database_sync_to_async(job.save)()
         except Exception as e:
+            exception_str = str(e)
+
+            # If the count doesn't succeed due to the query timeout being exceeded, then re-raise
+            if "Timeout exceeded" in exception_str:
+                raise
+
             await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
             job.rows_expected = None
             await database_sync_to_async(job.save)()
@@ -494,7 +506,7 @@ async def materialize_model(
                 )
 
             mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
-            schema_mode: typing.Literal["merge", "overwrite"] | None = "merge"
+            schema_mode: typing.Literal["merge", "overwrite"] | None = None
             if index == 0:
                 mode = "overwrite"
                 schema_mode = "overwrite"
@@ -503,6 +515,7 @@ async def materialize_model(
                 f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
             )
 
+            write_start = dt.datetime.now()
             deltalake.write_deltalake(
                 table_or_uri=delta_table,
                 storage_options=storage_options,
@@ -511,15 +524,21 @@ async def materialize_model(
                 schema_mode=schema_mode,
                 engine="rust",
             )
+            write_duration = (dt.datetime.now() - write_start).total_seconds()
 
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
+
+            save_start = dt.datetime.now()
             await database_sync_to_async(job.save)()
+            save_duration = (dt.datetime.now() - save_start).total_seconds()
+
+            await logger.adebug(
+                f"Batch {index} timings: write={write_duration:.2f}s, save={save_duration:.2f}s, total={write_duration + save_duration:.2f}s"
+            )
 
             # Explicitly delete batch to free memory after writing
             del batch, ch_types
-
-            shutdown_monitor.raise_if_is_worker_shutdown()
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
@@ -582,7 +601,8 @@ async def materialize_model(
             saved_query.latest_error = error_message
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
             await mark_job_as_failed(job, error_message, logger)
-            raise Exception(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
+            await set_view_to_never_sync(saved_query, logger)
+            raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
@@ -650,6 +670,17 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.status = DataModelingJob.Status.FAILED
     job.error = error_message
     await database_sync_to_async(job.save)()
+
+
+async def set_view_to_never_sync(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
+    """Updates saved_query to set the sync schedule to "never" to protect from high strain on clickhouse"""
+
+    saved_query.sync_frequency_interval = None
+    await database_sync_to_async(saved_query.save)()
+
+    await a_pause_saved_query_schedule(str(saved_query.id))
+
+    await logger.adebug(f"Updated saved query {saved_query.id} to never sync")
 
 
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
@@ -1479,7 +1510,7 @@ class RunWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(hours=1),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=1,
+                    maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
                 ),
                 cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
             )
@@ -1570,11 +1601,12 @@ class RunWorkflow(PostHogWorkflow):
                 job_id=job_id,
                 models=len(self.ducklake_copy_inputs.models),
             )
+            # Start DuckLake copy workflow as a child (fire-and-forget)
             await temporalio.workflow.start_child_workflow(
-                workflow="ducklake-copy.data-modeling",
-                arg=dataclasses.asdict(self.ducklake_copy_inputs),
+                DuckLakeCopyDataModelingWorkflow.run,
+                self.ducklake_copy_inputs,
                 id=f"ducklake-copy-data-modeling-{job_id}",
-                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DUCKLAKE_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=1,

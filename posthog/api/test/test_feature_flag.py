@@ -51,6 +51,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.product_tours.backend.models import ProductTour
 
 
 class TestExtractEtagFromHeader:
@@ -5110,6 +5111,27 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] is not survey.json()["targeting_flag"]["id"]
 
+    def test_get_flags_dont_return_product_tour_internal_targeting_flags(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+
+        internal_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="product-tour-targeting-test-tour-abc123",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        ProductTour.objects.create(
+            team=self.team,
+            name="Test Tour",
+            content={"steps": []},
+            internal_targeting_flag=internal_flag,
+        )
+
+        flags_list = self.client.get("/api/projects/@current/feature_flags")
+        response = flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "red_button"
+
     def test_get_flags_with_active_and_created_by_id_filters(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         another_user = User.objects.create(email="foo@bar.com")
@@ -6629,7 +6651,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("ETag", response.headers)
-        self.assertTrue(response.headers["ETag"].startswith('"'))
+        self.assertTrue(response.headers["ETag"].startswith('W/"'))
         self.assertTrue(response.headers["ETag"].endswith('"'))
         self.assertIn("Cache-Control", response.headers)
         self.assertEqual(response.headers["Cache-Control"], "private, must-revalidate")
@@ -6851,8 +6873,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         etag = response1.headers["ETag"]
-        # ETag is returned with quotes, e.g., '"abc123"'
-        self.assertTrue(etag.startswith('"') and etag.endswith('"'))
+        # ETag is returned as weak ETag, e.g., 'W/"abc123"'
+        self.assertTrue(etag.startswith('W/"') and etag.endswith('"'))
 
         # Client sends ETag with quotes (standard format) - should match
         response2 = self.client.get(
@@ -6885,8 +6907,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         etag = response1.headers["ETag"]
-        # Strip quotes to get raw ETag value
-        raw_etag = etag.strip('"')
+        # Strip weak ETag prefix and quotes to get raw ETag value (W/"abc123" -> abc123)
+        raw_etag = etag.removeprefix('W/"').removesuffix('"')
 
         # Client sends ETag without quotes (non-standard but should work)
         response2 = self.client.get(

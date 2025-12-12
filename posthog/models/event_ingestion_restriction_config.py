@@ -26,6 +26,7 @@ class RestrictionType(models.TextChoices):
     SKIP_PERSON_PROCESSING = "skip_person_processing"
     DROP_EVENT_FROM_INGESTION = "drop_event_from_ingestion"
     FORCE_OVERFLOW_FROM_INGESTION = "force_overflow_from_ingestion"
+    REDIRECT_TO_DLQ = "redirect_to_dlq"
 
 
 class IngestionPipeline(models.TextChoices):
@@ -35,13 +36,16 @@ class IngestionPipeline(models.TextChoices):
 
 class EventIngestionRestrictionConfig(UUIDTModel):
     """
-    Configuration for various restrictions we can set by token, token:distinct_id, or token:session_id
+    Configuration for various restrictions we can set by token, token:distinct_id, token:session_id,
+    token:event_name, or token:event_uuid
     """
 
     token = models.CharField(max_length=100)
     restriction_type = models.CharField(max_length=100, choices=RestrictionType.choices)
     distinct_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
     session_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    event_names = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    event_uuids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
     note = models.TextField(
         blank=True, null=True, help_text="Optional note explaining why this restriction was put in place"
     )
@@ -101,7 +105,9 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
             "pipelines": config.pipelines or [],
         }
 
-        if not config.distinct_ids and not config.session_ids:
+        has_specific_filters = config.distinct_ids or config.session_ids or config.event_names or config.event_uuids
+
+        if not has_specific_filters:
             # No specific IDs - applies to all events for this token
             data.append(entry_base)
         else:
@@ -117,6 +123,20 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
                 for session_id in config.session_ids:
                     entry = entry_base.copy()
                     entry["session_id"] = session_id
+                    data.append(entry)
+
+            # Add entries for each event_name
+            if config.event_names:
+                for event_name in config.event_names:
+                    entry = entry_base.copy()
+                    entry["event_name"] = event_name
+                    data.append(entry)
+
+            # Add entries for each event_uuid
+            if config.event_uuids:
+                for event_uuid in config.event_uuids:
+                    entry = entry_base.copy()
+                    entry["event_uuid"] = event_uuid
                     data.append(entry)
 
     redis_client.set(redis_key, json.dumps(data))

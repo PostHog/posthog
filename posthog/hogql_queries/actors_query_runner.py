@@ -285,6 +285,10 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
                     # we look up valid session ids and match them against the session ids in matching events
                     column = ast.Field(chain=["matching_events"])
+                elif expr == "last_seen" and isinstance(self.strategy, PersonStrategy) and not self.query.source:
+                    # For direct person queries (no source), we'll handle this by adding a LEFT JOIN in the query
+                    # The column will be resolved later when we modify the FROM clause
+                    column = ast.Field(chain=["last_seen_data", "max_timestamp"])
 
                 columns.append(column)
                 if has_aggregation(column):
@@ -351,7 +355,41 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 settings=HogQLQuerySettings(join_algorithm="auto", optimize_aggregation_in_order=True),
             )
             if not self.query.source:
-                select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+                base_join = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+
+                # Add LEFT JOIN for last_seen if selected
+                if "last_seen" in self.input_columns() and isinstance(self.strategy, PersonStrategy):
+                    # Create subquery for last_seen data
+                    last_seen_subquery = ast.SelectQuery(
+                        select=[
+                            ast.Field(chain=["person_id"]),
+                            ast.Alias(alias="max_timestamp", expr=parse_expr("max(timestamp)")),
+                        ],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                        where=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["team_id"]),
+                            right=ast.Constant(value=self.team.id),
+                        ),
+                        group_by=[ast.Field(chain=["person_id"])],
+                    )
+
+                    # Add LEFT JOIN with the subquery
+                    base_join.next_join = ast.JoinExpr(
+                        table=last_seen_subquery,
+                        alias="last_seen_data",
+                        join_type="LEFT JOIN",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=[self.strategy.origin, "id"]),
+                                right=ast.Field(chain=["last_seen_data", "person_id"]),
+                            ),
+                            constraint_type="ON",
+                        ),
+                    )
+
+                select_query.select_from = base_join
             else:
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()

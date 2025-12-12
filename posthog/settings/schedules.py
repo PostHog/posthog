@@ -53,3 +53,10 @@ CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON = get_from_env(
     # Every third month 5AM UTC on 1st of the month
     "0 5 1 */3 *",
 )
+
+# Schedule to count items in playlists. Follows crontab syntax.
+PLAYLIST_COUNTER_SCHEDULE_CRON = get_from_env(
+    "PLAYLIST_COUNTER_SCHEDULE_CRON",
+    # Defaults to every hour at minute 30
+    "30 * * * *",
+)

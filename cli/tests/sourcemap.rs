@@ -33,28 +33,47 @@ fn assert_file_eq(base_path: &Path, path: &str, actual: impl Into<String>) {
 }
 
 pub fn read_pairs(
-    directory: PathBuf,
+    directories: Vec<PathBuf>,
     exclude: Vec<String>,
     include: Vec<String>,
     prefix: &Option<String>,
 ) -> Result<Vec<SourcePair>> {
-    let selection =
-        FileSelection::new(directory, include, exclude.to_vec()).filter(is_javascript_file);
+    let selection = FileSelection::from_roots(directories)
+        .include(include)?
+        .exclude(exclude)?;
 
-    posthog_cli::sourcemaps::source_pairs::read_pairs(selection, prefix)
+    Ok(posthog_cli::sourcemaps::source_pairs::read_pairs(
+        selection.into_iter().filter(is_javascript_file),
+        prefix,
+    ))
+}
+
+#[test]
+fn test_search_without_multiple_files() {
+    let pairs = read_pairs(
+        vec![
+            get_case_path("search/index.js"),
+            get_case_path("search/assets/chunk.min.js"),
+        ],
+        vec![],
+        vec![],
+        &None,
+    )
+    .expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 2);
 }
 
 #[test]
 fn test_search_without_prefix() {
-    let pairs =
-        read_pairs(get_case_path("search"), vec![], vec![], &None).expect("Failed to read pairs");
+    let pairs = read_pairs(vec![get_case_path("search")], vec![], vec![], &None)
+        .expect("Failed to read pairs");
     assert_eq!(pairs.len(), 3);
 }
 
 #[test]
 fn test_search_with_prefix() {
     let pairs = read_pairs(
-        get_case_path("search"),
+        vec![get_case_path("search")],
         vec![],
         vec![],
         &Some("/static/".to_string()),
@@ -66,7 +85,7 @@ fn test_search_with_prefix() {
 #[test]
 fn test_include() {
     let pairs = read_pairs(
-        get_case_path("search"),
+        vec![get_case_path("search")],
         vec![],
         vec!["**/index.js".to_string()],
         &None,
@@ -82,30 +101,30 @@ fn test_include() {
 #[test]
 fn test_exclude() {
     let pairs = read_pairs(
-        get_case_path(""),
+        vec![get_case_path("")],
         vec!["**/search/**".to_string()],
         vec![],
         &None,
     )
     .expect("Failed to read pairs");
-    assert_eq!(pairs.len(), 3);
-    assert_eq!(
-        pairs.first().unwrap().source.inner.path,
-        get_case_path("inject/chunk.js")
-    );
-    // Make sure chunks are ignored
-    let all_path = pairs
+    assert_eq!(pairs.len(), 4);
+    assert!(pairs
         .iter()
-        .map(|pair| pair.source.inner.path.clone())
-        .collect::<Vec<_>>();
-    assert!(!all_path.contains(&get_case_path("search/assets/chunk.min.js")));
+        .map(|pair| &pair.source.inner.path)
+        .any(|path| path == &get_case_path("inject/chunk.js")));
+
+    // Make sure chunks are ignored
+    assert!(!pairs
+        .iter()
+        .map(|pair| &pair.source.inner.path)
+        .any(|path| path.to_string_lossy().contains("search/")));
 }
 
 #[test]
 fn test_pair_inject() {
     let case_path = get_case_path("inject");
     let mut pairs =
-        read_pairs(case_path.clone(), vec![], vec![], &None).expect("Failed to read pairs");
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
@@ -129,7 +148,7 @@ fn test_pair_inject() {
 fn test_index_inject() {
     let case_path = get_case_path("index_map");
     let mut pairs =
-        read_pairs(case_path.clone(), vec![], vec![], &None).expect("Failed to read pairs");
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
     current_pair
@@ -146,7 +165,7 @@ fn test_index_inject() {
 fn test_pair_remove() {
     let case_path = get_case_path("inject");
     let mut pairs =
-        read_pairs(case_path.clone(), vec![], vec![], &None).expect("Failed to read pairs");
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
     let current_pair = pairs.first_mut().expect("Failed to get first pair");
     let chunk_id = "00000-00000-00000";
@@ -169,7 +188,8 @@ fn test_pair_remove() {
 #[test]
 fn test_reinject_without_new_release() {
     let case_path = get_case_path("reinject");
-    let pairs = read_pairs(case_path.clone(), vec![], vec![], &None).expect("Failed to read pairs");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
     let injected_pairs = inject_pairs(pairs, None).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
@@ -184,7 +204,8 @@ fn test_reinject_without_new_release() {
 #[test]
 fn test_reinject_with_new_release() {
     let case_path = get_case_path("reinject");
-    let pairs = read_pairs(case_path.clone(), vec![], vec![], &None).expect("Failed to read pairs");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
     let release_id = uuid::Uuid::now_v7().to_string();
     let injected_pairs =
@@ -204,7 +225,8 @@ fn test_reinject_with_new_release() {
 #[test]
 fn test_upload_set() {
     let case_path = get_case_path("search");
-    let pairs = read_pairs(case_path.clone(), vec![], vec![], &None).expect("Failed to read pairs");
+    let pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
 
     // Find pairs where source and sourcemap have different chunk IDs
     let pair_with_different_ids = pairs
@@ -234,4 +256,28 @@ fn test_upload_set() {
     // Verify that the upload set uses the source's chunk ID, not the sourcemap's
     assert_eq!(upload_set.chunk_id, source_chunk_id);
     assert_ne!(upload_set.chunk_id, sourcemap_chunk_id);
+}
+
+#[test]
+fn test_file_selection() {
+    // This does not work with glob patterns
+    let res = read_pairs(
+        vec![get_case_path("paths")],
+        vec![],
+        vec!["**/chunks/app/[locale]/(app)/[...not-found]/index.js".to_string()],
+        &None,
+    );
+    assert!(res.is_err());
+    assert_eq!(res.unwrap_err().to_string(), "error parsing glob '**/chunks/app/[locale]/(app)/[...not-found]/index.js': invalid range; 't' > 'f'");
+
+    // But should work with file paths
+    let res = read_pairs(
+        vec![get_case_path(
+            "paths/chunks/app/[locale]/(app)/[...not-found]/index.js",
+        )],
+        vec![],
+        vec![],
+        &None,
+    );
+    assert!(res.is_ok());
 }
