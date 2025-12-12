@@ -1,5 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
+
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
@@ -11,7 +13,6 @@ import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-build
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { createPostTeamPreprocessingSubpipeline } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
-import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
 export interface PreprocessingPipelineConfig {
     hub: Hub
@@ -106,10 +107,7 @@ export function createPreprocessingPipeline<
                             .pipeBatch(prefetchPersonsStep(personsStore, hub.PERSONS_PREFETCH_ENABLED))
                             // Batch insert personless distinct IDs after prefetch (uses prefetch cache)
                             .pipeBatch(
-                                processPersonlessDistinctIdsBatchStep(
-                                    personsStore,
-                                    hub.PERSONS_PREFETCH_ENABLED
-                                )
+                                processPersonlessDistinctIdsBatchStep(personsStore, hub.PERSONS_PREFETCH_ENABLED)
                             )
                     )
                     .handleIngestionWarnings(kafkaProducer)
