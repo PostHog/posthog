@@ -195,12 +195,6 @@ export type CdpConfig = {
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
 
-    // Heap dump configuration
-    HEAP_DUMP_ENABLED: boolean
-    HEAP_DUMP_S3_BUCKET: string
-    HEAP_DUMP_S3_PREFIX: string
-    HEAP_DUMP_S3_ENDPOINT: string
-    HEAP_DUMP_S3_REGION: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -487,13 +481,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
-
-    // Heap dump configuration
-    HEAP_DUMP_ENABLED: boolean
-    HEAP_DUMP_S3_BUCKET: string
-    HEAP_DUMP_S3_PREFIX: string
-    HEAP_DUMP_S3_ENDPOINT: string
-    HEAP_DUMP_S3_REGION: string
 
     // Pod termination
     POD_TERMINATION_ENABLED: boolean
