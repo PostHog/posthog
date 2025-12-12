@@ -26,7 +26,7 @@ export const attributeBreakdownLogic = kea<attributeBreakdownLogicType>([
             (s) => [s.logs],
             (logs): string[] => {
                 let attributesKey: 'attributes' | 'resource_attributes' = 'attributes'
-                if (props.type == PropertyFilterType.LogResourceAttribute) {
+                if (props.type === PropertyFilterType.LogResourceAttribute) {
                     attributesKey = 'resource_attributes'
                 }
                 return logs
