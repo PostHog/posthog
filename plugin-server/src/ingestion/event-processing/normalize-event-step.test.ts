@@ -30,7 +30,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
 })
 
 describe('normalizeEventStep wrapper', () => {
-    const mockHub = { TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: 0 }
+    const timestampComparisonLoggingSampleRate = 0
     const team = createTestTeam()
 
     describe('distinctId conversion', () => {
@@ -47,7 +47,7 @@ describe('normalizeEventStep wrapper', () => {
                 uuid: uuid,
             }
 
-            const step = createNormalizeEventStep(mockHub)
+            const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
             const input = {
                 event,
                 headers: createTestEventHeaders(),
@@ -77,7 +77,7 @@ describe('normalizeEventStep wrapper', () => {
                 uuid: uuid,
             }
 
-            const step = createNormalizeEventStep(mockHub)
+            const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
             const input = {
                 event,
                 headers: createTestEventHeaders(),
@@ -109,7 +109,7 @@ describe('normalizeEventStep wrapper', () => {
             // No properties field
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -140,7 +140,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -173,7 +173,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -211,7 +211,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -254,7 +254,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -306,7 +306,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -364,7 +364,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -420,7 +420,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -461,7 +461,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -495,7 +495,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -529,7 +529,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -561,7 +561,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -593,7 +593,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -631,7 +631,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -668,7 +668,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),
@@ -699,7 +699,7 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(mockHub)
+        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
             event,
             headers: createTestEventHeaders(),

@@ -11,6 +11,7 @@ from posthoganalytics import capture_exception
 from posthog.schema import (
     AgentMode,
     AssistantMessage,
+    AssistantTool,
     ContextMessage,
     HumanMessage,
     MaxBillingContext,
@@ -446,13 +447,11 @@ class AssistantContextManager(AssistantContextMixin):
         Extracts the most recent mode from existing messages.
         Checks ContextMessages metadata and AssistantMessages for switch_mode tool calls.
         """
-        from ee.hogai.tools.switch_mode import SWITCH_MODE_TOOL_NAME
-
         for message in reversed(messages):
             # Check for switch_mode tool calls
             if isinstance(message, AssistantMessage) and message.tool_calls:
                 for tool_call in message.tool_calls:
-                    if tool_call.name == SWITCH_MODE_TOOL_NAME:
+                    if tool_call.name == AssistantTool.SWITCH_MODE:
                         new_mode = tool_call.args.get("new_mode") if tool_call.args else None
                         if new_mode and new_mode in AgentMode.__members__.values():
                             return AgentMode(new_mode)

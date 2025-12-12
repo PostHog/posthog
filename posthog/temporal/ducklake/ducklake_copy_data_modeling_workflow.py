@@ -175,7 +175,7 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
     with heartbeater:
         config = get_config()
         conn = duckdb.connect()
-        alias = "ducklake_dev"
+        alias = "ducklake"
         try:
             _configure_s3_secrets(conn)
             configure_connection(conn, config, install_extension=True)
@@ -214,7 +214,7 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
     with heartbeater:
         config = get_config()
         conn = duckdb.connect()
-        alias = "ducklake_dev"
+        alias = "ducklake"
         results: list[DuckLakeCopyVerificationResult] = []
 
         try:

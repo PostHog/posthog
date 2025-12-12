@@ -149,6 +149,7 @@ export type SettingId =
     | 'user-delete'
     | 'web-revenue-events'
     | 'core-memory'
+    | 'changelog'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'web-analytics-opt-in-pre-aggregated-tables-and-api'

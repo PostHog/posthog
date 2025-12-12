@@ -490,7 +490,19 @@ services:
         ports:
             - '127.0.0.1:8333:8333' # S3 API
             - '127.0.0.1:9333:9333' # Master server (for admin UI)
-        command: server -s3 -s3.port=8333 -dir=/data
+        entrypoint:
+            - /bin/sh
+            - -c
+            - |
+                (
+                    until echo "s3.bucket.create -name posthog" | /usr/bin/weed shell -master=localhost:9333 2>/dev/null; do
+                        sleep 5
+                    done
+                    echo "Created bucket: posthog"
+                ) &
+                exec /usr/bin/weed "$$@"
+            - --
+        command: ['server', '-s3', '-s3.port=8333', '-dir=/data']
 
 networks:
     otel_network:

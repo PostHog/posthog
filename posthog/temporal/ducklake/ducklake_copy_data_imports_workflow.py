@@ -33,7 +33,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_imports.metrics import (
+from posthog.temporal.ducklake.metrics import (
     get_ducklake_copy_data_imports_finished_metric,
     get_ducklake_copy_data_imports_verification_metric,
 )
@@ -265,20 +265,31 @@ def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
     return [column for column in partition_columns if column]
 
 
+def _get_s3_credentials() -> tuple[str, str, str, str]:
+    """Get S3 credentials (access_key, secret_key, region, endpoint)."""
+    config = get_config()
+    return (
+        config.get("DUCKLAKE_S3_ACCESS_KEY", ""),
+        config.get("DUCKLAKE_S3_SECRET_KEY", ""),
+        config.get("DUCKLAKE_BUCKET_REGION", ""),
+        getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or "",
+    )
+
+
 def _get_delta_storage_options() -> dict[str, str]:
     """Build storage options for deltalake library."""
+    access_key, secret_key, region, endpoint = _get_s3_credentials()
+
     options: dict[str, str] = {
-        "aws_access_key_id": getattr(settings, "AIRBYTE_BUCKET_KEY", "") or "",
-        "aws_secret_access_key": getattr(settings, "AIRBYTE_BUCKET_SECRET", "") or "",
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
-    region = getattr(settings, "AIRBYTE_BUCKET_REGION", "") or ""
     if region:
         options["region_name"] = region
         options["AWS_DEFAULT_REGION"] = region
 
-    endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or ""
     if endpoint:
         options["endpoint_url"] = endpoint
         options["AWS_ALLOW_HTTP"] = "true"
@@ -303,28 +314,38 @@ def _configure_source_storage(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("INSTALL delta")
     conn.execute("LOAD delta")
 
-    access_key = settings.AIRBYTE_BUCKET_KEY
-    secret_key = settings.AIRBYTE_BUCKET_SECRET
-    region = getattr(settings, "AIRBYTE_BUCKET_REGION", "")
+    if settings.USE_LOCAL_SETUP:
+        # Local dev: explicit credentials for both source and destination
+        access_key, secret_key, region, endpoint = _get_s3_credentials()
 
-    endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or ""
-    normalized_endpoint = ""
-    use_ssl = True
-    if endpoint:
-        normalized_endpoint, use_ssl = _normalize_object_storage_endpoint(endpoint)
+        normalized_endpoint = ""
+        use_ssl = True
+        if endpoint:
+            normalized_endpoint, use_ssl = _normalize_object_storage_endpoint(endpoint)
 
-    secret_parts = ["TYPE S3"]
-    if access_key:
-        secret_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
-    if secret_key:
-        secret_parts.append(f"SECRET '{ducklake_escape(secret_key)}'")
-    if region:
-        secret_parts.append(f"REGION '{ducklake_escape(region)}'")
-    if normalized_endpoint:
-        secret_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
-    secret_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
-    secret_parts.append("URL_STYLE 'path'")
-    conn.execute(f"CREATE OR REPLACE SECRET ducklake_minio ({', '.join(secret_parts)})")
+        secret_parts = ["TYPE S3"]
+        if access_key:
+            secret_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
+        if secret_key:
+            secret_parts.append(f"SECRET '{ducklake_escape(secret_key)}'")
+        if region:
+            secret_parts.append(f"REGION '{ducklake_escape(region)}'")
+        if normalized_endpoint:
+            secret_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
+        secret_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
+        secret_parts.append("URL_STYLE 'path'")
+        conn.execute(f"CREATE OR REPLACE SECRET ducklake_s3 ({', '.join(secret_parts)})")
+    else:
+        # Production: IRSA via credential chain
+        config = get_config()
+        region = config.get("DUCKLAKE_BUCKET_REGION", "us-east-1")
+        conn.execute(f"""
+            CREATE OR REPLACE SECRET ducklake_s3 (
+                TYPE S3,
+                PROVIDER CREDENTIAL_CHAIN,
+                REGION '{ducklake_escape(region)}'
+            )
+        """)
 
 
 def _normalize_object_storage_endpoint(endpoint: str) -> tuple[str, bool]:
@@ -730,10 +751,11 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: DataImportsDuckLakeCopyInputs) -> None:
-        workflow.logger.info("Starting DuckLakeCopyDataImportsWorkflow", **inputs.properties_to_log)
+        logger = LOGGER.bind(**inputs.properties_to_log)
+        logger.info("Starting DuckLakeCopyDataImportsWorkflow")
 
         if not inputs.schema_ids:
-            workflow.logger.info("No schema_ids to copy - exiting early", **inputs.properties_to_log)
+            logger.info("No schema_ids to copy - exiting early")
             return
 
         should_copy = await workflow.execute_activity(
@@ -744,10 +766,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
         )
 
         if not should_copy:
-            workflow.logger.info(
-                "DuckLake copy workflow disabled by feature flag",
-                **inputs.properties_to_log,
-            )
+            logger.info("DuckLake copy workflow disabled by feature flag")
             return
 
         model_list: list[DuckLakeCopyDataImportsMetadata] = await workflow.execute_activity(
@@ -758,7 +777,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
         )
 
         if not model_list:
-            workflow.logger.info("No DuckLake copy metadata resolved - nothing to do", **inputs.properties_to_log)
+            logger.info("No DuckLake copy metadata resolved - nothing to do")
             return
 
         try:
@@ -791,7 +810,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                 failed_checks = [result for result in verification_results if not result.passed]
                 if failed_checks:
                     failure_payload = [dataclasses.asdict(result) for result in failed_checks]
-                    workflow.logger.error(
+                    logger.error(
                         "DuckLake verification failed",
                         model_label=model.model_label,
                         failures=failure_payload,

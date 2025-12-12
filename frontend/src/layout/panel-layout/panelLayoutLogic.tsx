@@ -69,21 +69,21 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         isLayoutPanelVisible: [
             false,
-            { persist: true },
+            { persist: true, prefix: '2', separator: '.' },
             {
                 showLayoutPanel: (_, { visible }) => visible,
             },
         ],
         isLayoutPanelPinned: [
             false,
-            { persist: true },
+            { persist: true, prefix: '2', separator: '.' },
             {
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned,
             },
         ],
         activePanelIdentifier: [
             '',
-            { persist: true },
+            { persist: true, prefix: '2', separator: '.' },
             {
                 setActivePanelIdentifier: (_, { identifier }) => identifier,
                 clearActivePanelIdentifier: () => '',
