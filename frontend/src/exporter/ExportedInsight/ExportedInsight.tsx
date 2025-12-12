@@ -20,15 +20,18 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
+import { ExportType } from '~/exporter/types'
 
 export function ExportedInsight({
     insight: legacyInsight,
     themes,
     exportOptions: { whitelabel, noHeader, legend, detailed: detailedResults },
+    exportType,
 }: {
     insight: InsightModel
     themes: DataColorThemeModel[]
     exportOptions: SharingConfigurationSettings
+    exportType?: ExportType
 }): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
@@ -51,10 +54,12 @@ export function ExportedInsight({
         insight.query.showActions = false
     }
 
+    // For image exports, we need to load data. For shared URLs, use cached results.
+    const isImageExport = exportType === ExportType.Image
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         cachedInsight: insight,
-        doNotLoad: true,
+        doNotLoad: !isImageExport,
     }
 
     const { short_id, query, name, derived_name, description } = insight
@@ -108,7 +113,7 @@ export function ExportedInsight({
                         readOnly
                         context={{ insightProps: insightLogicProps }}
                         embedded
-                        inSharedMode
+                        inSharedMode={!isImageExport}
                     />
                     {showLegend && (
                         <div className="p-4">

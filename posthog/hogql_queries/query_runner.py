@@ -1055,7 +1055,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Abort early if the user doesn't have access to the query runner
             # We'll proceed as usual if there's no user connected to this request
             # We're capturing the error for analytics purposes, but we reraise the same one
-            if user is not None:
+            from django.contrib.auth.models import AnonymousUser
+            if user is not None and not isinstance(user, AnonymousUser):
                 try:
                     self.validate_query_runner_access(user)
                 except UserAccessControlError as error:
@@ -1122,8 +1123,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             "last_refresh": last_refresh.isoformat() if last_refresh else None,
                         }
 
+                    from django.contrib.auth.models import AnonymousUser
                     posthoganalytics.capture(
-                        distinct_id=user.distinct_id if user else str(self.team.uuid),
+                        distinct_id=user.distinct_id if user and not isinstance(user, AnonymousUser) else str(self.team.uuid),
                         event="query executed",
                         properties={
                             "insight_id": insight_id,

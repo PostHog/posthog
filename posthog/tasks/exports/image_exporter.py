@@ -66,6 +66,8 @@ def get_driver() -> webdriver.Chrome:
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")  # This flag can make things slower but more reliable
+    options.add_argument("--disable-web-security")  # Disable CORS and other web security features
+    options.add_argument("--disable-features=VizDisplayCompositor")  # Helps with CORS issues
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation"]
     )  # Removes the "Chrome is being controlled by automated test software" bar
@@ -136,6 +138,13 @@ def _export_to_png(
             url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
+        elif exported_asset.export_context and exported_asset.export_context.get("query") is not None:
+            # Handle query-only export (no saved insight)
+            show_legend = exported_asset.export_context.get("show_legend", False)
+            legend_param = "&legend=true" if show_legend else ""
+            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}")
+            wait_for_css_selector = ".ExportedInsight"
+            screenshot_width = 800
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
@@ -176,7 +185,7 @@ def _export_to_png(
             )
         else:
             raise Exception(
-                f"Export is missing required dashboard, insight ID, or session_recording_id in export_context"
+                f"Export is missing required dashboard, insight ID, query in export_context, or session_recording_id in export_context"
             )
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
@@ -194,8 +203,8 @@ def _export_to_png(
 
     except Exception:
         # Ensure we clean up the tmp file in case anything went wrong
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
+        # if image_path and os.path.exists(image_path):
+        #     os.remove(image_path)
 
         log_error_if_site_url_not_reachable()
 
@@ -221,6 +230,11 @@ def _screenshot_asset(
         driver = get_driver()
         # Set initial window size with a more reasonable height to prevent initial rendering issues
         driver.set_window_size(screenshot_width, screenshot_height)
+        # Set bot user agent and add ngrok-skip-browser-warning header to skip ngrok warning page
+        bot_user_agent = "Mozilla/5.0 (compatible; PostHogBot/1.0; +https://posthog.com/bot)"
+        driver.execute_cdp_cmd("Network.enable", {})
+        driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": bot_user_agent})
+        driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": {"ngrok-skip-browser-warning": "true"}})
         driver.get(url_to_render)
         posthoganalytics.tag("url_to_render", url_to_render)
 
@@ -235,11 +249,6 @@ def _screenshot_asset(
         except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
-                try:
-                    driver.save_screenshot(image_path)
-                    posthoganalytics.tag("image_path", image_path)
-                except Exception:
-                    pass
                 capture_exception(e)
 
             raise Exception(f"Timeout while waiting for the page to load")
@@ -250,11 +259,6 @@ def _screenshot_asset(
         except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
-                try:
-                    driver.save_screenshot(image_path)
-                    posthoganalytics.tag("image_path", image_path)
-                except Exception:
-                    pass
                 capture_exception(e)
 
         # Get the height of the visualization container specifically
@@ -336,16 +340,8 @@ def _screenshot_asset(
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)
         driver.save_screenshot(image_path)
     except Exception as e:
-        # To help with debugging, add a screenshot and any chrome logs
         with posthoganalytics.new_context():
             posthoganalytics.tag("url_to_render", url_to_render)
-            if driver:
-                # If we encounter issues getting extra info we should silently fail rather than creating a new exception
-                try:
-                    driver.save_screenshot(image_path)
-                    posthoganalytics.tag("image_path", image_path)
-                except Exception:
-                    pass
         capture_exception(e)
 
         raise
@@ -421,6 +417,26 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                         cache_key = _extract_cache_key(result)
                         if cache_key:
                             insight_cache_keys[insight.id] = cache_key
+            elif exported_asset.export_context and exported_asset.export_context.get("query") is not None:
+                # Handle query-only export (no saved insight)
+                logger.info(
+                    "export_image.calculate_query",
+                    asset_id=exported_asset.id,
+                )
+                query = exported_asset.export_context.get("query")
+                dashboard_filters_json = exported_asset.export_context.get("dashboard_filters")
+                variables_override_json = exported_asset.export_context.get("variables_override")
+
+                process_query_dict(
+                    exported_asset.team,
+                    query,
+                    dashboard_filters_json=dashboard_filters_json,
+                    variables_override_json=variables_override_json,
+                    limit_context=LimitContext.QUERY_ASYNC,
+                    execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                    insight_id=None,
+                    dashboard_id=None,
+                )
 
             if exported_asset.export_format == "image/png":
                 with EXPORT_TIMER.labels(type="image").time():

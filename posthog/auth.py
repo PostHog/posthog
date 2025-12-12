@@ -444,6 +444,61 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             return None
 
 
+class ExportedAssetAuthentication(authentication.BaseAuthentication):
+    """
+    Authentication for exported assets using JWT tokens.
+    Allows API requests from exported asset contexts (e.g., image exports) to authenticate.
+    Supports both EXPORTED_ASSET tokens (returns AnonymousUser) and IMPERSONATED_USER tokens (returns actual User).
+    """
+
+    keyword = "Bearer"
+    exported_asset: Optional["ExportedAsset"] = None
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
+            if authorization_match:
+                token = authorization_match.group(1).strip()
+                
+                # First try IMPERSONATED_USER token (for Slack exports with actual user)
+                try:
+                    info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
+                    user = User.objects.get(pk=info["id"])
+                    # For IMPERSONATED_USER, we don't need exported_asset
+                    return (user, None)
+                except User.DoesNotExist:
+                    # User doesn't exist - this is a real error, raise it
+                    raise AuthenticationFailed(detail="User associated with token not found.")
+                except (jwt.DecodeError, jwt.InvalidTokenError, jwt.InvalidAudienceError):
+                    # Not an IMPERSONATED_USER token or invalid token, try EXPORTED_ASSET
+                    pass
+                except Exception:
+                    # For other errors, let other authenticators try
+                    return None
+                
+                # Try EXPORTED_ASSET token (for regular exports with AnonymousUser)
+                try:
+                    info = decode_jwt(token, PosthogJwtAudience.EXPORTED_ASSET)
+                    from posthog.models.exported_asset import ExportedAsset
+
+                    asset = ExportedAsset.objects.select_related("team").get(pk=info["id"])
+                    self.exported_asset = asset
+                    # Return AnonymousUser with the asset's team available via request
+                    # The team will be set via the asset in the viewset
+                    return (AnonymousUser(), None)
+                except jwt.DecodeError:
+                    # If it doesn't look like an EXPORTED_ASSET JWT, let other authenticators try
+                    return None
+                except Exception:
+                    # For other errors, let other authenticators try rather than failing hard
+                    return None
+
+        return None
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
+
+
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
     """
     OAuth 2.0 Bearer token authentication using access tokens
