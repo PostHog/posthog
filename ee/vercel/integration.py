@@ -216,46 +216,27 @@ class VercelIntegration:
 
     @staticmethod
     def get_vercel_plans() -> list[dict[str, Any]]:
-        # TODO: Retrieve through billing service instead.
+        # Single usage-based plan matching posthog.com model
         return [
             {
-                "id": "free",
+                "id": "posthog-usage-based",
                 "type": "subscription",
-                "name": "Free",
-                "description": "No credit card required",
+                "name": "PostHog",
+                "description": "Usage-based analytics. First 1M events free.",
                 "scope": "installation",
                 "paymentMethodRequired": False,
                 "details": [
-                    {"label": "Data retention", "value": "1 year"},
-                    {"label": "Projects", "value": "1"},
-                    {"label": "Team members", "value": "Unlimited"},
-                    {"label": "API Access", "value": "✓"},
-                    {"label": "No limits on tracked users", "value": "✓"},
-                    {"label": "Community support", "value": "Support via community forum"},
-                ],
-                "highlightedDetails": [
-                    {"label": "Feature Flags", "value": "1 million free requests"},
-                    {"label": "Experiments", "value": "1 million free requests"},
-                ],
-            },
-            {
-                "id": "pay_as_you_go",
-                "type": "subscription",
-                "name": "Pay-as-you-go",
-                "description": "Usage-based pricing after free tier",
-                "scope": "installation",
-                "paymentMethodRequired": True,
-                "details": [
                     {"label": "Data retention", "value": "7 years"},
-                    {"label": "Projects", "value": "6"},
+                    {"label": "Projects", "value": "Unlimited"},
                     {"label": "Team members", "value": "Unlimited"},
-                    {"label": "API Access", "value": "✓"},
+                    {"label": "API access", "value": "✓"},
                     {"label": "No limits on tracked users", "value": "✓"},
-                    {"label": "Standard support", "value": "Support via email, Slack-based over $2k/mo"},
+                    {"label": "Community support", "value": "✓"},
                 ],
                 "highlightedDetails": [
-                    {"label": "Feature flags", "value": "1 million requests for free, then from $0.0001/request"},
-                    {"label": "Experiments", "value": "Billed with feature flags"},
+                    {"label": "Product analytics", "value": "1 million events free"},
+                    {"label": "Session replay", "value": "5,000 recordings free"},
+                    {"label": "Feature flags", "value": "1 million requests free"},
                 ],
             },
         ]
@@ -398,8 +379,8 @@ class VercelIntegration:
         VercelIntegration._get_installation(installation_id)
         billing_plans = VercelIntegration.get_vercel_plans()
 
-        # Always return free plan for now - will be replaced with billing service
-        current_plan = next(plan for plan in billing_plans if plan["id"] == "free")
+        # Return the single usage-based plan (auto-assigned on install)
+        current_plan = billing_plans[0]
 
         return {
             "billingplan": current_plan,
@@ -523,7 +504,7 @@ class VercelIntegration:
     @staticmethod
     def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
         billing_plans = VercelIntegration.get_vercel_plans()
-        current_plan_id = installation.config.get("billing_plan_id", "free")  # TODO: Replace with billing service
+        current_plan_id = installation.config.get("billing_plan_id", "posthog-usage-based")
         current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
 
         return {
