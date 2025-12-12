@@ -12,6 +12,7 @@ from django.conf import settings
 import pyarrow as pa
 from google.api_core.exceptions import Forbidden, NotFound
 from google.cloud import bigquery
+from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -385,13 +386,17 @@ class BigQueryClient:
             table = await self.create_table(table)
             return table
 
+    async def execute_query(self, query: str) -> RowIterator | _EmptyRowIterator:
+        job_config = bigquery.QueryJobConfig()
+        query_job = await asyncio.to_thread(self.sync_client.query, query, job_config=job_config)
+        result = await asyncio.to_thread(query_job.result)
+        return result
+
     async def check_for_query_permissions(
         self,
         table: BigQueryTable | TableReference,
     ) -> bool:
         """Attempt to SELECT from table to check for query permissions."""
-        job_config = bigquery.QueryJobConfig()
-
         if isinstance(table, BigQueryTable) and "timestamp" in table:
             query = f"""
             SELECT 1 FROM  `{table.fully_qualified_name}` TABLESAMPLE SYSTEM (0.0001 PERCENT) WHERE timestamp IS NOT NULL
@@ -409,8 +414,7 @@ class BigQueryClient:
             """
 
         try:
-            query_job = await asyncio.to_thread(self.sync_client.query, query, job_config=job_config)
-            await asyncio.to_thread(query_job.result)
+            await self.execute_query(query)
         except Forbidden:
             return False
         return True
@@ -476,7 +480,6 @@ class BigQueryClient:
         stage: BigQueryTable,
     ):
         """Insert data from `stage` into `final`."""
-        job_config = bigquery.QueryJobConfig()
         into_table_fields = ",".join(f"`{field.name}`" for field in final.fields)
 
         fields_to_cast = {
@@ -524,8 +527,7 @@ class BigQueryClient:
 
         self.logger.info("Inserting into final table", format=format, table_id=final.name, stage_table_id=stage.name)
 
-        query_job = await asyncio.to_thread(self.sync_client.query, query, job_config=job_config)
-        result = await asyncio.to_thread(query_job.result)
+        result = await self.execute_query(query)
         return result
 
     async def merge_into_final_from_stage(
@@ -534,7 +536,6 @@ class BigQueryClient:
         stage: BigQueryTable,
     ):
         """Merge two identical person model tables in BigQuery."""
-        job_config = bigquery.QueryJobConfig()
 
         fields_to_cast = {
             field.name
@@ -625,8 +626,8 @@ class BigQueryClient:
             VALUES ({values});
         """
 
-        query_job = await asyncio.to_thread(self.sync_client.query, merge_query, job_config=job_config)
-        return await asyncio.to_thread(query_job.result)
+        self.logger.info("Merging into final table", table_id=final.name, stage_table_id=stage.name)
+        return await self.execute_query(merge_query)
 
     async def load_file(self, file, format: FileFormat, table: BigQueryTable):
         schema = tuple(field.to_destination_field() for field in table.fields)
