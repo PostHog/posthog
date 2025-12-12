@@ -11,8 +11,8 @@ from temporalio.testing import WorkflowEnvironment
 
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_imports import ducklake_copy_data_imports_workflow as ducklake_module
-from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
+from posthog.temporal.ducklake import ducklake_copy_data_imports_workflow as ducklake_module
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsActivityInputs,
     DuckLakeCopyDataImportsMetadata,
@@ -68,7 +68,7 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
         return flag_enabled
 
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.posthoganalytics.feature_enabled",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.posthoganalytics.feature_enabled",
         fake_feature_enabled,
     )
 
@@ -198,7 +198,7 @@ def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch
     mock_conn.__exit__ = MagicMock(return_value=False)
     mock_duckdb_connect = MagicMock(return_value=mock_conn)
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.duckdb.connect",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.duckdb.connect",
         mock_duckdb_connect,
     )
 
@@ -206,28 +206,28 @@ def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch
     mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
     mock_heartbeater.__exit__ = MagicMock(return_value=False)
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
         MagicMock(return_value=mock_heartbeater),
     )
 
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._configure_source_storage",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._configure_source_storage",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.configure_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_connection",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._ensure_ducklake_bucket_exists",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._ensure_ducklake_bucket_exists",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.get_config",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_config",
         MagicMock(return_value={}),
     )
 
@@ -256,7 +256,7 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
     mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
     mock_heartbeater.__exit__ = MagicMock(return_value=False)
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
         MagicMock(return_value=mock_heartbeater),
     )
 
@@ -284,7 +284,7 @@ def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(mo
     mock_conn.execute.return_value.fetchone.return_value = (0,)
     mock_duckdb_connect = MagicMock(return_value=mock_conn)
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.duckdb.connect",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.duckdb.connect",
         mock_duckdb_connect,
     )
 
@@ -292,32 +292,32 @@ def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(mo
     mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
     mock_heartbeater.__exit__ = MagicMock(return_value=False)
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
         MagicMock(return_value=mock_heartbeater),
     )
 
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._configure_source_storage",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._configure_source_storage",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.configure_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_connection",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.get_config",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_config",
         MagicMock(return_value={}),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
         MagicMock(return_value=None),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
         MagicMock(return_value=None),
     )
 
@@ -358,7 +358,7 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
     mock_conn.execute.side_effect = Exception("Query execution failed")
     mock_duckdb_connect = MagicMock(return_value=mock_conn)
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.duckdb.connect",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.duckdb.connect",
         mock_duckdb_connect,
     )
 
@@ -366,32 +366,32 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
     mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
     mock_heartbeater.__exit__ = MagicMock(return_value=False)
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
         MagicMock(return_value=mock_heartbeater),
     )
 
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._configure_source_storage",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._configure_source_storage",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.configure_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_connection",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.get_config",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_config",
         MagicMock(return_value={}),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
         MagicMock(return_value=None),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
         MagicMock(return_value=None),
     )
 
@@ -432,7 +432,7 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     mock_conn.execute.return_value.fetchone.return_value = (5,)
     mock_duckdb_connect = MagicMock(return_value=mock_conn)
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.duckdb.connect",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.duckdb.connect",
         mock_duckdb_connect,
     )
 
@@ -440,32 +440,32 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
     mock_heartbeater.__exit__ = MagicMock(return_value=False)
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.HeartbeaterSync",
         MagicMock(return_value=mock_heartbeater),
     )
 
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._configure_source_storage",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._configure_source_storage",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.configure_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_connection",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.get_config",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_config",
         MagicMock(return_value={}),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
         MagicMock(return_value=None),
     )
     monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
         MagicMock(return_value=None),
     )
 
