@@ -1,5 +1,5 @@
 use std::{
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -16,6 +16,17 @@ use metrics::gauge;
 // Global atomic counter for active connections
 static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 
+// Global flag indicating shutdown is in progress
+static IS_SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+
+pub fn set_shutting_down() {
+    IS_SHUTTING_DOWN.store(true, Ordering::SeqCst);
+}
+
+pub fn is_shutting_down() -> bool {
+    IS_SHUTTING_DOWN.load(Ordering::SeqCst)
+}
+
 // Guard to ensure connection count is decremented even on panic
 struct ConnectionGuard;
 
@@ -24,7 +35,12 @@ impl Drop for ConnectionGuard {
         let connections = ACTIVE_CONNECTIONS
             .fetch_sub(1, Ordering::Relaxed)
             .saturating_sub(1);
-        gauge!(METRIC_CAPTURE_ACTIVE_CONNECTIONS).set(connections as f64);
+        let shutting_down = is_shutting_down();
+        gauge!(
+            METRIC_CAPTURE_ACTIVE_CONNECTIONS,
+            "is_shutting_down" => if shutting_down { "true" } else { "false" }
+        )
+        .set(connections as f64);
     }
 }
 const METRIC_CAPTURE_ACTIVE_CONNECTIONS: &str = "capture_active_connections";
@@ -47,9 +63,14 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
 
     let method = req.method().clone();
 
-    // Track active connections
+    // Track active connections with shutdown status label
     let connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
-    gauge!(METRIC_CAPTURE_ACTIVE_CONNECTIONS).set(connections as f64);
+    let shutting_down = is_shutting_down();
+    gauge!(
+        METRIC_CAPTURE_ACTIVE_CONNECTIONS,
+        "is_shutting_down" => if shutting_down { "true" } else { "false" }
+    )
+    .set(connections as f64);
     let _guard = ConnectionGuard;
 
     // Run the rest of the request handling first, so we can measure it and get response

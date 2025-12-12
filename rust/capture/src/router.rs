@@ -82,6 +82,7 @@ async fn readiness(
     axum::extract::State(state): axum::extract::State<State>,
 ) -> axum::http::StatusCode {
     if state.is_mirror_deploy && std::path::Path::new("/tmp/shutdown").exists() {
+        crate::metrics_middleware::set_shutting_down();
         axum::http::StatusCode::SERVICE_UNAVAILABLE
     } else {
         axum::http::StatusCode::OK

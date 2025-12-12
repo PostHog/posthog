@@ -29,6 +29,7 @@ async fn shutdown() {
         _ = interrupt.recv() => {},
     };
 
+    capture::metrics_middleware::set_shutting_down();
     tracing::info!("Shutting down gracefully...");
 }
 
