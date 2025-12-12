@@ -1,7 +1,7 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightModel, InsightShortId } from '~/types'
 
-import { generateInsightHCL, generateInsightHCLWithWarnings } from './hclExporter'
+import { generateInsightHCL, generateInsightHCLWithWarnings } from './insightHclExporter'
 
 // Helper to create test insights without strict query typing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

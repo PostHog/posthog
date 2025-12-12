@@ -11,7 +11,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { InsightModel } from '~/types'
 
-import { HclExportResult, generateInsightHCLWithWarnings } from './hclExporter'
+import { HclExportResult } from './hclExporter'
+import { generateInsightHCLWithWarnings } from './insightHclExporter'
 
 export interface TerraformExportModalProps {
     isOpen: boolean
