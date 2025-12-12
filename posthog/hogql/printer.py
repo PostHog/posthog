@@ -1,5 +1,4 @@
 import re
-from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from difflib import get_close_matches
@@ -1675,30 +1674,20 @@ class _Printer(Visitor[str]):
 
         return field_sql
 
-    def __get_materialized_property_source_for_property_type(
+    def __get_materialized_property_source(
         self, type: ast.PropertyType
     ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
         """
         Find the most efficient materialized property source for the provided property type.
+        Returns sources in priority order: mat_* columns > dmat columns > property groups.
         """
-        for source in self.__get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
-            return source
-        return None
-
-    def __get_all_materialized_property_sources(
-        self, field_type: ast.FieldType, property_name: str
-    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
-        """
-        Find all materialized property sources for the provided field type and property name, ordered from what is
-        likely to be the most efficient access path to the least efficient.
-        """
-        # TODO: It likely makes sense to make this independent of whether or not property groups are used.
         if self.context.modifiers.materializationMode == "disabled":
-            return
+            return None
 
+        field_type = type.field_type
+        property_name = str(type.chain[0])
         field = field_type.resolve_database_field(self.context)
 
-        # check for a materialised column
         table = field_type.table_type
         while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
             table = table.table_type
@@ -1712,39 +1701,36 @@ class _Printer(Visitor[str]):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            # Check for traditional mat_* columns first (they have priority)
-            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
-            if materialized_column is not None:
-                yield PrintableMaterializedColumn(
+            # Check for traditional mat_* columns first (highest priority)
+            if materialized_column := self._get_materialized_column(table_name, property_name, field_name):
+                return PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
                 )
 
-            # Check for dmat (dynamic materialized) columns after mat_* columns
-            dmat_column = self._get_dmat_column(table_name, field_name, property_name)
-            if dmat_column is not None:
-                yield PrintableMaterializedColumn(
+            # Check for dmat (dynamic materialized) columns second
+            if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
+                return PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
                     self._print_identifier(dmat_column),
                     is_nullable=True,
                 )
 
+            # Check property groups third
             if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
             ):
-                # For now, we're assuming that properties are in either no groups or one group, so just using the
-                # first group returned is fine. If we start putting properties in multiple groups, this should be
-                # revisited to find the optimal set (i.e. smallest set) of groups to read from.
-                for property_group_column in property_groups.get_property_group_columns(
-                    table_name, field_name, property_name
+                if property_group_column := next(
+                    property_groups.get_property_group_columns(table_name, field_name, property_name), None
                 ):
-                    yield PrintableMaterializedPropertyGroupItem(
+                    return PrintableMaterializedPropertyGroupItem(
                         self.visit(field_type.table_type),
                         self._print_identifier(property_group_column),
                         self.context.add_value(property_name),
                     )
+
         elif self.context.within_non_hogql_query and (
             isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person"
         ):
@@ -1754,17 +1740,19 @@ class _Printer(Visitor[str]):
             else:
                 materialized_column = self._get_materialized_column("person", property_name, "properties")
             if materialized_column is not None:
-                yield PrintableMaterializedColumn(
+                return PrintableMaterializedColumn(
                     None,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
                 )
 
+        return None
+
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
-        materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
+        materialized_property_source = self.__get_materialized_property_source(type)
         if materialized_property_source is not None:
             # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
             if (
