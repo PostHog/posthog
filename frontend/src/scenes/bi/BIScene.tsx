@@ -29,6 +29,7 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 import { useChart } from 'lib/hooks/useChart'
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -56,6 +57,11 @@ import {
 } from './biLogic'
 
 const COLORS = ['#5375ff', '#ff7a9e', '#2bc4ff', '#f6a700', '#7a49ff']
+
+const DEFAULT_CHART_HEIGHT = 200
+const MIN_RESIZABLE_HEIGHT = 140
+const MIN_SIDEBAR_WIDTH = 240
+const MIN_MAIN_WIDTH = 360
 
 export function formatFilter(filter: BIQueryFilter): JSX.Element {
     return (
@@ -327,6 +333,16 @@ export function BIScene(): JSX.Element {
     const [showGeneratedQuery, setShowGeneratedQuery] = useState(false)
     const [chartType, setChartType] = useState<'pie' | 'line' | 'bar' | 'area'>('pie')
     const [expandedTableGroups, setExpandedTableGroups] = useState<string[]>(['folder-posthog'])
+    const [viewportWidth, setViewportWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440)
+    const [viewportHeight, setViewportHeight] = useState(typeof window !== 'undefined' ? window.innerHeight : 900)
+    const [sidebarWidth, setSidebarWidth] = useState(() =>
+        Math.min(
+            320,
+            Math.max(MIN_SIDEBAR_WIDTH, (typeof window !== 'undefined' ? window.innerWidth : 1440) - MIN_MAIN_WIDTH)
+        )
+    )
+    const [chartHeight, setChartHeight] = useState(DEFAULT_CHART_HEIGHT)
+    const [hogqlHeight, setHogqlHeight] = useState(180)
 
     const tableTreeData = useMemo<TreeDataItem[]>(() => {
         const groupedTables: Record<string, TreeDataItem> = {}
@@ -373,6 +389,45 @@ export function BIScene(): JSX.Element {
                 children: (group.children || []).sort((a, b) => a.name.localeCompare(b.name)),
             }))
     }, [filteredTables, searchTerm])
+
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return
+        }
+
+        const handleResize = (): void => {
+            setViewportWidth(window.innerWidth)
+            setViewportHeight(window.innerHeight)
+
+            setSidebarWidth((current) =>
+                Math.min(
+                    Math.max(current, MIN_SIDEBAR_WIDTH),
+                    Math.max(MIN_SIDEBAR_WIDTH, window.innerWidth - MIN_MAIN_WIDTH)
+                )
+            )
+
+            setChartHeight((current) =>
+                Math.min(
+                    Math.max(current, MIN_RESIZABLE_HEIGHT),
+                    Math.max(MIN_RESIZABLE_HEIGHT, window.innerHeight - 240)
+                )
+            )
+
+            setHogqlHeight((current) =>
+                Math.min(
+                    Math.max(current, MIN_RESIZABLE_HEIGHT),
+                    Math.max(MIN_RESIZABLE_HEIGHT, window.innerHeight - 260)
+                )
+            )
+        }
+
+        handleResize()
+        window.addEventListener('resize', handleResize)
+
+        return () => {
+            window.removeEventListener('resize', handleResize)
+        }
+    }, [])
 
     useEffect(() => {
         const groupIds = tableTreeData.map((group) => group.id)
@@ -485,7 +540,9 @@ export function BIScene(): JSX.Element {
         ? ['line', 'bar', 'area']
         : ['pie', 'line', 'bar', 'area']
 
-    const chartHeight = 200
+    const maxSidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, viewportWidth - MIN_MAIN_WIDTH)
+    const maxChartHeight = Math.max(MIN_RESIZABLE_HEIGHT, viewportHeight - 240)
+    const maxHogqlHeight = Math.max(MIN_RESIZABLE_HEIGHT, viewportHeight - 260)
 
     const { canvasRef: chartCanvasRef } = useChart({
         getConfig: () => {
@@ -610,107 +667,172 @@ export function BIScene(): JSX.Element {
         setColumns(dedupeColumns(allTableColumns))
     }
 
+    const startVerticalResize = (
+        event: React.MouseEvent | React.TouchEvent,
+        initialHeight: number,
+        setHeight: (height: number) => void,
+        minHeight: number,
+        maxHeight: number
+    ): void => {
+        event.preventDefault()
+
+        const startY = 'touches' in event ? event.touches[0].clientY : event.clientY
+        const clampHeight = (height: number): number => Math.min(Math.max(height, minHeight), maxHeight)
+
+        const handleMove = (moveEvent: MouseEvent | TouchEvent): void => {
+            const clientY = 'touches' in moveEvent ? moveEvent.touches[0].clientY : moveEvent.clientY
+            const deltaY = clientY - startY
+
+            setHeight(clampHeight(initialHeight + deltaY))
+        }
+
+        const stopResize = (): void => {
+            document.removeEventListener('mousemove', handleMove)
+            document.removeEventListener('mouseup', stopResize)
+            document.removeEventListener('touchmove', handleMove)
+            document.removeEventListener('touchend', stopResize)
+            document.body.classList.remove('is-resizing')
+        }
+
+        document.body.classList.add('is-resizing')
+        document.addEventListener('mousemove', handleMove)
+        document.addEventListener('mouseup', stopResize)
+        document.addEventListener('touchmove', handleMove)
+        document.addEventListener('touchend', stopResize)
+    }
+
+    const startChartResize = (event: React.MouseEvent | React.TouchEvent): void =>
+        startVerticalResize(event, chartHeight, setChartHeight, MIN_RESIZABLE_HEIGHT, maxChartHeight)
+
+    const startHogqlResize = (event: React.MouseEvent | React.TouchEvent): void =>
+        startVerticalResize(event, hogqlHeight, setHogqlHeight, MIN_RESIZABLE_HEIGHT, maxHogqlHeight)
+
+    const ResizeHandle = ({
+        onStart,
+        ariaLabel,
+    }: {
+        onStart: (event: React.MouseEvent | React.TouchEvent) => void
+        ariaLabel: string
+    }): JSX.Element => (
+        <div
+            className="h-2 cursor-row-resize -mx-1 rounded-sm bg-[var(--border)] hover:bg-accent-highlight-primary"
+            role="separator"
+            aria-label={ariaLabel}
+            onMouseDown={onStart}
+            onTouchStart={onStart}
+        />
+    )
+
     return (
         <div className="flex flex-col gap-4 h-full" onClick={closePopovers}>
             <div className="flex gap-4 h-full min-h-0">
-                <div className="w-80 shrink-0 h-full min-h-0 flex flex-col" hoverEffect={false}>
-                    <div className="flex items-center gap-1 mb-2">
-                        {selectedTableObject && (
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                icon={<IconArrowLeft />}
-                                onClick={() => resetSelection()}
+                <ResizableElement
+                    defaultWidth={sidebarWidth}
+                    minWidth={MIN_SIDEBAR_WIDTH}
+                    maxWidth={maxSidebarWidth}
+                    onResize={setSidebarWidth}
+                    className="shrink-0 h-full min-h-0"
+                    style={{ width: Math.min(sidebarWidth, maxSidebarWidth) }}
+                >
+                    <div className="h-full min-h-0 flex flex-col pr-2">
+                        <div className="flex items-center gap-1 mb-2">
+                            {selectedTableObject && (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    icon={<IconArrowLeft />}
+                                    onClick={() => resetSelection()}
+                                />
+                            )}
+                            <SearchAutocomplete
+                                inputPlaceholder={selectedTableObject ? 'Search columns' : 'Search tables'}
+                                value={searchTerm}
+                                onChange={(value) =>
+                                    selectedTableObject ? setColumnSearchTerm(value) : setTableSearchTerm(value)
+                                }
+                                onClear={() => (selectedTableObject ? setColumnSearchTerm('') : setTableSearchTerm(''))}
                             />
-                        )}
-                        <SearchAutocomplete
-                            inputPlaceholder={selectedTableObject ? 'Search columns' : 'Search tables'}
-                            value={searchTerm}
-                            onChange={(value) =>
-                                selectedTableObject ? setColumnSearchTerm(value) : setTableSearchTerm(value)
-                            }
-                            onClear={() => (selectedTableObject ? setColumnSearchTerm('') : setTableSearchTerm(''))}
-                        />
-                    </div>
-                    <div className="flex-1 overflow-y-auto">
-                        {selectedTableObject ? (
-                            <>
-                                <div className="flex items-start justify-between gap-2 px-1">
-                                    <div>
-                                        <div className="font-semibold">{selectedTableObject.name}</div>
-                                        {selectedTableObject?.source?.source_type === 'Postgres' ? (
-                                            <div className="text-xs text-muted">via postgres direct connection</div>
-                                        ) : (
-                                            <div className="text-xs text-muted">via posthog data warehouse</div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto">
+                            {selectedTableObject ? (
+                                <>
+                                    <div className="flex items-start justify-between gap-2 px-1">
+                                        <div>
+                                            <div className="font-semibold">{selectedTableObject.name}</div>
+                                            {selectedTableObject?.source?.source_type === 'Postgres' ? (
+                                                <div className="text-xs text-muted">via postgres direct connection</div>
+                                            ) : (
+                                                <div className="text-xs text-muted">via posthog data warehouse</div>
+                                            )}
+                                        </div>
+                                        {selectedFieldTrees.length > 0 && (
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                icon={<IconAsterisk />}
+                                                onClick={addAllColumnsToQuery}
+                                                tooltip={<>Select all columns</>}
+                                                active={allColumnsSelected}
+                                            />
                                         )}
                                     </div>
-                                    {selectedFieldTrees.length > 0 && (
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            icon={<IconAsterisk />}
-                                            onClick={addAllColumnsToQuery}
-                                            tooltip={<>Select all columns</>}
-                                            active={allColumnsSelected}
-                                        />
-                                    )}
-                                </div>
-                                {selectedFieldTrees.length > 0 ? (
-                                    <FieldTree
-                                        nodes={selectedFieldTrees}
-                                        searchTerm={searchTerm}
-                                        selectedColumns={selectedColumns}
-                                        tableName={selectedTableObject.name}
-                                        expandedFields={expandedFields}
-                                        onSetExpandedFields={setExpandedFields}
-                                        onSelect={(path, field) => {
-                                            const matchingColumns = selectedColumns.filter(
-                                                (selectedColumn) =>
-                                                    selectedColumn.table === selectedTableObject.name &&
-                                                    selectedColumn.field === path
-                                            )
-
-                                            if (matchingColumns.length > 0) {
-                                                matchingColumns.forEach((matchingColumn) =>
-                                                    removeColumn(matchingColumn)
+                                    {selectedFieldTrees.length > 0 ? (
+                                        <FieldTree
+                                            nodes={selectedFieldTrees}
+                                            searchTerm={searchTerm}
+                                            selectedColumns={selectedColumns}
+                                            tableName={selectedTableObject.name}
+                                            expandedFields={expandedFields}
+                                            onSetExpandedFields={setExpandedFields}
+                                            onSelect={(path, field) => {
+                                                const matchingColumns = selectedColumns.filter(
+                                                    (selectedColumn) =>
+                                                        selectedColumn.table === selectedTableObject.name &&
+                                                        selectedColumn.field === path
                                                 )
-                                                return
-                                            }
 
-                                            const column = {
-                                                table: selectedTableObject.name,
-                                                field: path,
-                                                ...(field && isTemporalField(field) ? { timeInterval: 'day' } : {}),
-                                            }
+                                                if (matchingColumns.length > 0) {
+                                                    matchingColumns.forEach((matchingColumn) =>
+                                                        removeColumn(matchingColumn)
+                                                    )
+                                                    return
+                                                }
 
-                                            addColumn(column)
-                                        }}
-                                    />
-                                ) : (
-                                    <div className="text-muted">No columns match your search.</div>
-                                )}
-                            </>
-                        ) : databaseLoading ? (
-                            <div className="flex items-center gap-2 text-muted">
-                                <Spinner />
-                                Loading tables…
-                            </div>
-                        ) : tableTreeData.length > 0 ? (
-                            <LemonTree
-                                data={tableTreeData}
-                                expandedItemIds={expandedTableGroups}
-                                onSetExpandedItemIds={setExpandedTableGroups}
-                                onItemClick={(item) => {
-                                    if (item.record?.type === 'table') {
-                                        selectTable(item.record.tableName)
-                                    }
-                                }}
-                            />
-                        ) : (
-                            <div className="text-muted">No tables match your search.</div>
-                        )}
+                                                const column = {
+                                                    table: selectedTableObject.name,
+                                                    field: path,
+                                                    ...(field && isTemporalField(field) ? { timeInterval: 'day' } : {}),
+                                                }
+
+                                                addColumn(column)
+                                            }}
+                                        />
+                                    ) : (
+                                        <div className="text-muted">No columns match your search.</div>
+                                    )}
+                                </>
+                            ) : databaseLoading ? (
+                                <div className="flex items-center gap-2 text-muted">
+                                    <Spinner />
+                                    Loading tables…
+                                </div>
+                            ) : tableTreeData.length > 0 ? (
+                                <LemonTree
+                                    data={tableTreeData}
+                                    expandedItemIds={expandedTableGroups}
+                                    onSetExpandedItemIds={setExpandedTableGroups}
+                                    onItemClick={(item) => {
+                                        if (item.record?.type === 'table') {
+                                            selectTable(item.record.tableName)
+                                        }
+                                    }}
+                                />
+                            ) : (
+                                <div className="text-muted">No tables match your search.</div>
+                            )}
+                        </div>
                     </div>
-                </div>
+                </ResizableElement>
 
                 <div className="flex-1 flex flex-col gap-2 min-h-0">
                     <div className="flex items-center justify-between">
@@ -753,7 +875,11 @@ export function BIScene(): JSX.Element {
                     </div>
 
                     {showGeneratedQuery && _queryString && (
-                        <LemonCard hoverEffect={false}>
+                        <LemonCard
+                            hoverEffect={false}
+                            className="flex flex-col overflow-hidden"
+                            style={{ minHeight: MIN_RESIZABLE_HEIGHT, height: hogqlHeight, maxHeight: maxHogqlHeight }}
+                        >
                             <div className="flex items-start justify-between gap-2">
                                 <div className="text-muted">Generated HogQL</div>
                                 <LemonButton
@@ -764,12 +890,20 @@ export function BIScene(): JSX.Element {
                                     tooltip="Open in SQL editor"
                                 />
                             </div>
-                            <pre className="overflow-x-auto whitespace-pre-wrap text-xs">{queryString}</pre>
+                            <pre className="flex-1 overflow-auto whitespace-pre-wrap text-xs">{queryString}</pre>
                         </LemonCard>
                     )}
 
+                    {showGeneratedQuery && _queryString && numericColumns.length > 0 && !queryResponseLoading && (
+                        <ResizeHandle onStart={startHogqlResize} ariaLabel="Resize generated HogQL" />
+                    )}
+
                     {numericColumns.length > 0 && selectedFields.length > 0 && !queryResponseLoading && (
-                        <LemonCard hoverEffect={false}>
+                        <LemonCard
+                            hoverEffect={false}
+                            className="flex flex-col overflow-hidden"
+                            style={{ minHeight: MIN_RESIZABLE_HEIGHT, height: chartHeight, maxHeight: maxChartHeight }}
+                        >
                             <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div>
                                     <div className="text-muted">
@@ -792,16 +926,20 @@ export function BIScene(): JSX.Element {
                                     }))}
                                 />
                             </div>
-                            <div className="mt-2" style={{ maxHeight: chartHeight }}>
+                            <div className="mt-2 flex-1 min-h-0">
                                 {chartData && chartData.values.length > 0 ? (
-                                    <div className="w-full" style={{ height: chartHeight }}>
-                                        <canvas ref={chartCanvasRef} className="w-full" />
+                                    <div className="w-full h-full">
+                                        <canvas ref={chartCanvasRef} className="w-full h-full" />
                                     </div>
                                 ) : (
                                     <div className="text-muted">Add columns to see a chart.</div>
                                 )}
                             </div>
                         </LemonCard>
+                    )}
+
+                    {numericColumns.length > 0 && selectedFields.length > 0 && !queryResponseLoading && (
+                        <ResizeHandle onStart={startChartResize} ariaLabel="Resize chart" />
                     )}
 
                     <LemonCard className="flex-1 min-h-0 flex flex-col min-w-full max-w-full" hoverEffect={false}>
