@@ -255,7 +255,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 hex(trace_id),
                 hex(span_id),
                 body,
-                attributes,
+                mapFilter((k, v) -> not(has(resource_attributes, k)), attributes),
                 timestamp,
                 observed_timestamp,
                 severity_text,

@@ -1063,7 +1063,7 @@ describe('maxThreadLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate(updateEvent)
+                logic.actions.setToolCallUpdate(updateEvent, {})
             })
 
             expect(logic.values.toolCallUpdateMap.get('tool-call-123')).toEqual(['Processing data...'])
@@ -1073,21 +1073,30 @@ describe('maxThreadLogic', () => {
             const toolCallId = 'tool-call-123'
 
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate({
-                    id: 'update-1',
-                    tool_call_id: toolCallId,
-                    content: 'Step 1 complete',
-                })
-                logic.actions.setToolCallUpdate({
-                    id: 'update-2',
-                    tool_call_id: toolCallId,
-                    content: 'Step 2 complete',
-                })
-                logic.actions.setToolCallUpdate({
-                    id: 'update-3',
-                    tool_call_id: toolCallId,
-                    content: 'Step 3 complete',
-                })
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-1',
+                        tool_call_id: toolCallId,
+                        content: 'Step 1 complete',
+                    },
+                    {}
+                )
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-2',
+                        tool_call_id: toolCallId,
+                        content: 'Step 2 complete',
+                    },
+                    {}
+                )
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-3',
+                        tool_call_id: toolCallId,
+                        content: 'Step 3 complete',
+                    },
+                    {}
+                )
             })
 
             expect(logic.values.toolCallUpdateMap.get(toolCallId)).toEqual([
@@ -1102,16 +1111,22 @@ describe('maxThreadLogic', () => {
             const sameContent = 'Same update'
 
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate({
-                    id: 'update-1',
-                    tool_call_id: toolCallId,
-                    content: sameContent,
-                })
-                logic.actions.setToolCallUpdate({
-                    id: 'update-2',
-                    tool_call_id: toolCallId,
-                    content: sameContent,
-                })
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-1',
+                        tool_call_id: toolCallId,
+                        content: sameContent,
+                    },
+                    {}
+                )
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-2',
+                        tool_call_id: toolCallId,
+                        content: sameContent,
+                    },
+                    {}
+                )
             })
 
             // Should only have one entry despite two calls
@@ -1120,16 +1135,22 @@ describe('maxThreadLogic', () => {
 
         it('setToolCallUpdate handles updates for different tool calls', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate({
-                    id: 'update-1',
-                    tool_call_id: 'tool-1',
-                    content: 'Tool 1 update',
-                })
-                logic.actions.setToolCallUpdate({
-                    id: 'update-2',
-                    tool_call_id: 'tool-2',
-                    content: 'Tool 2 update',
-                })
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-1',
+                        tool_call_id: 'tool-1',
+                        content: 'Tool 1 update',
+                    },
+                    {}
+                )
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-2',
+                        tool_call_id: 'tool-2',
+                        content: 'Tool 2 update',
+                    },
+                    {}
+                )
             })
 
             expect(logic.values.toolCallUpdateMap.get('tool-1')).toEqual(['Tool 1 update'])
@@ -1153,11 +1174,14 @@ describe('maxThreadLogic', () => {
                     },
                 ])
                 // UpdateMessages should not appear in thread directly
-                logic.actions.setToolCallUpdate({
-                    id: 'update-1',
-                    tool_call_id: 'tool-call-123',
-                    content: 'This should not appear',
-                })
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-1',
+                        tool_call_id: 'tool-call-123',
+                        content: 'This should not appear',
+                    },
+                    {}
+                )
             }).toMatchValues({
                 threadGrouped: [
                     {
@@ -1277,16 +1301,22 @@ describe('maxThreadLogic', () => {
             const toolCallId = 'tool-123'
 
             await expectLogic(logic, () => {
-                logic.actions.setToolCallUpdate({
-                    id: 'update-1',
-                    tool_call_id: toolCallId,
-                    content: 'Progress update 1',
-                })
-                logic.actions.setToolCallUpdate({
-                    id: 'update-2',
-                    tool_call_id: toolCallId,
-                    content: 'Progress update 2',
-                })
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-1',
+                        tool_call_id: toolCallId,
+                        content: 'Progress update 1',
+                    },
+                    {}
+                )
+                logic.actions.setToolCallUpdate(
+                    {
+                        id: 'update-2',
+                        tool_call_id: toolCallId,
+                        content: 'Progress update 2',
+                    },
+                    {}
+                )
                 logic.actions.setThread([
                     {
                         type: AssistantMessageType.Assistant,

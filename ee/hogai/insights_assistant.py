@@ -18,7 +18,7 @@ from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.core.runner import BaseAgentRunner
-from ee.hogai.utils.types import AssistantMode, AssistantOutput, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantOutput, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.models import Conversation
 
@@ -60,10 +60,9 @@ class InsightsAssistant(BaseAgentRunner):
             conversation,
             new_message=new_message,
             user=user,
-            graph=InsightsGraph(team, user).compile_full_graph(),
+            graph_class=InsightsGraph,
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
-            mode=AssistantMode.INSIGHTS_TOOL,
             session_id=session_id,
             contextual_tools=contextual_tools,
             is_new_conversation=is_new_conversation,
