@@ -15,6 +15,7 @@ import {
     IconNewspaper,
     IconPeople,
     IconSearch,
+    IconShortcut,
     IconSidebarClose,
     IconSidebarOpen,
     IconToolbar,
@@ -263,6 +264,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             showChevron: true,
             collapsedTooltip: ['Open people & groups', 'Close people & groups'],
             documentationUrl: 'https://posthog.com/docs/data/persons',
+        },
+        {
+            identifier: 'Shortcuts',
+            label: 'Shortcuts',
+            icon: <IconShortcut />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Shortcuts')
+                }
+            },
+            showChevron: true,
+            collapsedTooltip: ['Open shortcuts', 'Close shortcuts'],
         },
         {
             identifier: 'Project',
