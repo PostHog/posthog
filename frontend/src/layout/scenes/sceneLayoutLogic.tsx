@@ -23,6 +23,7 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         setScenePanelOpen: (open: boolean) => ({ open }),
         setForceScenePanelClosedWhenRelative: (closed: boolean) => ({ closed }),
         setSceneLayoutConfig: (config: SceneConfig) => ({ config }),
+        setSceneContextClassName: (className: string | undefined) => ({ className }),
     }),
     reducers({
         scenePanelElement: [
@@ -54,6 +55,12 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
             null as SceneConfig | null,
             {
                 setSceneLayoutConfig: (_, { config }) => config,
+            },
+        ],
+        sceneContextClassName: [
+            undefined as string | undefined,
+            {
+                setSceneContextClassName: (_, { className }) => className,
             },
         ],
     }),

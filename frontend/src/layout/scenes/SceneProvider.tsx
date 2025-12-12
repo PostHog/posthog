@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useActions } from 'kea'
+import { useEffect } from 'react'
 
-import { SceneLayoutContext, SceneLayoutContextValue } from './SceneLayoutContext'
+import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 export interface SceneProviderProps {
     className?: string
@@ -8,7 +9,14 @@ export interface SceneProviderProps {
 }
 
 export function SceneProvider({ className, children }: SceneProviderProps): JSX.Element {
-    const contextValue: SceneLayoutContextValue = useMemo(() => ({ className }), [className])
+    const { setSceneContextClassName } = useActions(sceneLayoutLogic)
 
-    return <SceneLayoutContext.Provider value={contextValue}>{children}</SceneLayoutContext.Provider>
+    useEffect(() => {
+        setSceneContextClassName(className)
+        return () => {
+            setSceneContextClassName(undefined)
+        }
+    }, [className, setSceneContextClassName])
+
+    return <>{children}</>
 }

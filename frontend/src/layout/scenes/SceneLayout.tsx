@@ -16,7 +16,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
-import { useSceneLayoutContext } from './SceneLayoutContext'
 import { SceneTabs } from './SceneTabs'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
@@ -72,11 +71,10 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
         useActions(sceneLayoutLogic)
-    const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
+    const { forceScenePanelClosedWhenRelative, sceneContextClassName } = useValues(sceneLayoutLogic)
     const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
-    const { className: contextClassName } = useSceneLayoutContext()
 
     // Set layout config
     useEffect(() => {
@@ -114,7 +112,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                         'min-h-[calc(100vh-var(--scene-layout-header-height))] h-[calc(100vh-var(--scene-layout-header-height))]':
                             sceneConfig?.layout === 'app-full-scene-height',
                     },
-                    sceneConfig?.layout === 'context' ? contextClassName : undefined
+                    sceneConfig?.layout === 'context' ? sceneContextClassName : undefined
                 )}
             >
                 {children}
