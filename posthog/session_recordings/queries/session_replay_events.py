@@ -338,14 +338,14 @@ class SessionReplayEvents:
         query = f"""
             SELECT
                 session_id,
-                any(distinct_id),
+                any(distinct_id) as distinct_id,
                 min(min_first_timestamp) as start_time,
                 max(max_last_timestamp) as end_time,
                 dateDiff('SECOND', start_time, end_time) as duration,
                 argMinMerge(first_url) as first_url,
-                sum(click_count),
-                sum(keypress_count),
-                sum(mouse_activity_count),
+                sum(click_count) as click_count,
+                sum(keypress_count) as keypress_count,
+                sum(mouse_activity_count) as mouse_activity_count,
                 sum(active_milliseconds)/1000 as active_seconds,
                 sum(console_log_count) as console_log_count,
                 sum(console_warn_count) as console_warn_count,

@@ -98,9 +98,7 @@ async def test_export_recording_data_prefix_no_blocks():
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
         mock_list_blocks.return_value = []
 
-        result = await export_recording_data_prefix(export_context)
-
-        assert result is None
+        await export_recording_data_prefix(export_context)
 
 
 @pytest.mark.asyncio

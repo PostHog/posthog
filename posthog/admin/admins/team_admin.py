@@ -11,7 +11,8 @@ from django.http import HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import path, reverse
-from django.utils.html import escapejs, format_html, mark_safe
+from django.utils.html import escapejs, format_html
+from django.utils.safestring import mark_safe
 
 from structlog import get_logger
 from temporalio import common

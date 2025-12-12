@@ -111,7 +111,7 @@ async def test_import_replay_clickhouse_rows_success(tmp_path):
                 "click_count": 10,
                 "keypress_count": 5,
                 "mouse_activity_count": 100,
-                "active_milliseconds": 3600000,
+                "active_seconds": 3600,
                 "console_log_count": 1,
                 "console_warn_count": 0,
                 "console_error_count": 0,
@@ -245,9 +245,7 @@ async def test_import_event_clickhouse_rows_no_file(tmp_path):
 
         mock_path_cls.side_effect = path_side_effect
 
-        result = await import_event_clickhouse_rows(context)
-
-    assert result is None
+        await import_event_clickhouse_rows(context)
 
 
 @pytest.mark.asyncio
