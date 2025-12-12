@@ -1,6 +1,7 @@
+import { lemonToast } from '@posthog/lemon-ui'
+
 /**
  * Handle 409 Approval Required errors from API calls.
- * Triggers the pending change request banner to reload.
  *
  * @returns true if the error was an approval-required 409, false otherwise
  */
@@ -10,6 +11,8 @@ export function handleApprovalRequired(
     resourceId: string | number
 ): boolean {
     if (error?.status === 409) {
+        lemonToast.warning('A change request has been created and is pending approval.')
+
         import('scenes/approvals/pendingChangeRequestLogic').then(({ pendingChangeRequestLogic }) => {
             pendingChangeRequestLogic({
                 resourceType,
