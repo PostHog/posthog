@@ -85,7 +85,7 @@ async fn readiness(
 
     let shutdown_status = crate::metrics_middleware::get_shutdown_status();
 
-    if shutdown_status == ShutdownStatus::Running
+    if (shutdown_status == ShutdownStatus::Running || shutdown_status == ShutdownStatus::Unknown)
         && state.is_mirror_deploy
         && std::path::Path::new("/tmp/shutdown").exists()
     {

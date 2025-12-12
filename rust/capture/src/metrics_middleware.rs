@@ -20,19 +20,21 @@ static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum ShutdownStatus {
-    Running = 0,
-    Prestop = 1,
-    Terminating = 2,
-    Killed = 3,
+    Unknown = 0,
+    Running = 1,
+    Prestop = 2,
+    Terminating = 3,
+    Completed = 4,
 }
 
 impl ShutdownStatus {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Unknown => "unknown",
             Self::Running => "running",
             Self::Prestop => "prestop",
             Self::Terminating => "terminating",
-            Self::Killed => "killed",
+            Self::Completed => "completed",
         }
     }
 }
@@ -40,10 +42,11 @@ impl ShutdownStatus {
 impl From<u8> for ShutdownStatus {
     fn from(v: u8) -> Self {
         match v {
-            0 => Self::Running,
-            1 => Self::Prestop,
-            2 => Self::Terminating,
-            _ => Self::Killed,
+            1 => Self::Running,
+            2 => Self::Prestop,
+            3 => Self::Terminating,
+            4 => Self::Completed,
+            _ => Self::Unknown,
         }
     }
 }

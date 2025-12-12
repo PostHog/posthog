@@ -106,7 +106,7 @@ async fn main() {
     serve(config, listener, shutdown()).await;
 
     capture::metrics_middleware::set_shutdown_status(
-        capture::metrics_middleware::ShutdownStatus::Killed,
+        capture::metrics_middleware::ShutdownStatus::Completed,
     );
-    tracing::info!("Shutdown status change: KILLED");
+    tracing::info!("Shutdown status change: COMPLETED");
 }
