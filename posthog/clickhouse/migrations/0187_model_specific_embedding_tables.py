@@ -40,6 +40,7 @@ for model_tables in EMBEDDING_TABLES_1:
                 index_sql,
                 node_roles=[NodeRole.DATA],
                 sharded=True,
+                is_alter_on_replicated_table=False,
             )
         )
 
@@ -49,7 +50,6 @@ for model_tables in EMBEDDING_TABLES_1:
         run_sql_with_exceptions(
             model_tables.distributed_table_sql(),
             node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
-            is_alter_on_replicated_table=False,
         )
     )
 
