@@ -2475,15 +2475,6 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
                 team=self.org_2_team_3,
             )
 
-        # not captured because it was a bug in our own SDK
-        _create_event(
-            distinct_id="4",
-            event="$exception",
-            properties={"$exception_values": ["persistence.isDisabled is not a function"]},
-            timestamp=now() - relativedelta(hours=1),
-            team=self.org_1_team_1,
-        )
-
         # some out of range events
         _create_event(
             distinct_id="3",

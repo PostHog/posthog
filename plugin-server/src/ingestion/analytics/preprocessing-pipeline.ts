@@ -1,5 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
+
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
@@ -103,6 +105,10 @@ export function createPreprocessingPipeline<
                             .pipeBatch(createApplyCookielessProcessingStep(hub.cookielessManager))
                             // Prefetch must run after cookieless, as cookieless changes distinct IDs
                             .pipeBatch(prefetchPersonsStep(personsStore, hub.PERSONS_PREFETCH_ENABLED))
+                            // Batch insert personless distinct IDs after prefetch (uses prefetch cache)
+                            .pipeBatch(
+                                processPersonlessDistinctIdsBatchStep(personsStore, hub.PERSONS_PREFETCH_ENABLED)
+                            )
                     )
                     .handleIngestionWarnings(kafkaProducer)
             )

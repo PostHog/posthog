@@ -75,7 +75,7 @@ describe('prepareEventStep()', () => {
             null,
             false,
             person.uuid,
-            [{ distinctId: 'my_id' }]
+            { distinctId: 'my_id' }
         )
 
         // @ts-expect-error TODO: Check existence of queueMessage
