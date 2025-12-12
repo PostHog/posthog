@@ -1375,7 +1375,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                         count=1,
                         breakdown=["https://posthog.com/docs/x"],
                         type="actions",
-                        action_id=user_signed_up_action.id,  # type: ignore
+                        action_id=user_signed_up_action.id,
                     ),
                     FunnelStepResult(
                         name="paid",
