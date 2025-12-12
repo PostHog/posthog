@@ -11,11 +11,18 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { getAvailableProductFeatures } from '~/mocks/features'
+import { MockSignature } from '~/mocks/utils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, SessionRecordingPlaylistType } from '~/types'
 
 import { recordingPlaylists } from './__mocks__/recording_playlists'
 import { recordings } from './__mocks__/recordings'
+
+const generateManyRecordings = (count: number): Record<string, any>[] =>
+    Array.from({ length: count }, (_, i) => ({
+        ...recordings[i % recordings.length],
+        id: `generated-recording-${i}`,
+    }))
 
 const playlist = (playlistId: string): SessionRecordingPlaylistType => {
     return {
@@ -254,29 +261,52 @@ export const RecentRecordingsNarrow: Story = {
 }
 RecentRecordingsNarrow.tags = ['test-skip']
 
-export const FiltersExpanded: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/users/@me/': () => [
-                200,
-                {
-                    ...MOCK_DEFAULT_USER,
-                    has_seen_product_intro_for: {
-                        [ProductKey.SESSION_REPLAY]: true,
-                    },
-                    organization: {
-                        ...MOCK_DEFAULT_ORGANIZATION,
-                        available_product_features: getAvailableProductFeatures(),
-                    },
-                },
-            ],
-        },
-    })
+const userSeenReplayIntroMock = (): MockSignature => [
+    200,
+    {
+        ...MOCK_DEFAULT_USER,
+        has_seen_product_intro_for: { [ProductKey.SESSION_REPLAY]: true },
+        organization: { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
+    },
+]
 
-    router.actions.push(sceneUrl(urls.replay(), { showFilters: true }))
-
-    return <App />
+const manyRecordingsMock: MockSignature = (req) => {
+    const version = req.url.searchParams.get('version')
+    return [200, { has_next: false, results: generateManyRecordings(25), version }]
 }
+
+const filtersExpandedStory = (extraMocks: Record<string, any> = {}): StoryFn => {
+    const Story: StoryFn = () => {
+        useStorybookMocks({
+            get: {
+                '/api/users/@me/': userSeenReplayIntroMock,
+                ...extraMocks,
+            },
+        })
+        router.actions.push(sceneUrl(urls.replay(), { showFilters: true }))
+        return <App />
+    }
+    return Story
+}
+
+export const FiltersExpanded: StoryFn = filtersExpandedStory()
 FiltersExpanded.parameters = {
     waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+}
+
+export const FiltersExpandedLotsOfResults: StoryFn = filtersExpandedStory({
+    '/api/environments/:team_id/session_recordings': manyRecordingsMock,
+})
+FiltersExpandedLotsOfResults.parameters = {
+    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+}
+
+export const FiltersExpandedLotsOfResultsNarrow: StoryFn = filtersExpandedStory({
+    '/api/environments/:team_id/session_recordings': manyRecordingsMock,
+})
+FiltersExpandedLotsOfResultsNarrow.parameters = {
+    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+    testOptions: {
+        viewport: { width: 568, height: 1024 },
+    },
 }
