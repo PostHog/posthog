@@ -446,7 +446,12 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                 showRowExpansionToggle: false,
                 isRowExpanded: (record) => expandedAttributeBreaksdowns.includes(record.key),
                 expandedRowRender: (record) => (
-                    <AttributeBreakdowns attribute={record.key} addFilter={addFilter} tabId={tabId} />
+                    <AttributeBreakdowns
+                        attribute={record.key}
+                        type={record.type}
+                        addFilter={addFilter}
+                        tabId={tabId}
+                    />
                 ),
             }}
         />
