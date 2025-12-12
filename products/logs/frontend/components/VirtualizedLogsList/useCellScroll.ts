@@ -89,7 +89,14 @@ export function useCellScroll({ cellKey, enabled = true }: UseCellScrollOptions)
     }, [])
 
     // Cleanup interval on unmount
-    useEffect(() => () => stopScrolling(), [stopScrolling])
+    useEffect(() => {
+        return () => {
+            if (scrollIntervalRef.current) {
+                clearInterval(scrollIntervalRef.current)
+                scrollIntervalRef.current = null
+            }
+        }
+    }, [])
 
     return {
         scrollRef,
