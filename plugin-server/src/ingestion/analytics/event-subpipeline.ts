@@ -4,6 +4,7 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, PipelineEvent, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
+import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
@@ -23,18 +24,9 @@ export interface EventSubpipelineInput {
 }
 
 export interface EventSubpipelineConfig {
-    options: {
+    options: EventPipelineRunnerOptions & {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-        SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
-        TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
-        PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
-        PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
-        PERSON_MERGE_ASYNC_ENABLED: boolean
-        PERSON_MERGE_ASYNC_TOPIC: string
-        PERSON_MERGE_SYNC_BATCH_SIZE: number
-        PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
-        PERSON_PROPERTIES_UPDATE_ALL: boolean
     }
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
