@@ -128,6 +128,14 @@ export function formatConversationDate(updatedAt: string | null): string {
     return humanFriendlyDuration(diff, { maxUnits: 1 })
 }
 
+export function getSlackThreadUrl(slackThreadKey: string, slackWorkspaceDomain?: string | null): string {
+    const [_, channel, threadTs] = slackThreadKey.split(':')
+    // threadTs is like "1765374935.148729", URL needs "p1765374935148729"
+    const urlTs = `p${threadTs.replace('.', '')}`
+    const domain = slackWorkspaceDomain || 'slack'
+    return `https://${domain}.slack.com/archives/${channel}/${urlTs}`
+}
+
 /**
  * Checks if a suggestion requires user input.
  * @param suggestion - The suggestion to check.

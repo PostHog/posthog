@@ -120,6 +120,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private updateLatencyPerDistinctIdSeconds: Map<string, Map<UpdateType, number>>
     private cacheMetrics: CacheMetrics
     private options: BatchWritingPersonsStoreOptions
+    // Cache for batch personless distinct ID insert results (is_merged values)
+    private personlessBatchResults: Map<string, boolean>
 
     constructor(
         private personRepository: PersonRepository,
@@ -135,6 +137,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.methodCountsPerDistinctId = new Map()
         this.databaseOperationCountsPerDistinctId = new Map()
         this.updateLatencyPerDistinctIdSeconds = new Map()
+        this.personlessBatchResults = new Map()
         this.cacheMetrics = {
             updateCacheHits: 0,
             updateCacheMisses: 0,
@@ -177,6 +180,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         // Check if there are any properties_to_set that should trigger an update
         const ignoredProperties: string[] = []
+
         const hasPropertyTriggeringUpdate = Object.keys(update.properties_to_set).some((key) => {
             // Check if this is a new property (not in current properties)
             const isNewProperty = !(key in update.properties)
@@ -258,158 +262,21 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             return []
         }
 
-        const limit = pLimit(this.options.maxConcurrentUpdates)
-
         try {
-            const results = await Promise.all(
-                updateEntries.map(([cacheKey, update]) =>
-                    limit(async (): Promise<FlushResult[]> => {
-                        try {
-                            personWriteMethodAttemptCounter.inc({
-                                db_write_mode: this.options.dbWriteMode,
-                                method: this.options.dbWriteMode,
-                                outcome: 'attempt',
-                            })
+            let allKafkaMessages: FlushResult[]
 
-                            let kafkaMessages: FlushResult[] = []
-                            switch (this.options.dbWriteMode) {
-                                case 'NO_ASSERT': {
-                                    const result = await this.withMergeRetry(
-                                        update,
-                                        this.updatePersonNoAssert.bind(this),
-                                        'updatePersonNoAssert',
-                                        this.options.maxOptimisticUpdateRetries,
-                                        this.options.optimisticUpdateRetryInterval
-                                    )
-                                    kafkaMessages = result.messages.map((message) => ({
-                                        topicMessage: message,
-                                        teamId: update.team_id,
-                                        uuid: update.uuid,
-                                        distinctId: update.distinct_id,
-                                    }))
-                                    break
-                                }
-                                case 'ASSERT_VERSION': {
-                                    const result = await this.withMergeRetry(
-                                        update,
-                                        this.updatePersonAssertVersion.bind(this),
-                                        'updatePersonAssertVersion',
-                                        this.options.maxOptimisticUpdateRetries,
-                                        this.options.optimisticUpdateRetryInterval
-                                    )
-                                    kafkaMessages = result.messages.map((message) => ({
-                                        topicMessage: message,
-                                        teamId: update.team_id,
-                                        uuid: update.uuid,
-                                        distinctId: update.distinct_id,
-                                    }))
-                                    break
-                                }
-                            }
-
-                            personWriteMethodAttemptCounter.inc({
-                                db_write_mode: this.options.dbWriteMode,
-                                method: this.options.dbWriteMode,
-                                outcome: 'success',
-                            })
-
-                            return kafkaMessages
-                        } catch (error) {
-                            // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
-                            if (error instanceof MessageSizeTooLarge) {
-                                await captureIngestionWarning(
-                                    this.kafkaProducer,
-                                    update.team_id,
-                                    'person_upsert_message_size_too_large',
-                                    {
-                                        personId: update.id,
-                                        distinctId: update.distinct_id,
-                                    }
-                                )
-                                personWriteMethodAttemptCounter.inc({
-                                    db_write_mode: this.options.dbWriteMode,
-                                    method: this.options.dbWriteMode,
-                                    outcome: 'error',
-                                })
-                                return []
-                            }
-
-                            if (error instanceof PersonPropertiesSizeViolationError) {
-                                await captureIngestionWarning(
-                                    this.kafkaProducer,
-                                    update.team_id,
-                                    'person_properties_size_violation',
-                                    {
-                                        personId: update.id,
-                                        distinctId: update.distinct_id,
-                                        teamId: update.team_id,
-                                        message: 'Person properties exceeds size limit and was rejected',
-                                    }
-                                )
-                                personWriteMethodAttemptCounter.inc({
-                                    db_write_mode: this.options.dbWriteMode,
-                                    method: this.options.dbWriteMode,
-                                    outcome: 'properties_size_violation',
-                                })
-                                return []
-                            }
-
-                            // Handle max retries error with the latest person update
-                            if (error instanceof MaxRetriesError) {
-                                logger.warn('⚠️', 'Falling back to direct update after max retries', {
-                                    teamId: error.latestPersonUpdate.team_id,
-                                    personId: error.latestPersonUpdate.id,
-                                    distinctId: error.latestPersonUpdate.distinct_id,
-                                })
-
-                                personFallbackOperationsCounter.inc({
-                                    db_write_mode: this.options.dbWriteMode,
-                                    fallback_reason: 'max_retries',
-                                })
-
-                                const fallbackResult = await this.updatePersonNoAssert(error.latestPersonUpdate)
-                                const fallbackMessages = fallbackResult.success ? fallbackResult.messages : []
-
-                                personWriteMethodAttemptCounter.inc({
-                                    db_write_mode: this.options.dbWriteMode,
-                                    method: 'fallback',
-                                    outcome: 'success',
-                                })
-
-                                return fallbackMessages.map((message) => ({
-                                    topicMessage: message,
-                                    teamId: error.latestPersonUpdate.team_id,
-                                    uuid: error.latestPersonUpdate.uuid,
-                                    distinctId: error.latestPersonUpdate.distinct_id,
-                                }))
-                            }
-
-                            // Re-throw any other errors
-                            throw error
-                        }
-                    }).catch((error) => {
-                        logger.error('Failed to update person after max retries and direct update fallback', {
-                            error,
-                            cacheKey,
-                            teamId: update.team_id,
-                            personId: update.id,
-                            distinctId: update.distinct_id,
-                            errorMessage: error instanceof Error ? error.message : String(error),
-                            errorStack: error instanceof Error ? error.stack : undefined,
-                        })
-
-                        personWriteMethodAttemptCounter.inc({
-                            db_write_mode: this.options.dbWriteMode,
-                            method: 'fallback',
-                            outcome: 'error',
-                        })
-                        throw error
-                    })
-                )
-            )
-
-            // Flatten all Kafka messages from all operations
-            const allKafkaMessages = results.flat()
+            switch (this.options.dbWriteMode) {
+                case 'NO_ASSERT': {
+                    // Use batch update for NO_ASSERT mode - single query for all updates
+                    allKafkaMessages = await this.flushBatchNoAssert(updateEntries)
+                    break
+                }
+                case 'ASSERT_VERSION': {
+                    // Use individual updates for ASSERT_VERSION mode (requires per-person retry logic)
+                    allKafkaMessages = await this.flushIndividualAssertVersion(updateEntries)
+                    break
+                }
+            }
 
             // Record successful flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
@@ -430,6 +297,247 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             })
             throw error
         }
+    }
+
+    /**
+     * Flush all person updates using a single batch query (NO_ASSERT mode).
+     * Falls back to individual updates for any persons that fail in the batch.
+     */
+    private async flushBatchNoAssert(updateEntries: [string, PersonUpdate][]): Promise<FlushResult[]> {
+        const updates = updateEntries.map(([_, update]) => update)
+
+        personWriteMethodAttemptCounter.inc({
+            db_write_mode: this.options.dbWriteMode,
+            method: 'batch',
+            outcome: 'attempt',
+        })
+
+        // Try batch update first
+        const batchResults = await this.personRepository.updatePersonsBatch(updates)
+
+        const allKafkaMessages: FlushResult[] = []
+        const failedUpdates: PersonUpdate[] = []
+
+        // Process batch results
+        for (const update of updates) {
+            const result = batchResults.get(update.uuid)
+            if (result?.success && result.kafkaMessage) {
+                allKafkaMessages.push({
+                    topicMessage: result.kafkaMessage,
+                    teamId: update.team_id,
+                    uuid: update.uuid,
+                    distinctId: update.distinct_id,
+                })
+                personWriteMethodAttemptCounter.inc({
+                    db_write_mode: this.options.dbWriteMode,
+                    method: 'batch',
+                    outcome: 'success',
+                })
+            } else {
+                // Handle specific error types
+                if (result?.error instanceof PersonPropertiesSizeViolationError) {
+                    await captureIngestionWarning(
+                        this.kafkaProducer,
+                        update.team_id,
+                        'person_properties_size_violation',
+                        {
+                            personId: update.id,
+                            distinctId: update.distinct_id,
+                            teamId: update.team_id,
+                            message: 'Person properties exceeds size limit and was rejected',
+                        }
+                    )
+                    personWriteMethodAttemptCounter.inc({
+                        db_write_mode: this.options.dbWriteMode,
+                        method: 'batch',
+                        outcome: 'properties_size_violation',
+                    })
+                    // Don't retry size violations - they will never succeed
+                    continue
+                }
+
+                // Queue for individual retry
+                failedUpdates.push(update)
+            }
+        }
+
+        // Fallback to individual updates for failed persons
+        if (failedUpdates.length > 0) {
+            logger.warn('⚠️', `Batch update had ${failedUpdates.length} failures, falling back to individual updates`, {
+                failedCount: failedUpdates.length,
+                totalCount: updates.length,
+            })
+
+            personFallbackOperationsCounter.inc({
+                db_write_mode: this.options.dbWriteMode,
+                fallback_reason: 'batch_partial_failure',
+            })
+
+            const limit = pLimit(this.options.maxConcurrentUpdates)
+            const fallbackResults = await Promise.all(
+                failedUpdates.map((update) =>
+                    limit(async (): Promise<FlushResult[]> => {
+                        try {
+                            const result = await this.withMergeRetry(
+                                update,
+                                this.updatePersonNoAssert.bind(this),
+                                'updatePersonNoAssert',
+                                this.options.maxOptimisticUpdateRetries,
+                                this.options.optimisticUpdateRetryInterval
+                            )
+                            personWriteMethodAttemptCounter.inc({
+                                db_write_mode: this.options.dbWriteMode,
+                                method: 'fallback',
+                                outcome: 'success',
+                            })
+                            return result.messages.map((message) => ({
+                                topicMessage: message,
+                                teamId: update.team_id,
+                                uuid: update.uuid,
+                                distinctId: update.distinct_id,
+                            }))
+                        } catch (error) {
+                            return this.handleIndividualUpdateError(error, update)
+                        }
+                    })
+                )
+            )
+            allKafkaMessages.push(...fallbackResults.flat())
+        }
+
+        return allKafkaMessages
+    }
+
+    /**
+     * Flush all person updates using individual queries with version assertion (ASSERT_VERSION mode).
+     * This mode requires per-person retry logic for version conflicts.
+     */
+    private async flushIndividualAssertVersion(updateEntries: [string, PersonUpdate][]): Promise<FlushResult[]> {
+        const limit = pLimit(this.options.maxConcurrentUpdates)
+
+        const results = await Promise.all(
+            updateEntries.map(([cacheKey, update]) =>
+                limit(async (): Promise<FlushResult[]> => {
+                    try {
+                        personWriteMethodAttemptCounter.inc({
+                            db_write_mode: this.options.dbWriteMode,
+                            method: this.options.dbWriteMode,
+                            outcome: 'attempt',
+                        })
+
+                        const result = await this.withMergeRetry(
+                            update,
+                            this.updatePersonAssertVersion.bind(this),
+                            'updatePersonAssertVersion',
+                            this.options.maxOptimisticUpdateRetries,
+                            this.options.optimisticUpdateRetryInterval
+                        )
+
+                        personWriteMethodAttemptCounter.inc({
+                            db_write_mode: this.options.dbWriteMode,
+                            method: this.options.dbWriteMode,
+                            outcome: 'success',
+                        })
+
+                        return result.messages.map((message) => ({
+                            topicMessage: message,
+                            teamId: update.team_id,
+                            uuid: update.uuid,
+                            distinctId: update.distinct_id,
+                        }))
+                    } catch (error) {
+                        return this.handleIndividualUpdateError(error, update)
+                    }
+                }).catch((error) => {
+                    logger.error('Failed to update person after max retries and direct update fallback', {
+                        error,
+                        cacheKey,
+                        teamId: update.team_id,
+                        personId: update.id,
+                        distinctId: update.distinct_id,
+                        errorMessage: error instanceof Error ? error.message : String(error),
+                        errorStack: error instanceof Error ? error.stack : undefined,
+                    })
+
+                    personWriteMethodAttemptCounter.inc({
+                        db_write_mode: this.options.dbWriteMode,
+                        method: 'fallback',
+                        outcome: 'error',
+                    })
+                    throw error
+                })
+            )
+        )
+
+        return results.flat()
+    }
+
+    /**
+     * Handle errors from individual person update attempts.
+     * Returns FlushResult[] for recoverable errors, throws for fatal errors.
+     */
+    private async handleIndividualUpdateError(error: unknown, update: PersonUpdate): Promise<FlushResult[]> {
+        // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
+        if (error instanceof MessageSizeTooLarge) {
+            await captureIngestionWarning(this.kafkaProducer, update.team_id, 'person_upsert_message_size_too_large', {
+                personId: update.id,
+                distinctId: update.distinct_id,
+            })
+            personWriteMethodAttemptCounter.inc({
+                db_write_mode: this.options.dbWriteMode,
+                method: this.options.dbWriteMode,
+                outcome: 'error',
+            })
+            return []
+        }
+
+        if (error instanceof PersonPropertiesSizeViolationError) {
+            await captureIngestionWarning(this.kafkaProducer, update.team_id, 'person_properties_size_violation', {
+                personId: update.id,
+                distinctId: update.distinct_id,
+                teamId: update.team_id,
+                message: 'Person properties exceeds size limit and was rejected',
+            })
+            personWriteMethodAttemptCounter.inc({
+                db_write_mode: this.options.dbWriteMode,
+                method: this.options.dbWriteMode,
+                outcome: 'properties_size_violation',
+            })
+            return []
+        }
+
+        // Handle max retries error with the latest person update
+        if (error instanceof MaxRetriesError) {
+            logger.warn('⚠️', 'Falling back to direct update after max retries', {
+                teamId: error.latestPersonUpdate.team_id,
+                personId: error.latestPersonUpdate.id,
+                distinctId: error.latestPersonUpdate.distinct_id,
+            })
+
+            personFallbackOperationsCounter.inc({
+                db_write_mode: this.options.dbWriteMode,
+                fallback_reason: 'max_retries',
+            })
+
+            const fallbackResult = await this.updatePersonNoAssert(error.latestPersonUpdate)
+            const fallbackMessages = fallbackResult.success ? fallbackResult.messages : []
+
+            personWriteMethodAttemptCounter.inc({
+                db_write_mode: this.options.dbWriteMode,
+                method: 'fallback',
+                outcome: 'success',
+            })
+
+            return fallbackMessages.map((message) => ({
+                topicMessage: message,
+                teamId: error.latestPersonUpdate.team_id,
+                uuid: error.latestPersonUpdate.uuid,
+                distinctId: error.latestPersonUpdate.distinct_id,
+            }))
+        }
+
+        // Re-throw any other errors
+        throw error
     }
 
     async inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
@@ -763,7 +871,30 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         tx?: PersonRepositoryTransaction
     ): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctIdForMerge', distinctId)
-        return await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
+        const isMerged = await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
+        // Update the batch results cache so processPersonlessStep knows this was merged
+        if (isMerged) {
+            this.personlessBatchResults.set(`${teamId}|${distinctId}`, true)
+        }
+        return isMerged
+    }
+
+    async processPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<void> {
+        if (entries.length === 0) {
+            return
+        }
+
+        const results = await this.personRepository.addPersonlessDistinctIdsBatch(entries)
+        // Only store merged distinct IDs - these need force_upgrade handling
+        for (const [key, isMerged] of results) {
+            if (isMerged) {
+                this.personlessBatchResults.set(key, true)
+            }
+        }
+    }
+
+    getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
+        return this.personlessBatchResults.get(`${teamId}|${distinctId}`)
     }
 
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {
@@ -804,6 +935,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.methodCountsPerDistinctId.clear()
         this.databaseOperationCountsPerDistinctId.clear()
         this.updateLatencyPerDistinctIdSeconds.clear()
+        this.personlessBatchResults.clear()
         this.cacheMetrics = {
             updateCacheHits: 0,
             updateCacheMisses: 0,
@@ -1007,11 +1139,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[],
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonRepositoryTransaction
     ): Promise<CreatePersonResult> {
-        this.incrementCount('createPerson', distinctIds?.[0].distinctId ?? '')
-        this.incrementDatabaseOperation('createPerson', distinctIds?.[0]?.distinctId ?? '')
+        this.incrementCount('createPerson', primaryDistinctId.distinctId)
+        this.incrementDatabaseOperation('createPerson', primaryDistinctId.distinctId)
         const result = await (tx || this.personRepository).createPerson(
             createdAt,
             properties,
@@ -1021,23 +1154,24 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             isUserId,
             isIdentified,
             uuid,
-            distinctIds
+            primaryDistinctId,
+            extraDistinctIds
         )
 
         if (result.success) {
             const { person } = result
-            this.setCheckCachedPerson(teamId, distinctIds?.[0]?.distinctId ?? '', person)
+            this.setCheckCachedPerson(teamId, primaryDistinctId.distinctId, person)
             this.setCachedPersonForUpdate(
                 teamId,
-                distinctIds?.[0]?.distinctId ?? '',
-                fromInternalPerson(person, distinctIds?.[0]?.distinctId ?? '')
+                primaryDistinctId.distinctId,
+                fromInternalPerson(person, primaryDistinctId.distinctId)
             )
-            if (distinctIds?.[1]) {
-                this.setDistinctIdToPersonId(teamId, distinctIds[1].distinctId, person.id)
+            for (const extraDistinctId of extraDistinctIds || []) {
+                this.setDistinctIdToPersonId(teamId, extraDistinctId.distinctId, person.id)
                 this.setCachedPersonForUpdate(
                     teamId,
-                    distinctIds[1].distinctId,
-                    fromInternalPerson(person, distinctIds[1].distinctId)
+                    extraDistinctId.distinctId,
+                    fromInternalPerson(person, extraDistinctId.distinctId)
                 )
             }
         }

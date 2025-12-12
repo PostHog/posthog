@@ -33,7 +33,6 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
-    DropdownMenuOpenIndicator,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -41,6 +40,7 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -83,7 +83,7 @@ function ThemeMenu(): JSX.Element {
                     Color theme
                     <div className="ml-auto flex items-center gap-1">
                         <LemonTag>{themeMode}</LemonTag>
-                        <DropdownMenuOpenIndicator intent="sub" />
+                        <MenuOpenIndicator intent="sub" className="ml-auto" />
                     </div>
                 </ButtonPrimitive>
             </DropdownMenuSubTrigger>
@@ -263,7 +263,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             <ButtonPrimitive menuItem>
                                 <IconBlank />
                                 Other organizations
-                                <DropdownMenuOpenIndicator intent="sub" />
+                                <MenuOpenIndicator intent="sub" />
                             </ButtonPrimitive>
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="min-w-[var(--project-panel-width)]">
@@ -372,7 +372,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                     <IconCake />
                                     Game center
                                     <div className="ml-auto">
-                                        <DropdownMenuOpenIndicator intent="sub" />
+                                        <MenuOpenIndicator intent="sub" className="ml-auto" />
                                     </div>
                                 </ButtonPrimitive>
                             </DropdownMenuSubTrigger>
