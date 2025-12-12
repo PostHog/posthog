@@ -40,7 +40,7 @@ class TestEventPipelineRunner extends EventPipelineRunner {
 
     protected async runStep<T, Step extends (...args: any[]) => Promise<T>>(
         step: Step,
-        [runner, ...args]: Parameters<Step>,
+        args: Parameters<Step>,
         teamId: number,
         sendtoDLQ: boolean = true,
         kafkaAcks: Promise<void>[] = [],
@@ -52,21 +52,16 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // and pass the same object around by reference. We want to see a "snapshot" of the args
         // sent to each step, rather than the final mutated object (which many steps actually share
         // in practice, for better or worse).
-        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
+        // Skip the first argument (kafkaProducer/eventsProcessor/etc) as it's not serializable
+        const [, ...serializableArgs] = args
+        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(serializableArgs))])
 
-        return super.runStep<T, Step>(
-            step,
-            [runner, ...args] as Parameters<Step>,
-            teamId,
-            sendtoDLQ,
-            kafkaAcks,
-            warnings
-        )
+        return super.runStep<T, Step>(step, args, teamId, sendtoDLQ, kafkaAcks, warnings)
     }
 
     protected async runPipelineStep<T, Step extends (...args: any[]) => Promise<PipelineResult<T>>>(
         step: Step,
-        [runner, ...args]: Parameters<Step>,
+        args: Parameters<Step>,
         teamId: number,
         sendtoDLQ: boolean = true,
         kafkaAcks: Promise<void>[] = [],
@@ -78,16 +73,11 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // and pass the same object around by reference. We want to see a "snapshot" of the args
         // sent to each step, rather than the final mutated object (which many steps actually share
         // in practice, for better or worse).
-        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
+        // Skip the first argument (kafkaProducer) as it's not serializable
+        const [, ...serializableArgs] = args
+        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(serializableArgs))])
 
-        return super.runPipelineStep<T, Step>(
-            step,
-            [runner, ...args] as Parameters<Step>,
-            teamId,
-            sendtoDLQ,
-            kafkaAcks,
-            warnings
-        )
+        return super.runPipelineStep<T, Step>(step, args, teamId, sendtoDLQ, kafkaAcks, warnings)
     }
 }
 
@@ -420,12 +410,15 @@ describe('EventPipelineRunner', () => {
 
             expect(processPersonlessStep).not.toHaveBeenCalled()
             expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // runner
+                expect.any(Object), // kafkaProducer
+                expect.any(Object), // mergeMode
+                expect.any(Number), // measurePersonJsonbSize
+                expect.any(Boolean), // personPropertiesUpdateAll
                 expect.any(Object), // event
                 expect.any(Object), // team
                 expect.any(Object), // timestamp
                 true, // processPerson
-                expect.any(Object) // personStoreBatch
+                expect.any(Object) // personsStore
             )
         })
 
@@ -445,12 +438,15 @@ describe('EventPipelineRunner', () => {
             expect(processPersonlessStep).toHaveBeenCalledTimes(1)
             expect(processPersonsStep).toHaveBeenCalledTimes(1)
             expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // runner
+                expect.any(Object), // kafkaProducer
+                expect.any(Object), // mergeMode
+                expect.any(Number), // measurePersonJsonbSize
+                expect.any(Boolean), // personPropertiesUpdateAll
                 expect.any(Object), // event
                 expect.any(Object), // team
                 expect.any(Object), // timestamp
                 true, // processPerson forced to true for force_upgrade
-                expect.any(Object) // personStoreBatch
+                expect.any(Object) // personsStore
             )
         })
 
@@ -459,12 +455,15 @@ describe('EventPipelineRunner', () => {
 
             expect(processPersonlessStep).not.toHaveBeenCalled()
             expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // runner
+                expect.any(Object), // kafkaProducer
+                expect.any(Object), // mergeMode
+                expect.any(Number), // measurePersonJsonbSize
+                expect.any(Boolean), // personPropertiesUpdateAll
                 expect.any(Object), // event
                 expect.any(Object), // team
                 expect.any(Object), // timestamp
                 true, // processPerson (default)
-                expect.any(Object) // personStoreBatch
+                expect.any(Object) // personsStore
             )
         })
     })
