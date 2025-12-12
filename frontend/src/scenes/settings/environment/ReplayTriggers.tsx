@@ -566,7 +566,7 @@ export function ReplayTriggers(): JSX.Element {
                     {currentTeam && (
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
-                    <div className="border rounded py-2 px-4 mb-2 gap-y-2">
+                    <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
                         <TriggerMatchChoice
                             value={currentTeam?.session_recording_trigger_match_type_config || 'all'}
                             onChange={(value) =>
