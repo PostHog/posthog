@@ -5,7 +5,6 @@ import { Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -16,6 +15,7 @@ import { createdAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
+import { openDeletePromptDialog } from './utils'
 
 export const scene: SceneExport = {
     component: LLMPromptsScene,
@@ -83,23 +83,7 @@ export function LLMPromptsScene(): JSX.Element {
 
                                 <LemonButton
                                     status="danger"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete prompt?',
-                                            description:
-                                                'This action cannot be undone. If you have any code currently fetching this prompt, it will no longer be able to retrieve it.',
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                status: 'danger',
-                                                onClick: () => deletePrompt(prompt.id),
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'secondary',
-                                            },
-                                        })
-                                    }}
+                                    onClick={() => openDeletePromptDialog(() => deletePrompt(prompt.id))}
                                     data-attr={`prompt-item-${prompt.id}-dropdown-delete`}
                                     fullWidth
                                 >

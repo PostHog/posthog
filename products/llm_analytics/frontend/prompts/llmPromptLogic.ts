@@ -1,4 +1,16 @@
-import { actions, afterMount, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    defaults,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -37,7 +49,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     actions({
         setPrompt: (prompt: LLMPrompt | PromptFormValues) => ({ prompt }),
         deletePrompt: true,
-        onUnmount: true,
     }),
 
     reducers({
@@ -60,26 +71,18 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     forms(({ actions, props }) => ({
         promptForm: {
             defaults: DEFAULT_PROMPT_FORM_VALUES,
+            options: { showErrorsOnTouch: true },
+
+            errors: ({ name, prompt }) => ({
+                name: !name?.trim()
+                    ? 'Name is required'
+                    : !/^[a-zA-Z0-9_-]+$/.test(name)
+                      ? 'Only letters, numbers, hyphens (-), and underscores (_) are allowed'
+                      : undefined,
+                prompt: !prompt?.trim() ? 'Prompt content is required' : undefined,
+            }),
 
             submit: async (formValues) => {
-                // Validate before submitting
-                const errors: Record<string, string> = {}
-
-                if (!formValues.name?.trim()) {
-                    errors.name = 'Name is required'
-                } else if (!/^[a-zA-Z0-9_-]+$/.test(formValues.name)) {
-                    errors.name = 'Only letters, numbers, hyphens (-), and underscores (_) are allowed'
-                }
-
-                if (!formValues.prompt?.trim()) {
-                    errors.prompt = 'Prompt content is required'
-                }
-
-                if (Object.keys(errors).length > 0) {
-                    actions.setPromptFormManualErrors(errors)
-                    return
-                }
-
                 const isNew = props.promptId === 'new'
 
                 try {
@@ -92,7 +95,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         })
                         lemonToast.success('Prompt created successfully')
                     } else {
-                        savedPrompt = await api.llmPrompts.update(props.promptId, formValues)
+                        savedPrompt = await api.llmPrompts.update(props.promptId, {
+                            name: formValues.name,
+                            prompt: formValues.prompt,
+                        })
                         lemonToast.success('Prompt updated successfully')
                     }
 
@@ -100,14 +106,28 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
                     actions.setPrompt(savedPrompt)
                     actions.setPromptFormValues(getPromptFormDefaults(savedPrompt))
-                } catch (error: any) {
+                } catch (error: unknown) {
                     // Handle field-specific validation errors from backend
-                    if (error?.attr === 'name' && error?.detail) {
+                    if (
+                        error !== null &&
+                        typeof error === 'object' &&
+                        'attr' in error &&
+                        error.attr === 'name' &&
+                        'detail' in error &&
+                        typeof error.detail === 'string'
+                    ) {
                         actions.setPromptFormManualErrors({ name: error.detail })
                         throw error
                     }
 
-                    const message = error?.detail || 'Failed to save prompt'
+                    const message =
+                        error !== null &&
+                        typeof error === 'object' &&
+                        'detail' in error &&
+                        typeof error.detail === 'string'
+                            ? error.detail
+                            : 'Failed to save prompt'
+
                     lemonToast.error(message)
                     throw error
                 }
@@ -167,11 +187,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     }),
 
     listeners(({ actions, props, values }) => ({
-        setPromptFormValue: ({ name: fieldName }) => {
-            // Clear manual errors when user edits a field
-            actions.setPromptFormManualErrors({ [fieldName]: undefined })
-        },
-
         deletePrompt: async () => {
             if (props.promptId !== 'new') {
                 try {
@@ -188,20 +203,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             if (prompt) {
                 actions.resetPromptForm()
                 actions.setPromptFormValues(getPromptFormDefaults(prompt as LLMPrompt))
-            }
-        },
-
-        onUnmount: () => {
-            if (props.promptId === 'new') {
-                actions.setPromptFormValues(DEFAULT_PROMPT_FORM_VALUES)
-            } else {
-                const existing = findExistingPrompt(props.promptId)
-
-                if (existing) {
-                    actions.setPromptFormValues(getPromptFormDefaults(existing))
-                } else {
-                    actions.setPromptFormValues(DEFAULT_PROMPT_FORM_VALUES)
-                }
             }
         },
     })),
@@ -237,8 +238,25 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     ),
 
     afterMount(({ actions, values }) => {
-        if (!values.isNewPrompt) {
+        if (values.isNewPrompt) {
+            // Reset form when mounting the "new" prompt scene to clear any stale values
+            actions.resetPromptForm()
+        } else {
             actions.loadPrompt()
+        }
+    }),
+
+    beforeUnmount(({ actions, props }) => {
+        if (props.promptId === 'new') {
+            actions.setPromptFormValues(DEFAULT_PROMPT_FORM_VALUES)
+        } else {
+            const existing = findExistingPrompt(props.promptId)
+
+            if (existing) {
+                actions.setPromptFormValues(getPromptFormDefaults(existing))
+            } else {
+                actions.setPromptFormValues(DEFAULT_PROMPT_FORM_VALUES)
+            }
         }
     }),
 
@@ -254,7 +272,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 function getPromptFormDefaults(prompt: LLMPrompt): PromptFormValues {
     return {
         name: prompt.name,
-        prompt: typeof prompt.prompt === 'string' ? prompt.prompt : JSON.stringify(prompt.prompt, null, 2),
+        prompt: prompt.prompt,
     }
 }
 

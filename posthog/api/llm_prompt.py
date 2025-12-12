@@ -51,12 +51,12 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         existing_prompt = self.instance
 
         # On CREATE: check if name already exists
-        if self.context["request"].method == "POST":
+        if self.instance is None:
             if LLMPrompt.objects.filter(name=name, team=team, deleted=False).exists():
                 raise serializers.ValidationError({"name": "A prompt with this name already exists."}, code="unique")
 
         # On UPDATE: check if name changed OR if restoring a deleted prompt
-        if existing_prompt:
+        else:
             name_to_check = name if name else existing_prompt.name
             is_being_restored = existing_prompt.deleted and data.get("deleted") is False
             name_changed = name and existing_prompt.name != name
@@ -107,12 +107,9 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
         if not posthoganalytics.feature_enabled(
             "llm-analytics-prompts",
-            str(self.team.uuid),
-            groups={"organization": str(self.organization.id), "project": str(self.team.uuid)},
-            group_properties={
-                "organization": {"id": str(self.organization.id)},
-                "project": {"id": str(self.team.uuid)},
-            },
+            request.user.distinct_id,
+            groups={"organization": str(self.organization.id)},
+            group_properties={"organization": {"id": str(self.organization.id)}},
         ):
             return Response(
                 {"detail": "This feature is not available."},

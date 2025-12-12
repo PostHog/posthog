@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -18,6 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { PromptLogicProps, llmPromptLogic } from './llmPromptLogic'
+import { openDeletePromptDialog } from './utils'
 
 export const scene: SceneExport<PromptLogicProps> = {
     component: LLMPromptScene,
@@ -31,11 +30,7 @@ export function LLMPromptScene(): JSX.Element {
     const { shouldDisplaySkeleton, promptLoading, isPromptFormSubmitting, isPromptMissing, isNewPrompt, promptForm } =
         useValues(llmPromptLogic)
 
-    const { submitPromptForm, deletePrompt, onUnmount } = useActions(llmPromptLogic)
-
-    useEffect(() => {
-        return () => onUnmount()
-    }, [onUnmount])
+    const { submitPromptForm, deletePrompt } = useActions(llmPromptLogic)
 
     if (isPromptMissing) {
         return <NotFound object="prompt" />
@@ -74,22 +69,7 @@ export function LLMPromptScene(): JSX.Element {
                                     type="secondary"
                                     status="danger"
                                     icon={<IconTrash />}
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete prompt?',
-                                            description: 'This action cannot be undone.',
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                status: 'danger',
-                                                onClick: deletePrompt,
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'secondary',
-                                            },
-                                        })
-                                    }}
+                                    onClick={() => openDeletePromptDialog(deletePrompt)}
                                     size="small"
                                 >
                                     Delete
@@ -115,47 +95,39 @@ export function LLMPromptScene(): JSX.Element {
 }
 
 function PromptEditForm(): JSX.Element {
-    const { promptForm, promptFormErrors, promptVariables } = useValues(llmPromptLogic)
-    const { setPromptFormValue } = useActions(llmPromptLogic)
+    const { promptVariables } = useValues(llmPromptLogic)
 
     return (
         <div className="space-y-4 max-w-3xl">
-            <LemonField.Pure
+            <LemonField
+                name="name"
                 label="Name"
                 help="This name is used to fetch the prompt from your code. It must be unique. Only letters, numbers, hyphens (-), and underscores (_) are allowed."
-                error={promptFormErrors?.name}
             >
-                <LemonInput
-                    value={promptForm.name}
-                    onChange={(value) => setPromptFormValue('name', value)}
-                    placeholder="my-prompt-name"
-                    fullWidth
-                />
-            </LemonField.Pure>
+                <LemonInput placeholder="my-prompt-name" fullWidth />
+            </LemonField>
 
-            <LemonField.Pure
+            <LemonField
+                name="prompt"
                 label="Prompt"
                 help="Use {{variable_name}} to define variables that will be replaced when fetching the prompt from your backend."
-                error={promptFormErrors?.prompt}
             >
                 <LemonTextArea
-                    value={promptForm.prompt}
-                    onChange={(value) => setPromptFormValue('prompt', value)}
                     placeholder="You are a helpful assistant for {{company_name}}. Help the user with their question about {{topic}}."
                     minRows={10}
                 />
+            </LemonField>
 
-                {promptVariables.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1 mt-2">
-                        <span className="text-xs text-secondary">Variables to be replaced:</span>
-                        {promptVariables.map((v: string) => (
-                            <LemonTag key={v} type="highlight" size="small">
-                                {v}
-                            </LemonTag>
-                        ))}
-                    </div>
-                )}
-            </LemonField.Pure>
+            {promptVariables.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-xs text-secondary">Variables to be replaced:</span>
+                    {promptVariables.map((v: string) => (
+                        <LemonTag key={v} type="highlight" size="small">
+                            {v}
+                        </LemonTag>
+                    ))}
+                </div>
+            )}
         </div>
     )
 }

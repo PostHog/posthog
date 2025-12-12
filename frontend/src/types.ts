@@ -6129,11 +6129,12 @@ export interface DatasetItem {
 export interface LLMPrompt {
     id: string
     name: string
-    prompt: any
+    prompt: string
     version: number
     created_by: UserBasicType
     created_at: string
     updated_at: string
+    deleted: boolean
 }
 
 // Managed viewset
