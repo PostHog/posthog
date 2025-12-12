@@ -193,7 +193,7 @@ class TestLoginAPI(APIBaseTest):
     def test_user_cant_login_if_deactivated(self, mock_capture):
         User.objects.filter(email=self.CONFIG_EMAIL).update(is_active=False)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertContains(response, text="Account has been de-activated", status_code=status.HTTP_401_UNAUTHORIZED)
+        self.assertContains(response, text="Account has been de-activated", status_code=status.HTTP_400_BAD_REQUEST)
         mock_capture.assert_not_called()
 
     @patch("posthoganalytics.capture")

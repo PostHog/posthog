@@ -229,7 +229,7 @@ class LoginSerializer(serializers.Serializer):
         if not user.is_active:
             raise serializers.ValidationError(
                 f"Account has been de-activated.{" " + user.is_not_active_reason if user.is_not_active_reason else ""}",
-                code="invalid_credentials",
+                code="account_deactivated",
             )
 
         # We still let them log in if is_email_verified is null so existing users don't get locked out
