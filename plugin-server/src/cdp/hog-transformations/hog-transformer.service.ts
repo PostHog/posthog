@@ -8,6 +8,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import { Hub } from '../../types'
+import { GeoIp } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
@@ -66,6 +67,8 @@ export class HogTransformerService {
     private redis: RedisV2
     private cachedStates: Record<string, HogWatcherState> = {}
     private invocationResults: CyclotronJobInvocationResult[] = []
+    private cachedGeoIp?: GeoIp
+    private cachedTransformationFunctions?: ReturnType<typeof getTransformationFunctions>
 
     constructor(hub: Hub) {
         this.hub = hub
@@ -107,8 +110,11 @@ export class HogTransformerService {
     }
 
     private async getTransformationFunctions() {
-        const geoipLookup = await this.hub.geoipService.get()
-        return getTransformationFunctions(geoipLookup)
+        if (!this.cachedTransformationFunctions) {
+            this.cachedGeoIp = await this.hub.geoipService.get()
+            this.cachedTransformationFunctions = getTransformationFunctions(this.cachedGeoIp)
+        }
+        return this.cachedTransformationFunctions
     }
 
     private createInvocationGlobals(event: PluginEvent): HogFunctionInvocationGlobals {
@@ -215,7 +221,7 @@ export class HogTransformerService {
                     }
                 }
 
-                const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
+                const result = await this.executeHogFunction(hogFunction, globals)
 
                 results.push(result)
 
