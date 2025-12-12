@@ -34,7 +34,7 @@ pub struct SseQueryParams {
 /// - Cleans up subscriptions when the client disconnects
 ///
 /// Event format:
-/// ```
+/// ```text
 /// event: connected
 /// data: {"team_id": 1}
 ///
