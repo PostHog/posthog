@@ -647,7 +647,7 @@ function parseFiltersParam(param: any, table: string | null): BIQueryFilter[] {
     }
 }
 
-function defaultColumnForTable(table: DatabaseSchemaTable | null): BIQueryColumn | null {
+export function defaultColumnForTable(table: DatabaseSchemaTable | null): BIQueryColumn | null {
     if (!table) {
         return null
     }

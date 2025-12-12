@@ -51,6 +51,7 @@ import {
     biLogic,
     columnAlias,
     columnKey,
+    defaultColumnForTable,
     isJsonField,
 } from './biLogic'
 
@@ -563,22 +564,50 @@ export function BIScene(): JSX.Element {
         setOpenFilterPopover(null)
     }
 
+    const allTableColumns: BIQueryColumn[] = useMemo(() => {
+        if (!selectedTableObject) {
+            return []
+        }
+
+        return flattenFieldNodes(selectedFieldTrees, false).map(({ path, field }) => ({
+            table: selectedTableObject.name,
+            field: path,
+            ...(field && isTemporalField(field) ? { timeInterval: 'day' as BITimeAggregation } : {}),
+        }))
+    }, [selectedFieldTrees, selectedTableObject])
+
+    const allColumnsSelected = useMemo(() => {
+        if (!selectedTableObject || allTableColumns.length === 0) {
+            return false
+        }
+
+        const selectedFieldNames = new Set(
+            selectedColumns.filter((column) => column.table === selectedTableObject.name).map((column) => column.field)
+        )
+
+        return allTableColumns.every((column) => selectedFieldNames.has(column.field))
+    }, [allTableColumns, selectedColumns, selectedTableObject])
+
     const addAllColumnsToQuery = (): void => {
         if (!selectedTableObject) {
             return
         }
 
-        const columnsToAdd: BIQueryColumn[] = flattenFieldNodes(selectedFieldTrees, false).map(({ path, field }) => ({
-            table: selectedTableObject.name,
-            field: path,
-            ...(field && isTemporalField(field) ? { timeInterval: 'day' as BITimeAggregation } : {}),
-        }))
+        if (allColumnsSelected) {
+            const defaultColumn = defaultColumnForTable(selectedTableObject)
 
-        if (columnsToAdd.length === 0) {
+            if (defaultColumn) {
+                setColumns([defaultColumn])
+            }
+
             return
         }
 
-        setColumns(dedupeColumns(columnsToAdd))
+        if (allTableColumns.length === 0) {
+            return
+        }
+
+        setColumns(dedupeColumns(allTableColumns))
     }
 
     return (
@@ -622,6 +651,7 @@ export function BIScene(): JSX.Element {
                                             icon={<IconAsterisk />}
                                             onClick={addAllColumnsToQuery}
                                             tooltip={<>Select all columns</>}
+                                            active={allColumnsSelected}
                                         />
                                     )}
                                 </div>
