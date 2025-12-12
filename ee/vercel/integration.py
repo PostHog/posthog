@@ -217,15 +217,17 @@ class VercelIntegration:
     @staticmethod
     def get_vercel_plans() -> list[dict[str, Any]]:
         # Single usage-based plan matching posthog.com model
+        # Billing is handled through PostHog's billing service, not Vercel
         return [
             {
                 "id": "posthog-usage-based",
                 "type": "subscription",
                 "name": "PostHog",
-                "description": "Usage-based analytics. First 1M events free.",
+                "description": "Usage-based analytics. First 1M events free. View pricing: https://posthog.com/pricing",
                 "scope": "installation",
                 "paymentMethodRequired": False,
                 "details": [
+                    {"label": "Pricing details", "value": "https://posthog.com/pricing"},
                     {"label": "Data retention", "value": "7 years"},
                     {"label": "Projects", "value": "Unlimited"},
                     {"label": "Team members", "value": "Unlimited"},
@@ -377,14 +379,9 @@ class VercelIntegration:
     @staticmethod
     def get_installation_billing_plan(installation_id: str) -> dict[str, Any]:
         VercelIntegration._get_installation(installation_id)
-        billing_plans = VercelIntegration.get_vercel_plans()
 
-        # Return the single usage-based plan (auto-assigned on install)
-        current_plan = billing_plans[0]
-
-        return {
-            "billingplan": current_plan,
-        }
+        # No billing plans - billing is handled through PostHog's billing service
+        return {}
 
     @staticmethod
     def update_installation(installation_id: str, billing_plan_id: str) -> None:
