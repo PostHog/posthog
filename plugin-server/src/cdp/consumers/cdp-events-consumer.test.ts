@@ -346,6 +346,118 @@ describe.each([
                     },
                 ])
             })
+
+            describe('quota limiting', () => {
+                let mockIsTeamQuotaLimited: jest.SpyInstance
+
+                beforeEach(() => {
+                    mockIsTeamQuotaLimited = jest.spyOn(processor['hub']['quotaLimiting'], 'isTeamQuotaLimited')
+                })
+
+                afterEach(() => {
+                    mockIsTeamQuotaLimited.mockRestore()
+                })
+
+                it('should count quota limited invocations but still process them (monitoring mode)', async () => {
+                    // Set team as quota limited
+                    mockIsTeamQuotaLimited.mockResolvedValue(true)
+
+                    const { invocations } = await processor.processBatch([globals])
+
+                    // Should still process invocations (not enforcing quota limit yet)
+                    expect(invocations).toHaveLength(2)
+                    expect(invocations).toMatchObject([
+                        matchInvocation(fnFetchNoFilters, globals),
+                        matchInvocation(fnPrinterPageviewFilters, globals),
+                    ])
+
+                    // Verify that billable_invocation metrics are still written
+                    const producedMetrics =
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                    const billableMetrics = producedMetrics.filter(
+                        (m: any) => m.value.metric_name === 'billable_invocation'
+                    )
+
+                    if (hogType === 'destination') {
+                        expect(billableMetrics).toHaveLength(2)
+                    } else {
+                        expect(billableMetrics).toHaveLength(0)
+                    }
+                })
+
+                it('should not count quota limited teams with legacy addon', async () => {
+                    // Set team as quota limited
+                    mockIsTeamQuotaLimited.mockResolvedValue(true)
+
+                    // Mock team having legacy addon
+                    const teamWithLegacyAddon: Team = {
+                        ...team,
+                        available_features: ['data_pipelines'],
+                    }
+                    jest.spyOn(processor['hub']['teamManager'], 'getTeam').mockResolvedValue(teamWithLegacyAddon)
+                    jest.spyOn(processor['hub']['teamManager'], 'getTeams').mockResolvedValue({
+                        [team.id]: teamWithLegacyAddon,
+                    })
+
+                    const { invocations } = await processor.processBatch([globals])
+
+                    // Should still process invocations (legacy addon exemption)
+                    expect(invocations).toHaveLength(2)
+
+                    // Verify billable_invocation metrics are written
+                    const producedMetrics =
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                    const billableMetrics = producedMetrics.filter(
+                        (m: any) => m.value.metric_name === 'billable_invocation'
+                    )
+
+                    if (hogType === 'destination') {
+                        expect(billableMetrics).toHaveLength(2)
+                    }
+                })
+
+                it('should handle quota check failures gracefully', async () => {
+                    // Make quota check throw an error
+                    mockIsTeamQuotaLimited.mockRejectedValue(new Error('Redis connection failed'))
+
+                    const { invocations } = await processor.processBatch([globals])
+
+                    // Should still process invocations when quota check fails
+                    expect(invocations).toHaveLength(2)
+
+                    // Verify billable_invocation metrics are still written
+                    const producedMetrics =
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                    const billableMetrics = producedMetrics.filter(
+                        (m: any) => m.value.metric_name === 'billable_invocation'
+                    )
+
+                    if (hogType === 'destination') {
+                        expect(billableMetrics).toHaveLength(2)
+                    }
+                })
+
+                it('should handle mixed quota limited and non-limited invocations correctly', async () => {
+                    // First call returns true (quota limited), second returns false
+                    mockIsTeamQuotaLimited.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+
+                    const { invocations } = await processor.processBatch([globals])
+
+                    // Both should still be processed (monitoring mode)
+                    expect(invocations).toHaveLength(2)
+
+                    // Verify billable_invocation metrics for both
+                    const producedMetrics =
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                    const billableMetrics = producedMetrics.filter(
+                        (m: any) => m.value.metric_name === 'billable_invocation'
+                    )
+
+                    if (hogType === 'destination') {
+                        expect(billableMetrics).toHaveLength(2)
+                    }
+                })
+            })
         })
 
         describe('filtering errors', () => {
