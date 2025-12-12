@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,17 +12,16 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
+use crate::deduplication_batch_processor::{
+    BatchDeduplicationProcessor, DeduplicationConfig, DuplicateEventProducerWrapper,
+};
 use crate::{
     checkpoint::config::CheckpointConfig,
     checkpoint::export::CheckpointExporter,
     checkpoint::s3_uploader::S3Uploader,
     checkpoint_manager::CheckpointManager,
     config::Config,
-    deduplication_processor::{
-        DeduplicationConfig, DeduplicationProcessor, DuplicateEventProducerWrapper,
-    },
     kafka::{batch_consumer::BatchConsumer, ConsumerConfigBuilder},
-    processor_pool::ProcessorPool,
     processor_rebalance_handler::ProcessorRebalanceHandler,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
@@ -35,8 +34,6 @@ pub struct KafkaDeduplicatorService {
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
     cleanup_task_handle: Option<CleanupTaskHandle>,
-    processor_pool_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
-    processor_pool_health: Option<Arc<AtomicBool>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     liveness: HealthRegistry,
     service_health: Option<HealthHandle>,
@@ -131,8 +128,6 @@ impl KafkaDeduplicatorService {
             store_manager,
             checkpoint_manager: Some(checkpoint_manager),
             cleanup_task_handle,
-            processor_pool_handles: None,
-            processor_pool_health: None,
             shutdown_tx: None,
             liveness,
             service_health: None,
@@ -233,7 +228,7 @@ impl KafkaDeduplicatorService {
         };
 
         // Create a processor with the store manager and both producers
-        let processor = DeduplicationProcessor::new(
+        let processor = BatchDeduplicationProcessor::new(
             dedup_config,
             self.store_manager.clone(),
             main_producer,
@@ -249,28 +244,20 @@ impl KafkaDeduplicatorService {
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
                 .with_tls(self.config.kafka_tls)
+                .with_max_partition_fetch_bytes(
+                    self.config.kafka_consumer_max_partition_fetch_bytes,
+                )
+                .with_topic_metadata_refresh_interval_ms(
+                    self.config.kafka_topic_metadata_refresh_interval_ms,
+                )
+                .with_metadata_max_age_ms(self.config.kafka_metadata_max_age_ms)
                 .with_sticky_partition_assignment(self.config.pod_hostname.as_deref())
-                .offset_reset(&self.config.kafka_consumer_offset_reset)
+                .with_offset_reset(&self.config.kafka_consumer_offset_reset)
                 .build();
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         self.shutdown_tx = Some(shutdown_tx);
-
-        // Create processor pool with configured number of workers
-        let num_workers = self.config.worker_threads;
-        let (message_sender, processor_pool) = ProcessorPool::new(processor, num_workers);
-
-        // Start the processor pool workers and get health status
-        let (pool_handles, pool_health) = processor_pool.start();
-        self.processor_pool_handles = Some(pool_handles);
-        self.processor_pool_health = Some(pool_health.clone());
-
-        // Register processor pool as a separate health component
-        let pool_health_handle = self
-            .liveness
-            .register("processor_pool".to_string(), Duration::from_secs(30))
-            .await;
 
         // start checkpoint manager and async work loop threads, register health monitor
         let checkpoint_health_reporter = self.checkpoint_manager.as_mut().unwrap().start();
@@ -306,41 +293,16 @@ impl KafkaDeduplicatorService {
         }
 
         info!(
-            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?}, checkpoint_cleanup interval = {:?})",
+            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?})",
             self.checkpoint_manager.as_ref().unwrap().export_enabled(),
             self.config.checkpoint_interval(),
-            self.config.checkpoint_cleanup_interval(),
         );
-
-        // Spawn task to report processor pool health
-        let pool_health_reporter = pool_health.clone();
-        let cancellation = self.health_task_cancellation.child_token();
-        let handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(10));
-            loop {
-                tokio::select! {
-                    _ = cancellation.cancelled() => {
-                        break;
-                    }
-                    _ = interval.tick() => {
-                        if pool_health_reporter.load(Ordering::SeqCst) {
-                            pool_health_handle.report_healthy().await;
-                        } else {
-                            // Explicitly report unhealthy when a worker dies
-                            pool_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
-                            error!("Processor pool is unhealthy - worker died");
-                        }
-                    }
-                }
-            }
-        });
-        self.health_task_handles.push(handle);
 
         // Create stateful Kafka consumer that sends to the processor pool
         let kafka_consumer = BatchConsumer::new(
             &consumer_config,
             rebalance_handler,
-            message_sender,
+            Arc::new(processor),
             shutdown_rx,
             &self.config.kafka_consumer_topic,
             self.config.kafka_consumer_batch_size,
@@ -429,13 +391,6 @@ impl KafkaDeduplicatorService {
             checkpoint_manager.stop().await;
         }
 
-        // Wait for processor pool workers to finish
-        if let Some(handles) = self.processor_pool_handles.take() {
-            for handle in handles {
-                let _ = handle.await;
-            }
-        }
-
         // Wait for consumer to finish with timeout
         match tokio::time::timeout(self.config.shutdown_timeout(), consumer_handle).await {
             Ok(Ok(Ok(_))) => info!("Consumer stopped normally"),
@@ -512,13 +467,6 @@ impl KafkaDeduplicatorService {
         // Stop the checkpoint manager
         if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
             checkpoint_manager.stop().await;
-        }
-
-        // Wait for processor pool workers to finish
-        if let Some(handles) = self.processor_pool_handles.take() {
-            for handle in handles {
-                let _ = handle.await;
-            }
         }
 
         // Wait for consumer to finish with timeout

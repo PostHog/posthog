@@ -131,9 +131,11 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 4  # campaign, id, source, conversion
+        assert len(final_query.select) == 5  # campaign, id, source, match_key, conversion
 
-        conversion_column = final_query.select[3]  # Index 3 is the first conversion column (after campaign, id, source)
+        conversion_column = final_query.select[
+            4
+        ]  # Index 4 is the first conversion column (after campaign, id, source, match_key)
         assert isinstance(conversion_column, ast.Alias)
         assert conversion_column.alias == self.config.get_conversion_goal_column_name(0)
         assert isinstance(conversion_column.expr, ast.Call)
@@ -156,9 +158,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 6  # campaign, id, source, 3 conversions
+        assert len(final_query.select) == 7  # campaign, id, source, match_key, 3 conversions
 
-        conversion_columns = final_query.select[3:]  # Skip campaign, id, source
+        conversion_columns = final_query.select[4:]  # Skip campaign, id, source, match_key
         assert len(conversion_columns) == 3
 
         for i, column in enumerate(conversion_columns):
@@ -197,7 +199,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 5  # campaign, id, source, 2 conversions
+        assert len(final_query.select) == 6  # campaign, id, source, match_key, 2 conversions
         assert isinstance(final_query.select_from, ast.JoinExpr)
         # The table can be either SelectQuery (single processor) or SelectSetQuery (UNION ALL for multiple processors)
         assert isinstance(final_query.select_from.table, ast.SelectQuery | ast.SelectSetQuery)
@@ -339,7 +341,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 6  # campaign, id, source, 3 conversions
+        assert len(final_query.select) == 7  # campaign, id, source, match_key, 3 conversions
 
         columns = aggregator.get_conversion_goal_columns()
         assert len(columns) == 6
@@ -377,9 +379,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 6  # campaign, id, source, 3 conversions
+        assert len(final_query.select) == 7  # campaign, id, source, match_key, 3 conversions
 
-        conversion_columns = final_query.select[3:]  # Skip campaign, id, source
+        conversion_columns = final_query.select[4:]  # Skip campaign, id, source, match_key
         expected_names = [
             self.config.get_conversion_goal_column_name(0),
             self.config.get_conversion_goal_column_name(1),
@@ -415,7 +417,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        conversion_column = final_query.select[3]  # Index 3 is the first conversion column (after campaign, id, source)
+        conversion_column = final_query.select[
+            4
+        ]  # Index 4 is the first conversion column (after campaign, id, source, match_key)
         assert isinstance(conversion_column, ast.Alias)
         assert conversion_column.alias == self.config.get_conversion_goal_column_name(999)
         assert isinstance(conversion_column.expr, ast.Call)
@@ -446,7 +450,9 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
-        assert len(final_query.select) == 13  # 3 grouping fields (campaign, id, source) + 10 conversion goals
+        assert (
+            len(final_query.select) == 14
+        )  # 4 grouping fields (campaign, id, source, match_key) + 10 conversion goals
 
         columns = aggregator.get_conversion_goal_columns()
         assert len(columns) == 20

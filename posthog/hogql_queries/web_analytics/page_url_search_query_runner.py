@@ -45,28 +45,27 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner[WebPageURLSearchQueryResp
             sampling_factor = self._sample_ratio
             limit = self.query.limit or PAGE_URL_SEARCH_DEFAULT_LIMIT
 
+            where_exprs = [
+                ast.CompareOperation(
+                    left=ast.Field(chain=["event"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value="$pageview"),
+                ),
+                search_condition,
+                self._current_period_expression(field="timestamp"),
+            ]
+
             select_query = ast.SelectQuery(
                 select=[
                     ast.Alias(alias="url", expr=url_column),
-                    ast.Alias(alias="count", expr=ast.Call(name="count", args=[])),
                 ],
                 distinct=True,
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
                     sample=ast.SampleExpr(sample_value=sampling_factor),
                 ),
-                where=ast.And(
-                    exprs=[
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["event"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Constant(value="$pageview"),
-                        ),
-                        search_condition,
-                    ]
-                ),
-                group_by=[ast.Field(chain=["url"])],
-                order_by=[ast.OrderExpr(expr=ast.Field(chain=["count"]), order="DESC")],
+                where=ast.And(exprs=where_exprs),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["url"]), order="ASC")],
                 limit=ast.Constant(value=limit),
             )
 
@@ -88,10 +87,7 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner[WebPageURLSearchQueryResp
             limit_context=self.limit_context,
         )
 
-        results = [
-            PageURL(url=str(row[0]) if row[0] is not None else "", count=int(round(self._unsample(float(row[1])) or 0)))
-            for row in response.results
-        ]
+        results = [PageURL(url=str(row[0]) if row[0] is not None else "") for row in response.results]
 
         return WebPageURLSearchQueryResponse(
             results=results,

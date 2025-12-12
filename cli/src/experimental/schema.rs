@@ -14,6 +14,7 @@ use crate::invocation_context::context;
 enum Language {
     TypeScript,
     Golang,
+    Python,
 }
 
 impl Language {
@@ -22,6 +23,7 @@ impl Language {
         match self {
             Language::TypeScript => "typescript",
             Language::Golang => "golang",
+            Language::Python => "python",
         }
     }
 
@@ -30,6 +32,7 @@ impl Language {
         match self {
             Language::TypeScript => "TypeScript",
             Language::Golang => "Go",
+            Language::Python => "Python",
         }
     }
 
@@ -38,6 +41,8 @@ impl Language {
         match self {
             Language::TypeScript => "posthog-typed.ts",
             Language::Golang => "posthog-typed.go",
+            // Python uses underscore because hyphens aren't valid in Python module names
+            Language::Python => "posthog_typed.py",
         }
     }
 
@@ -60,7 +65,7 @@ impl Language {
    go get github.com/posthog/posthog-go
 2. Store the generated Go code in a folder named `typed` (e.g. `/src/lib/typed`):
    mkdir -p <your-directory>/src/lib/typed
-   mv {0}.go <your-directory>/src/lib/typed
+   mv {output_path} <your-directory>/src/lib/typed
    > If you prefer a different folder, you will need to update the `package` at the top of
    > the generated file.
 3. Migrate your code to the typed event captures:
@@ -70,15 +75,37 @@ impl Language {
 You can add optional properties through the option functions:
     cap := typed.EventNameCapture("user_id", required,
        typed.EventNameWithOptionalProp("value"))
-"#,
-                output_path.trim_end_matches(".go")
+"#
+            ),
+            Language::Python => format!(
+                r#"
+1. Save the generated file in your project (if not generated there already):
+   mv {output_path} <your-project>/posthog_typed.py
+
+2. Import and use the typed PostHog client:
+   from posthog_typed import PosthogTyped
+
+   client = PosthogTyped("<ph_project_api_key>", host="<ph_client_api_host>")
+
+   # Use typed capture methods with full IDE autocomplete:
+   client.capture_event_name(
+       required_property="value",
+       distinct_id="user_123",
+   )
+
+3. All standard Posthog methods are available:
+   client.identify(...)
+   client.capture(...)  # For untyped/dynamic events
+   client.flush()
+   client.shutdown()
+"#
             ),
         }
     }
 
     /// Get all available languages
     fn all() -> Vec<Language> {
-        vec![Language::TypeScript, Language::Golang]
+        vec![Language::TypeScript, Language::Golang, Language::Python]
     }
 
     /// Parse a language from a string identifier
@@ -86,6 +113,7 @@ You can add optional properties through the option functions:
         match s {
             "typescript" => Some(Language::TypeScript),
             "golang" => Some(Language::Golang),
+            "python" => Some(Language::Python),
             _ => None,
         }
     }

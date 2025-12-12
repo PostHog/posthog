@@ -2,8 +2,11 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadContext
 
 import structlog
 import posthoganalytics
@@ -19,6 +22,7 @@ from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantMessage,
+    AssistantToolCallMessage,
     AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
@@ -34,15 +38,16 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
-from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.helpers import extract_stream_update
+from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_PROVIDER_ERROR_COUNTER, GenerationCanceled
+from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
+from ee.hogai.utils.helpers import extract_stream_update, find_last_message_of_type
 from ee.hogai.utils.state import validate_state_update
 from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
-    AssistantMessageUnion,
     AssistantMode,
     AssistantOutput,
     AssistantResultUnion,
+    AssistantStreamedMessageUnion,
     LangGraphUpdateEvent,
 )
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState
@@ -61,13 +66,14 @@ class BaseAgentRunner(ABC):
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
     _session_id: Optional[str]
-    _latest_message: Optional[HumanMessage]
+    _latest_message: Optional[HumanMessage | AssistantToolCallMessage]
     _state: Optional[AssistantMaxGraphState]
     _callback_handlers: list[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
     _billing_context: Optional[MaxBillingContext]
     _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
     _stream_processor: AssistantStreamProcessorProtocol
+    _slack_thread_context: Optional["SlackThreadContext"]
     """The stream processor that processes dispatcher actions and message chunks."""
 
     def __init__(
@@ -89,6 +95,7 @@ class BaseAgentRunner(ABC):
         initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
         callback_handler: Optional[BaseCallbackHandler] = None,
         stream_processor: AssistantStreamProcessorProtocol,
+        slack_thread_context: Optional["SlackThreadContext"] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -121,6 +128,7 @@ class BaseAgentRunner(ABC):
                     distinct_id=user.distinct_id if user else None,
                     properties=callback_properties,
                     trace_id=trace_id,
+                    privacy_mode=is_privacy_mode_enabled(team),
                 )
 
             # Local deployment or hobby
@@ -139,6 +147,7 @@ class BaseAgentRunner(ABC):
         self._initial_state = initial_state
         # Initialize the stream processor with node configuration
         self._stream_processor = stream_processor
+        self._slack_thread_context = slack_thread_context
 
     @abstractmethod
     def get_initial_state(self) -> AssistantMaxGraphState:
@@ -150,20 +159,20 @@ class BaseAgentRunner(ABC):
         """The state of the graph after a resume."""
         pass
 
-    async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
+    async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]]:
         """Returns all messages at once without streaming."""
-        messages: list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]] = []
+        messages: list[tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]] = []
 
         async for event_type, message in self.astream(
             stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
         ):
             messages.append(
-                (cast(Literal[AssistantEventType.MESSAGE], event_type), cast(AssistantMessageUnion, message))
+                (cast(Literal[AssistantEventType.MESSAGE], event_type), cast(AssistantStreamedMessageUnion, message))
             )
         return messages
 
     @async_to_sync
-    async def invoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
+    async def invoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]]:
         """Sync method. Returns all messages in once without streaming."""
         return await self.ainvoke()
 
@@ -198,8 +207,8 @@ class BaseAgentRunner(ABC):
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
-                            if isinstance(message, get_args(AssistantMessageUnion)):
-                                message = cast(AssistantMessageUnion, message)
+                            if isinstance(message, get_args(AssistantStreamedMessageUnion)):
+                                message = cast(AssistantStreamedMessageUnion, message)
                                 yield AssistantEventType.MESSAGE, message
 
                             if stream_only_assistant_messages:
@@ -216,6 +225,8 @@ class BaseAgentRunner(ABC):
                     interrupt_messages = []
                     for task in state.tasks:
                         for interrupt in task.interrupts:
+                            if interrupt.value is None:
+                                continue  # Skip None interrupts (used by create_form)
                             interrupt_message = (
                                 AssistantMessage(content=interrupt.value, id=str(uuid4()))
                                 if isinstance(interrupt.value, str)
@@ -237,6 +248,29 @@ class BaseAgentRunner(ABC):
                     AssistantEventType.MESSAGE,
                     FailureMessage(
                         content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
+                        id=str(uuid4()),
+                    ),
+                )
+            except LLM_API_EXCEPTIONS as e:
+                # Reset the state for LLM provider errors
+                await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                # This is safe since partition always returns a tuple of three elements no matter the matching
+                provider = type(e).__module__.partition(".")[0] or "unknown_provider"
+                LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
+                logger.exception("llm_provider_error", error=str(e), provider=provider)
+                posthoganalytics.capture_exception(
+                    e,
+                    distinct_id=self._user.distinct_id if self._user else None,
+                    properties={
+                        "error_type": "llm_provider_error",
+                        "provider": provider,
+                        "tag": "max_ai",
+                    },
+                )
+                yield (
+                    AssistantEventType.MESSAGE,
+                    FailureMessage(
+                        content="I'm unable to respond right now due to a temporary service issue. Please try again later.",
                         id=str(uuid4()),
                     ),
                 )
@@ -268,6 +302,7 @@ class BaseAgentRunner(ABC):
                 "team": self._team,
                 "user": self._user,
                 "billing_context": self._billing_context,
+                "slack_thread_context": self._slack_thread_context,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).
                 "sdk_metadata": {
                     "assistant_mode": self._mode.value,
@@ -283,6 +318,10 @@ class BaseAgentRunner(ABC):
         snapshot = await self._graph.aget_state(config)
         saved_state = validate_state_update(snapshot.values, self._state_type)
         last_recorded_dt = saved_state.start_dt
+
+        # When resuming after a create_form interrupt, create the tool call response message
+        if form_response_message := self._get_form_response_message(saved_state):
+            self._latest_message = form_response_message
 
         # Add existing ids to streamed messages, so we don't send the messages again.
         for message in saved_state.messages:
@@ -324,9 +363,9 @@ class BaseAgentRunner(ABC):
         update = extract_stream_update(update)
 
         if not isinstance(update, AssistantDispatcherEvent):
-            if updates := self._stream_processor.process_langgraph_update(LangGraphUpdateEvent(update=update)):
+            if updates := await self._stream_processor.process_langgraph_update(LangGraphUpdateEvent(update=update)):
                 return updates
-        elif new_message := self._stream_processor.process(update):
+        elif new_message := await self._stream_processor.process(update):
             return new_message
 
         return None
@@ -380,4 +419,42 @@ class BaseAgentRunner(ABC):
                 "tag": "max_ai",
                 "$groups": event_usage.groups(team=self._team),
             },
+        )
+
+    def _get_form_response_message(self, saved_state: AssistantMaxGraphState) -> AssistantToolCallMessage | None:
+        """
+        When resuming after a create_form tool call (which raises NodeInterrupt(None)),
+        create an AssistantToolCallMessage with the user's response content and parsed answers in ui_payload.
+        """
+        if not saved_state.messages or not self._latest_message:
+            return None
+
+        # Form responses must come from a HumanMessage
+        if not isinstance(self._latest_message, HumanMessage):
+            return None
+
+        # Check if we have form answers in the ui_context
+        if not self._latest_message.ui_context or not self._latest_message.ui_context.form_answers:
+            return None
+
+        # Find the last assistant message with tool calls
+        last_assistant_message = find_last_message_of_type(saved_state.messages, AssistantMessage)
+        if not last_assistant_message or not last_assistant_message.tool_calls:
+            return None
+
+        # Find the create_form tool call
+        create_form_tool_call = next(
+            (tc for tc in last_assistant_message.tool_calls if tc.name == "create_form"),
+            None,
+        )
+        if not create_form_tool_call:
+            return None
+
+        answers = self._latest_message.ui_context.form_answers
+
+        return AssistantToolCallMessage(
+            content=self._latest_message.content or "",
+            id=str(uuid4()),
+            tool_call_id=create_form_tool_call.id,
+            ui_payload={"create_form": {"answers": answers}},
         )

@@ -183,7 +183,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
-            table_size_mib=self.size_in_s3_mib,
+            table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
         logger = structlog.get_logger(__name__)
         try:
@@ -288,7 +288,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
-            table_size_mib=self.size_in_s3_mib,
+            table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
         try:
             # chdb hangs in CI during tests

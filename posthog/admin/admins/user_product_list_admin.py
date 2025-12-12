@@ -2,13 +2,11 @@ from django.contrib import admin
 
 
 class UserProductListAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "team", "product_path", "reason", "enabled", "created_at", "updated_at")
+    list_display = ("id", "user", "team", "product_path", "reason", "enabled", "updated_at")
     list_display_links = ("id",)
     list_filter = (
         "reason",
         "product_path",
-        "team",
-        "user",
         "enabled",
         ("created_at", admin.DateFieldListFilter),
     )

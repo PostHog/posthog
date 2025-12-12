@@ -1,245 +1,172 @@
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
+import { SurveyQuestionType } from 'posthog-js'
+import { useMemo, useRef } from 'react'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonModal, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { addProductIntent } from 'lib/utils/product-intents'
-import { AddEventButton } from 'scenes/surveys/AddEventButton'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { SurveyPopupToggle } from 'scenes/surveys/SurveySettings'
-import { NewSurvey, SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from 'scenes/surveys/constants'
-import { surveysLogic } from 'scenes/surveys/surveysLogic'
-import { urls } from 'scenes/urls'
+import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
+import { getSurveyVersionWarnings } from 'scenes/surveys/surveyVersionRequirements'
+import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { FeatureFlagType, PropertyDefinitionType, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { Survey } from '~/types'
 
-export interface QuickSurveyFormProps {
-    flag: FeatureFlagType
-    onCancel?: () => void
-    initialVariantKey?: string | null
-}
+import { EventSelector } from './quick-create/components/EventSelector'
+import { ExceptionFilters } from './quick-create/components/ExceptionFilters'
+import { FunnelSequence } from './quick-create/components/FunnelSequence'
+import { URLInput } from './quick-create/components/URLInput'
+import { VariantSelector } from './quick-create/components/VariantSelector'
+import {
+    DEFAULT_RATING_LOWER_LABEL,
+    DEFAULT_RATING_UPPER_LABEL,
+    QuickSurveyCreateMode,
+    QuickSurveyFormLogicProps,
+    quickSurveyFormLogic,
+} from './quick-create/quickSurveyFormLogic'
+import { QuickSurveyFormProps, QuickSurveyType } from './quick-create/types'
+import { buildLogicProps } from './quick-create/utils'
 
-export function QuickSurveyForm({ flag, onCancel, initialVariantKey }: QuickSurveyFormProps): JSX.Element {
-    const flagName = flag.name || flag.key
-    const [question, setQuestion] = useState(`You're trying our latest new feature. What do you think?`)
-    const [targetVariant, setTargetVariant] = useState<string | null>(initialVariantKey || null)
-    const [targetUrl, setTargetUrl] = useState<string>('')
-    const [selectedEvents, setSelectedEvents] = useState<string[]>([])
-    const [isCreating, setIsCreating] = useState(false)
-
-    const { showSurveysDisabledBanner } = useValues(surveysLogic)
-    const { loadSurveys } = useActions(surveysLogic)
-    const { reportSurveyCreated } = useActions(eventUsageLogic)
-    const { options } = useValues(propertyDefinitionsModel)
-    const { loadPropertyValues } = useActions(propertyDefinitionsModel)
-
-    const shouldShowSurveyToggle = useRef(!!showSurveysDisabledBanner).current
-
-    const variants = flag.filters?.multivariate?.variants || []
-    const isMultivariate = variants.length > 1
-    const urlOptions = options['$current_url']
-
-    useEffect(() => {
-        if (urlOptions?.status !== 'loading' && urlOptions?.status !== 'loaded') {
-            loadPropertyValues({
-                endpoint: undefined,
-                type: PropertyDefinitionType.Event,
-                propertyKey: '$current_url',
-                newInput: '',
-                eventNames: [],
-                properties: [],
-            })
+export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProps): JSX.Element {
+    const logicProps: QuickSurveyFormLogicProps = useMemo(() => {
+        return {
+            ...buildLogicProps(context),
+            onSuccess: onCancel,
         }
-    }, [urlOptions?.status, loadPropertyValues])
+    }, [context, onCancel])
 
-    const buildSurveyData = useCallback(
-        (launch: boolean): Partial<Survey> => {
-            const randomId = Math.random().toString(36).substring(2, 8)
-            return {
-                name: `${flagName}${targetVariant ? ` (${targetVariant})` : ''} - Quick feedback #${randomId}`,
-                type: SurveyType.Popover,
-                questions: [
-                    {
-                        type: SurveyQuestionType.Open,
-                        question: question.trim(),
-                        optional: false,
-                    },
-                ],
-                conditions: {
-                    actions: null,
-                    events: {
-                        values: selectedEvents.map((name) => ({ name })),
-                    },
-                    ...(targetVariant ? { linkedFlagVariant: targetVariant } : {}),
-                    ...(targetUrl ? { url: targetUrl } : {}),
-                },
-                linked_flag_id: flag.id,
-                appearance: defaultSurveyAppearance,
-                ...(launch ? { start_date: dayjs().toISOString() } : {}),
-            }
-        },
-        [flagName, question, targetVariant, targetUrl, selectedEvents, flag.id]
+    const { surveyForm, previewSurvey, isSurveyFormSubmitting, submitDisabledReason } = useValues(
+        quickSurveyFormLogic(logicProps)
+    )
+    const { setSurveyFormValue, setCreateMode } = useActions(quickSurveyFormLogic(logicProps))
+
+    const { currentTeam } = useValues(teamLogic)
+    const { teamSdkVersions } = useValues(surveysSdkLogic)
+    const shouldShowSurveyToggle = useRef(!currentTeam?.surveys_opt_in).current
+
+    const versionWarnings = useMemo(
+        () => getSurveyVersionWarnings(previewSurvey as Survey, teamSdkVersions),
+        [previewSurvey, teamSdkVersions]
     )
 
-    const previewSurvey: NewSurvey = useMemo(
-        () =>
-            ({
-                ...buildSurveyData(false),
-                id: 'new',
-                created_at: '',
-                created_by: null,
-            }) as NewSurvey,
-        [buildSurveyData]
-    )
-
-    const handleCreate = async ({ createType }: { createType: 'launch' | 'edit' | 'draft' }): Promise<void> => {
-        if (!question.trim()) {
-            return
-        }
-
-        const shouldLaunch = createType === 'launch'
-        setIsCreating(true)
-        try {
-            const surveyData = buildSurveyData(shouldLaunch)
-            const response = await api.surveys.create(surveyData)
-
-            reportSurveyCreated(response)
-            addProductIntent({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEY_CREATED,
-                metadata: {
-                    survey_id: response.id,
-                    source: SURVEY_CREATED_SOURCE.FEATURE_FLAGS,
-                    created_successfully: true,
-                    quick_survey: true,
-                    create_mode: createType,
-                },
-            })
-
-            lemonToast.success(shouldLaunch ? 'Survey created and launched!' : 'Survey created as draft')
-            router.actions.push(`${urls.survey(response.id)}${createType === 'edit' ? '?edit=true' : ''}`)
-            if (onCancel) {
-                onCancel()
-            }
-        } catch (error) {
-            lemonToast.error('Failed to create survey')
-            console.error('Survey creation error:', error)
-        } finally {
-            setIsCreating(false)
-            loadSurveys()
-        }
+    const handleSubmit = (mode: QuickSurveyCreateMode): void => {
+        setCreateMode(mode)
     }
 
     return (
-        <>
-            <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-4">
-                    <div>
-                        <LemonLabel className="mb-2">Question for users</LemonLabel>
-                        <LemonTextArea
-                            value={question}
-                            onChange={(value) => setQuestion(value)}
-                            placeholder="What do you think?"
-                            minRows={2}
-                            data-attr="quick-survey-question-input"
-                        />
-                    </div>
+        <BindLogic logic={quickSurveyFormLogic} props={logicProps}>
+            {info && <LemonBanner type="info">{info}</LemonBanner>}
 
-                    {isMultivariate && (
+            <div className="grid grid-cols-2 gap-6 mt-2">
+                <div className="space-y-4">
+                    {context.type !== QuickSurveyType.ANNOUNCEMENT && (
                         <div>
-                            <LemonLabel>Who should see this survey?</LemonLabel>
-                            <div className="space-y-2 mt-2">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="radio"
-                                        checked={targetVariant === null}
-                                        onChange={() => setTargetVariant(null)}
-                                        className="cursor-pointer"
+                            <LemonLabel className="mb-2">Question for users</LemonLabel>
+                            <LemonTextArea
+                                value={surveyForm.question}
+                                onChange={(value) => setSurveyFormValue('question', value)}
+                                placeholder="What do you think?"
+                                minRows={2}
+                                data-attr="quick-survey-question-input"
+                                onFocus={(e) => e.currentTarget.select()}
+                            />
+                        </div>
+                    )}
+
+                    {context.type === QuickSurveyType.ANNOUNCEMENT && (
+                        <>
+                            <div>
+                                <LemonLabel className="mb-2">Title</LemonLabel>
+                                <LemonInput
+                                    value={surveyForm.question}
+                                    onChange={(value) => setSurveyFormValue('question', value)}
+                                    placeholder="Hog mode is now available!"
+                                    data-attr="quick-survey-question-input"
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
+                            </div>
+
+                            <div>
+                                <LemonLabel className="mb-2">Description</LemonLabel>
+                                <LemonTextArea
+                                    value={surveyForm.description}
+                                    onChange={(value) => setSurveyFormValue('description', value)}
+                                    placeholder="You can never have too many hedgehogs."
+                                    minRows={2}
+                                    data-attr="quick-survey-question-input"
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <LemonLabel className="mb-2">Button text</LemonLabel>
+                                    <LemonInput
+                                        value={surveyForm.buttonText}
+                                        onChange={(value) => setSurveyFormValue('buttonText', value)}
+                                        placeholder="Check it out 👉"
+                                        data-attr="quick-survey-question-input"
+                                        onFocus={(e) => e.currentTarget.select()}
                                     />
-                                    <span className="text-sm">All users with this flag enabled</span>
-                                </label>
-                                {variants.map((v) => (
-                                    <label key={v.key} className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="radio"
-                                            checked={targetVariant === v.key}
-                                            onChange={() => setTargetVariant(v.key)}
-                                            className="cursor-pointer"
-                                        />
-                                        <span className="text-sm">
-                                            Only users in the <code className="text-xs">{v.key}</code> variant
-                                        </span>
-                                    </label>
-                                ))}
+                                </div>
+                                <div>
+                                    <LemonLabel className="mb-2">Button link</LemonLabel>
+                                    <LemonInput
+                                        value={surveyForm.link}
+                                        placeholder="Optional"
+                                        onChange={(value) => setSurveyFormValue('link', value)}
+                                        data-attr="quick-survey-question-input"
+                                    />
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {surveyForm.questionType === SurveyQuestionType.Rating && (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <LemonLabel className="mb-2">Low rating label</LemonLabel>
+                                <LemonInput
+                                    value={surveyForm.ratingLowerBound || ''}
+                                    onChange={(value) => setSurveyFormValue('ratingLowerBound', value)}
+                                    placeholder={DEFAULT_RATING_LOWER_LABEL}
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
+                            </div>
+                            <div>
+                                <LemonLabel className="mb-2">High rating label</LemonLabel>
+                                <LemonInput
+                                    value={surveyForm.ratingUpperBound || ''}
+                                    onChange={(value) => setSurveyFormValue('ratingUpperBound', value)}
+                                    placeholder={DEFAULT_RATING_UPPER_LABEL}
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
                             </div>
                         </div>
                     )}
 
-                    <div>
-                        <LemonLabel className="mb-2">Target specific URL (optional)</LemonLabel>
-                        <LemonInputSelect
-                            mode="single"
-                            value={targetUrl ? [targetUrl] : []}
-                            onChange={(val) => setTargetUrl(val[0] || '')}
-                            onInputChange={(newInput) => {
-                                loadPropertyValues({
-                                    type: PropertyDefinitionType.Event,
-                                    endpoint: undefined,
-                                    propertyKey: '$current_url',
-                                    newInput: newInput.trim(),
-                                    eventNames: [],
-                                    properties: [],
-                                })
-                            }}
-                            placeholder="All URLs"
-                            allowCustomValues
-                            loading={urlOptions?.status === 'loading'}
-                            options={(urlOptions?.values || []).map(({ name }) => ({
-                                key: String(name),
-                                label: String(name),
-                                value: String(name),
-                            }))}
-                            data-attr="quick-survey-url-input"
-                        />
-                    </div>
+                    {context.type === QuickSurveyType.FEATURE_FLAG && (
+                        <>
+                            <VariantSelector variants={context.flag.filters?.multivariate?.variants || []} />
+                            <EventSelector />
+                        </>
+                    )}
 
-                    <div>
-                        <LemonLabel className="mb-2">Trigger on events (optional)</LemonLabel>
-                        {selectedEvents.length > 0 && (
-                            <div className="space-y-2 mb-2">
-                                {selectedEvents.map((eventName) => (
-                                    <div
-                                        key={eventName}
-                                        className="flex items-center justify-between p-2 border rounded bg-bg-light"
-                                    >
-                                        <span className="text-sm font-medium">{eventName}</span>
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconX />}
-                                            onClick={() =>
-                                                setSelectedEvents(selectedEvents.filter((e) => e !== eventName))
-                                            }
-                                            type="tertiary"
-                                            status="alt"
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        <AddEventButton
-                            onEventSelect={(eventName) => setSelectedEvents([...selectedEvents, eventName])}
-                            excludedEvents={selectedEvents}
-                        />
-                    </div>
+                    {context.type === QuickSurveyType.FUNNEL && <FunnelSequence steps={context.funnel.steps} />}
+
+                    {context.type === QuickSurveyType.EXPERIMENT && (
+                        <>
+                            <VariantSelector
+                                variants={context.experiment.parameters?.feature_flag_variants || []}
+                                defaultOptionText="All users exposed to this experiment"
+                            />
+                            <EventSelector />
+                        </>
+                    )}
+
+                    <URLInput />
                 </div>
 
                 <div>
@@ -249,20 +176,30 @@ export function QuickSurveyForm({ flag, onCancel, initialVariantKey }: QuickSurv
                 </div>
             </div>
 
-            <div className="mt-6">
+            {context.type === QuickSurveyType.ERROR_TRACKING && <ExceptionFilters />}
+
+            <div className="flex flex-col gap-3 mt-4">
                 {shouldShowSurveyToggle && (
-                    <div className="mb-4 p-4 border rounded bg-warning-highlight">
+                    <div className="p-4 border rounded bg-warning-highlight">
                         <SurveyPopupToggle />
                     </div>
+                )}
+
+                <SdkVersionWarnings warnings={versionWarnings} />
+
+                {submitDisabledReason && (
+                    <LemonBanner type="error" className="mb-4">
+                        {submitDisabledReason}
+                    </LemonBanner>
                 )}
 
                 <div className="flex justify-between items-end">
                     <LemonButton
                         type="secondary"
                         size="small"
-                        onClick={() => handleCreate({ createType: 'edit' })}
-                        loading={isCreating}
-                        disabledReason={!question.trim() ? 'Enter a question' : undefined}
+                        onClick={() => handleSubmit('edit')}
+                        loading={isSurveyFormSubmitting}
+                        disabledReason={submitDisabledReason}
                         data-attr="quick-survey-advanced"
                     >
                         Open in advanced editor
@@ -275,9 +212,9 @@ export function QuickSurveyForm({ flag, onCancel, initialVariantKey }: QuickSurv
                         )}
                         <LemonButton
                             type="primary"
-                            onClick={() => handleCreate({ createType: 'launch' })}
-                            loading={isCreating}
-                            disabledReason={!question.trim() ? 'Enter a question' : undefined}
+                            onClick={() => handleSubmit('launch')}
+                            loading={isSurveyFormSubmitting}
+                            disabledReason={submitDisabledReason}
                             data-attr="quick-survey-create"
                             sideAction={{
                                 dropdown: {
@@ -287,7 +224,7 @@ export function QuickSurveyForm({ flag, onCancel, initialVariantKey }: QuickSurv
                                             items={[
                                                 {
                                                     label: 'Save as draft',
-                                                    onClick: () => handleCreate({ createType: 'draft' }),
+                                                    onClick: () => handleSubmit('draft'),
                                                 },
                                             ]}
                                         />
@@ -300,21 +237,26 @@ export function QuickSurveyForm({ flag, onCancel, initialVariantKey }: QuickSurv
                     </div>
                 </div>
             </div>
-        </>
+        </BindLogic>
     )
 }
 
-export interface QuickSurveyModalProps {
-    flag: FeatureFlagType
+export function QuickSurveyModal({
+    context,
+    info,
+    onCancel,
+    isOpen,
+    modalTitle,
+}: {
+    context?: QuickSurveyFormProps['context']
+    info?: QuickSurveyFormProps['info']
+    onCancel: () => void
     isOpen: boolean
-    onClose: () => void
-    initialVariantKey?: string | null
-}
-
-export function QuickSurveyModal({ flag, isOpen, onClose, initialVariantKey }: QuickSurveyModalProps): JSX.Element {
+    modalTitle?: string
+}): JSX.Element {
     return (
-        <LemonModal title="Quick feedback survey" isOpen={isOpen} onClose={onClose} width={900}>
-            <QuickSurveyForm flag={flag} onCancel={onClose} initialVariantKey={initialVariantKey} />
+        <LemonModal title={modalTitle || 'Quick feedback survey'} isOpen={isOpen} onClose={onCancel} width={900}>
+            {context && <QuickSurveyForm context={context} info={info} onCancel={onCancel} />}
         </LemonModal>
     )
 }

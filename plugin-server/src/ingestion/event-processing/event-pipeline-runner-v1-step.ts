@@ -1,31 +1,39 @@
+import { Message } from 'node-rdkafka'
+
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { Hub, IncomingEventWithTeam } from '../../types'
+import { EventHeaders, Hub, IncomingEventWithTeam } from '../../types'
 import { EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { EventPipelineResult } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
-import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
-import { PipelineResult } from '../pipelines/results'
+import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerInput extends IncomingEventWithTeam {
-    personsStoreForBatch: PersonsStoreForBatch
+    headers: EventHeaders
     groupStoreForBatch: GroupStoreForBatch
     processPerson: boolean
     forceDisablePersonProcessing: boolean
 }
 
+export type EventPipelineRunnerStepResult = EventPipelineResult & {
+    inputHeaders: EventHeaders
+    inputMessage: Message
+}
+
 export function createEventPipelineRunnerV1Step(
     hub: Hub,
-    hogTransformer: HogTransformerService
-): ProcessingStep<EventPipelineRunnerInput, EventPipelineResult> {
+    hogTransformer: HogTransformerService,
+    personsStore: PersonsStore
+): ProcessingStep<EventPipelineRunnerInput, EventPipelineRunnerStepResult> {
     return async function eventPipelineRunnerV1Step(
         input: EventPipelineRunnerInput
-    ): Promise<PipelineResult<EventPipelineResult>> {
+    ): Promise<PipelineResult<EventPipelineRunnerStepResult>> {
         const {
             event,
             team,
-            headers,
-            personsStoreForBatch,
+            headers: inputHeaders,
+            message: inputMessage,
             groupStoreForBatch,
             processPerson,
             forceDisablePersonProcessing,
@@ -35,11 +43,21 @@ export function createEventPipelineRunnerV1Step(
             hub,
             event,
             hogTransformer,
-            personsStoreForBatch,
+            personsStore,
             groupStoreForBatch,
-            headers
+            inputHeaders
         )
         const result = await runner.runEventPipeline(event, team, processPerson, forceDisablePersonProcessing)
+
+        if (isOkResult(result)) {
+            const stepResult: EventPipelineRunnerStepResult = {
+                ...result.value,
+                inputHeaders,
+                inputMessage,
+            }
+            return ok(stepResult, result.sideEffects, result.warnings)
+        }
+
         return result
     }
 }
