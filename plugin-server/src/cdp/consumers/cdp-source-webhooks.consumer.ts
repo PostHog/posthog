@@ -242,11 +242,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             // Add all logs to the result
 
             if (capturedPostHogEvent) {
+                // For workflows, the captured event is only used as trigger data and not sent to the database.
+                // Remove the execution count property to allow workflow actions to capture events without
+                // triggering the infinite loop protection.
+                const { $hog_function_execution_count, ...cleanProperties } = capturedPostHogEvent.properties || {}
+
                 // Invoke the hogflow
                 const triggerGlobals: HogFunctionInvocationGlobals = {
                     ...invocation.state.globals,
                     event: {
                         ...capturedPostHogEvent,
+                        properties: cleanProperties,
                         uuid: new UUIDT().toString(),
                         elements_chain: '',
                         url: '',
