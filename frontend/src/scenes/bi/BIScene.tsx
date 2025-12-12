@@ -145,7 +145,7 @@ function FieldTree({
                     <div className="flex items-center gap-1">
                         <span
                             className={clsx({
-                                'underline decoration-2 decoration-dotted': isSelected,
+                                underline: isSelected,
                             })}
                         >
                             <SearchHighlightMultiple string={node.field.name} substring={searchTerm} />
