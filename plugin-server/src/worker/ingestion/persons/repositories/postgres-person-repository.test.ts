@@ -1053,6 +1053,91 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('addPersonlessDistinctIdsBatch', () => {
+        it('should insert multiple personless distinct IDs in batch', async () => {
+            const team = await getFirstTeam(hub)
+            const entries = [
+                { teamId: team.id, distinctId: 'batch-distinct-1' },
+                { teamId: team.id, distinctId: 'batch-distinct-2' },
+                { teamId: team.id, distinctId: 'batch-distinct-3' },
+            ]
+
+            const results = await repository.addPersonlessDistinctIdsBatch(entries)
+
+            // All should be not merged (new inserts)
+            expect(results.size).toBe(3)
+            expect(results.get(`${team.id}|batch-distinct-1`)).toBe(false)
+            expect(results.get(`${team.id}|batch-distinct-2`)).toBe(false)
+            expect(results.get(`${team.id}|batch-distinct-3`)).toBe(false)
+
+            // Verify records were inserted
+            const selectResult = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT distinct_id, is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 ORDER BY distinct_id`,
+                [team.id],
+                'verifyBatchInsert'
+            )
+            expect(selectResult.rows).toHaveLength(3)
+        })
+
+        it('should handle duplicate distinct IDs in batch (deduplicates)', async () => {
+            const team = await getFirstTeam(hub)
+            const entries = [
+                { teamId: team.id, distinctId: 'dup-distinct' },
+                { teamId: team.id, distinctId: 'dup-distinct' },
+                { teamId: team.id, distinctId: 'other-distinct' },
+            ]
+
+            const results = await repository.addPersonlessDistinctIdsBatch(entries)
+
+            // Should have 2 unique entries
+            expect(results.size).toBe(2)
+            expect(results.get(`${team.id}|dup-distinct`)).toBe(false)
+            expect(results.get(`${team.id}|other-distinct`)).toBe(false)
+        })
+
+        it('should return is_merged=true for already merged distinct IDs', async () => {
+            const team = await getFirstTeam(hub)
+            const mergedDistinctId = 'already-merged-distinct'
+
+            // First, insert and mark as merged
+            await repository.addPersonlessDistinctIdForMerge(team.id, mergedDistinctId)
+
+            // Now try to batch insert including the merged one
+            const entries = [
+                { teamId: team.id, distinctId: mergedDistinctId },
+                { teamId: team.id, distinctId: 'new-distinct' },
+            ]
+
+            const results = await repository.addPersonlessDistinctIdsBatch(entries)
+
+            expect(results.size).toBe(2)
+            expect(results.get(`${team.id}|${mergedDistinctId}`)).toBe(true) // Already merged
+            expect(results.get(`${team.id}|new-distinct`)).toBe(false) // New insert
+        })
+
+        it('should handle empty batch', async () => {
+            const results = await repository.addPersonlessDistinctIdsBatch([])
+            expect(results.size).toBe(0)
+        })
+
+        it('should handle multiple teams in same batch', async () => {
+            const team1 = await getFirstTeam(hub)
+            const team2Id = await createTeam(hub.db.postgres, team1.organization_id)
+
+            const entries = [
+                { teamId: team1.id, distinctId: 'shared-distinct' },
+                { teamId: team2Id, distinctId: 'shared-distinct' },
+            ]
+
+            const results = await repository.addPersonlessDistinctIdsBatch(entries)
+
+            expect(results.size).toBe(2)
+            expect(results.get(`${team1.id}|shared-distinct`)).toBe(false)
+            expect(results.get(`${team2Id}|shared-distinct`)).toBe(false)
+        })
+    })
+
     describe('personPropertiesSize', () => {
         it('should return properties size for existing person', async () => {
             const team = await getFirstTeam(hub)

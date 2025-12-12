@@ -92,7 +92,20 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
     if not thread_ts:
         return
 
-    logger.warning(
+    # Security: In Slack Connect channels, users from external workspaces can mention our bot.
+    # We must reject these to prevent data leakage to unauthorized users.
+    # `user_team` is only present when the user is from a different workspace than where the app is installed.
+    user_team = event.get("user_team")
+    if user_team and user_team != slack_team_id:
+        logger.warning(
+            "slack_app_mention_from_external_workspace",
+            user_team=user_team,
+            app_workspace=slack_team_id,
+            user=event.get("user"),
+        )
+        return
+
+    logger.info(
         "slack_app_mention_received",
         channel=channel,
         user=event.get("user"),
