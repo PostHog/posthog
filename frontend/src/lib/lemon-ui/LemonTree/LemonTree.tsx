@@ -933,7 +933,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 isKeyboardAction = false,
                 event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
             ): void => {
-                const isFolder = (item?.children && item?.children?.length >= 0) || item?.record?.type === 'folder'
+                const isFolder = (item?.children && item?.children?.length > 0) || item?.record?.type === 'folder'
 
                 // Handle click on a node
                 if (!isFolder) {
@@ -947,14 +947,13 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     }
                 } else if (isFolder) {
                     // Handle click on a folder
-                    if (onFolderClick) {
-                        // Update expanded state
-                        const newExpandedIds = expandedItemIdsState.includes(item.id)
-                            ? expandedItemIdsState.filter((id) => id !== item.id)
-                            : [...expandedItemIdsState, item.id]
-                        setExpandedItemIdsState(newExpandedIds)
-                        onFolderClick(item, expandedItemIdsState.includes(item.id))
-                    }
+                    const wasExpanded = expandedItemIdsState.includes(item?.id ?? '')
+                    const newExpandedIds = wasExpanded
+                        ? expandedItemIdsState.filter((id) => id !== item?.id)
+                        : [...expandedItemIdsState, item?.id ?? '']
+
+                    setExpandedItemIdsState(newExpandedIds)
+                    onFolderClick?.(item, wasExpanded)
                 }
                 if (item?.onClick) {
                     // Handle custom click handler for a folder/ node, pass true if it's a folder and it's not open (yet)
