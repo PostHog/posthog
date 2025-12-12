@@ -49,7 +49,7 @@ class FunnelStepResult:
     breakdown: Union[list[str], str]
     average_conversion_time: Optional[float] = None
     median_conversion_time: Optional[float] = None
-    type: Literal["events", "actions"] = "events"
+    type: Literal["events", "actions", "data_warehouse"] = "events"
     action_id: Optional[str] = None
 
 

@@ -377,6 +377,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return []
 
         # breakdown prop
+        prop_basic: ast.Expr
         if source_kind == SourceTableKind.EVENTS:
             prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
         else:
