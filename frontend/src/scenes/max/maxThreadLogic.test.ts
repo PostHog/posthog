@@ -1196,7 +1196,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Human,
                         content: 'User question',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // Assistant responds with temp ID
@@ -1207,7 +1207,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Assistant,
                         content: 'Partial response',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
             })
 
@@ -1239,7 +1239,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Human,
                         content: 'User question',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // First streaming chunk
@@ -1250,7 +1250,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Assistant,
                         content: 'Partial',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // Second streaming chunk updates the same temp message
@@ -1261,7 +1261,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Assistant,
                         content: 'Partial response updated',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
             })
 
@@ -1293,7 +1293,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Human,
                         content: 'What is the latest on topic X?',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // First assistant message starts
@@ -1304,7 +1304,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Assistant,
                         content: 'First message',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // Web search happens, new message starts
@@ -1315,7 +1315,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Assistant,
                         content: 'Second message after web search',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
             })
 
@@ -1353,7 +1353,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Human,
                         content: 'User question',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // Start with temp message
@@ -1364,7 +1364,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Assistant,
                         content: 'Streaming...',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // Finalize with real UUID
@@ -1375,7 +1375,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Assistant,
                         content: 'Complete response',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
             })
 
@@ -1407,7 +1407,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Human,
                         content: 'What are the latest developments?',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // First temp message
@@ -1419,7 +1419,7 @@ describe('maxThreadLogic', () => {
                         content: 'First part',
                         meta: { thinking: [{ type: 'thinking', thinking: 'Processing' }] },
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // Second temp message (after web search)
@@ -1436,7 +1436,7 @@ describe('maxThreadLogic', () => {
                             ],
                         },
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
             })
 
@@ -1456,7 +1456,7 @@ describe('maxThreadLogic', () => {
                         content: 'First part finalized',
                         meta: { thinking: [{ type: 'thinking', thinking: 'Processing' }] },
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
             })
 
@@ -1504,7 +1504,7 @@ describe('maxThreadLogic', () => {
                             ],
                         },
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
             })
 
@@ -1550,7 +1550,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Human,
                         content: 'User question',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // Message without ID should be added as loading
@@ -1560,7 +1560,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Assistant,
                         content: 'Streaming without ID',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
             })
 
@@ -1593,7 +1593,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Human,
                         content: 'User question',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // Add a message with final ID
@@ -1604,7 +1604,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Assistant,
                         content: 'First version',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
 
                 // Update the same message
@@ -1615,7 +1615,7 @@ describe('maxThreadLogic', () => {
                         type: AssistantMessageType.Assistant,
                         content: 'Updated version',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
             })
 
@@ -1652,11 +1652,13 @@ describe('maxThreadLogic', () => {
                     actions: logic.actions,
                     values: logic.values,
                     props: logic.props,
+                    agentMode: null,
                 })
             })
 
             expect(logic.values.conversation).toEqual({
                 ...newConversation,
+                agent_mode: null,
                 title: 'New chat', // Default title
             })
         })
@@ -1679,7 +1681,7 @@ describe('maxThreadLogic', () => {
                     JSON.stringify({
                         type: 'generation_error',
                     }),
-                    { actions: logic.actions, values: logic.values, props: logic.props }
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null }
                 )
             })
 
