@@ -709,8 +709,13 @@ export function getToolsForMode(mode: AgentMode): ToolDefinition[] {
 }
 
 /** Get default tools available in auto mode */
-export function getDefaultTools(): ToolDefinition[] {
-    return DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
+export function getDefaultTools({ webSearchEnabled }: { webSearchEnabled: boolean }): ToolDefinition[] {
+    const defaultTools = DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
+    if (webSearchEnabled) {
+        // Add web search after `search`
+        defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, SERVER_TOOL_DEFINITIONS.web_search)
+    }
+    return defaultTools
 }
 
 export type SpecialMode = keyof typeof SPECIAL_MODES
