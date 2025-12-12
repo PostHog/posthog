@@ -45,7 +45,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -128,7 +128,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -211,7 +211,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -294,7 +294,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -377,7 +377,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -487,7 +487,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -570,7 +570,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -653,7 +653,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -736,7 +736,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -819,7 +819,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -929,7 +929,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1012,7 +1012,7 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
          countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,

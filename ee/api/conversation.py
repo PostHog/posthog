@@ -228,7 +228,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         # Skip billing for impersonated sessions (support agents) and mark conversations as internal
         is_impersonated = is_impersonated_session(request)
-        is_workflow_billable = not is_impersonated
+        is_agent_billable = not is_impersonated
         workflow_inputs = ChatAgentWorkflowInputs(
             team_id=self.team_id,
             user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
@@ -242,7 +242,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             billing_context=serializer.validated_data.get("billing_context"),
             agent_mode=serializer.validated_data.get("agent_mode"),
             use_checkpointer=True,
-            is_workflow_billable=is_workflow_billable,
+            is_agent_billable=is_agent_billable,
         )
         workflow_class = ChatAgentWorkflow
 

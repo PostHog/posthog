@@ -69,10 +69,6 @@ class Conversation(UUIDTModel):
         blank=True,
         help_text="Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)",
     )
-    is_internal = models.BooleanField(
-        default=False,
-        help_text="Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.",
-    )
 
 
 class ConversationCheckpoint(UUIDTModel):

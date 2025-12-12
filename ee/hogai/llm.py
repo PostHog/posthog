@@ -124,15 +124,15 @@ class MaxChatMixin(BaseModel):
         """
         Determine the effective billable status for this generation.
         Combines model-level billable setting with workflow-level override from config.
-        When is_workflow_billable is False (e.g., impersonated sessions), billing is skipped
+        When is_agent_billable is False (e.g., impersonated sessions), billing is skipped
         regardless of the model's billable setting.
         """
         config = ensure_config()
-        is_workflow_billable = (config.get("configurable") or {}).get("is_workflow_billable", True)
+        is_agent_billable = (config.get("configurable") or {}).get("is_agent_billable", True)
 
-        effective_billable = self.billable and is_workflow_billable
+        effective_billable = self.billable and is_agent_billable
 
-        if self.billable and not is_workflow_billable:
+        if self.billable and not is_agent_billable:
             # This is really annoying given the interface differences between model providers
             # Once we are behind a proxy, this can be simplified.
             model_name = getattr(self, "model", None) or getattr(self, "model_name", "unknown")

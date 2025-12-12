@@ -100,7 +100,7 @@ class BaseAgentRunner(ABC):
     _use_checkpointer: bool
     _parent_span_id: Optional[str | UUID]
     _slack_thread_context: Optional["SlackThreadContext"]
-    _is_workflow_billable: bool
+    _is_agent_billable: bool
 
     def __init__(
         self,
@@ -123,7 +123,7 @@ class BaseAgentRunner(ABC):
         use_checkpointer: bool = True,
         stream_processor: AssistantStreamProcessorProtocol,
         slack_thread_context: Optional["SlackThreadContext"] = None,
-        is_workflow_billable: bool = True,
+        is_agent_billable: bool = True,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -153,7 +153,7 @@ class BaseAgentRunner(ABC):
                     "$session_id": self._session_id,
                     "is_subagent": not self._use_checkpointer,
                     "$groups": event_usage.groups(team=team),
-                    "$ai_support_impersonated": not is_workflow_billable,
+                    "ai_support_impersonated": not is_agent_billable,
                 }
                 # Use SubagentCallbackHandler when parent_span_id is provided to nest all events under the parent
                 if parent_span_id:
@@ -187,7 +187,7 @@ class BaseAgentRunner(ABC):
         self._parent_span_id = parent_span_id
         self._billing_context = billing_context
         self._initial_state = initial_state
-        self._is_workflow_billable = is_workflow_billable
+        self._is_agent_billable = is_agent_billable
         # Initialize the stream processor with node configuration
         self._stream_processor = stream_processor
         self._slack_thread_context = slack_thread_context
@@ -352,7 +352,7 @@ class BaseAgentRunner(ABC):
                 "user": self._user,
                 "billing_context": self._billing_context,
                 "slack_thread_context": self._slack_thread_context,
-                "is_workflow_billable": self._is_workflow_billable,
+                "is_agent_billable": self._is_agent_billable,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).
                 "sdk_metadata": {
                     "tag": "max_ai",

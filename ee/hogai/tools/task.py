@@ -135,6 +135,7 @@ class TaskTool(MaxTool):
         # Generate a span ID for this subagent invocation so all its events are nested under this span
         subagent_span_id = str(uuid.uuid4())
 
+        is_agent_billable = (self._config.get("configurable") or {}).get("is_agent_billable", True)
         inputs = ChatAgentWorkflowInputs(
             team_id=self._team.id,
             user_id=self._user.id,
@@ -147,6 +148,7 @@ class TaskTool(MaxTool):
             billing_context=self._context_manager.get_billing_context(),
             agent_mode=agent_mode,
             use_checkpointer=False,
+            is_agent_billable=is_agent_billable,
         )
 
         executor = SubagentExecutor(

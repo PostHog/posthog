@@ -263,7 +263,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 countIf(
                     isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true'
                 ) AS error_count,
-                any(properties.$ai_support_impersonated) AS is_support_trace
+                any(properties.ai_support_impersonated) AS is_support_trace
             FROM events
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
@@ -475,10 +475,10 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             where_exprs.append(
                 ast.Or(
                     exprs=[
-                        ast.Call(name="isNull", args=[ast.Field(chain=["properties", "$ai_support_impersonated"])]),
+                        ast.Call(name="isNull", args=[ast.Field(chain=["properties", "ai_support_impersonated"])]),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.NotEq,
-                            left=ast.Field(chain=["properties", "$ai_support_impersonated"]),
+                            left=ast.Field(chain=["properties", "ai_support_impersonated"]),
                             right=ast.Constant(value=True),
                         ),
                     ]

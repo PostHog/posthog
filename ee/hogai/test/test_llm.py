@@ -293,7 +293,7 @@ class TestMaxChatOpenAI(BaseTest):
 
     @parameterized.expand(
         [
-            # (model_billable, is_workflow_billable, expected_effective_billable, should_increment_counter)
+            # (model_billable, is_agent_billable, expected_effective_billable, should_increment_counter)
             (True, True, True, False),  # Normal case: model wants billing, workflow allows it
             (True, False, False, True),  # Impersonation: model wants billing, workflow blocks it
             (False, True, False, False),  # Model doesn't want billing, workflow allows it
@@ -301,11 +301,11 @@ class TestMaxChatOpenAI(BaseTest):
         ]
     )
     def test_get_effective_billable(
-        self, model_billable: bool, is_workflow_billable: bool, expected: bool, should_increment_counter: bool
+        self, model_billable: bool, is_agent_billable: bool, expected: bool, should_increment_counter: bool
     ):
         llm = MaxChatOpenAI(user=self.user, team=self.team, billable=model_billable)
 
-        config = {"configurable": {"is_workflow_billable": is_workflow_billable}}
+        config = {"configurable": {"is_agent_billable": is_agent_billable}}
 
         with (
             patch("ee.hogai.llm.ensure_config", return_value=config),
@@ -323,11 +323,11 @@ class TestMaxChatOpenAI(BaseTest):
             mock_labels.return_value.inc.assert_not_called()
 
     def test_workflow_billing_override_in_generate(self):
-        """Test that workflow-level is_workflow_billable=False overrides model billable=True in generate."""
+        """Test that workflow-level is_agent_billable=False overrides model billable=True in generate."""
         llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False, billable=True)
 
         mock_result = LLMResult(generations=[[Generation(text="Response")]])
-        config = {"configurable": {"is_workflow_billable": False}}
+        config = {"configurable": {"is_agent_billable": False}}
 
         with (
             patch("langchain_openai.ChatOpenAI.generate", return_value=mock_result) as mock_generate,
@@ -340,11 +340,11 @@ class TestMaxChatOpenAI(BaseTest):
             self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
 
     async def test_workflow_billing_override_in_agenerate(self):
-        """Test that workflow-level is_workflow_billable=False overrides model billable=True in agenerate."""
+        """Test that workflow-level is_agent_billable=False overrides model billable=True in agenerate."""
         llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude", billable=True)
 
         mock_result = LLMResult(generations=[[Generation(text="Response")]])
-        config = {"configurable": {"is_workflow_billable": False}}
+        config = {"configurable": {"is_agent_billable": False}}
 
         with (
             patch("langchain_anthropic.ChatAnthropic.agenerate", return_value=mock_result) as mock_agenerate,
@@ -357,7 +357,7 @@ class TestMaxChatOpenAI(BaseTest):
             self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
 
     def test_effective_billable_defaults_to_true_when_no_config(self):
-        """Test that is_workflow_billable defaults to True when not in config."""
+        """Test that is_agent_billable defaults to True when not in config."""
         llm = MaxChatOpenAI(user=self.user, team=self.team, billable=True)
 
         with patch("ee.hogai.llm.ensure_config", return_value={}):

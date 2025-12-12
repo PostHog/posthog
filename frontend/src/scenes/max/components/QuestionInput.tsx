@@ -70,8 +70,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         isImpersonatingExistingConversation,
         supportOverrideEnabled,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled } =
-        useActions(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled } = useActions(maxThreadLogic)
 
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal

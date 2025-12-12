@@ -45,7 +45,7 @@ class AssistantConversationRunnerWorkflowInputs:
     mode: AssistantMode = AssistantMode.ASSISTANT
     billing_context: Optional[MaxBillingContext] = None
     agent_mode: AgentMode | None = None
-    is_workflow_billable: bool = True
+    is_agent_billable: bool = True
 
 
 @workflow.defn(name="conversation-processing")
@@ -86,7 +86,7 @@ class AssistantConversationRunnerWorkflow(AgentBaseWorkflow):
             is_new_conversation=inputs.is_new_conversation,
             billing_context=inputs.billing_context,
             agent_mode=inputs.agent_mode,
-            is_agent_billable=is_agent_billable,
+            is_agent_billable=inputs.is_agent_billable,
         )
 
         await workflow.execute_child_workflow(
@@ -113,6 +113,7 @@ class ChatAgentWorkflowInputs:
     is_new_conversation: bool = False
     billing_context: Optional[MaxBillingContext] = None
     agent_mode: AgentMode | None = None
+    is_agent_billable: bool = True
 
 
 @workflow.defn(name="chat-agent")
@@ -170,6 +171,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
         agent_mode=inputs.agent_mode,
         use_checkpointer=inputs.use_checkpointer,
         contextual_tools=inputs.contextual_tools,
+        is_agent_billable=inputs.is_agent_billable,
     )
 
     redis_stream = ConversationRedisStream(inputs.stream_key)
