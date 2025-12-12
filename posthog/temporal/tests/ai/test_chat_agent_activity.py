@@ -55,7 +55,7 @@ class TestProcessChatAgentActivity:
             message={"content": "Hello", "type": "human"},
             is_new_conversation=True,
             trace_id="test-trace",
-            stream_key=get_conversation_stream_key(uuid4()),
+            stream_key=get_conversation_stream_key(conversation.id),
         )
 
     @pytest.mark.asyncio
@@ -73,8 +73,7 @@ class TestProcessChatAgentActivity:
         ):
             await process_conversation_activity(conversation_inputs)
 
-            expected_stream_key = f"{CONVERSATION_STREAM_PREFIX}{conversation_inputs.conversation_id}"
-            mock_redis_stream_class.assert_called_once_with(expected_stream_key)
+            mock_redis_stream_class.assert_called_once_with(conversation_inputs.stream_key)
             mock_redis_stream.write_to_stream.assert_called_once()
 
     @pytest.mark.asyncio

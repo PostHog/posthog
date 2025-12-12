@@ -49,7 +49,12 @@ class AssistantConversationRunnerWorkflowInputs:
 
 @workflow.defn(name="conversation-processing")
 class AssistantConversationRunnerWorkflow(AgentBaseWorkflow):
-    """LEGACY: DO NOT USE THIS WORKFLOW. Use ChatAgentWorkflow instead."""
+    """
+    DEPRECATED: This workflow is deprecated and will be removed.
+    Use ChatAgentWorkflow ("chat-agent") instead.
+
+    This workflow now acts as a translation layer that delegates to ChatAgentWorkflow.
+    """
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> AssistantConversationRunnerWorkflowInputs:
@@ -59,56 +64,34 @@ class AssistantConversationRunnerWorkflow(AgentBaseWorkflow):
 
     @workflow.run
     async def run(self, inputs: AssistantConversationRunnerWorkflowInputs) -> None:
-        """Execute the chat agent workflow."""
-        await workflow.execute_activity(
-            process_conversation_activity,
-            inputs,
-            start_to_close_timeout=timedelta(seconds=CHAT_AGENT_WORKFLOW_TIMEOUT),
-            retry_policy=RetryPolicy(
-                initial_interval=timedelta(seconds=CHAT_AGENT_ACTIVITY_RETRY_INTERVAL),
-                maximum_interval=timedelta(seconds=CHAT_AGENT_ACTIVITY_RETRY_MAX_INTERVAL),
-                maximum_attempts=CHAT_AGENT_ACTIVITY_RETRY_MAX_ATTEMPTS,
-            ),
-            heartbeat_timeout=timedelta(seconds=CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT),
+        """Translate legacy inputs and delegate to ChatAgentWorkflow."""
+        workflow.logger.warning(
+            "DEPRECATION: conversation-processing workflow is deprecated. "
+            "Migrate to chat-agent workflow. "
+            f"team_id={inputs.team_id}, conversation_id={inputs.conversation_id}"
         )
 
+        new_inputs = ChatAgentWorkflowInputs(
+            team_id=inputs.team_id,
+            user_id=inputs.user_id,
+            conversation_id=inputs.conversation_id,
+            stream_key=get_conversation_stream_key(inputs.conversation_id),
+            message=inputs.message,
+            use_checkpointer=True,
+            contextual_tools=inputs.contextual_tools,
+            trace_id=inputs.trace_id,
+            parent_span_id=None,
+            session_id=inputs.session_id,
+            is_new_conversation=inputs.is_new_conversation,
+            billing_context=inputs.billing_context,
+            agent_mode=inputs.agent_mode,
+        )
 
-@activity.defn
-async def process_conversation_activity(inputs: AssistantConversationRunnerWorkflowInputs) -> None:
-    """Asynchronous chat agent processing function that streams chunks immediately.
-
-    Args:
-        inputs: Temporal workflow inputs
-    """
-
-    team, user, conversation = await asyncio.gather(
-        Team.objects.aget(id=inputs.team_id),
-        User.objects.filter(id=inputs.user_id).select_related("current_organization").afirst(),
-        Conversation.objects.aget(id=inputs.conversation_id),
-    )
-
-    if not user:
-        raise ValueError(f"User with id {inputs.user_id} not found")
-
-    human_message = HumanMessage.model_validate(inputs.message) if inputs.message else None
-
-    assistant = ChatAgentRunner(
-        team,
-        conversation,
-        new_message=human_message,
-        user=user,
-        contextual_tools=inputs.contextual_tools,
-        is_new_conversation=inputs.is_new_conversation,
-        trace_id=inputs.trace_id,
-        session_id=inputs.session_id,
-        billing_context=inputs.billing_context,
-        agent_mode=inputs.agent_mode,
-    )
-
-    stream_key = get_conversation_stream_key(inputs.conversation_id)
-    redis_stream = ConversationRedisStream(stream_key)
-
-    await redis_stream.write_to_stream(assistant.astream(), activity.heartbeat)
+        await workflow.execute_child_workflow(
+            ChatAgentWorkflow.run,
+            new_inputs,
+            id=f"chat-agent-{inputs.conversation_id}",
+        )
 
 
 @dataclass
@@ -190,3 +173,18 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
     redis_stream = ConversationRedisStream(inputs.stream_key)
 
     await redis_stream.write_to_stream(assistant.astream(), activity.heartbeat)
+
+
+@activity.defn
+async def process_conversation_activity(inputs: ChatAgentWorkflowInputs) -> None:
+    """
+    DEPRECATED: This activity is deprecated. Use process_chat_agent_activity instead.
+
+    Kept for backwards compatibility with in-flight Temporal workflows.
+    This is a thin wrapper that delegates to process_chat_agent_activity.
+    """
+    logger.warning(
+        "DEPRECATION: process_conversation_activity is deprecated. "
+        f"team_id={inputs.team_id}, conversation_id={inputs.conversation_id}"
+    )
+    await process_chat_agent_activity(inputs)
