@@ -51,6 +51,7 @@ import {
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { ToolRegistration } from './max-constants'
 import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -182,11 +183,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
-        setToolCallUpdate: (update: AssistantUpdateEvent | SubagentUpdateEvent) => ({ update }),
+        setToolCallUpdate: (
+            update: AssistantUpdateEvent | SubagentUpdateEvent,
+            toolMap: Record<string, ToolRegistration>
+        ) => ({
+            update,
+            toolMap,
+        }),
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
     }),
 
-    reducers(({ props, values }) => ({
+    reducers(({ props }) => ({
         conversation: [
             props.conversation ? (removeConversationMessages(props.conversation) ?? null) : null,
             {
@@ -285,14 +292,20 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         toolCallUpdateMap: [
             new Map<string, string[]>(),
             {
-                setToolCallUpdate: (value, { update }: { update: AssistantUpdateEvent | SubagentUpdateEvent }) => {
+                setToolCallUpdate: (
+                    value,
+                    {
+                        update,
+                        toolMap,
+                    }: { update: AssistantUpdateEvent | SubagentUpdateEvent; toolMap: Record<string, ToolRegistration> }
+                ) => {
                     const currentValue = value.get(update.tool_call_id) || []
                     const newMap = new Map(value)
                     let newValue: string
                     if (isSubagentUpdateEvent(update)) {
                         const [description, _] = getToolCallDescriptionAndWidget(
                             update.content as unknown as EnhancedToolCall,
-                            values.toolMap
+                            toolMap
                         )
                         newValue = description
                     } else {
@@ -1025,7 +1038,7 @@ async function onEventImplementation(
         if (!parsedResponse) {
             return
         }
-        actions.setToolCallUpdate(parsedResponse)
+        actions.setToolCallUpdate(parsedResponse, values.toolMap)
         return
     } else if (event === AssistantEventType.Message) {
         const parsedResponse = parseResponse<RootAssistantMessage>(data)
