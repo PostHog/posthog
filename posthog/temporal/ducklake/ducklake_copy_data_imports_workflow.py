@@ -751,10 +751,11 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: DataImportsDuckLakeCopyInputs) -> None:
-        workflow.logger.info("Starting DuckLakeCopyDataImportsWorkflow", **inputs.properties_to_log)
+        logger = LOGGER.bind(**inputs.properties_to_log)
+        logger.info("Starting DuckLakeCopyDataImportsWorkflow")
 
         if not inputs.schema_ids:
-            workflow.logger.info("No schema_ids to copy - exiting early", **inputs.properties_to_log)
+            logger.info("No schema_ids to copy - exiting early")
             return
 
         should_copy = await workflow.execute_activity(
@@ -765,10 +766,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
         )
 
         if not should_copy:
-            workflow.logger.info(
-                "DuckLake copy workflow disabled by feature flag",
-                **inputs.properties_to_log,
-            )
+            logger.info("DuckLake copy workflow disabled by feature flag")
             return
 
         model_list: list[DuckLakeCopyDataImportsMetadata] = await workflow.execute_activity(
@@ -779,7 +777,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
         )
 
         if not model_list:
-            workflow.logger.info("No DuckLake copy metadata resolved - nothing to do", **inputs.properties_to_log)
+            logger.info("No DuckLake copy metadata resolved - nothing to do")
             return
 
         try:
@@ -812,7 +810,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                 failed_checks = [result for result in verification_results if not result.passed]
                 if failed_checks:
                     failure_payload = [dataclasses.asdict(result) for result in failed_checks]
-                    workflow.logger.error(
+                    logger.error(
                         "DuckLake verification failed",
                         model_label=model.model_label,
                         failures=failure_payload,
