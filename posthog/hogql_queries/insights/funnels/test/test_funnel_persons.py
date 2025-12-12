@@ -51,6 +51,28 @@ def get_actors_legacy_filters(
     include_recordings: bool = False,
 ) -> list[list]:
     funnels_query = cast(FunnelsQuery, filter_to_query(filters))
+    return get_actors(
+        funnels_query,
+        team,
+        funnel_step,
+        funnel_step_breakdown,
+        funnel_trends_drop_off,
+        funnel_trends_entrance_period_start,
+        offset,
+        include_recordings,
+    )
+
+
+def get_actors(
+    funnels_query: FunnelsQuery,
+    team: Team,
+    funnel_step: Optional[int] = None,
+    funnel_step_breakdown: Optional[str | float | list[str | float]] = None,
+    funnel_trends_drop_off: Optional[bool] = None,
+    funnel_trends_entrance_period_start: Optional[str] = None,
+    offset: Optional[int] = None,
+    include_recordings: bool = False,
+) -> list[list]:
     funnel_actors_query = FunnelsActorsQuery(
         source=funnels_query,
         funnelStep=funnel_step,
