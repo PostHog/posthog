@@ -187,13 +187,7 @@ export const biLogic = kea<biLogicType>([
         filteredTables: [
             (s) => [s.allTables, s.tableSearchTerm],
             (tables, tableSearchTerm) =>
-                tables.filter(
-                    (table) =>
-                        table.name.toLowerCase().includes(tableSearchTerm.toLowerCase()) ||
-                        Object.values(table.fields || {}).some((field) =>
-                            field.name.toLowerCase().includes(tableSearchTerm.toLowerCase())
-                        )
-                ),
+                tables.filter((table) => table.name.toLowerCase().includes(tableSearchTerm.toLowerCase())),
         ],
         selectedFields: [
             (s) => [s.selectedColumns, s.selectedTableObject, s.database],
