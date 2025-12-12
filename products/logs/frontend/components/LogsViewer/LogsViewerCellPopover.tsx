@@ -5,6 +5,7 @@ import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 
 import { PropertyOperator } from '~/types'
 
@@ -75,9 +76,10 @@ export function LogsViewerCellPopover({
                         </div>
                     </div>
                     <div
-                        className={`font-mono text-xs bg-bg-3000 rounded p-2 ${
-                            isLongValue ? 'max-h-48 overflow-y-auto' : ''
-                        }`}
+                        className={cn(
+                            'font-mono text-xs bg-bg-3000 rounded p-2',
+                            isLongValue && 'max-h-48 overflow-y-auto'
+                        )}
                     >
                         <span className="whitespace-pre-wrap break-all">{displayValue}</span>
                     </div>
