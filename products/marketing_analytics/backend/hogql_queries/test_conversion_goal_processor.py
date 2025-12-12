@@ -3,7 +3,6 @@ from freezegun import freeze_time
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
-    _create_action,
     _create_event,
     _create_person,
     events_cache_tests,
@@ -36,6 +35,16 @@ from products.marketing_analytics.backend.hogql_queries.conversion_goal_processo
     add_conversion_goal_property_filters,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
+
+
+def _create_action(**kwargs):
+    """Helper to create Action objects for testing"""
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    event_name = kwargs.pop("event_name", name)
+    properties = kwargs.pop("properties", {})
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": event_name, "properties": properties}])
+    return action
 
 
 def flush_persons_and_events_in_batches(batch_size: int = 25):
