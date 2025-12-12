@@ -1,12 +1,16 @@
 use std::future::Future;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::ConnectInfo;
 use common_redis::RedisClient;
 use health::{ComponentStatus, HealthRegistry};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder as AutoBuilder;
+use hyper_util::server::graceful::GracefulShutdown;
 use limiters::redis::ServiceName;
 use tokio::net::TcpListener;
+use tower::Service;
 
 use crate::config::CaptureMode;
 use crate::config::Config;
@@ -203,7 +207,6 @@ where
         config.request_timeout_seconds,
     );
 
-    // run our app with hyper
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
     tracing::info!(
         "config: is_mirror_deploy == {:?} ; log_level == {:?}",
@@ -211,14 +214,62 @@ where
         config.log_level
     );
 
-    if let Err(e) = axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown)
-    .await
-    {
-        tracing::error!("HTTP server graceful shutdown failed: {}", e);
+    // Set up hyper server with manual connection handling and graceful shutdown
+    let builder = AutoBuilder::new(TokioExecutor::new());
+    let graceful = GracefulShutdown::new();
+
+    // Pin the shutdown future so we can poll it in the select loop
+    tokio::pin!(shutdown);
+
+    loop {
+        tokio::select! {
+            result = listener.accept() => {
+                let (socket, remote_addr) = match result {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        tracing::error!("failed to accept connection: {}", e);
+                        continue;
+                    }
+                };
+
+                // Match axum default: set TCP_NODELAY for low-latency
+                if let Err(e) = socket.set_nodelay(true) {
+                    tracing::warn!("failed to set TCP_NODELAY: {}", e);
+                }
+
+                // Create a service for this connection that injects ConnectInfo
+                let app = app.clone();
+                let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                    let mut app = app.clone();
+                    let mut req = req.map(axum::body::Body::new);
+                    req.extensions_mut().insert(ConnectInfo(remote_addr));
+                    async move { app.call(req).await }
+                });
+
+                // Serve the connection with HTTP/1 + HTTP/2 auto-detection and upgrade support
+                let conn = builder.serve_connection_with_upgrades(
+                    TokioIo::new(socket),
+                    service,
+                );
+
+                // Register connection with graceful shutdown handler
+                let conn = graceful.watch(conn.into_owned());
+
+                tokio::spawn(async move {
+                    if let Err(e) = conn.await {
+                        tracing::debug!("connection closed: {}", e);
+                    }
+                });
+            }
+            _ = &mut shutdown => {
+                tracing::info!("shutdown signal received, stopping accept loop");
+                break;
+            }
+        }
     }
+
+    // Wait for all in-flight connections to complete
+    graceful.shutdown().await;
+
     tracing::info!("HTTP server graceful shutdown completed");
 }
