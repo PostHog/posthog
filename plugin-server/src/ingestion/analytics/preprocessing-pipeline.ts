@@ -61,7 +61,7 @@ export function createPreprocessingPipeline<
                 // to avoid buffering due to reordering.
                 b.sequentially((b) =>
                     createPreTeamPreprocessingSubpipeline(b, {
-                        hub,
+                        teamManager: hub.teamManager,
                         eventIngestionRestrictionManager,
                         overflowEnabled,
                         overflowTopic,
