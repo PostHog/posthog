@@ -2370,6 +2370,55 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
         assert org_1_report["teams"]["4"]["cdp_billable_invocations_in_period"] == 3
 
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_workflow_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+
+        # Create workflow metrics for org 1 team 1
+        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_flow", metric_name="email_sent", count=10)
+        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_flow", metric_name="push_sent", count=5)
+        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_flow", metric_name="sms_sent", count=3)
+        create_app_metric2(
+            team_id=self.org_1_team_1.id, app_source="hog_flow", metric_name="billable_invocation", count=8
+        )
+
+        # Create workflow metrics for org 1 team 2
+        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_flow", metric_name="email_sent", count=15)
+        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_flow", metric_name="push_sent", count=7)
+        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_flow", metric_name="sms_sent", count=2)
+        create_app_metric2(
+            team_id=self.org_1_team_2.id, app_source="hog_flow", metric_name="billable_invocation", count=12
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+
+        # Test org-level workflow metrics (sum of both teams)
+        assert org_1_report["workflow_emails_sent_in_period"] == 25  # 10 + 15
+        assert org_1_report["workflow_push_sent_in_period"] == 12  # 5 + 7
+        assert org_1_report["workflow_sms_sent_in_period"] == 5  # 3 + 2
+        assert org_1_report["workflow_billable_invocations_in_period"] == 20  # 8 + 12
+
+        # Test team 1 workflow metrics
+        assert org_1_report["teams"]["3"]["workflow_emails_sent_in_period"] == 10
+        assert org_1_report["teams"]["3"]["workflow_push_sent_in_period"] == 5
+        assert org_1_report["teams"]["3"]["workflow_sms_sent_in_period"] == 3
+        assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 8
+
+        # Test team 2 workflow metrics
+        assert org_1_report["teams"]["4"]["workflow_emails_sent_in_period"] == 15
+        assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
+        assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
+        assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 12
+
 
 @freeze_time("2022-01-10T10:00:00Z")
 class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
@@ -2425,15 +2474,6 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
                 timestamp=now() - relativedelta(hours=i),
                 team=self.org_2_team_3,
             )
-
-        # not captured because it was a bug in our own SDK
-        _create_event(
-            distinct_id="4",
-            event="$exception",
-            properties={"$exception_values": ["persistence.isDisabled is not a function"]},
-            timestamp=now() - relativedelta(hours=1),
-            team=self.org_1_team_1,
-        )
 
         # some out of range events
         _create_event(

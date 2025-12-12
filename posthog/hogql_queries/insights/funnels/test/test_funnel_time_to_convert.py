@@ -8,7 +8,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from unittest.case import skip
-from unittest.mock import Mock, patch
 
 from posthog.schema import FunnelsQuery, FunnelTimeToConvertResults
 
@@ -20,9 +19,8 @@ FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 
 
-class BaseTestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
+class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
-    __test__ = False
 
     @snapshot_clickhouse_queries
     def test_auto_bin_count_single_step(self):
@@ -634,15 +632,3 @@ class BaseTestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                 average_conversion_time=29540,
             ),
         )
-
-
-class TestFunnelTimeToConvert(BaseTestFunnelTimeToConvert):
-    __test__ = True
-
-
-@patch(
-    "posthoganalytics.feature_enabled",
-    new=Mock(side_effect=lambda key, *args, **kwargs: key == "insight-funnels-use-udf-time-to-convert"),
-)
-class TestFunnelTimeToConvertUDF(BaseTestFunnelTimeToConvert):
-    __test__ = True

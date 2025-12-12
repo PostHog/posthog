@@ -215,16 +215,16 @@ class TestEmbedSummariesActivity:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_embed_summaries_success(self, mock_team):
-        """Test successful embedding of summaries fetched from events."""
+        """Test successful embedding of summaries fetched via HogQL."""
         trace_ids = ["trace_1", "trace_2"]
 
         with (
-            patch("posthog.temporal.llm_analytics.trace_summarization.embedding.sync_execute") as mock_execute,
+            patch("posthog.temporal.llm_analytics.trace_summarization.embedding.execute_hogql_query") as mock_execute,
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.embedding.LLMTracesSummarizerEmbedder"
             ) as mock_embedder_class,
         ):
-            mock_execute.return_value = [
+            mock_execute.return_value.results = [
                 ("trace_1", "Summary 1", "A -> B", "Bullet 1", "Note 1"),
                 ("trace_2", "Summary 2", "C -> D", "Bullet 2", ""),
             ]
@@ -239,14 +239,14 @@ class TestEmbedSummariesActivity:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_embed_summaries_empty_results(self, mock_team):
-        """Test embedding when no summaries found in events."""
+        """Test embedding when no summaries found via HogQL."""
         trace_ids = ["trace_1"]
 
         with (
-            patch("posthog.temporal.llm_analytics.trace_summarization.embedding.sync_execute") as mock_execute,
+            patch("posthog.temporal.llm_analytics.trace_summarization.embedding.execute_hogql_query") as mock_execute,
             patch("posthog.temporal.llm_analytics.trace_summarization.embedding.LLMTracesSummarizerEmbedder"),
         ):
-            mock_execute.return_value = []
+            mock_execute.return_value.results = []
 
             result = await embed_summaries_activity(trace_ids, mock_team.id, "minimal", "2025-01-01T00:00:00Z")
 
@@ -260,12 +260,12 @@ class TestEmbedSummariesActivity:
         trace_ids = ["trace_1", "trace_2"]
 
         with (
-            patch("posthog.temporal.llm_analytics.trace_summarization.embedding.sync_execute") as mock_execute,
+            patch("posthog.temporal.llm_analytics.trace_summarization.embedding.execute_hogql_query") as mock_execute,
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.embedding.LLMTracesSummarizerEmbedder"
             ) as mock_embedder_class,
         ):
-            mock_execute.return_value = [
+            mock_execute.return_value.results = [
                 ("trace_1", "Summary 1", "A -> B", "", ""),
                 ("trace_2", "Summary 2", "C -> D", "", ""),
             ]

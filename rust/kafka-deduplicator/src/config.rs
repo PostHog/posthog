@@ -2,16 +2,29 @@ use std::{fs, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     // Kafka configuration
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
 
     #[envconfig(default = "kafka-deduplicator")]
     pub kafka_consumer_group: String,
+
+    #[envconfig(default = "10485760")] // 10MB
+    pub kafka_consumer_max_partition_fetch_bytes: u32,
+
+    #[envconfig(default = "10000")] // 10 seconds
+    pub kafka_topic_metadata_refresh_interval_ms: u32,
+
+    #[envconfig(default = "30000")] // 30 seconds
+    pub kafka_metadata_max_age_ms: u32,
 
     // supplied by k8s deploy env, used as part of kafka
     // consumer client ID for sticky partition mappings
@@ -106,9 +119,6 @@ pub struct Config {
     #[envconfig(default = "1800")] // 30 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
-    #[envconfig(default = "900")] // 15 minutes in seconds
-    pub checkpoint_cleanup_interval_secs: u64,
-
     #[envconfig(default = "1")] // delete local checkpoints older than this
     pub max_checkpoint_retention_hours: u32,
 
@@ -166,9 +176,6 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: tracing::Level,
-
-    #[envconfig(default = "false")]
-    pub enable_pprof: bool,
 }
 
 impl Config {
@@ -298,11 +305,6 @@ impl Config {
     /// Get checkpoint interval as Duration
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_secs(self.checkpoint_interval_secs)
-    }
-
-    /// Get local stale checkpoint cleanup scan interval as Duration
-    pub fn checkpoint_cleanup_interval(&self) -> Duration {
-        Duration::from_secs(self.checkpoint_cleanup_interval_secs)
     }
 
     pub fn checkpoint_gate_interval(&self) -> Duration {

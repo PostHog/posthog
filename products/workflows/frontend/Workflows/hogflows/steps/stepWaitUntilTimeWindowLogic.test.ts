@@ -64,7 +64,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
             workflow: partial({
                 actions: expect.arrayContaining([
                     expect.objectContaining({
-                        description: 'Wait until weekends at between 09:00 and 17:00 (UTC).',
+                        description: 'Wait until weekends between 09:00 and 17:00 (UTC).',
                     }),
                 ]),
             }),
@@ -85,7 +85,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
             workflow: partial({
                 actions: expect.arrayContaining([
                     expect.objectContaining({
-                        description: 'Wait until weekdays at between 10:00 and 18:00 (UTC).',
+                        description: 'Wait until weekdays between 10:00 and 18:00 (UTC).',
                     }),
                 ]),
             }),
@@ -106,7 +106,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
             workflow: partial({
                 actions: expect.arrayContaining([
                     expect.objectContaining({
-                        description: 'Wait until weekdays at between 09:00 and 17:00 (America/New_York).',
+                        description: 'Wait until weekdays between 09:00 and 17:00 (America/New_York).',
                     }),
                 ]),
             }),
