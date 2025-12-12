@@ -390,24 +390,30 @@ function Sampling(): JSX.Element {
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonInput
-                        type="number"
-                        onChange={(value) => {
-                            setValue(value)
-                            setTimeout(function () {
+                    <div className="flex flex-row gap-x-2">
+                        <LemonInput
+                            type="number"
+                            className="[&>input::-webkit-inner-spin-button]:appearance-none"
+                            onChange={(value) => setValue(value)}
+                            min={0}
+                            max={100}
+                            suffix={<>%</>}
+                            value={value}
+                            onPressEnter={() => {
                                 const returnRate = value ? value / 100 : 1.0
                                 updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
-                            }, 2000)
-                        }}
-                        min={0}
-                        max={100}
-                        suffix={<>%</>}
-                        value={value}
-                        onPressEnter={() => {
-                            const returnRate = value ? value / 100 : 1.0
-                            updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
-                        }}
-                    />
+                            }}
+                        />
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                const returnRate = value ? value / 100 : 1.0
+                                updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
+                            }}
+                        >
+                            Update
+                        </LemonButton>
+                    </div>
                 </AccessControlAction>
             </div>
             <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
