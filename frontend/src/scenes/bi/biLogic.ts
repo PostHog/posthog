@@ -326,7 +326,9 @@ export const biLogic = kea<biLogicType>([
                         setLatestVersionsOnQuery({
                             kind: NodeKind.HogQLQuery,
                             query: values._queryString,
-                        })
+                        }),
+                        undefined,
+                        'force_blocking'
                     )
                 },
             },
