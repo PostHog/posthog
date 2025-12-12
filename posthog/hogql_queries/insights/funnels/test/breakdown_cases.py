@@ -43,7 +43,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdown(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             actors = get_actors_legacy_filters(
-                filter._data,
+                filter,
                 self.team,
                 funnel_step=funnel_step,
                 funnel_step_breakdown=breakdown_value,
@@ -2743,7 +2743,7 @@ def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdownGroup(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             actors = get_actors_legacy_filters(
-                filter._data,
+                filter,
                 self.team,
                 funnel_step=funnel_step,
                 funnel_step_breakdown=breakdown_value,

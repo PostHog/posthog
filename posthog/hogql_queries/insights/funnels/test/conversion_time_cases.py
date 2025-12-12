@@ -16,7 +16,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelConversionTime(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             actors = get_actors_legacy_filters(
-                filter._data,
+                filter,
                 self.team,
                 funnel_step=funnel_step,
                 funnel_step_breakdown=breakdown_value,
