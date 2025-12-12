@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 
@@ -17,12 +16,8 @@ const GOAL_SUGGESTIONS = [
 
 export function TourGoalModal(): JSX.Element | null {
     const { theme } = useValues(toolbarLogic)
-    const { goalModalOpen, aiGoal, useAIGeneration } = useValues(productToursLogic)
-    const { closeGoalModal, setAIGoal, setUseAIGeneration, startSelectionMode } = useActions(productToursLogic)
-
-    if (!goalModalOpen) {
-        return null
-    }
+    const { goalModalOpen, aiGoal } = useValues(productToursLogic)
+    const { closeGoalModal, setAIGoal, startSelectionMode } = useActions(productToursLogic)
 
     const canProceed = aiGoal.trim().length > 0
 
@@ -31,7 +26,7 @@ export function TourGoalModal(): JSX.Element | null {
             isOpen={goalModalOpen}
             onClose={closeGoalModal}
             title="Create a product tour"
-            description="First, tell us what you want users to learn from this tour."
+            description="Tell us what you want users to learn from this tour."
             footer={
                 <div className="flex justify-end gap-2 w-full">
                     <LemonButton type="secondary" onClick={closeGoalModal}>
@@ -42,7 +37,7 @@ export function TourGoalModal(): JSX.Element | null {
                         onClick={startSelectionMode}
                         disabledReason={!canProceed ? 'Enter a goal first' : undefined}
                     >
-                        Start selecting elements
+                        Start building
                     </LemonButton>
                 </div>
             }
@@ -73,22 +68,6 @@ export function TourGoalModal(): JSX.Element | null {
                             </LemonButton>
                         ))}
                     </div>
-                </div>
-
-                <div className="border-t pt-4">
-                    <LemonCheckbox
-                        checked={useAIGeneration}
-                        onChange={setUseAIGeneration}
-                        label={
-                            <span className="flex items-center gap-1.5">
-                                <IconMagicWand className="w-4 h-4" />
-                                Generate content with AI
-                            </span>
-                        }
-                    />
-                    <p className="text-xs text-muted mt-1 ml-6">
-                        AI will write titles and descriptions for each step based on your goal
-                    </p>
                 </div>
             </div>
         </LemonModal>

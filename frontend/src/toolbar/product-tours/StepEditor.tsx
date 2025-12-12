@@ -94,9 +94,11 @@ function calculatePosition(
     return { left, top }
 }
 
-export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
-    const { editingStep, selectedElement, dataAttributes, inspectingElement } = useValues(productToursLogic)
+export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
+    const { editingStep, selectedElement, dataAttributes, inspectingElement, editingModalStep } =
+        useValues(productToursLogic)
     const { confirmStep, cancelStep, removeStep } = useActions(productToursLogic)
+
     const [richEditor, setRichEditor] = useState<ToolbarEditor | null>(null)
     const editorRef = useRef<HTMLDivElement>(null)
     const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
@@ -105,28 +107,40 @@ export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
 
     const editorWidth = 320
     const padding = 16
+    const isModalStep = editingModalStep || !rect
 
     // Initialize selector from editingStep or derive from selectedElement
     useEffect(() => {
-        if (editingStep?.selector) {
+        if (editingStep) {
+            // Existing step - use its selector (even if empty for modal steps)
             setSelector(editingStep.selector)
         } else if (selectedElement) {
+            // New element step - derive selector from element
             const actionStep = elementToActionStep(selectedElement, dataAttributes)
             setSelector(actionStep.selector ?? '')
+        } else {
+            // New modal step - no selector
+            setSelector('')
         }
     }, [editingStep, selectedElement, dataAttributes])
 
     useLayoutEffect(() => {
-        if (editorRef.current) {
+        if (isModalStep) {
+            // Center the editor for modal steps
+            setPosition({
+                left: Math.max(padding, (window.innerWidth - editorWidth) / 2),
+                top: Math.max(padding, window.innerHeight / 3),
+            })
+        } else if (editorRef.current && rect) {
             const editorHeight = editorRef.current.offsetHeight
             setPosition(calculatePosition(rect, editorWidth, editorHeight, padding, 'right'))
         }
-    }, [rect])
+    }, [rect, isModalStep])
 
     // Update editor when editing a different step
     useLayoutEffect(() => {
-        if (richEditor && editingStep?.content) {
-            richEditor.setContent(editingStep.content)
+        if (richEditor) {
+            richEditor.setContent(editingStep?.content ?? DEFAULT_STEP_CONTENT)
         }
     }, [editingStep, richEditor])
 
@@ -144,7 +158,9 @@ export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
         ...(position ?? { left: 0, top: 0 }),
     }
 
-    const actionLabel = editingStep ? `Editing Step ${inspectingElement! + 1}` : 'Adding new step'
+    const actionLabel = editingStep
+        ? `Editing Step ${inspectingElement! + 1}${!editingStep.selector ? ' (Modal)' : ''}`
+        : `Adding new ${isModalStep ? 'modal ' : ''}step`
 
     return (
         <div
@@ -190,14 +206,17 @@ export function StepEditor({ rect }: { rect: ElementRect }): JSX.Element {
                         )}
                     </button>
                     {showAdvanced && (
-                        <LemonInput
-                            value={selector}
-                            onChange={setSelector}
-                            placeholder="CSS selector (e.g., #my-button)"
-                            size="small"
-                            fullWidth
-                            className="font-mono text-xs"
-                        />
+                        <>
+                            <LemonInput
+                                value={selector}
+                                onChange={setSelector}
+                                placeholder="CSS selector (e.g., #my-button)"
+                                size="small"
+                                fullWidth
+                                className="font-mono text-xs"
+                            />
+                            <span className="font-mono text-muted text-xs">(leave blank to show step as modal)</span>
+                        </>
                     )}
                 </div>
 

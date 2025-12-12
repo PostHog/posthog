@@ -296,6 +296,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 
                 workingButton = (
                     <div
+                        onMouseEnter={buttonProps.onMouseEnter}
                         className={clsx(
                             `LemonButtonWithSideAction LemonButtonWithSideAction--${type}`,
                             fullWidth && 'LemonButtonWithSideAction--full-width'

@@ -33,7 +33,7 @@ export function ElementHighlight({ rect, isSelected, stepNumber }: ElementHighli
                 }}
             />
 
-            {/* Step number badge (if provided) */}
+            {/* Step number badge (if provided) - always PostHog blue */}
             {stepNumber !== undefined && (
                 <div
                     className="fixed pointer-events-none flex items-center justify-center font-bold text-white toolbar-animate-pop"
@@ -45,8 +45,8 @@ export function ElementHighlight({ rect, isSelected, stepNumber }: ElementHighli
                         height: 24,
                         fontSize: 12,
                         borderRadius: '50%',
-                        background: color,
-                        boxShadow: `0 1px 4px rgba(0, 0, 0, 0.3), 0 0 0 2px white`,
+                        background: '#1d4aff',
+                        boxShadow: '0 1px 4px rgba(0, 0, 0, 0.3), 0 0 0 2px white',
                         zIndex: 2147483016,
                     }}
                 >
