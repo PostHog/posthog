@@ -27,7 +27,7 @@ export const approvalsGateLogic = kea<approvalsGateLogicType>([
                     }
 
                     try {
-                        const response = await api.get('api/organizations/@current/approval_policies/')
+                        const response = await api.get('api/projects/@current/approval_policies/')
                         return (response.results || []).filter((p: ApprovalPolicy) => p.enabled)
                     } catch {
                         return []
