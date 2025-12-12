@@ -30,15 +30,11 @@ def disable_all_action_webhooks(apps, schema_editor):
         # Bulk update when we reach batch_size
         if len(actions_to_update) >= batch_size:
             Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
-            print(f"Processed {processed_count} actions")  # noqa: T201
             actions_to_update = []
 
     # Handle any remaining items
     if actions_to_update:
         Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
-        print(f"Processed {processed_count} actions")  # noqa: T201
-
-    print(f"Processed {processed_count} actions in total")  # noqa: T201
 
 
 class Migration(migrations.Migration):

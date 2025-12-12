@@ -71,7 +71,7 @@ function IssueStatusDropdown({
                             size="xsmall"
                             active={option === status}
                         >
-                            <StatusIndicator status={option} />
+                            <StatusIndicator status={option} withTooltip="right" />
                         </LemonButton>
                     </DropdownMenuItem>
                 ))}

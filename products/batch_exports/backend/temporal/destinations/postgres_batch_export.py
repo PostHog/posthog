@@ -456,6 +456,8 @@ class PostgreSQLClient:
             for field in merge_key
         )
 
+        order_by = sql.SQL(",").join(sql.Identifier(field[0]) for field in merge_key)
+
         or_separator = sql.SQL(" OR ")
         update_condition = or_separator.join(
             sql.SQL("EXCLUDED.{stage_field} > final.{final_field}").format(
@@ -480,12 +482,14 @@ class PostgreSQLClient:
             """\
         INSERT INTO {final_table} AS final ({field_names})
         SELECT {field_names} FROM {stage_table}
+        ORDER BY {order_by}
         ON CONFLICT ({conflict_fields}) DO UPDATE SET
             {update_clause}
         WHERE ({update_condition})
         """
         ).format(
             final_table=final_table_identifier,
+            order_by=order_by,
             conflict_fields=conflict_fields,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,

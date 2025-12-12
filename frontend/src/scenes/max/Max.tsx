@@ -12,11 +12,9 @@ import {
     IconShare,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -88,7 +86,6 @@ export const MaxInstance = React.memo(function MaxInstance({
     tabId,
     isAIOnlyMode,
 }: MaxInstanceProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const {
         threadVisible,
         conversationHistoryVisible,
@@ -181,16 +178,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                             className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
                             title={chatTitle || undefined}
                         >
-                            {chatTitle || (
-                                <>
-                                    PostHog AI
-                                    {!featureFlags[FEATURE_FLAGS.POSTHOG_AI_GENERAL_AVAILABILITY] && (
-                                        <LemonTag size="small" type="warning" className="ml-2">
-                                            BETA
-                                        </LemonTag>
-                                    )}
-                                </>
-                            )}
+                            {chatTitle || 'PostHog AI'}
                         </h3>
                     </div>
                     {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (

@@ -275,7 +275,7 @@ def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]
         schema_list = collections.defaultdict(list)
 
         # Get collection names
-        collection_names = db.list_collection_names()
+        collection_names = db.list_collection_names(authorizedCollections=True)
 
         for collection_name in collection_names:
             collection = db[collection_name]

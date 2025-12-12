@@ -8,8 +8,10 @@ import { ReactNode, useEffect, useState } from 'react'
 import React from 'react'
 
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -33,7 +35,6 @@ interface QuestionInputProps {
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
     onSubmit?: () => void
-    showDeepResearchModeToggle?: boolean
 }
 
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
@@ -48,10 +49,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         textAreaRef,
         containerClassName,
         onSubmit,
-        showDeepResearchModeToggle,
     },
     ref
 ) {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
@@ -65,7 +66,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         cancelLoading,
         pendingPrompt,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -119,7 +120,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         }}
                     >
                         {!isSharedThread && (
-                            <div className="pt-1">
+                            <div className="pt-2">
                                 {!isThreadVisible ? (
                                     <div className="flex items-start justify-between">
                                         <ContextDisplay size={contextDisplaySize} />
@@ -154,7 +155,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 disabled={inputDisabled}
                                 minRows={1}
                                 maxRows={10}
-                                className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                                className="!border-none !bg-transparent min-h-0 py-2 pl-2 pr-12"
                                 autoFocus="true-without-pulse"
                             />
                         </SlashCommandAutocomplete>
@@ -162,7 +163,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     <div
                         className={clsx(
                             'absolute flex items-center',
-                            isSharedThread && 'hidden', // Submit not available at all for shared threads
+                            isSharedThread && 'hidden',
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
@@ -211,25 +212,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                {!isSharedThread && (
+                {!isSharedThread && !featureFlags[FEATURE_FLAGS.AGENT_MODES] && (
                     <ToolsDisplay
                         isFloating={isThreadVisible}
                         tools={tools}
                         bottomActions={bottomActions}
                         deepResearchMode={deepResearchMode}
                     />
-                )}
-                {!isSharedThread && showDeepResearchModeToggle && (
-                    <div className="flex justify-end gap-1 w-full p-1">
-                        <LemonSwitch
-                            checked={deepResearchMode}
-                            label="Think harder"
-                            disabled={threadLoading}
-                            onChange={(checked) => setDeepResearchMode(checked)}
-                            size="xxsmall"
-                            tooltip="This will make PostHog AI think harder about your question"
-                        />
-                    </div>
                 )}
             </div>
         </div>

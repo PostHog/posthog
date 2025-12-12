@@ -6,6 +6,7 @@ import pytest
 
 from django.test import override_settings
 
+import pytest_asyncio
 from psycopg import sql
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
@@ -390,7 +391,7 @@ async def test_insert_into_postgres_activity_merges_sessions_data_in_follow_up_r
     assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(tzinfo=dt.UTC)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def persons_table_without_primary_key(postgres_connection, postgres_config, table_name):
     """Managed a table for a persons batch export without a primary key."""
     self_managed_table_name = table_name + f"_self_managed_{uuid.uuid4().hex}"

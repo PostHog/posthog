@@ -22,36 +22,18 @@ import {
     PluginsServerConfig,
     Team,
 } from '../types'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager, Restriction } from '../utils/event-ingestion-restriction-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import {
-    createApplyCookielessProcessingStep,
-    createApplyDropRestrictionsStep,
-    createApplyForceOverflowRestrictionsStep,
-    createApplyPersonProcessingRestrictionsStep,
-    createDropExceptionEventsStep,
-    createParseHeadersStep,
-    createParseKafkaMessageStep,
-    createResolveTeamStep,
-    createValidateEventMetadataStep,
-    createValidateEventPropertiesStep,
-    createValidateEventUuidStep,
-    createValidateHistoricalMigrationStep,
-} from './event-preprocessing'
-import { createEmitEventStep } from './event-processing/emit-event-step'
-import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
-import { createHandleClientIngestionWarningStep } from './event-processing/handle-client-ingestion-warning-step'
-import { createNormalizeProcessPersonFlagStep } from './event-processing/normalize-process-person-flag-step'
+import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
+import { PerDistinctIdPipelineInput, createPerDistinctIdPipeline, createPreprocessingPipeline } from './analytics'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
-import { PipelineConfig } from './pipelines/result-handling-pipeline'
 import { ok } from './pipelines/results'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
@@ -84,11 +66,8 @@ type PreprocessedEvent = {
     eventWithTeam: IncomingEventWithTeam
 }
 
-export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
-    headers: EventHeaders
-    personsStoreForBatch: PersonsStoreForBatch
-    groupStoreForBatch: GroupStoreForBatch
-}
+// Re-export PerDistinctIdPipelineInput for backwards compatibility
+export type { PerDistinctIdPipelineInput }
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
 const KNOWN_SET_EVENTS = new Set([
@@ -125,7 +104,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-    private personStore: BatchWritingPersonsStore
+    private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
@@ -179,7 +158,7 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        this.personStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
+        this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
@@ -219,10 +198,32 @@ export class IngestionConsumer {
         ])
 
         // Initialize batch preprocessing pipeline after kafka producer is available
-        this.initializePreprocessingPipeline()
+        this.preprocessingPipeline = createUnwrapper(
+            createPreprocessingPipeline(newBatchPipelineBuilder<{ message: Message }, { message: Message }>(), {
+                hub: this.hub,
+                kafkaProducer: this.kafkaProducer!,
+                personsStore: this.personsStore,
+                eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+                overflowEnabled: this.overflowEnabled(),
+                overflowTopic: this.overflowTopic || '',
+                dlqTopic: this.dlqTopic,
+                promiseScheduler: this.promiseScheduler,
+            }).build()
+        )
 
         // Initialize main event pipeline
-        this.initializePerDistinctIdPipeline()
+        this.perDistinctIdPipeline = createPerDistinctIdPipeline(
+            newBatchPipelineBuilder<PerDistinctIdPipelineInput, { message: Message; team: Team }>(),
+            {
+                hub: this.hub,
+                hogTransformer: this.hogTransformer,
+                personsStore: this.personsStore,
+                kafkaProducer: this.kafkaProducer!,
+                groupId: this.groupId,
+                dlqTopic: this.dlqTopic,
+                promiseScheduler: this.promiseScheduler,
+            }
+        ).build()
 
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
@@ -233,128 +234,6 @@ export class IngestionConsumer {
                 async () => await this.handleKafkaBatch(messages)
             )
         })
-    }
-
-    private initializePreprocessingPipeline(): void {
-        const pipelineConfig: PipelineConfig = {
-            kafkaProducer: this.kafkaProducer!,
-            dlqTopic: this.dlqTopic,
-            promiseScheduler: this.promiseScheduler,
-        }
-
-        const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
-            .messageAware((builder) =>
-                // All of these steps are synchronous, so we can process the messages sequentially
-                // to avoid buffering due to reordering.
-                builder.sequentially((b) =>
-                    b
-                        .pipe(createParseHeadersStep())
-                        .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
-                        .pipe(
-                            createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
-                                overflowEnabled: this.overflowEnabled(),
-                                overflowTopic: this.overflowTopic || '',
-                                preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
-                            })
-                        )
-                        .pipe(createParseKafkaMessageStep())
-                        .pipe(createDropExceptionEventsStep())
-                        .pipe(createResolveTeamStep(this.hub))
-                        .pipe(createValidateHistoricalMigrationStep())
-                )
-            )
-            // We want to handle the first batch of rejected events, so that the remaining ones
-            // can be processed in the team context.
-            .handleResults(pipelineConfig)
-            // We don't need to block the pipeline with side effects at this stage.
-            .handleSideEffects(this.promiseScheduler, { await: false })
-            // This is the first synchronization point, where we gather all events.
-            // We need to gather here because the pipeline consumer only calls next once.
-            // Once we transition to a continuous consumer, we can remove this gather.
-            .gather()
-            .filterOk()
-            // Now we know all messages are in the team context.
-            .map((element) => ({
-                result: element.result,
-                context: {
-                    ...element.context,
-                    team: element.result.value.eventWithTeam.team,
-                },
-            }))
-            .messageAware((builder) =>
-                builder
-                    .teamAware((b) =>
-                        // These steps are also synchronous, so we can process events sequentially.
-                        b
-                            .sequentially((c) =>
-                                c
-                                    .pipe(createValidateEventMetadataStep())
-                                    .pipe(createValidateEventPropertiesStep())
-                                    .pipe(
-                                        createApplyPersonProcessingRestrictionsStep(
-                                            this.eventIngestionRestrictionManager
-                                        )
-                                    )
-                                    .pipe(createValidateEventUuidStep())
-                            )
-                            // We want to call cookieless with the whole batch at once.
-                            .gather()
-                            .pipeBatch(createApplyCookielessProcessingStep(this.hub))
-                    )
-                    .handleIngestionWarnings(this.kafkaProducer!)
-            )
-            .handleResults(pipelineConfig)
-            .handleSideEffects(this.promiseScheduler, { await: false })
-            // We synchronize once again to ensure we return all events in one batch.
-            .gather()
-            .build()
-
-        this.preprocessingPipeline = createUnwrapper(pipeline)
-    }
-
-    private initializePerDistinctIdPipeline(): void {
-        const pipelineConfig: PipelineConfig = {
-            kafkaProducer: this.kafkaProducer!,
-            dlqTopic: this.dlqTopic,
-            promiseScheduler: this.promiseScheduler,
-        }
-
-        this.perDistinctIdPipeline = newBatchPipelineBuilder<
-            PerDistinctIdPipelineInput,
-            { message: Message; team: Team }
-        >()
-            .messageAware((builder) =>
-                builder
-                    .teamAware((b) =>
-                        // We process the events for the distinct id sequentially to provide ordering guarantees.
-                        b.sequentially((seq) =>
-                            seq.retry(
-                                (retry) =>
-                                    retry
-                                        .pipe(createNormalizeProcessPersonFlagStep())
-                                        .pipe(createHandleClientIngestionWarningStep())
-                                        .pipe(createEventPipelineRunnerV1Step(this.hub, this.hogTransformer))
-                                        .pipe(
-                                            createEmitEventStep({
-                                                kafkaProducer: this.kafkaProducer!,
-                                                clickhouseJsonEventsTopic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                                                groupId: this.groupId,
-                                            })
-                                        ),
-                                {
-                                    tries: 3,
-                                    sleepMs: 100,
-                                }
-                            )
-                        )
-                    )
-                    .handleIngestionWarnings(this.kafkaProducer!)
-            )
-            .handleResults(pipelineConfig)
-            .handleSideEffects(this.promiseScheduler, { await: false })
-            // We synchronize once again to ensure we return all events in one batch.
-            .gather()
-            .build()
     }
 
     public async stop(): Promise<void> {
@@ -426,7 +305,6 @@ export class IngestionConsumer {
             await this.fetchAndCacheHogFunctionStates(eventsPerDistinctId)
         }
 
-        const personsStoreForBatch = this.personStore.forBatch()
         const groupStoreForBatch = this.groupStore.forBatch()
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
@@ -434,19 +312,20 @@ export class IngestionConsumer {
                     const eventsToProcess = this.redirectEvents(events)
 
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess, personsStoreForBatch, groupStoreForBatch)
+                        this.processEventsForDistinctId(eventsToProcess, groupStoreForBatch)
                     )
                 })
             )
         })
 
-        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
+        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), this.personsStore.flush()])
 
         if (this.kafkaProducer) {
             await this.producePersonsStoreMessages(personsStoreMessages)
         }
 
-        personsStoreForBatch.reportBatch()
+        this.personsStore.reportBatch()
+        this.personsStore.reset()
         groupStoreForBatch.reportBatch()
 
         for (const message of messages) {
@@ -529,7 +408,8 @@ export class IngestionConsumer {
         const eventKey = `${token}:${distinctId}`
 
         // Check if this token is in the force overflow static/dynamic config list
-        const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
+        const restrictions = this.getAppliedRestrictions(token, distinctId)
+        const shouldForceOverflow = restrictions.has(Restriction.FORCE_OVERFLOW)
 
         // Check the rate limiter and emit to overflow if necessary
         const isBelowRateLimit = this.overflowRateLimiter.consume(
@@ -550,7 +430,8 @@ export class IngestionConsumer {
             // NOTE: If we are forcing to overflow we typically want to keep the partition key
             // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
             // of random partitioning.
-            const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
+            const preserveLocality =
+                shouldForceOverflow && !restrictions.has(Restriction.SKIP_PERSON_PROCESSING) ? true : undefined
 
             void this.promiseScheduler.schedule(
                 this.emitToOverflow(
@@ -607,7 +488,6 @@ export class IngestionConsumer {
 
     private async processEventsForDistinctId(
         eventsForDistinctId: EventsForDistinctId,
-        personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<void> {
         const preprocessedEventsWithStores: PerDistinctIdPipelineInput[] = eventsForDistinctId.events.map(
@@ -616,7 +496,6 @@ export class IngestionConsumer {
                 trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
                 return {
                     ...incomingEvent,
-                    personsStoreForBatch,
                     groupStoreForBatch,
                 }
             }
@@ -674,18 +553,8 @@ export class IngestionConsumer {
         return groupedEvents
     }
 
-    private shouldSkipPerson(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
-    }
-
-    private shouldForceOverflow(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
+    private getAppliedRestrictions(token?: string, distinctId?: string): ReadonlySet<Restriction> {
+        return this.eventIngestionRestrictionManager.getAppliedRestrictions(token, { distinct_id: distinctId })
     }
 
     private overflowEnabled(): boolean {

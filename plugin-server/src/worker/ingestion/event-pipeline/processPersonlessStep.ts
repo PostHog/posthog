@@ -1,5 +1,6 @@
-import LRU from 'lru-cache'
+import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
@@ -7,13 +8,19 @@ import { ONE_HOUR } from '../../../config/constants'
 import { PipelineResult, ok } from '../../../ingestion/pipelines/results'
 import { Person, Team } from '../../../types'
 import { uuidFromDistinctId } from '../person-uuid'
-import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
+import { PersonsStore } from '../persons/persons-store'
+
+export const personlessDistinctIdCacheOperationsCounter = new Counter({
+    name: 'personless_distinct_id_cache_operations_total',
+    help: 'Number of cache hits and misses for the personless distinct ID inserted cache',
+    labelNames: ['operation'],
+})
 
 // Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
 // (team_id, distinct_id) pair. If we have, then we can skip the INSERT attempt.
-const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRU<string, boolean>({
+const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRUCache<string, boolean>({
     max: 10_000,
-    maxAge: ONE_HOUR * 24, // cache up to 24h
+    ttl: ONE_HOUR * 24, // cache up to 24h
     updateAgeOnGet: true,
 })
 
@@ -33,7 +40,7 @@ export async function processPersonlessStep(
     event: PluginEvent,
     team: Team,
     timestamp: DateTime,
-    personStoreBatch: PersonsStoreForBatch,
+    personsStore: PersonsStore,
     forceDisablePersonProcessing: boolean = false
 ): Promise<PipelineResult<Person>> {
     const distinctId = String(event.distinct_id)
@@ -44,7 +51,7 @@ export async function processPersonlessStep(
     }
 
     // Check if a real person exists for this distinct_id
-    let existingPerson = await personStoreBatch.fetchForChecking(team.id, distinctId)
+    let existingPerson = await personsStore.fetchForChecking(team.id, distinctId)
 
     if (!existingPerson) {
         // See the comment in `mergeDistinctIds`. We are inserting a row into `posthog_personlessdistinctid`
@@ -53,8 +60,11 @@ export async function processPersonlessStep(
         // or not.
 
         const personlessDistinctIdCacheKey = `${team.id}|${distinctId}`
-        if (!PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(personlessDistinctIdCacheKey)) {
-            const personIsMerged = await personStoreBatch.addPersonlessDistinctId(team.id, distinctId)
+        const cacheHit = PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(personlessDistinctIdCacheKey)
+        personlessDistinctIdCacheOperationsCounter.inc({ operation: cacheHit ? 'hit' : 'miss' })
+
+        if (!cacheHit) {
+            const personIsMerged = await personsStore.addPersonlessDistinctId(team.id, distinctId)
 
             // We know the row is in PG now, and so future events for this Distinct ID can
             // skip the PG I/O.
@@ -65,7 +75,7 @@ export async function processPersonlessStep(
                 // has been updated by a merge (either since we called `fetchPerson` above, plus
                 // replication lag). We need to check `fetchPerson` again (this time using the leader)
                 // so that we properly associate this event with the Person we got merged into.
-                existingPerson = await personStoreBatch.fetchForUpdate(team.id, distinctId)
+                existingPerson = await personsStore.fetchForUpdate(team.id, distinctId)
             }
         }
     }

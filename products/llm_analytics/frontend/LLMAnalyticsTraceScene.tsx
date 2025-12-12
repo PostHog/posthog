@@ -686,7 +686,15 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
         // Load AI data for the current event
-        const { input: loadedInput, output: loadedOutput } = useAIData(event)
+        const eventData =
+            event && isLLMEvent(event)
+                ? {
+                      uuid: event.id,
+                      input: event.properties.$ai_input,
+                      output: event.properties.$ai_output_choices,
+                  }
+                : undefined
+        const { input: loadedInput, output: loadedOutput } = useAIData(eventData)
 
         const handleTryInPlayground = (): void => {
             if (!event || !isLLMEvent(event)) {
@@ -817,6 +825,7 @@ const EventContent = React.memo(
                                                     event.event === '$ai_embedding') ? (
                                                     <TextViewDisplay
                                                         event={event}
+                                                        trace={trace}
                                                         lineNumber={lineNumber}
                                                         onFallback={handleTextViewFallback}
                                                         onCopyPermalink={copyLinePermalink}

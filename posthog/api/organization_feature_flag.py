@@ -6,6 +6,7 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payloads
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
@@ -167,10 +168,18 @@ class OrganizationFeatureFlagView(
                         except (ValueError, TypeError):
                             continue
 
+            # Retrieve filters per iteration since cohort replacement logic mutates the dict
+            filters = flag_to_copy.get_filters()
+            if flag_to_copy.has_encrypted_payloads:
+                # Decrypt payloads before copying to ensure the new flag has unencrypted payloads
+                # that will be re-encrypted by the serializer if needed
+                encrypted_payloads = filters.get("payloads", {})
+                filters["payloads"] = get_decrypted_flag_payloads(encrypted_payloads, should_decrypt=True)
+
             flag_data = {
                 "key": flag_to_copy.key,
                 "name": flag_to_copy.name,
-                "filters": flag_to_copy.get_filters(),
+                "filters": filters,
                 "active": flag_to_copy.active,
                 "rollout_percentage": flag_to_copy.rollout_percentage,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,

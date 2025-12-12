@@ -456,3 +456,73 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             assert "created_at" in records_from_destination[0]
         else:
             assert "created_at" not in records_from_destination[0]
+
+    async def test_workflow_cleans_up_volume_and_stage_table_if_there_is_an_error(
+        self,
+        destination_test: DatabricksDestinationTest,
+        interval: str,
+        generate_test_data,
+        data_interval_start: dt.datetime,
+        data_interval_end: dt.datetime,
+        ateam,
+        batch_export_for_destination,
+        clickhouse_client,
+        integration: Integration,
+        setup_destination,
+    ):
+        """Test that the Databricks batch export workflow cleans up the volume and stage table if there is an error.
+
+        If there is an error during the export, we should clean up the volume and stage table, otherwise we will try to
+        merge in duplicate data in a follow up run, causing Databricks to raise another error, such as:
+        "Cannot perform Merge as multiple source rows matched and attempted to modify the same target row in the Delta
+        table in possibly conflicting ways"
+        """
+        batch_export_model = BatchExportModel(name="persons", schema=None)
+
+        inputs = destination_test.create_batch_export_inputs(
+            team_id=ateam.pk,
+            data_interval_end=data_interval_end,
+            interval=interval,
+            batch_export_model=batch_export_model,
+            batch_export_schema=None,
+            batch_export=batch_export_for_destination,
+        )
+
+        with unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.DatabricksClient.amerge_tables",
+            side_effect=ValueError("A simulated error during merge"),
+        ):
+            run = await destination_test.run_workflow(
+                batch_export_id=batch_export_for_destination.id,
+                inputs=inputs,
+                expect_workflow_failure=True,
+            )
+
+        assert run.status == "FailedRetryable"
+
+        # Verify that the volume and stage table have been cleaned up
+        destination_config = destination_test.get_destination_config(ateam.pk)
+        data_interval_end_str = data_interval_end.strftime("%Y-%m-%d_%H-%M-%S")
+        # Attempt number is always 1 in tests
+        expected_volume_name = f"stage_{destination_config['table_name']}_{data_interval_end_str}_{ateam.pk}_1"
+        expected_stage_table_name = f"stage_{destination_config['table_name']}_{data_interval_end_str}_{ateam.pk}_1"
+
+        with destination_test.cursor(ateam.pk, integration) as cursor:
+            cursor.execute(f'USE CATALOG `{destination_config["catalog"]}`')
+            cursor.execute(f'USE SCHEMA `{destination_config["schema"]}`')
+
+            # Check that the volume does not exist
+            cursor.execute("SHOW VOLUMES")
+            volumes = cursor.fetchall()
+            volume_names = [row["volume_name"] for row in volumes] if volumes else []
+            assert (
+                expected_volume_name not in volume_names
+            ), f"Expected volume '{expected_volume_name}' to be cleaned up, but it still exists"
+
+            # Check that the stage table does not exist
+            cursor.execute("SHOW TABLES")
+            tables = cursor.fetchall()
+            table_names = [row["tableName"] for row in tables] if tables else []
+            assert (
+                expected_stage_table_name not in table_names
+            ), f"Expected stage table '{expected_stage_table_name}' to be cleaned up, but it still exists"
