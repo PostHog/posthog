@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,6 +29,18 @@ use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
 use limiters::token_dropper::TokenDropper;
+
+/// Returns true for errors that commonly occur during accept and don't indicate
+/// a problem with the listener itself. These are silently retried without logging.
+/// Matches axum::serve behavior.
+fn is_connection_error(e: &io::Error) -> bool {
+    matches!(
+        e.kind(),
+        io::ErrorKind::ConnectionRefused
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+    )
+}
 
 async fn create_sink(
     config: &Config,
@@ -227,14 +240,23 @@ where
                 let (socket, remote_addr) = match result {
                     Ok(conn) => conn,
                     Err(e) => {
-                        tracing::error!("failed to accept connection: {}", e);
+                        // Match axum::serve behavior:
+                        // - Connection errors (reset, aborted, refused) are silently retried
+                        // - Other errors (EMFILE, etc.) are logged and we back off 1s to avoid
+                        //   tight loops under resource exhaustion
+                        if is_connection_error(&e) {
+                            tracing::error!(error_type = "connection", pause = "none", "Hyper accept loop: {}", e);
+                        } else {
+                            tracing::error!(error_type = "resources", pause = "1s", "Hyper accept loop: {}", e);
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                        }
                         continue;
                     }
                 };
 
                 // Match axum default: set TCP_NODELAY for low-latency
                 if let Err(e) = socket.set_nodelay(true) {
-                    tracing::warn!("failed to set TCP_NODELAY: {}", e);
+                    tracing::warn!(error_type = "set_tcp_nodelay", pause = "none", "Hyper accept loop: {}", e);
                 }
 
                 // Create a service for this connection that injects ConnectInfo
@@ -257,19 +279,19 @@ where
 
                 tokio::spawn(async move {
                     if let Err(e) = conn.await {
-                        tracing::debug!("connection closed: {}", e);
+                        tracing::debug!(error_type = "conn_closed", pause = "none", "Hyper accept loop: {}", e);
                     }
                 });
             }
             _ = &mut shutdown => {
-                tracing::info!("shutdown signal received, stopping accept loop");
+                tracing::info!("Hyper accept loop: shutdown signal received");
                 break;
             }
         }
     }
 
     // Wait for all in-flight connections to complete
+    tracing::info!("Hyper accept loop: waiting for in-flight connections to complete");
     graceful.shutdown().await;
-
-    tracing::info!("HTTP server graceful shutdown completed");
+    tracing::info!("Hyper accept loop: graceful shutdown completed");
 }
