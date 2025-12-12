@@ -28,15 +28,20 @@ logger = structlog.get_logger(__name__)
 HANDLED_EVENT_TYPES = ["app_mention"]
 
 
-# To support Slack in both Cloud regions, one region acts as the primary, or "master". The primary receives all the
-# events from Slack, and decides what to do about each event:
-# 1. If the workspace is connected to any project in the primary region (via Integration), primary handles the event itself
-# 2. If the workspace is NOT connected to any project in the primary region, primary proxies the event to the secondary
-# The secondary region does the same Integration lookup, but if it doesn't find a match either, it stops processing
+# To support Slack in both Cloud regions, one region acts as the primary, or "master".
+# The primary receives all the events from Slack, and decides what to do about each event:
+# 1. If the workspace is connected to any project in the primary region (via Integration), primary handles the event itself;
+# 2. If the workspace is NOT connected to any project in the primary region, primary proxies the event to the secondary.
+# The secondary region does the same Integration lookup, but if it doesn't find a match either, it stops processing.
+# We use EU as the primary region, as it's more important to EU customers that their requests don't leave the EU,
+# than to US users that their requests don't leave the US.
 SLACK_PRIMARY_REGION_DOMAIN = "eu.posthog.com"
 SLACK_SECONDARY_REGION_DOMAIN = "us.posthog.com"
 
 if settings.DEBUG:
+    # In local dev, we implicitly test the regional routing by ALWAYS proxying once. When the request first arrives via
+    # SITE_URL (e.g. slackhog.ngrok.dev) we treat that as the primary region with no relevant integration, and proxy
+    # to localhost:8000, where the actual event handler runs. This way we ensure routing works, and works well.
     SLACK_PRIMARY_REGION_DOMAIN = urlparse(settings.SITE_URL).netloc
     SLACK_SECONDARY_REGION_DOMAIN = "localhost:8000"
 
@@ -51,6 +56,7 @@ def route_slack_event_to_relevant_region(request: HttpRequest, event: dict, slac
             handle_app_mention(event, integration)
     elif request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
         # We aren't in the right region OR the Slack workspace is not connected to any PostHog project in ANY region
+        # OR we're in dev and the request hasn't been proxied once yet
         proxy_slack_event_to_secondary_region(request)
     else:
         # The Slack workspace definitively is not connected to any PostHog project in ANY region
