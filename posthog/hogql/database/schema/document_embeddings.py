@@ -116,17 +116,6 @@ HOGQL_MODEL_TABLES = {table.to_printed_hogql(): table for table in HOGQL_EMBEDDI
 
 
 class DocumentEmbeddingsTable(LazyTable):
-    """
-    LazyTable that dynamically routes to model-specific tables based on WHERE clause.
-
-    When model_name is filtered to a specific value, it:
-    1. Routes to the appropriate distributed model-specific table
-    2. Adds FINAL modifier for deduplication
-    3. Adds model_name as a constant in the SELECT
-
-    When model_name is not specified, it falls back to the union view.
-    """
-
     fields: dict[str, FieldOrTable] = DOCUMENT_EMBEDDINGS_FIELDS
 
     def lazy_select(
@@ -151,7 +140,7 @@ class DocumentEmbeddingsTable(LazyTable):
             table_name = model_table.to_printed_hogql()
 
             # Build select expressions
-            exprs = []
+            exprs: list[ast.Expr] = []
             for name, chain in requested_fields.items():
                 if name == "model_name":
                     # Add model_name as a constant since it's not in the model-specific table

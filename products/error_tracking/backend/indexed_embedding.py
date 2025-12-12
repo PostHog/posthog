@@ -149,21 +149,7 @@ FROM {database}.{kafka_table}
 
 
 class ModelTableDefinitions:
-    """
-    Generates table definitions for a specific embedding model.
-
-    Each model gets its own set of tables with vector indexes optimized
-    for that model's specific dimension.
-    """
-
     def __init__(self, model_name: str, dimension: Optional[int] = None):
-        """
-        Initialize table definitions for a specific model.
-
-        Args:
-            model_name: The embedding model name (e.g., 'text-embedding-1024')
-            dimension: The vector dimension (optional, will be parsed from model_name if not provided)
-        """
         self.model_name = model_name
 
         # Parse dimension from model name if not provided
