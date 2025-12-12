@@ -953,6 +953,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         : [...expandedItemIdsState, item?.id ?? '']
 
                     setExpandedItemIdsState(newExpandedIds)
+                    onSetExpandedItemIds?.(newExpandedIds)
                     onFolderClick?.(item, wasExpanded)
                 }
                 if (item?.onClick) {

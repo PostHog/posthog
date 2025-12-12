@@ -892,7 +892,15 @@ function ColumnHeader({
 
     return (
         <div className="flex items-center gap-1">
-            <span className="font-semibold">{alias}</span>
+            <span
+                className="font-semibold cursor-pointer"
+                onClick={(event) => {
+                    event.stopPropagation()
+                    onRemove()
+                }}
+            >
+                {alias}
+            </span>
             <Popover
                 visible={isPopoverOpen}
                 onVisibilityChange={onPopoverVisibilityChange}
