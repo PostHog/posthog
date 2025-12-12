@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconArrowLeft,
+    IconAsterisk,
     IconBinary,
     IconBrackets,
     IconCalculator,
@@ -557,9 +558,9 @@ export function BIScene(): JSX.Element {
                                     </div>
                                     {selectedFieldTrees.length > 0 && (
                                         <LemonButton
-                                            size="small"
+                                            size="xsmall"
                                             type="secondary"
-                                            icon={<IconList />}
+                                            icon={<IconAsterisk />}
                                             onClick={addAllColumnsToQuery}
                                             tooltip={<>Select all columns</>}
                                         />
