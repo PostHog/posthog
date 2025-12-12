@@ -544,12 +544,12 @@ describe('parseKafkaHeaders', () => {
 describe('parseEventHeaders', () => {
     it('should return empty object when headers is undefined', () => {
         const result = parseEventHeaders(undefined)
-        expect(result).toEqual({ force_disable_person_processing: false })
+        expect(result).toEqual({ force_disable_person_processing: false, historical_migration: false })
     })
 
     it('should return empty object when headers is empty array', () => {
         const result = parseEventHeaders([])
-        expect(result).toEqual({ force_disable_person_processing: false })
+        expect(result).toEqual({ force_disable_person_processing: false, historical_migration: false })
     })
 
     it('should parse token header only', () => {
@@ -558,6 +558,7 @@ describe('parseEventHeaders', () => {
         expect(result).toEqual({
             token: 'test-token',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -567,6 +568,7 @@ describe('parseEventHeaders', () => {
         expect(result).toEqual({
             distinct_id: 'user-123',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -576,6 +578,7 @@ describe('parseEventHeaders', () => {
         expect(result).toEqual({
             timestamp: '1234567890',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -593,6 +596,7 @@ describe('parseEventHeaders', () => {
             distinct_id: 'user-123',
             timestamp: '1234567890',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -608,6 +612,7 @@ describe('parseEventHeaders', () => {
             distinct_id: 'user-123',
             timestamp: '1234567890',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -625,6 +630,7 @@ describe('parseEventHeaders', () => {
             token: 'test-token',
             distinct_id: 'user-123',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -642,6 +648,7 @@ describe('parseEventHeaders', () => {
             distinct_id: '',
             timestamp: '',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -657,6 +664,7 @@ describe('parseEventHeaders', () => {
             token: 'second-token',
             distinct_id: 'second-id',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -673,6 +681,7 @@ describe('parseEventHeaders', () => {
             token: 'test-token',
             timestamp: '1234567890',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -689,6 +698,7 @@ describe('parseEventHeaders', () => {
             token: 'test-token',
             timestamp: '1234567890',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -698,6 +708,7 @@ describe('parseEventHeaders', () => {
         expect(result).toEqual({
             event: '$pageview',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -707,6 +718,7 @@ describe('parseEventHeaders', () => {
         expect(result).toEqual({
             uuid: '123e4567-e89b-12d3-a456-426614174000',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -728,6 +740,7 @@ describe('parseEventHeaders', () => {
             event: '$pageview',
             uuid: '123e4567-e89b-12d3-a456-426614174000',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -749,6 +762,7 @@ describe('parseEventHeaders', () => {
             event: 'custom_event',
             uuid: 'uuid-value',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -766,6 +780,7 @@ describe('parseEventHeaders', () => {
             event: '',
             uuid: '',
             force_disable_person_processing: false,
+            historical_migration: false,
         })
     })
 
@@ -815,6 +830,7 @@ describe('parseEventHeaders', () => {
                 distinct_id: 'user-123',
                 now: new Date(isoDate),
                 force_disable_person_processing: false,
+                historical_migration: false,
             })
         })
 

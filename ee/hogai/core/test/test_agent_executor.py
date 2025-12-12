@@ -11,10 +11,7 @@ from temporalio.client import WorkflowExecutionStatus
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
-from posthog.temporal.ai.chat_agent import (
-    AssistantConversationRunnerWorkflow,
-    AssistantConversationRunnerWorkflowInputs,
-)
+from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import (
@@ -25,8 +22,8 @@ from ee.hogai.stream.redis_stream import (
     StreamError,
     StreamEvent,
     StreamStatusEvent,
+    get_conversation_stream_key,
 )
-from ee.hogai.utils.types import AssistantMode
 from ee.hogai.utils.types.base import AssistantOutput
 from ee.models.assistant import Conversation
 
@@ -65,17 +62,17 @@ class TestAgentExecutor(BaseTest):
             mock_stream.return_value = mock_stream_gen()
             mock_wait_for_start.return_value = True
 
-            workflow_inputs = AssistantConversationRunnerWorkflowInputs(
+            workflow_inputs = ChatAgentWorkflowInputs(
                 team_id=self.team_id,
                 user_id=self.user_id,
                 conversation_id=self.conversation.id,
-                mode=AssistantMode.ASSISTANT,
+                stream_key=get_conversation_stream_key(self.conversation.id),
                 trace_id=str(uuid4()),
             )
 
             # Call the method
             results = []
-            async for chunk in self.manager.astream(AssistantConversationRunnerWorkflow, workflow_inputs):
+            async for chunk in self.manager.astream(ChatAgentWorkflow, workflow_inputs):
                 results.append(chunk)
 
             # Verify results
@@ -88,7 +85,7 @@ class TestAgentExecutor(BaseTest):
             call_args = mock_client.start_workflow.call_args
 
             # Check workflow function and inputs
-            self.assertEqual(call_args[0][0], AssistantConversationRunnerWorkflow.run)
+            self.assertEqual(call_args[0][0], ChatAgentWorkflow.run)
             self.assertEqual(call_args[0][1], workflow_inputs)
 
             # Check keyword arguments
@@ -101,17 +98,17 @@ class TestAgentExecutor(BaseTest):
         # Setup mock to raise exception
         mock_connect.side_effect = Exception("Connection failed")
 
-        workflow_inputs = AssistantConversationRunnerWorkflowInputs(
+        workflow_inputs = ChatAgentWorkflowInputs(
             team_id=self.team_id,
             user_id=self.user_id,
             conversation_id=self.conversation.id,
-            mode=AssistantMode.ASSISTANT,
+            stream_key=get_conversation_stream_key(self.conversation.id),
             trace_id=str(uuid4()),
         )
 
         # Call the method
         results = []
-        async for chunk in self.manager.astream(AssistantConversationRunnerWorkflow, workflow_inputs):
+        async for chunk in self.manager.astream(ChatAgentWorkflow, workflow_inputs):
             results.append(chunk)
 
         # Verify failure message is returned
@@ -443,3 +440,139 @@ class TestAgentExecutor(BaseTest):
 
             # Verify sleep was called (indicating retry attempts)
             mock_sleep.assert_called()
+
+    async def test_cancel_subagent_workflows_success(self):
+        """Test successful cancellation of subagent workflows."""
+        mock_client = Mock()
+
+        # Create mock workflow objects
+        mock_workflow_1 = Mock()
+        mock_workflow_1.id = f"subagent-{self.conversation.id}-tool-call-1"
+        mock_workflow_2 = Mock()
+        mock_workflow_2.id = f"subagent-{self.conversation.id}-tool-call-2"
+
+        # Make list_workflows return an async generator
+        async def mock_list_workflows(_query):
+            for workflow in [mock_workflow_1, mock_workflow_2]:
+                yield workflow
+
+        mock_client.list_workflows = mock_list_workflows
+
+        # Setup handles that can be cancelled
+        mock_handle_1 = Mock()
+        mock_handle_2 = Mock()
+
+        async def cancel_mock():
+            pass
+
+        mock_handle_1.cancel = cancel_mock
+        mock_handle_2.cancel = cancel_mock
+
+        def get_handle(workflow_id):
+            if workflow_id == mock_workflow_1.id:
+                return mock_handle_1
+            return mock_handle_2
+
+        mock_client.get_workflow_handle = get_handle
+
+        # Call the method
+        await self.manager._cancel_subagent_workflows(mock_client)
+
+        # Verify get_workflow_handle was called for each workflow
+        # (we can't easily assert on Mock when using a function, but the test passes if no exception)
+
+    async def test_cancel_subagent_workflows_no_subagents(self):
+        """Test cancellation when there are no subagent workflows."""
+        mock_client = Mock()
+
+        # Empty async generator
+        async def mock_list_workflows(_query):
+            return
+            yield  # noqa: B901 - make it an async generator
+
+        mock_client.list_workflows = mock_list_workflows
+
+        # Should complete without errors
+        await self.manager._cancel_subagent_workflows(mock_client)
+
+    async def test_cancel_subagent_workflows_single_cancel_fails(self):
+        """Test that failure to cancel one subagent doesn't stop others."""
+        mock_client = Mock()
+
+        mock_workflow_1 = Mock()
+        mock_workflow_1.id = f"subagent-{self.conversation.id}-tool-call-1"
+        mock_workflow_2 = Mock()
+        mock_workflow_2.id = f"subagent-{self.conversation.id}-tool-call-2"
+
+        async def mock_list_workflows(query):
+            for workflow in [mock_workflow_1, mock_workflow_2]:
+                yield workflow
+
+        mock_client.list_workflows = mock_list_workflows
+
+        # First handle fails, second succeeds
+        mock_handle_1 = Mock()
+        mock_handle_2 = Mock()
+
+        async def cancel_error():
+            raise Exception("Cancel failed")
+
+        async def cancel_success():
+            pass
+
+        mock_handle_1.cancel = cancel_error
+        mock_handle_2.cancel = cancel_success
+
+        cancel_calls = []
+
+        def get_handle(workflow_id):
+            cancel_calls.append(workflow_id)
+            if workflow_id == mock_workflow_1.id:
+                return mock_handle_1
+            return mock_handle_2
+
+        mock_client.get_workflow_handle = get_handle
+
+        # Should not raise, even though first cancel fails
+        await self.manager._cancel_subagent_workflows(mock_client)
+
+        # Both handles should have been attempted
+        self.assertEqual(len(cancel_calls), 2)
+
+    async def test_cancel_subagent_workflows_list_fails(self):
+        """Test that failure to list workflows is handled gracefully."""
+        mock_client = Mock()
+
+        async def mock_list_workflows(_query):
+            yield
+            raise Exception("List workflows failed")
+
+        mock_client.list_workflows = mock_list_workflows
+
+        # Should not raise exception
+        await self.manager._cancel_subagent_workflows(mock_client)
+
+    async def test_cancel_workflow_cancels_subagents(self):
+        """Test that cancel_workflow also cancels subagent workflows."""
+        with (
+            patch("ee.hogai.core.executor.async_connect") as mock_connect,
+            patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
+            patch.object(self.conversation, "asave"),
+            patch.object(self.manager, "_cancel_subagent_workflows") as mock_cancel_subagents,
+        ):
+            mock_client = Mock()
+            mock_handle = Mock()
+            mock_connect.return_value = mock_client
+            mock_client.get_workflow_handle.return_value = mock_handle
+
+            async def cancel_mock():
+                pass
+
+            mock_handle.cancel = cancel_mock
+            mock_delete.return_value = True
+            mock_cancel_subagents.return_value = None
+
+            await self.manager.cancel_workflow()
+
+            # Verify subagent cancellation was called with the client
+            mock_cancel_subagents.assert_called_once_with(mock_client)

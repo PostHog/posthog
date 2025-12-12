@@ -1,5 +1,6 @@
 import { EmbeddingEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/embedding-event'
 import { GenerationEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/generation-event'
+import { NotableGenerationProperties } from '@posthog/shared-onboarding/llm-analytics/_snippets/notable-generation-properties'
 import { SpanEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/span-event'
 import { TraceEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/trace-event'
 import { AnthropicInstallation } from '@posthog/shared-onboarding/llm-analytics/anthropic'
@@ -30,25 +31,25 @@ function LLMManualInstructions(): JSX.Element {
     )
 }
 
-function LLMOpenAIInstructions(): JSX.Element {
+function LLMAnthropicInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
-            <OpenAIInstallation />
+        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
+            <AnthropicInstallation />
         </OnboardingDocsContentWrapper>
     )
 }
 
-function LLMAnthropicInstructions(): JSX.Element {
+function LLMOpenAIInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
-            <AnthropicInstallation />
+        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
+            <OpenAIInstallation />
         </OnboardingDocsContentWrapper>
     )
 }
 
 function LLMGoogleInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
+        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
             <GoogleInstallation />
         </OnboardingDocsContentWrapper>
     )
@@ -56,7 +57,7 @@ function LLMGoogleInstructions(): JSX.Element {
 
 function LLMOpenRouterInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
+        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
             <OpenRouterInstallation />
         </OnboardingDocsContentWrapper>
     )
@@ -64,7 +65,7 @@ function LLMOpenRouterInstructions(): JSX.Element {
 
 function LLMLangChainInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
+        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
             <LangChainInstallation />
         </OnboardingDocsContentWrapper>
     )
@@ -72,7 +73,7 @@ function LLMLangChainInstructions(): JSX.Element {
 
 function LLMLiteLLMInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
+        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
             <LiteLLMInstallation />
         </OnboardingDocsContentWrapper>
     )
@@ -80,7 +81,7 @@ function LLMLiteLLMInstructions(): JSX.Element {
 
 function LLMVercelAIInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
+        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
             <VercelAIInstallation />
         </OnboardingDocsContentWrapper>
     )

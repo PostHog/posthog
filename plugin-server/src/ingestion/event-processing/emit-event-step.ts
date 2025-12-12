@@ -16,9 +16,9 @@ export interface EmitEventStepConfig {
 }
 
 export interface EmitEventStepInput {
-    eventToEmit?: RawKafkaEvent
-    inputHeaders?: EventHeaders
-    inputMessage?: Message
+    eventToEmit: RawKafkaEvent
+    inputHeaders: EventHeaders
+    inputMessage: Message
 }
 
 export function createEmitEventStep<T extends EmitEventStepInput>(
@@ -26,10 +26,6 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
 ): ProcessingStep<T, void> {
     return function emitEventStep(input: T): Promise<PipelineResult<void>> {
         const { eventToEmit, inputHeaders, inputMessage } = input
-
-        if (!eventToEmit) {
-            return Promise.resolve(ok(undefined, []))
-        }
         const { kafkaProducer, clickhouseJsonEventsTopic, groupId } = config
 
         // Record ingestion lag metric if we have the required data

@@ -81,10 +81,14 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
         }
 
         if (isUpdateMode && selectedEndpointName) {
-            updateEndpoint(selectedEndpointName, {
-                description: endpointDescription || undefined,
-                query: queryPayload,
-            })
+            updateEndpoint(
+                selectedEndpointName,
+                {
+                    description: endpointDescription || undefined,
+                    query: queryPayload,
+                },
+                true
+            )
         } else {
             createEndpoint({
                 name: endpointName || undefined,

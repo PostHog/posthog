@@ -390,6 +390,13 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
                 **validated_data["session_replay_config"],
             }
 
+        # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
+            validated_data["modifiers"] = {
+                **(team.modifiers or {}),
+                **validated_data["modifiers"],
+            }
+
         should_team_be_saved_too = False
         for attr, value in validated_data.items():
             if attr not in self.Meta.team_passthrough_fields:

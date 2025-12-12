@@ -799,7 +799,14 @@ class ConversionGoalProcessor:
         """Build final aggregation query with organic defaults"""
         campaign_expr = self._build_organic_default_expr("campaign_name", self.config.organic_campaign)
 
+        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
         select_columns: list[ast.Expr] = [
+            # match_key is the utm_campaign value used for joining with campaign costs
+            # Users put either campaign name or ID in utm_campaign depending on their integration config
+            ast.Alias(
+                alias=self.config.match_key_field,
+                expr=campaign_expr,
+            ),
             ast.Alias(
                 alias=self.config.campaign_field,
                 expr=campaign_expr,
@@ -813,12 +820,6 @@ class ConversionGoalProcessor:
                 expr=self._normalize_source_field(
                     self._build_organic_default_expr("source_name", self.config.organic_source)
                 ),
-            ),
-            # match_key is the utm_campaign value used for joining with campaign costs
-            # Users put either campaign name or ID in utm_campaign depending on their integration config
-            ast.Alias(
-                alias=self.config.match_key_field,
-                expr=campaign_expr,
             ),
             ast.Alias(
                 alias=self.config.get_conversion_goal_column_name(self.index),
@@ -875,8 +876,12 @@ class ConversionGoalProcessor:
         )
 
         # Build SELECT columns with organic defaults
-        # Schema: [0]=campaign, [1]=id, [2]=source, [3]=match_key, [4]=conversion
+        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
         select_columns: list[ast.Expr] = [
+            ast.Alias(
+                alias=self.config.match_key_field,
+                expr=campaign_expr,  # match_key is the utm_campaign value
+            ),
             ast.Alias(
                 alias=self.config.campaign_field,
                 expr=campaign_expr,
@@ -892,10 +897,6 @@ class ConversionGoalProcessor:
                 expr=self._normalize_source_field(
                     ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=self.config.organic_source)])
                 ),
-            ),
-            ast.Alias(
-                alias=self.config.match_key_field,
-                expr=campaign_expr,  # match_key is the utm_campaign value
             ),
             ast.Alias(
                 alias=self.config.get_conversion_goal_column_name(self.index),

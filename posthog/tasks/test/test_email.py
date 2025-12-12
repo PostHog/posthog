@@ -139,14 +139,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         plugin = Plugin.objects.create(organization=self.organization)
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
-        self._create_user("test2@posthog.com")
+        user2 = self._create_user("test2@posthog.com")
         self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
         send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
 
         # Should only be sent to user2
-        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
 
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
@@ -193,13 +195,15 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             data_interval_end=now,
         )
 
-        self._create_user("test2@posthog.com")
+        user2 = self._create_user("test2@posthog.com")
         self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
         send_batch_export_run_failure(batch_export_run.id)
         # Should only be sent to user2
-        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
 
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
@@ -278,7 +282,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_hog_functions_digest_email_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        self._create_user("test2@posthog.com")
+        user2 = self._create_user("test2@posthog.com")
         self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
@@ -351,7 +355,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_hog_functions_digest_email(digest_data)
 
         # Should only be sent to user2 (user1 has notifications disabled)
-        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
 
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()

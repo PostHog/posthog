@@ -14,6 +14,7 @@ import {
     IconHome,
     IconNewspaper,
     IconPeople,
+    IconSearch,
     IconShortcut,
     IconSidebarClose,
     IconSidebarOpen,
@@ -157,6 +158,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         return false
     }
 
+    function handleSearchClick(): void {
+        const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
+
+        if (mountedLogic) {
+            setTimeout(() => {
+                mountedLogic.actions.triggerSearchPulse()
+            }, 100)
+        }
+    }
+
     const navItems: {
         identifier: string
         label: string
@@ -175,6 +186,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => handleStaticNavbarItemClick(urls.projectRoot(), true),
             collapsedTooltip: 'Home',
         },
+        {
+            identifier: 'Search',
+            label: 'Search',
+            icon: <IconSearch />,
+            to: urls.newTab(),
+            onClick: () => {
+                handleSearchClick()
+                handleStaticNavbarItemClick(urls.newTab(), true)
+            },
+            collapsedTooltip: 'Search',
+        },
         ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
             ? [
                   {
@@ -188,6 +210,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
               ]
             : []),
         {
+            identifier: 'Activity',
+            label: 'Activity',
+            icon: <IconClock />,
+            to: urls.activity(),
+            onClick: () => handleStaticNavbarItemClick(urls.activity(), true),
+            collapsedTooltip: 'Activity',
+            documentationUrl: 'https://posthog.com/docs/data/events',
+        },
+        {
             identifier: 'Products',
             label: 'All apps',
             icon: <IconApps />,
@@ -200,27 +231,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: ['Open products', 'Close products'],
         },
         {
-            identifier: 'Project',
-            label: 'Project',
-            icon: <IconFolderOpen className="stroke-[1.2]" />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Project')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open project tree', 'Close project tree'],
-        },
-        {
             identifier: 'Database',
             label: 'Data warehouse',
             icon: <IconDatabaseBolt />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Database')
-                }
-            },
-            showChevron: true,
+            to: urls.sqlEditor(),
+            onClick: () => handleStaticNavbarItemClick(urls.sqlEditor(), true),
             collapsedTooltip: ['Open data warehouse', 'Close data warehouse'],
             documentationUrl: 'https://posthog.com/docs/data-warehouse/sql',
         },
@@ -239,7 +254,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'People',
-            label: 'People',
+            label: 'People & groups',
             icon: <IconPeople />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -247,7 +262,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            collapsedTooltip: ['Open people', 'Close people'],
+            collapsedTooltip: ['Open people & groups', 'Close people & groups'],
             documentationUrl: 'https://posthog.com/docs/data/persons',
         },
         {
@@ -263,13 +278,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: ['Open shortcuts', 'Close shortcuts'],
         },
         {
-            identifier: 'Activity',
-            label: 'Activity',
-            icon: <IconClock />,
-            to: urls.activity(),
-            onClick: () => handleStaticNavbarItemClick(urls.activity(), true),
-            collapsedTooltip: 'Activity',
-            documentationUrl: 'https://posthog.com/docs/data/events',
+            identifier: 'Project',
+            label: 'Project',
+            icon: <IconFolderOpen className="stroke-[1.2]" />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Project')
+                }
+            },
+            showChevron: true,
+            collapsedTooltip: ['Open project tree', 'Close project tree'],
         },
     ].filter(Boolean)
 
@@ -300,7 +318,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 showName={false}
                                 buttonProps={{
                                     variant: 'panel',
-                                    className: 'px-px',
+                                    className: cn('px-px', {
+                                        hidden: isLayoutNavCollapsed,
+                                    }),
                                     iconOnly: isLayoutNavCollapsed,
                                     tooltipCloseDelayMs: 0,
                                     tooltipPlacement: 'bottom',
@@ -484,12 +504,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         if (
                                             removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()
                                         ) {
-                                            const mountedLogic = activeTabId
-                                                ? newTabSceneLogic.findMounted({ tabId: activeTabId })
-                                                : null
-                                            if (mountedLogic) {
-                                                mountedLogic.actions.focusNewTabSearchInput()
-                                            }
+                                            handleSearchClick()
                                         } else {
                                             router.actions.push(urls.newTab())
                                         }

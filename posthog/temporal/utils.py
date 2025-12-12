@@ -31,7 +31,6 @@ class DuckLakeCopyModelInput:
     model_label: str
     saved_query_id: str
     table_uri: str
-    file_uris: list[str]
 
 
 @dataclasses.dataclass

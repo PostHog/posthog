@@ -250,6 +250,7 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING or(greater(`context.columns.rage_clicks`, tuple(0, 0)), greater(`context.columns.dead_clicks`, tuple(0, 0)), greater(`context.columns.errors`, tuple(0, 0)))
   ORDER BY `context.columns.errors` DESC,
            `context.columns.rage_clicks` DESC,
            `context.columns.dead_clicks` DESC

@@ -71,7 +71,7 @@ def run_sql_with_exceptions(
         cluster = get_migrations_cluster()
 
         query = Query(sql)
-        if sharded:
+        if sharded and is_alter_on_replicated_table:
             assert (NodeRole.DATA in node_roles and len(node_roles) == 1) or (
                 settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
             ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"

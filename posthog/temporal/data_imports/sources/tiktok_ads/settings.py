@@ -26,6 +26,8 @@ METRICS_FIELDS = [
     "conversion_rate_v2",
     "conversion_rate",
     "conversion",
+    "complete_payment",
+    "total_complete_payment_rate",
     "cost_per_1000_reached",
     "cost_per_conversion",
     "cost_per_result",

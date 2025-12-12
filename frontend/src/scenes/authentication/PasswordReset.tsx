@@ -4,6 +4,7 @@ Scene to request a password reset email.
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
@@ -27,6 +28,13 @@ export const scene: SceneExport = {
 export function PasswordReset(): JSX.Element {
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { requestPasswordResetSucceeded, requestPasswordResetManualErrors } = useValues(passwordResetLogic)
+    const { resetRequestPasswordReset } = useActions(passwordResetLogic)
+
+    useEffect(() => {
+        return () => {
+            resetRequestPasswordReset()
+        }
+    }, [resetRequestPasswordReset])
 
     return (
         <BridgePage view="password-reset" footer={<SupportModalButton />}>

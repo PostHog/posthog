@@ -172,7 +172,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def test_delete_endpoint(self):
         """Test deleting a endpoint."""
-        Endpoint.objects.create(
+        endpoint = Endpoint.objects.create(
             name="delete_test",
             team=self.team,
             query=self.sample_hogql_query,
@@ -182,6 +182,12 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/delete_test/")
 
         self.assertIn(response.status_code, [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Endpoint", activity="deleted")
+        self.assertEqual(logs.count(), 1, list(logs.values("activity", "scope", "item_id")))
+        log = logs.latest("created_at")
+        self.assertEqual(log.item_id, str(endpoint.id))
+        assert log.detail is not None
+        self.assertEqual(log.detail.get("name"), "delete_test")
 
     def test_invalid_query_name_validation(self):
         """Test validation of invalid query names."""

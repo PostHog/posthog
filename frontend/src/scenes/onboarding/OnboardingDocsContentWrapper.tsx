@@ -58,21 +58,25 @@ interface OnboardingComponents {
 const OnboardingContext = createContext<OnboardingComponents | null>(null)
 
 function Steps({ children }: { children: ReactNode }): JSX.Element {
-    const validSteps = Children.toArray(children).filter((child) => {
+    let stepNumber = 0
+
+    const processedChildren = Children.map(children, (child) => {
         if (!isValidElement(child)) {
-            return false
+            return child
         }
-        return !child.props.docsOnly
+
+        // Only number Step components - check if it's actually a Step component
+        const isStep = child.type === Step && 'title' in child.props && typeof child.props.title === 'string'
+
+        if (isStep && !child.props.docsOnly) {
+            stepNumber += 1
+            return React.cloneElement(child, { stepNumber } as any)
+        }
+
+        return child
     })
 
-    const numberedSteps = validSteps.map((step, index) => {
-        if (isValidElement(step)) {
-            return React.cloneElement(step, { stepNumber: index + 1 } as any)
-        }
-        return step
-    })
-
-    return <div className="space-y-6">{numberedSteps}</div>
+    return <div className="space-y-6">{processedChildren}</div>
 }
 
 function Step({

@@ -66,10 +66,25 @@ TOTAL_COST_FIELD = "total_cost"
 TOTAL_CLICKS_FIELD = "total_clicks"
 TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 TOTAL_REPORTED_CONVERSION_FIELD = "total_reported_conversions"
+TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
 
-# Fallback query when no valid adapters are found
-MATCH_KEY_FIELD = "match_key"  # Field used for joining with conversion goals
-FALLBACK_EMPTY_QUERY = f"SELECT 'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION}, '' as {MATCH_KEY_FIELD} WHERE 1=0"
+# Field used for joining with conversion goals
+MATCH_KEY_FIELD = "match_key"
+
+# Fallback query when no valid adapters are found (includes all 9 columns in correct order)
+# Order: match_key, campaign, id, source, impressions, clicks, cost, reported_conversion, reported_conversion_value
+FALLBACK_EMPTY_QUERY = (
+    f"SELECT '' as {MATCH_KEY_FIELD}, "
+    f"'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, "
+    f"'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, "
+    f"'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE} "
+    "WHERE 1=0"
+)
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {
@@ -159,6 +174,36 @@ BASE_COLUMN_MAPPING = {
             name="round",
             args=[
                 ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_FIELD]),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_VALUE_FIELD]),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
+    MarketingAnalyticsBaseColumns.REPORTED_ROAS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_ROAS,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.ArithmeticOperation(
+                    left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_VALUE_FIELD]),
+                    op=ast.ArithmeticOperationOp.Div,
+                    right=ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
                 ast.Constant(value=DECIMAL_PRECISION),
             ],
         ),
@@ -296,6 +341,8 @@ COLUMN_KIND_MAPPING = {
     MarketingAnalyticsBaseColumns.CPC: "currency",
     MarketingAnalyticsBaseColumns.CTR: "percentage",
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: "unit",
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: "currency",
+    MarketingAnalyticsBaseColumns.REPORTED_ROAS: "unit",
 }
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
@@ -309,6 +356,8 @@ IS_INCREASE_BAD_MAPPING = {
     MarketingAnalyticsBaseColumns.CPC: True,  # Higher CPC is bad
     MarketingAnalyticsBaseColumns.CTR: False,  # Higher CTR is good
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: False,  # More reported conversions is good
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: False,  # Higher conversion value is good
+    MarketingAnalyticsBaseColumns.REPORTED_ROAS: False,  # Higher ROAS is good
 }
 
 

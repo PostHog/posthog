@@ -503,6 +503,17 @@ export const notebookLogic = kea<notebookLogicType>([
                 return insightNodes?.map((node) => node?.attrs?.query?.shortId)
             },
         ],
+
+        personUUIDFromCanvasOverride: [
+            () => [(_, props) => props],
+            (props: NotebookLogicProps): string | null => {
+                if (!props.canvasFiltersOverride || props.canvasFiltersOverride.length === 0) {
+                    return null
+                }
+                return props.canvasFiltersOverride.find((filter: AnyPropertyFilter) => filter.key === 'person_id')
+                    ?.value as string
+            },
+        ],
     }),
     listeners(({ values, actions, cache }) => ({
         insertAfterLastNode: async ({ content }) => {

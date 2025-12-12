@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -33,8 +33,9 @@ export const couponLogic = kea<couponLogicType>([
             organizationLogic,
             ['currentOrganization', 'isAdminOrOwner'],
             billingLogic,
-            ['billing'],
+            ['billing', 'billingLoading'],
         ],
+        actions: [billingLogic, ['loadBillingSuccess']],
     })),
     actions({
         setClaimed: (claimed: boolean) => ({ claimed }),
@@ -42,7 +43,7 @@ export const couponLogic = kea<couponLogicType>([
     }),
     loaders(() => ({
         couponsOverview: [
-            { claimed_coupons: [] } as CouponsOverview,
+            null as CouponsOverview | null,
             {
                 loadCouponsOverview: async () => {
                     return await api.get('api/billing/coupons/overview')
@@ -59,13 +60,13 @@ export const couponLogic = kea<couponLogicType>([
             (s) => [s.couponsOverview],
             (couponsOverview) =>
                 (campaignSlug: string): ClaimedCouponInfo | null => {
-                    return couponsOverview.claimed_coupons.find((c) => c.campaign_slug === campaignSlug) || null
+                    return couponsOverview?.claimed_coupons?.find((c) => c.campaign_slug === campaignSlug) || null
                 },
         ],
         activeCoupons: [
             (s) => [s.couponsOverview],
             (couponsOverview): ClaimedCouponInfo[] => {
-                return couponsOverview.claimed_coupons.filter((c) => c.status === 'claimed')
+                return couponsOverview?.claimed_coupons?.filter((c) => c.status === 'claimed') ?? []
             },
         ],
     }),
@@ -76,7 +77,7 @@ export const couponLogic = kea<couponLogicType>([
                 organization_name: values.currentOrganization?.name || '',
             } as CouponFormValues,
             errors: ({ code }) => {
-                if (!values.billing?.has_active_subscription) {
+                if (!values.billingLoading && !values.billing?.has_active_subscription) {
                     return {
                         _form: 'You need to be on a paid plan before claiming this coupon',
                     }
@@ -107,6 +108,13 @@ export const couponLogic = kea<couponLogicType>([
                     throw error
                 }
             },
+        },
+    })),
+    listeners(({ values, actions }) => ({
+        loadBillingSuccess: () => {
+            // kea-forms errors() is a selector that only recalculates when form state changes.
+            // Since we depend on external billing state, we force recalculation by re-setting a form value.
+            actions.setCouponValue('code', values.coupon.code)
         },
     })),
     afterMount(({ actions }) => {

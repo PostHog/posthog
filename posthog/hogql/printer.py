@@ -12,6 +12,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     InCohortVia,
     MaterializationMode,
+    MaterializedColumnsOptimizationMode,
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
@@ -481,8 +482,9 @@ class _Printer(Visitor[str]):
             clauses.append(f"LIMIT {self.visit(limit)}")
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
-            if node.offset is not None:
-                clauses.append(f"OFFSET {self.visit(node.offset)}")
+
+        if node.offset is not None:
+            clauses.append(f"OFFSET {self.visit(node.offset)}")
 
         if (
             self.context.output_format
@@ -870,11 +872,79 @@ class _Printer(Visitor[str]):
 
         return None  # nothing to optimize
 
+    def __get_optimized_materialized_column_compare_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns an optimized printed expression for comparisons involving individually materialized columns.
+
+        When comparing a materialized column to a non-empty, non-null string constant, we can skip the
+        nullIf() wrapping that normally happens. This allows ClickHouse to use skip indexes on the
+        materialized column.
+
+        For example, instead of:
+            ifNull(equals(nullIf(nullIf(events.`mat_$feature_flag`, ''), 'null'), 'some_value'), 0)
+        We can emit:
+            equals(events.`mat_$feature_flag`, 'some_value')
+
+        This is safe because we know 'some_value' is neither empty string nor 'null', so the nullIf
+        checks are redundant for the comparison result.
+        """
+        if self.context.modifiers.materializedColumnsOptimizationMode != MaterializedColumnsOptimizationMode.OPTIMIZED:
+            return None
+
+        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return None
+
+        property_type: ast.PropertyType | None = None
+        constant_expr: ast.Constant | None = None
+
+        if isinstance(node.right, ast.Constant):
+            left_type = resolve_field_type(node.left)
+            if isinstance(left_type, ast.PropertyType):
+                property_type = left_type
+                constant_expr = node.right
+        elif isinstance(node.left, ast.Constant):
+            right_type = resolve_field_type(node.right)
+            if isinstance(right_type, ast.PropertyType):
+                property_type = right_type
+                constant_expr = node.left
+
+        if property_type is None or constant_expr is None:
+            return None
+
+        # Only optimize simple property access (not chained like properties.foo.bar)
+        if len(property_type.chain) != 1:
+            return None
+
+        # Only optimize for non-empty, non-null string constants
+        if not isinstance(constant_expr.value, str):
+            return None
+        if constant_expr.value == "" or constant_expr.value == "null":
+            return None
+
+        # Check if this property uses an individually materialized column (not a property group)
+        property_source = self.__get_materialized_property_source_for_property_type(property_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
+            return None
+
+        # Build the optimized comparison using the raw materialized column
+        materialized_column_sql = str(property_source)
+        constant_sql = self.visit(constant_expr)
+
+        if node.op == ast.CompareOperationOp.Eq:
+            return f"equals({materialized_column_sql}, {constant_sql})"
+        else:  # NotEq
+            return f"notEquals({materialized_column_sql}, {constant_sql})"
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
         if optimized_property_group_compare_operation := self.__get_optimized_property_group_compare_operation(node):
             return optimized_property_group_compare_operation
+
+        # If either side is an individually materialized column being compared to a string constant,
+        # we can skip the nullIf wrapping to allow skip index usage.
+        if optimized_materialized_column_compare := self.__get_optimized_materialized_column_compare_operation(node):
+            return optimized_materialized_column_compare
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
@@ -1479,7 +1549,7 @@ class _Printer(Visitor[str]):
                     survey_id = node.args[0]
                     if not isinstance(survey_id, ast.Constant):
                         raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
-                    return filter_survey_sent_events_by_unique_submission(survey_id.value)
+                    return filter_survey_sent_events_by_unique_submission(survey_id.value, self.context.team_id)
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:
