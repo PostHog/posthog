@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -76,23 +77,36 @@ function dedupeColumns(columns: BIQueryColumn[]): BIQueryColumn[] {
     })
 }
 
-function flattenFieldNodes(nodes: FieldTreeNode[]): Array<{ path: string; field: DatabaseSchemaField }> {
+function flattenFieldNodes(
+    nodes: FieldTreeNode[],
+    includeNestedChildren = true
+): Array<{ path: string; field: DatabaseSchemaField }> {
     return nodes.flatMap((node) => {
         if (node.children.length === 0 || isJsonField(node.field)) {
             return { path: node.path, field: node.field }
         }
 
-        return flattenFieldNodes(node.children)
+        if (!includeNestedChildren) {
+            return []
+        }
+
+        return flattenFieldNodes(node.children, includeNestedChildren)
     })
 }
 
 function FieldTree({
     nodes,
+    searchTerm,
+    selectedColumns,
+    tableName,
     expandedFields,
     onSetExpandedFields,
     onSelect,
 }: {
     nodes: FieldTreeNode[]
+    searchTerm: string
+    selectedColumns: BIQueryColumn[]
+    tableName: string
     expandedFields: string[]
     onSetExpandedFields: (paths: string[]) => void
     onSelect: (path: string, field?: DatabaseSchemaField) => void
@@ -102,13 +116,52 @@ function FieldTree({
     const jsonTextAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
     const fieldTreeData = useMemo<TreeDataItem[]>(() => {
+        const selectionsByField = selectedColumns.reduce((acc, column) => {
+            if (column.table !== tableName) {
+                return acc
+            }
+
+            const key = column.field
+            const current = acc.get(key) || []
+            acc.set(key, [...current, column])
+            return acc
+        }, new Map<string, BIQueryColumn[]>())
+
         const buildTree = (treeNodes: FieldTreeNode[]): TreeDataItem[] =>
             treeNodes.map((node) => {
                 const isJson = isJsonField(node.field)
 
+                const selectedAggregations = selectionsByField.get(node.path)
+                const aggregationBadges = Array.from(
+                    new Set(
+                        (selectedAggregations || [])
+                            .map((column) => column.aggregation)
+                            .filter(Boolean) as BIAggregation[]
+                    )
+                )
+                const isSelected = Boolean(selectedAggregations?.length)
+
+                const label = (
+                    <div className="flex items-center gap-1">
+                        <span
+                            className={clsx({
+                                'underline decoration-2 decoration-dotted': isSelected,
+                            })}
+                        >
+                            <SearchHighlightMultiple string={node.field.name} substring={searchTerm} />
+                        </span>
+                        {aggregationBadges.map((aggregation) => (
+                            <LemonTag key={aggregation} type="primary" size="small">
+                                {aggregation.toUpperCase()}
+                            </LemonTag>
+                        ))}
+                    </div>
+                )
+
                 return {
                     id: node.path,
                     name: node.field.name,
+                    displayName: label,
                     record: { ...node, isJson },
                     icon: fieldTypeIcon(node.field),
                     children: isJson ? [] : buildTree(node.children),
@@ -116,7 +169,7 @@ function FieldTree({
             })
 
         return buildTree(nodes)
-    }, [nodes])
+    }, [nodes, searchTerm, selectedColumns, tableName])
 
     const focusJsonTextArea = (): void => {
         requestAnimationFrame(() => {
@@ -238,6 +291,7 @@ export function BIScene(): JSX.Element {
         selectedFieldTrees,
         selectedTableObject,
         selectedFields,
+        selectedColumns,
         queryResponse,
         queryResponseLoading,
         filters,
@@ -514,7 +568,7 @@ export function BIScene(): JSX.Element {
             return
         }
 
-        const columnsToAdd: BIQueryColumn[] = flattenFieldNodes(selectedFieldTrees).map(({ path, field }) => ({
+        const columnsToAdd: BIQueryColumn[] = flattenFieldNodes(selectedFieldTrees, false).map(({ path, field }) => ({
             table: selectedTableObject.name,
             field: path,
             ...(field && isTemporalField(field) ? { timeInterval: 'day' as BITimeAggregation } : {}),
@@ -537,7 +591,7 @@ export function BIScene(): JSX.Element {
                         )}
                         <SearchAutocomplete
                             inputPlaceholder={selectedTableObject ? 'Search columns' : 'Search tables'}
-                            defaultValue={searchTerm}
+                            value={searchTerm}
                             onChange={(value) =>
                                 selectedTableObject ? setColumnSearchTerm(value) : setTableSearchTerm(value)
                             }
@@ -569,6 +623,9 @@ export function BIScene(): JSX.Element {
                                 {selectedFieldTrees.length > 0 ? (
                                     <FieldTree
                                         nodes={selectedFieldTrees}
+                                        searchTerm={searchTerm}
+                                        selectedColumns={selectedColumns}
+                                        tableName={selectedTableObject.name}
                                         expandedFields={expandedFields}
                                         onSetExpandedFields={setExpandedFields}
                                         onSelect={(path, field) =>

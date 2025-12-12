@@ -824,7 +824,7 @@ function buildFieldTreeNodes(
     parentPath: string,
     visitedTables: Set<string>
 ): FieldTreeNode[] {
-    return Object.values(table.fields || {}).map((field) => {
+    return getOrderedFields(table).map((field) => {
         const path = parentPath ? `${parentPath}.${field.name}` : field.name
         const { field: resolvedField, table: resolvedTable } = resolveFieldReference(field, table, database)
         const targetTable = resolvedField.table ? getTableFromDatabase(database, resolvedField.table) : null
@@ -871,6 +871,26 @@ function buildFieldTreeNodes(
                 : []
 
         return { field, path, children }
+    })
+}
+
+function getOrderedFields(table: DatabaseSchemaTable): DatabaseSchemaField[] {
+    const fieldsRecord = table.fields || {}
+    const fieldOrder = new Map<string, number>(Object.keys(fieldsRecord).map((name, index) => [name, index]))
+
+    return Object.values(fieldsRecord).sort((a, b) => {
+        if (a.name === b.name) {
+            return 0
+        }
+
+        const aPriority = a.name === 'id' ? -1 : (fieldOrder.get(a.name) ?? Number.MAX_SAFE_INTEGER)
+        const bPriority = b.name === 'id' ? -1 : (fieldOrder.get(b.name) ?? Number.MAX_SAFE_INTEGER)
+
+        if (aPriority === bPriority) {
+            return a.name.localeCompare(b.name)
+        }
+
+        return aPriority - bPriority
     })
 }
 
