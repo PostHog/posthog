@@ -29,6 +29,6 @@ ACTIVITIES = [
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     query_traces_in_window_activity,
-    generate_and_save_summary_activity,
     embed_summaries_activity,
+    generate_and_save_summary_activity,
 ]
