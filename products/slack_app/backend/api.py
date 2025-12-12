@@ -86,7 +86,7 @@ def proxy_slack_event_to_secondary_region(request: HttpRequest) -> None:
 def handle_app_mention(event: dict, integration: Integration) -> None:
     channel = event.get("channel")
     slack_team_id = integration.integration_id
-    if not channel:
+    if not channel or not slack_team_id:
         return
 
     thread_ts = event.get("thread_ts") or event.get("ts")
