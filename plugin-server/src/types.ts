@@ -256,6 +256,9 @@ export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig, LogsIngestionConsumerConfig {
+    CONTINUOUS_PROFILING_ENABLED: boolean
+    PYROSCOPE_SERVER_ADDRESS: string
+    PYROSCOPE_APPLICATION_NAME: string
     INSTRUMENT_THREAD_PERFORMANCE: boolean
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
@@ -882,6 +885,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     project_id: ProjectId
     timestamp: ClickHouseTimestamp
     created_at: ClickHouseTimestamp
+    captured_at?: ClickHouseTimestamp | null
     properties?: string
     elements_chain: string
     person_created_at?: ClickHouseTimestamp

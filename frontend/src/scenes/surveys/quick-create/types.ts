@@ -7,10 +7,11 @@ export type QuickSurveyContext =
     | { type: QuickSurveyType.FUNNEL; funnel: FunnelContext }
     | { type: QuickSurveyType.EXPERIMENT; experiment: Experiment }
     | { type: QuickSurveyType.ANNOUNCEMENT }
+    | { type: QuickSurveyType.ERROR_TRACKING; exceptionType: string; exceptionMessage?: string | null }
 
 export interface QuickSurveyFormProps {
     context: QuickSurveyContext
-    info?: string
+    info?: React.ReactNode
     onCancel?: () => void
 }
 
@@ -19,4 +20,5 @@ export enum QuickSurveyType {
     FUNNEL = 'funnel',
     EXPERIMENT = 'experiment',
     ANNOUNCEMENT = 'announcement',
+    ERROR_TRACKING = 'error_tracking',
 }

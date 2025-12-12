@@ -37,6 +37,7 @@ APIScopeObject = Literal[
     "integration",
     "link",
     "live_debugger",
+    "llm_provider_key",
     "logs",
     "notebook",
     "organization",
@@ -44,6 +45,7 @@ APIScopeObject = Literal[
     "person",
     "persisted_folder",
     "plugin",
+    "product_tour",
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints

@@ -61,10 +61,25 @@ fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer
 async fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    // Fails gracefully - logs error but doesn't prevent service from starting
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            eprintln!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
+
     // Instantiate tracing outputs:
     //   - stdout with a level configured by the RUST_LOG envvar (default=ERROR)
     //   - OpenTelemetry if enabled, for levels INFO and higher
-    let log_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    let log_layer = tracing_subscriber::fmt::layer().with_filter(
+        EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy()
+            .add_directive("pyroscope=warn".parse().unwrap()),
+    );
     let otel_layer = config
         .otel_url
         .clone()

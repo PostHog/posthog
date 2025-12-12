@@ -25,7 +25,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
           , `dmat_string_0` Nullable(String)
       , `dmat_string_1` Nullable(String)
       , `dmat_string_2` Nullable(String)
@@ -211,7 +212,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
           , `dmat_string_0` Nullable(String)
       , `dmat_string_1` Nullable(String)
       , `dmat_string_2` Nullable(String)
@@ -287,7 +289,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
       
       
       
@@ -823,7 +826,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
       
       
       
@@ -984,7 +988,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
           , `dmat_string_0` Nullable(String)
       , `dmat_string_1` Nullable(String)
       , `dmat_string_2` Nullable(String)
@@ -1140,6 +1145,7 @@
   group3_created_at,
   group4_created_at,
   person_mode,
+  historical_migration,
   dmat_string_0,
   dmat_string_1,
   dmat_string_2,
@@ -1219,7 +1225,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
       
       
       
@@ -1552,7 +1559,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
           , `dmat_string_0` Nullable(String)
       , `dmat_string_1` Nullable(String)
       , `dmat_string_2` Nullable(String)
@@ -1628,7 +1636,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
       
       
       
@@ -3649,7 +3658,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
           , `dmat_string_0` Nullable(String)
       , `dmat_string_1` Nullable(String)
       , `dmat_string_2` Nullable(String)
@@ -4846,7 +4856,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
           , `dmat_string_0` Nullable(String)
       , `dmat_string_1` Nullable(String)
       , `dmat_string_2` Nullable(String)
@@ -4954,7 +4965,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
       
       
       
@@ -5695,7 +5707,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
       
       
       
@@ -6204,7 +6217,8 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64,
-      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+      historical_migration Bool
           , `dmat_string_0` Nullable(String)
       , `dmat_string_1` Nullable(String)
       , `dmat_string_2` Nullable(String)

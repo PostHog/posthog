@@ -19,7 +19,14 @@ import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import {
+    JsonType,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
@@ -239,10 +246,16 @@ export const logsLogic = kea<logsLogicType>([
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         zoomDateRange: (multiplier: number) => ({ multiplier }),
         setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
-        addFilter: (key: string, value: string, operator: PropertyOperator = PropertyOperator.Exact) => ({
+        addFilter: (
+            key: string,
+            value: string,
+            operator: PropertyOperator = PropertyOperator.Exact,
+            propertyType: PropertyFilterType = PropertyFilterType.LogAttribute
+        ) => ({
             key,
             value,
             operator,
+            propertyType,
         }),
         togglePinLog: (logId: string) => ({ logId }),
         pinLog: (log: LogMessage) => ({ log }),
@@ -792,7 +805,17 @@ export const logsLogic = kea<logsLogicType>([
             }
             actions.setLiveTailExpired(true)
         },
-        addFilter: ({ key, value, operator }) => {
+        addFilter: ({
+            key,
+            value,
+            operator,
+            propertyType,
+        }: {
+            key: string
+            value: string
+            operator: string
+            propertyType: PropertyFilterType
+        }) => {
             const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
 
             const newGroup: UniversalFiltersGroup = {
@@ -803,8 +826,8 @@ export const logsLogic = kea<logsLogicType>([
                         key,
                         value: [value],
                         operator,
-                        type: PropertyFilterType.Log,
-                    },
+                        type: propertyType,
+                    } as UniversalFiltersGroupValue,
                 ],
             }
 
