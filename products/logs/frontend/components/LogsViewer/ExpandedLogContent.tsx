@@ -7,7 +7,7 @@ import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { AttributeBreakdowns } from 'products/logs/frontend/AttributeBreakdowns'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
@@ -46,12 +46,18 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
 
     const expandedBreakdownsForThisLog = expandedAttributeBreakdowns[log.uuid] || []
 
-    const attributes = log.attributes
-    const rows = Object.entries(attributes).map(([key, value], index) => ({
-        key,
-        value: String(value),
-        index,
-    }))
+    const rows = [
+        ...Object.entries(log.resource_attributes).map(([key, value]) => ({
+            key,
+            value,
+            type: PropertyFilterType.LogResourceAttribute,
+        })),
+        ...Object.entries(log.attributes).map(([key, value]) => ({
+            key,
+            value,
+            type: PropertyFilterType.LogAttribute,
+        })),
+    ]
 
     return (
         <div ref={containerRef} className="px-2 py-1 bg-bg-light border-t border-border">
@@ -78,7 +84,7 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                                     size="xsmall"
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        addFilter(record.key, record.value)
+                                        addFilter(record.key, record.value, PropertyOperator.Exact, record.type)
                                     }}
                                 >
                                     <IconPlusSquare />
@@ -88,7 +94,7 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                                     size="xsmall"
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        addFilter(record.key, record.value, PropertyOperator.IsNot)
+                                        addFilter(record.key, record.value, PropertyOperator.IsNot, record.type)
                                     }}
                                 >
                                     <IconMinusSquare />
@@ -139,7 +145,12 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                     showRowExpansionToggle: false,
                     isRowExpanded: (record) => expandedBreakdownsForThisLog.includes(record.key),
                     expandedRowRender: (record) => (
-                        <AttributeBreakdowns attribute={record.key} addFilter={addFilter} tabId={tabId} />
+                        <AttributeBreakdowns
+                            attribute={record.key}
+                            addFilter={addFilter}
+                            tabId={tabId}
+                            type={record.type}
+                        />
                     ),
                 }}
             />
