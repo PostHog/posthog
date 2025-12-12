@@ -239,7 +239,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         <LemonSwitch
                             checked={supportOverrideEnabled}
                             label="I understand this will add to the customer's conversation"
-                            onChange={(checked) => setSupportOverrideEnabled(checked)}
+                            onChange={(checked: boolean) => setSupportOverrideEnabled(checked)}
                             size="xxsmall"
                             tooltip="Support agents should create new conversations instead of using existing ones. Check this to override."
                         />
