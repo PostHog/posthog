@@ -374,7 +374,7 @@ function EventTriggerOptions(): JSX.Element | null {
 function Sampling(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const [value, setValue] = useState<number>(
+    const [value, setValue] = useState<number | undefined>(
         typeof currentTeam?.session_recording_sample_rate === 'string'
             ? Math.floor(parseFloat(currentTeam?.session_recording_sample_rate) * 100)
             : 100
@@ -390,29 +390,24 @@ function Sampling(): JSX.Element {
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonField
-                        name="sampling"
-                        label="Sampling"
-                        help="Choose how many sessions to record. 100% = record every session, 50% = record roughly half."
-                    >
-                        {({ error }) => (
-                            <LemonInput
-                                type="number"
-                                onChange={(v) => {
-                                    setValue(v ? v : 100)
-                                    updateCurrentTeam({ session_recording_sample_rate: v?.toString() })
-                                }}
-                                min={0}
-                                max={100}
-                                status={error ? 'danger' : 'default'}
-                                suffix={<>%</>}
-                                value={value}
-                                onPressEnter={() =>
-                                    updateCurrentTeam({ session_recording_sample_rate: value.toString() })
-                                }
-                            />
-                        )}
-                    </LemonField>
+                    <LemonInput
+                        type="number"
+                        onChange={(value) => {
+                            setValue(value)
+                            setTimeout(function () {
+                                const returnRate = value ? value / 100 : 1.0
+                                updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
+                            }, 2000)
+                        }}
+                        min={0}
+                        max={100}
+                        suffix={<>%</>}
+                        value={value}
+                        onPressEnter={() => {
+                            const returnRate = value ? value / 100 : 1.0
+                            updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
+                        }}
+                    />
                 </AccessControlAction>
             </div>
             <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
