@@ -7,6 +7,7 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
@@ -19,6 +20,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { Breadcrumb } from '~/types'
 
 import type { biLogicType } from './biLogicType'
 
@@ -235,6 +237,23 @@ export const biLogic = kea<biLogicType>([
             (s) => [s.selectedTableObject, s.tableSearchTerm, s.columnSearchTerm],
             (selectedTableObject, tableSearchTerm, columnSearchTerm) =>
                 selectedTableObject ? columnSearchTerm : tableSearchTerm,
+        ],
+        breadcrumbs: [
+            (s) => [s.selectedTableObject],
+            (selectedTableObject): Breadcrumb[] => {
+                const breadcrumbs: Breadcrumb[] = [{ key: Scene.BI, name: 'BI', path: urls.bi(), iconType: 'database' }]
+
+                if (selectedTableObject) {
+                    breadcrumbs.push({
+                        key: ['bi-table', selectedTableObject.name],
+                        name: selectedTableObject.name,
+                        path: urls.bi(),
+                        iconType: 'database',
+                    })
+                }
+
+                return breadcrumbs
+            },
         ],
         queryString: [
             (s) => [s.selectedTableObject, s.selectedFields, s.filters, s.sort, s.limit, s.database],

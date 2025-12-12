@@ -33,6 +33,7 @@ import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { humanFriendlyNumber } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
+import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 import { SceneExport } from '../sceneTypes'
@@ -40,6 +41,7 @@ import { Scene } from '../sceneTypes'
 import { urls } from '../urls'
 import {
     BIAggregation,
+    BIQueryColumn,
     BIQueryFilter,
     BISortDirection,
     BITimeAggregation,
@@ -60,22 +62,60 @@ export function formatFilter(filter: BIQueryFilter): JSX.Element {
     )
 }
 
+function dedupeColumns(columns: BIQueryColumn[]): BIQueryColumn[] {
+    const seen = new Set<string>()
+
+    return columns.filter((column) => {
+        const key = columnKey(column)
+        if (seen.has(key)) {
+            return false
+        }
+        seen.add(key)
+        return true
+    })
+}
+
+function flattenFieldNodes(nodes: FieldTreeNode[]): Array<{ path: string; field: DatabaseSchemaField }> {
+    return nodes.flatMap((node) => {
+        if (node.children.length === 0 || isJsonField(node.field)) {
+            return { path: node.path, field: node.field }
+        }
+
+        return flattenFieldNodes(node.children)
+    })
+}
+
 function FieldTree({
     nodes,
     expandedFields,
-    onToggle,
+    onSetExpandedFields,
     onSelect,
-    depth = 0,
 }: {
     nodes: FieldTreeNode[]
-    expandedFields: Set<string>
-    onToggle: (path: string) => void
+    expandedFields: string[]
+    onSetExpandedFields: (paths: string[]) => void
     onSelect: (path: string, field?: DatabaseSchemaField) => void
-    depth?: number
 }): JSX.Element {
     const [openJsonPopover, setOpenJsonPopover] = useState<string | null>(null)
     const [jsonPathDraft, setJsonPathDraft] = useState('')
     const jsonTextAreaRef = useRef<HTMLTextAreaElement | null>(null)
+
+    const fieldTreeData = useMemo<TreeDataItem[]>(() => {
+        const buildTree = (treeNodes: FieldTreeNode[]): TreeDataItem[] =>
+            treeNodes.map((node) => {
+                const isJson = isJsonField(node.field)
+
+                return {
+                    id: node.path,
+                    name: node.field.name,
+                    record: { ...node, isJson },
+                    icon: fieldTypeIcon(node.field),
+                    children: isJson ? [] : buildTree(node.children),
+                }
+            })
+
+        return buildTree(nodes)
+    }, [nodes])
 
     const focusJsonTextArea = (): void => {
         requestAnimationFrame(() => {
@@ -100,127 +140,88 @@ function FieldTree({
         }
     }, [openJsonPopover])
 
-    return (
-        <div className="flex flex-col">
-            {nodes.map((node) => {
-                const hasChildren = node.children.length > 0
-                const isExpanded = expandedFields.has(node.path)
-                const isJson = isJsonField(node.field)
+    const handleJsonSubmit = (path: string, field?: DatabaseSchemaField): void => {
+        const selectedPath = jsonPathDraft.trim() || path
+        onSelect(selectedPath, field)
+        setJsonPathDraft('')
+        setOpenJsonPopover(null)
+    }
 
-                const handleJsonSubmit = (path: string): void => {
-                    const selectedPath = jsonPathDraft.trim() || path
-                    onSelect(selectedPath, node.field)
-                    setJsonPathDraft('')
-                    setOpenJsonPopover(null)
+    return (
+        <LemonTree
+            data={fieldTreeData}
+            expandedItemIds={expandedFields}
+            onSetExpandedItemIds={onSetExpandedFields}
+            onItemClick={(item, event) => {
+                const record = item?.record as (FieldTreeNode & { isJson?: boolean }) | undefined
+
+                if (!record) {
+                    return
                 }
 
-                const handleClick = (): void => {
-                    if (isJson) {
-                        setOpenJsonPopover(node.path)
-                        setJsonPathDraft(node.path)
-                    } else if (hasChildren) {
-                        onToggle(node.path)
-                    } else {
-                        onSelect(node.path, node.field)
-                    }
+                if (record.isJson) {
+                    event.stopPropagation()
+                    setOpenJsonPopover(record.path)
+                    setJsonPathDraft(record.path)
+                    return
+                }
+
+                onSelect(record.path, record.field)
+            }}
+            renderItem={(item, children) => {
+                const record = item.record as (FieldTreeNode & { isJson?: boolean }) | undefined
+
+                if (!record?.isJson) {
+                    return children
                 }
 
                 return (
-                    <div key={node.path}>
-                        <div className="flex items-center gap-2">
-                            {isJson ? (
-                                <Popover
-                                    visible={openJsonPopover === node.path}
-                                    onVisibilityChange={(visible) => {
-                                        setOpenJsonPopover(visible ? node.path : null)
-                                        setJsonPathDraft(visible ? node.path : '')
-                                        if (visible) {
-                                            focusJsonTextArea()
+                    <Popover
+                        visible={openJsonPopover === record.path}
+                        onVisibilityChange={(visible) => {
+                            setOpenJsonPopover(visible ? record.path : null)
+                            setJsonPathDraft(visible ? record.path : '')
+                            if (visible) {
+                                focusJsonTextArea()
+                            }
+                        }}
+                        onClickOutside={closeJsonPopover}
+                        overlay={
+                            <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
+                                <div className="text-muted">Add column or nested field</div>
+                                <div className="text-muted">e.g. properties.$browser</div>
+                                <LemonTextArea
+                                    ref={jsonTextAreaRef}
+                                    value={jsonPathDraft}
+                                    minRows={1}
+                                    onChange={(value) => setJsonPathDraft((value || '').trim())}
+                                    onFocus={focusJsonTextArea}
+                                    autoFocus
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Enter' && !event.shiftKey) {
+                                            event.preventDefault()
+                                            handleJsonSubmit(record.path, record.field)
                                         }
                                     }}
-                                    onClickOutside={closeJsonPopover}
-                                    overlay={
-                                        <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
-                                            <div className="text-muted">Add column or nested field</div>
-                                            <div className="text-muted">e.g. properties.$browser</div>
-                                            <LemonTextArea
-                                                ref={jsonTextAreaRef}
-                                                value={jsonPathDraft}
-                                                minRows={1}
-                                                onChange={(value) => setJsonPathDraft((value || '').trim())}
-                                                onFocus={focusJsonTextArea}
-                                                autoFocus
-                                                onKeyDown={(event) => {
-                                                    if (event.key === 'Enter' && !event.shiftKey) {
-                                                        event.preventDefault()
-                                                        handleJsonSubmit(node.path)
-                                                    }
-                                                }}
-                                            />
-                                            <LemonButton
-                                                type="primary"
-                                                onClick={(event) => {
-                                                    event.stopPropagation()
-                                                    handleJsonSubmit(node.path)
-                                                }}
-                                                fullWidth
-                                            >
-                                                Add column
-                                            </LemonButton>
-                                        </div>
-                                    }
-                                >
-                                    <LemonButton
-                                        size="small"
-                                        fullWidth
-                                        className="justify-start"
-                                        icon={
-                                            hasChildren ? (
-                                                <span className="text-muted">{isExpanded ? '▾' : '▸'}</span>
-                                            ) : (
-                                                fieldTypeIcon(node.field)
-                                            )
-                                        }
-                                        onClick={() => handleClick()}
-                                        style={{ paddingLeft: depth * 12 }}
-                                    >
-                                        {node.field.name}
-                                    </LemonButton>
-                                </Popover>
-                            ) : (
-                                <LemonButton
-                                    size="small"
-                                    fullWidth
-                                    className="justify-start"
-                                    icon={
-                                        hasChildren ? (
-                                            <span className="text-muted">{isExpanded ? '▾' : '▸'}</span>
-                                        ) : (
-                                            fieldTypeIcon(node.field)
-                                        )
-                                    }
-                                    onClick={() => handleClick()}
-                                    style={{ paddingLeft: depth * 12 }}
-                                >
-                                    {node.field.name}
-                                </LemonButton>
-                            )}
-                        </div>
-                        {hasChildren && isExpanded && (
-                            <div className="ml-2">
-                                <FieldTree
-                                    nodes={node.children}
-                                    expandedFields={expandedFields}
-                                    onToggle={onToggle}
-                                    onSelect={onSelect}
-                                    depth={depth + 1}
                                 />
+                                <LemonButton
+                                    type="primary"
+                                    onClick={(event) => {
+                                        event.stopPropagation()
+                                        handleJsonSubmit(record.path, record.field)
+                                    }}
+                                    fullWidth
+                                >
+                                    Add column
+                                </LemonButton>
                             </div>
-                        )}
-                    </div>
+                        }
+                    >
+                        <span className="w-full">{children}</span>
+                    </Popover>
                 )
-            })}
-        </div>
+            }}
+        />
     )
 }
 
@@ -257,6 +258,7 @@ export function BIScene(): JSX.Element {
         removeFilter,
         setTableSearchTerm,
         setColumnSearchTerm,
+        setColumns,
         setLimit,
         setSort,
         refreshQuery,
@@ -265,7 +267,7 @@ export function BIScene(): JSX.Element {
 
     const [openColumnPopover, setOpenColumnPopover] = useState<string | null>(null)
     const [openFilterPopover, setOpenFilterPopover] = useState<number | null>(null)
-    const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set())
+    const [expandedFields, setExpandedFields] = useState<string[]>([])
     const [showGeneratedQuery, setShowGeneratedQuery] = useState(false)
     const [chartType, setChartType] = useState<'pie' | 'line' | 'bar' | 'area'>('pie')
     const [expandedTableGroups, setExpandedTableGroups] = useState<string[]>(['folder-posthog'])
@@ -282,6 +284,7 @@ export function BIScene(): JSX.Element {
                 groupedTables[folderName] = {
                     id: `folder-${folderName}`,
                     name: folderName,
+                    displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm} />,
                     type: 'node',
                     record: { type: 'folder' },
                     children: [],
@@ -292,6 +295,7 @@ export function BIScene(): JSX.Element {
             groupedTables[folderName].children?.push({
                 id: `table-${table.name}`,
                 name: tableName,
+                displayName: <SearchHighlightMultiple string={tableName} substring={searchTerm} />,
                 type: 'node',
                 record: { type: 'table', tableName: table.name },
                 icon: <IconStack />,
@@ -312,7 +316,7 @@ export function BIScene(): JSX.Element {
                 ...group,
                 children: (group.children || []).sort((a, b) => a.name.localeCompare(b.name)),
             }))
-    }, [filteredTables])
+    }, [filteredTables, searchTerm])
 
     useEffect(() => {
         const groupIds = tableTreeData.map((group) => group.id)
@@ -324,7 +328,7 @@ export function BIScene(): JSX.Element {
     }, [tableTreeData])
 
     useEffect(() => {
-        setExpandedFields(new Set())
+        setExpandedFields([])
     }, [selectedTableObject?.name])
 
     useEffect(() => {
@@ -501,6 +505,24 @@ export function BIScene(): JSX.Element {
         setOpenFilterPopover(null)
     }
 
+    const addAllColumnsToQuery = (): void => {
+        if (!selectedTableObject) {
+            return
+        }
+
+        const columnsToAdd: BIQueryColumn[] = flattenFieldNodes(selectedFieldTrees).map(({ path, field }) => ({
+            table: selectedTableObject.name,
+            field: path,
+            ...(field && isTemporalField(field) ? { timeInterval: 'day' as BITimeAggregation } : {}),
+        }))
+
+        if (columnsToAdd.length === 0) {
+            return
+        }
+
+        setColumns(dedupeColumns(columnsToAdd))
+    }
+
     return (
         <div className="flex flex-col gap-4 h-full" onClick={closePopovers}>
             <div className="flex gap-4 h-full min-h-0">
@@ -521,27 +543,30 @@ export function BIScene(): JSX.Element {
                     <div className="flex-1 overflow-y-auto p-2">
                         {selectedTableObject ? (
                             <>
-                                <div className="font-semibold px-1">{selectedTableObject.name}</div>
-                                {selectedTableObject?.source?.source_type === 'Postgres' ? (
-                                    <div className="text-xs text-muted px-1">via postgres direct connection</div>
-                                ) : (
-                                    <div className="text-xs text-muted px-1">via posthog data warehouse</div>
-                                )}
+                                <div className="flex items-start justify-between gap-2 px-1">
+                                    <div>
+                                        <div className="font-semibold">{selectedTableObject.name}</div>
+                                        {selectedTableObject?.source?.source_type === 'Postgres' ? (
+                                            <div className="text-xs text-muted">via postgres direct connection</div>
+                                        ) : (
+                                            <div className="text-xs text-muted">via posthog data warehouse</div>
+                                        )}
+                                    </div>
+                                    {selectedFieldTrees.length > 0 && (
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            icon={<IconList />}
+                                            onClick={addAllColumnsToQuery}
+                                            tooltip={<>Select all columns</>}
+                                        />
+                                    )}
+                                </div>
                                 {selectedFieldTrees.length > 0 ? (
                                     <FieldTree
                                         nodes={selectedFieldTrees}
                                         expandedFields={expandedFields}
-                                        onToggle={(path) =>
-                                            setExpandedFields((current) => {
-                                                const next = new Set(current)
-                                                if (next.has(path)) {
-                                                    next.delete(path)
-                                                } else {
-                                                    next.add(path)
-                                                }
-                                                return next
-                                            })
-                                        }
+                                        onSetExpandedFields={setExpandedFields}
                                         onSelect={(path, field) =>
                                             addColumn({
                                                 table: selectedTableObject.name,
