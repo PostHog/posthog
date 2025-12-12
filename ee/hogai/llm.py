@@ -121,6 +121,7 @@ class MaxChatMixin(BaseModel):
         posthog_props = dict(self.posthog_properties or {})
         posthog_props["$ai_billable"] = self.billable
         posthog_props["team_id"] = self.team.id
+        posthog_props["ai_product"] = "posthog_ai"
 
         metadata["posthog_properties"] = posthog_props
         new_kwargs["metadata"] = metadata
