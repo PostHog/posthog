@@ -7,6 +7,7 @@ const SCROLL_INTERVAL_MS = 16
 const SCROLL_AMOUNT_PX = 8
 
 export interface UseCellScrollOptions {
+    tabId: string
     cellKey: string
     enabled?: boolean
 }
@@ -18,9 +19,9 @@ export interface UseCellScrollResult {
     stopScrolling: () => void
 }
 
-export function useCellScroll({ cellKey, enabled = true }: UseCellScrollOptions): UseCellScrollResult {
-    const { cellScrollLefts } = useValues(virtualizedLogsListLogic)
-    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic)
+export function useCellScroll({ tabId, cellKey, enabled = true }: UseCellScrollOptions): UseCellScrollResult {
+    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
+    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ tabId }))
 
     const scrollRef = useRef<HTMLDivElement>(null)
     const isProgrammaticScrollRef = useRef(false)

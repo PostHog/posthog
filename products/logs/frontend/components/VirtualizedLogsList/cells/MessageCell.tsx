@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -18,9 +18,11 @@ export interface MessageCellProps {
 }
 
 export function MessageCell({ message, wrapBody, prettifyJson, parsedBody, style }: MessageCellProps): JSX.Element {
+    const { tabId } = useValues(logsViewerLogic)
     const { addFilter } = useActions(logsViewerLogic)
 
     const { scrollRef, handleScroll, startScrolling, stopScrolling } = useCellScroll({
+        tabId,
         cellKey: 'message',
         enabled: !wrapBody,
     })

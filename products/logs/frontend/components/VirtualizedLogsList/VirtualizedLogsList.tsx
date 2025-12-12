@@ -44,13 +44,8 @@ export function VirtualizedLogsList({
     hasMoreLogsToLoad = false,
     onLoadMore,
 }: VirtualizedLogsListProps): JSX.Element {
-    const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic)
-    const { setContainerWidth } = useActions(virtualizedLogsListLogic)
-    const listRef = useRef<List>(null)
-    const scrollTopRef = useRef<number>(0)
-    const autosizerWidthRef = useRef<number>(0)
-
     const {
+        tabId,
         pinnedLogs,
         expandedLogIds,
         cursorIndex,
@@ -60,6 +55,12 @@ export function VirtualizedLogsList({
     } = useValues(logsViewerLogic)
     const { togglePinLog, toggleExpandLog, userSetCursorIndex, removeAttributeColumn, setAttributeColumnWidth } =
         useActions(logsViewerLogic)
+
+    const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic({ tabId }))
+    const { setContainerWidth } = useActions(virtualizedLogsListLogic({ tabId }))
+    const listRef = useRef<List>(null)
+    const scrollTopRef = useRef<number>(0)
+    const autosizerWidthRef = useRef<number>(0)
 
     const minRowWidth = useMemo(
         // Add extra width for resize handles in the header

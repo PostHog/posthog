@@ -17,10 +17,11 @@ export const AttributeCell = memo(function AttributeCell({
     value,
     width,
 }: AttributeCellProps): JSX.Element {
-    const { isAttributeColumn } = useValues(logsViewerLogic)
+    const { tabId, isAttributeColumn } = useValues(logsViewerLogic)
     const { addFilter, toggleAttributeColumn } = useActions(logsViewerLogic)
 
     const { scrollRef, handleScroll, startScrolling, stopScrolling } = useCellScroll({
+        tabId,
         cellKey: `attr:${attributeKey}`,
     })
 
