@@ -79,6 +79,9 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
             {
                 uuid: Buffer.from(event.uuid || ''),
             },
+            {
+                now: Buffer.from(event.now || ''),
+            },
         ],
     }
 }
@@ -188,9 +191,9 @@ describe('IngestionConsumer', () => {
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
-        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((hub, hogTransformer) => {
+        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((hub, hogTransformer, personsStore) => {
             const original = jest.requireActual('./event-processing/event-pipeline-runner-v1-step')
-            return original.createEventPipelineRunnerV1Step(hub, hogTransformer)
+            return original.createEventPipelineRunnerV1Step(hub, hogTransformer, personsStore)
         })
 
         ingester = await createIngestionConsumer(hub)
@@ -1375,6 +1378,7 @@ describe('IngestionConsumer', () => {
                     "headers": {
                       "distinct_id": "user-1",
                       "event": "$pageview",
+                      "now": "2025-01-01T00:00:00.000Z",
                       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
                       "uuid": "<REPLACED-UUID-0>",
                     },

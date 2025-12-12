@@ -73,7 +73,18 @@ MATCH_KEY_FIELD = "match_key"
 
 # Fallback query when no valid adapters are found (includes all 9 columns in correct order)
 # Order: match_key, campaign, id, source, impressions, clicks, cost, reported_conversion, reported_conversion_value
-FALLBACK_EMPTY_QUERY = f"SELECT '' as {MATCH_KEY_FIELD}, 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE} WHERE 1=0"
+FALLBACK_EMPTY_QUERY = (
+    f"SELECT '' as {MATCH_KEY_FIELD}, "
+    f"'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, "
+    f"'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, "
+    f"'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION}, "
+    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE} "
+    "WHERE 1=0"
+)
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {

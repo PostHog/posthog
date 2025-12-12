@@ -26,6 +26,7 @@ import { ErrorTrackingIssueImpactTool } from '../../components/IssueImpactTool'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
+import { StyleVariables } from '../../components/StyleVariables'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
     ErrorTrackingSceneActiveTab,
@@ -53,52 +54,55 @@ export function ErrorTrackingScene(): JSX.Element {
     }, [])
 
     return (
-        <SceneContent>
+        <StyleVariables>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
                 <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
                     <ErrorTrackingSetupPrompt>
-                        <Header />
+                        <SceneContent>
+                            <Header />
 
-                        <ErrorTrackingIssueFilteringTool />
-                        {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
+                            <ErrorTrackingIssueFilteringTool />
 
-                        {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                        {hasIssueCorrelation ? (
-                            <div>
-                                <TabsPrimitive
-                                    value={activeTab}
-                                    onValueChange={(value) => setActiveTab(value as ErrorTrackingSceneActiveTab)}
-                                    className="border rounded bg-surface-primary"
-                                >
-                                    <TabsPrimitiveList className="border-b">
-                                        <TabsPrimitiveTrigger value="issues" className="px-2 py-1 cursor-pointer">
-                                            Issues
-                                        </TabsPrimitiveTrigger>
-                                        <TabsPrimitiveTrigger value="impact" className="px-2 py-1 cursor-pointer">
-                                            Impact
-                                        </TabsPrimitiveTrigger>
-                                    </TabsPrimitiveList>
-                                    <TabsPrimitiveContent value="issues" className="p-2">
-                                        <IssuesFilters />
-                                    </TabsPrimitiveContent>
-                                    <TabsPrimitiveContent value="impact" className="p-2">
-                                        <ImpactFilters />
-                                    </TabsPrimitiveContent>
-                                </TabsPrimitive>
-                                {activeTab === 'issues' ? <IssuesList /> : <ImpactList />}
-                            </div>
-                        ) : (
-                            <div>
-                                <div className="border rounded bg-surface-primary p-2">
-                                    <IssuesFilters />
+                            {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
+
+                            {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                            {hasIssueCorrelation ? (
+                                <div>
+                                    <TabsPrimitive
+                                        value={activeTab}
+                                        onValueChange={(value) => setActiveTab(value as ErrorTrackingSceneActiveTab)}
+                                        className="border rounded bg-surface-primary"
+                                    >
+                                        <TabsPrimitiveList className="border-b">
+                                            <TabsPrimitiveTrigger value="issues" className="px-2 py-1 cursor-pointer">
+                                                Issues
+                                            </TabsPrimitiveTrigger>
+                                            <TabsPrimitiveTrigger value="impact" className="px-2 py-1 cursor-pointer">
+                                                Impact
+                                            </TabsPrimitiveTrigger>
+                                        </TabsPrimitiveList>
+                                        <TabsPrimitiveContent value="issues" className="p-2">
+                                            <IssuesFilters />
+                                        </TabsPrimitiveContent>
+                                        <TabsPrimitiveContent value="impact" className="p-2">
+                                            <ImpactFilters />
+                                        </TabsPrimitiveContent>
+                                    </TabsPrimitive>
+                                    {activeTab === 'issues' ? <IssuesList /> : <ImpactList />}
                                 </div>
-                                <IssuesList />
-                            </div>
-                        )}
+                            ) : (
+                                <div>
+                                    <div className="border rounded bg-surface-primary p-2">
+                                        <IssuesFilters />
+                                    </div>
+                                    <IssuesList />
+                                </div>
+                            )}
+                        </SceneContent>
                     </ErrorTrackingSetupPrompt>
                 </BindLogic>
             </BindLogic>
-        </SceneContent>
+        </StyleVariables>
     )
 }
 
@@ -161,7 +165,7 @@ const Header = (): JSX.Element => {
 
 const IngestionStatusCheck = (): JSX.Element | null => {
     return (
-        <LemonBanner type="warning">
+        <LemonBanner type="warning" className="my-2">
             <p>
                 <strong>No Exception events have been detected!</strong>
             </p>

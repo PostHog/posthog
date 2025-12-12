@@ -9,9 +9,9 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        custom::CustomFrame, dart::RawDartFrame, go::RawGoFrame, hermes::RawHermesFrame,
-        java::RawJavaFrame, js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame,
-        ruby::RawRubyFrame,
+        apple::RawAppleFrame, custom::CustomFrame, dart::RawDartFrame, go::RawGoFrame,
+        hermes::RawHermesFrame, java::RawJavaFrame, js::RawJSFrame, node::RawNodeFrame,
+        python::RawPythonFrame, ruby::RawRubyFrame,
     },
     metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
@@ -43,6 +43,8 @@ pub enum RawFrame {
     Java(RawJavaFrame),
     #[serde(rename = "dart")]
     Dart(RawDartFrame),
+    #[serde(rename = "apple")]
+    Apple(RawAppleFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
     // TODO - remove once we're happy no clients are using this anymore
@@ -71,6 +73,7 @@ impl RawFrame {
             }
 
             RawFrame::Dart(frame) => (to_vec(Ok(frame.into())), "dart"),
+            RawFrame::Apple(frame) => (to_vec(Ok(frame.into())), "apple"),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
             RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),
@@ -109,6 +112,7 @@ impl RawFrame {
             | RawFrame::Ruby(_)
             | RawFrame::Go(_)
             | RawFrame::Dart(_)
+            | RawFrame::Apple(_)
             | RawFrame::Custom(_) => None,
         }
     }
@@ -124,6 +128,7 @@ impl RawFrame {
             RawFrame::Hermes(raw) => raw.frame_id(),
             RawFrame::Java(raw) => raw.frame_id(),
             RawFrame::Dart(raw) => raw.frame_id(),
+            RawFrame::Apple(raw) => raw.frame_id(),
         };
 
         RawFrameId::new(hash_id, team_id)

@@ -399,7 +399,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
         """
-        This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call.
+        This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
         """
         if distinct_ids := request.data.get("distinct_ids"):
             if len(distinct_ids) > 1000:
@@ -615,7 +615,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read", "cohort:read"])
     def cohorts(self, request: request.Request) -> response.Response:
-        from posthog.api.cohort import CohortSerializer
+        from posthog.api.cohort import CohortMinimalSerializer
 
         team = cast(User, request.user).team
         if not team:
@@ -632,7 +632,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
 
-        return response.Response({"results": CohortSerializer(cohorts, many=True).data})
+        return response.Response({"results": CohortMinimalSerializer(cohorts, many=True).data})
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):

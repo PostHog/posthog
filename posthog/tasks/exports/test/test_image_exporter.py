@@ -94,6 +94,8 @@ class TestImageExporter(APIBaseTest):
 
     @patch("posthog.tasks.exports.image_exporter.process_query_dict")
     def test_dashboard_export_calculates_all_insights(self, mock_process_query: Any, *args: Any) -> None:
+        mock_process_query.return_value = {"cache_key": "test_cache_key", "result": []}
+
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
         insight_count = 3
 
@@ -136,6 +138,84 @@ class TestImageExporter(APIBaseTest):
             assert call_kwargs["insight_id"] in [
                 ins.id for ins in insights
             ], f"Call {i+1} has unexpected insight_id {call_kwargs['insight_id']}"
+
+    @patch("posthog.tasks.exports.image_exporter.process_query_dict")
+    def test_export_captures_cache_keys_and_passes_to_url(
+        self,
+        mock_process_query: Any,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        """Test that cache keys from warming are captured and passed to the screenshot URL."""
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Test Insight",
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1 as value"}},
+        )
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+        )
+
+        mock_process_query.return_value = {"cache_key": "test_cache_key_123", "results": []}
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        # Verify _screenshot_asset was called with a URL containing cache_keys
+        assert mock_screenshot_asset.called
+        call_args = mock_screenshot_asset.call_args
+        url_to_render = call_args[0][1]  # Second positional arg is the URL
+
+        assert "cache_keys=" in url_to_render, f"URL should contain cache_keys parameter: {url_to_render}"
+        assert "test_cache_key_123" in url_to_render, f"URL should contain the cache key: {url_to_render}"
+
+    @patch("posthog.tasks.exports.image_exporter.process_query_dict")
+    def test_dashboard_export_captures_all_cache_keys(
+        self,
+        mock_process_query: Any,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        """Test that cache keys for all insights in a dashboard are captured and passed to URL."""
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+
+        insights = []
+        for i in range(3):
+            insight = Insight.objects.create(
+                team=self.team,
+                name=f"Insight {i}",
+                query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": f"SELECT {i}"}},
+            )
+            insights.append(insight)
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        dashboard_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            dashboard=dashboard,
+        )
+
+        def mock_process(team: Any, query: Any, insight_id: Any = None, **kwargs: Any) -> dict:
+            return {"cache_key": f"cache_key_for_insight_{insight_id}", "results": []}
+
+        mock_process_query.side_effect = mock_process
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(dashboard_asset)
+
+        # Verify _screenshot_asset was called with URL containing all cache keys
+        assert mock_screenshot_asset.called
+        url_to_render = mock_screenshot_asset.call_args[0][1]
+
+        # URL should contain cache_keys for all insights
+        for insight in insights:
+            assert (
+                f"cache_key_for_insight_{insight.id}" in url_to_render
+            ), f"URL should contain cache key for insight {insight.id}"
 
     @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
     @patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")

@@ -175,6 +175,31 @@ class TestOrganizationAPI(APIBaseTest):
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
 
+    @patch("posthoganalytics.capture")
+    def test_ai_data_processing_consent_capture_event(self, mock_capture):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_approved": True}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_ai_data_processing_approved, True)
+
+        mock_capture.assert_any_call(
+            "organization ai data processing consent toggled",
+            distinct_id=self.user.distinct_id,
+            properties={
+                "enabled": True,
+                "organization_id": str(self.organization.id),
+                "organization_name": self.organization.name,
+                "user_role": OrganizationMembership.Level.ADMIN,
+            },
+            groups={"instance": ANY, "organization": str(self.organization.id)},
+        )
+
     def test_cannot_update_members_can_invite_without_feature(self):
         """Test that members_can_invite cannot be updated without ORGANIZATION_INVITE_SETTINGS feature."""
         # Ensure user is admin (passes permission checks)
