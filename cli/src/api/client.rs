@@ -24,6 +24,7 @@ pub enum ClientError {
     // All invalid status codes
     ApiError(u16, Box<Url>, String),
     InvalidUrl(String),
+    NotFound(String),
 }
 
 impl Display for ClientError {
@@ -44,6 +45,9 @@ impl Display for ClientError {
                         "API error: status='{status}' url='{url}' message='{body}'",
                     ),
                 }
+            }
+            ClientError::NotFound(msg) => {
+                write!(f, "Not found: {msg}")
             }
         }
     }
@@ -163,6 +167,29 @@ impl PHClient {
         &self.config.env_id
     }
 
+    pub fn get_project_api_key(&self) -> Result<String, ClientError> {
+        let res = self.send_get(self.build_api_url("organizations/@current")?, |res| res)?;
+
+        #[derive(Deserialize)]
+        struct Team {
+            id: usize,
+            api_token: String,
+        }
+
+        #[derive(Deserialize)]
+        struct Organization {
+            teams: Vec<Team>,
+        }
+
+        let data: Organization = res.json()?;
+
+        data.teams
+            .into_iter()
+            .find(|team| team.id.to_string() == self.config.env_id)
+            .map(|team| team.api_token)
+            .ok_or(ClientError::NotFound("team not found".to_string()))
+    }
+
     fn create_request(&self, method: Method, url: Url) -> RequestBuilder {
         let headers = self.build_headers();
         debug!("building request for {method} {url}");
@@ -194,18 +221,32 @@ impl PHClient {
         self.build_url("projects", path)
     }
 
-    fn build_url(&self, base: &str, path: &str) -> Result<Url, ClientError> {
+    pub fn build_ingest_url(&self) -> Result<Url, ClientError> {
         let host = self.config.host.clone();
-        let env_id = self.config.env_id.clone();
-
         let base_url = Url::parse(&host)
             .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}")))?
-            .join(&format!("api/{base}/{env_id}/"))
-            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}/api/{base}/{env_id}")))?
+            .join("/i/v0/e")
+            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}/i/v0/e")))?;
+        Ok(base_url)
+    }
+
+    fn build_api_url(&self, path: &str) -> Result<Url, ClientError> {
+        let host = self.config.host.clone();
+        let base_url = Url::parse(&host)
+            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}")))?
+            .join("api/")
+            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}/api/")))?
             .join(path)
-            .map_err(|e| {
-                ClientError::InvalidUrl(format!("{e} {host}/api/{base}/{env_id}/{path}"))
-            })?;
+            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}/api/{path}")))?;
+        Ok(base_url)
+    }
+
+    fn build_url(&self, base: &str, path: &str) -> Result<Url, ClientError> {
+        let env_id = self.config.env_id.clone();
+        let base_url = self
+            .build_api_url(&format!("{base}/{env_id}/"))?
+            .join(path)
+            .map_err(|e| ClientError::InvalidUrl(format!("{e} api/{base}/{env_id}/{path}")))?;
         Ok(base_url)
     }
 }
