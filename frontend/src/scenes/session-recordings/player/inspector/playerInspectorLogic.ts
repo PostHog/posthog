@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 import FuseClass from 'fuse.js'
-import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import {
@@ -288,7 +288,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             sessionRecordingDataCoordinatorLogic(props),
             ['loadFullEventData', 'setTrackedWindow', 'registerWindowId', 'loadEventsSuccess'],
             sessionRecordingPlayerLogic(props),
-            ['seekToTime', 'setSkippingToMatchingEvent'],
+            ['seekToTime', 'setSkippingToMatchingEvent', 'matchingEventsMatchTypeChanged'],
         ],
         values: [
             miniFiltersLogic,
@@ -314,7 +314,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'uuidToIndex',
             ],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerTime', 'skipToFirstMatchingEvent'],
+            ['currentPlayerTime', 'skipToFirstMatchingEvent', 'resolvedMatchingEventsMatchType'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
             featureFlagLogic,
@@ -351,7 +351,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             [] as MatchedRecordingEvent[] | null,
             {
                 loadMatchingEvents: async () => {
-                    const matchingEventsMatchType = props.matchingEventsMatchType
+                    const matchingEventsMatchType = values.resolvedMatchingEventsMatchType
                     const matchType = matchingEventsMatchType?.matchType
                     if (!matchingEventsMatchType || matchType === 'none' || matchType === 'name') {
                         return null
@@ -402,13 +402,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    selectors(({ props }) => ({
+    selectors({
         allowMatchingEventsFilter: [
-            (s) => [s.miniFilters],
-            (miniFilters): boolean => {
+            (s) => [s.miniFilters, s.resolvedMatchingEventsMatchType],
+            (miniFilters, resolvedMatchingEventsMatchType): boolean => {
                 return (
                     miniFilters.some((mf) => mf.type === 'events' && mf.enabled) &&
-                    props.matchingEventsMatchType?.matchType !== 'none'
+                    resolvedMatchingEventsMatchType?.matchType !== 'none'
                 )
             },
         ],
@@ -802,6 +802,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.sessionPlayerData,
                 s.miniFiltersByKey,
                 s.uuidToIndex,
+                s.resolvedMatchingEventsMatchType,
             ],
             (
                 start,
@@ -815,7 +816,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 notebookCommentItems,
                 sessionPlayerData,
                 miniFiltersByKey,
-                uuidToIndex
+                uuidToIndex,
+                resolvedMatchingEventsMatchType
             ): {
                 items: InspectorListItem[]
                 itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]>
@@ -925,8 +927,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         isMatchingEvent = !!matchingEvents.find(
                             (x: MatchedRecordingEvent) => x.uuid === String(event.id)
                         )
-                    } else if (props.matchingEventsMatchType?.matchType === 'name') {
-                        isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)
+                    } else if (resolvedMatchingEventsMatchType?.matchType === 'name') {
+                        isMatchingEvent = resolvedMatchingEventsMatchType?.eventNames?.includes(event.event)
                     }
 
                     const search = `${
@@ -1269,7 +1271,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (s) => [s.allItemsByItemType],
             (allItemsByItemType): boolean => allItemsByItemType['events']?.length > 0,
         ],
-    })),
+    }),
     listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
@@ -1291,15 +1293,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
             }
         },
+        matchingEventsMatchTypeChanged: () => {
+            actions.loadMatchingEvents()
+        },
     })),
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadMatchingEvents()
         },
     })),
-    propsChanged(({ actions, props }, oldProps) => {
-        if (!equal(props.matchingEventsMatchType, oldProps.matchingEventsMatchType)) {
-            actions.loadMatchingEvents()
-        }
-    }),
 ])

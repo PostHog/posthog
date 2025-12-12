@@ -36,7 +36,10 @@ import {
     SessionRecordingDataCoordinatorLogicProps,
     sessionRecordingDataCoordinatorLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import {
+    MatchingEventsMatchType,
+    sessionRecordingsPlaylistLogic,
+} from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -119,9 +122,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     noInspector?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
-    pinned?: boolean
-    setPinned?: (pinned: boolean) => void
     playNextRecording?: (automatic: boolean) => void
+    metaControls?: React.ReactNode
 }
 
 const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
@@ -457,6 +459,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setMuted: (muted: boolean) => ({ muted }),
         setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => ({ skipToFirstMatchingEvent }),
         forcePause: true,
+        matchingEventsMatchTypeChanged: true,
     }),
     reducers(() => ({
         // used in visual regression testing to make sure the player is paused
@@ -687,6 +690,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         playNextRecording: [
             () => [(_, props) => props.playNextRecording],
             (playNextRecording): ((automatic: boolean) => void) | undefined => playNextRecording,
+        ],
+
+        playlistLogic: [
+            () => [(_, props) => props.playerKey],
+            (playerKey) => {
+                if (!playerKey) {
+                    return null
+                }
+                return sessionRecordingsPlaylistLogic.findMounted({ logicKey: playerKey })
+            },
+        ],
+
+        resolvedMatchingEventsMatchType: [
+            (s) => [s.logicProps, s.playlistLogic],
+            (logicProps, playlistLogic): MatchingEventsMatchType | undefined => {
+                if (logicProps.matchingEventsMatchType) {
+                    return logicProps.matchingEventsMatchType
+                }
+                return playlistLogic?.values.matchingEventsMatchType
+            },
         ],
 
         hasSnapshots: [
@@ -1822,6 +1845,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             // Update tracking state whenever player state changes
             actions.updatePlayerTimeTracking()
+        },
+        resolvedMatchingEventsMatchType: () => {
+            actions.matchingEventsMatchTypeChanged()
         },
     })),
 

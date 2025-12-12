@@ -61,11 +61,10 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         noInspector = false,
         autoPlay = true,
         mode = SessionRecordingPlayerMode.Standard,
-        pinned,
-        setPinned,
         accessToken,
         onRecordingDeleted,
         playNextRecording,
+        metaControls,
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
@@ -79,11 +78,10 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         noInspector,
         mode,
         playerRef,
-        pinned,
-        setPinned,
         accessToken,
         onRecordingDeleted,
         playNextRecording,
+        metaControls,
     }
 
     return (

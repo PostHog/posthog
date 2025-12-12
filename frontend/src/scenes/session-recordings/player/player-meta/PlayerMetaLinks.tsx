@@ -1,18 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import {
-    IconCheck,
-    IconDownload,
-    IconEllipsis,
-    IconMinusSmall,
-    IconNotebook,
-    IconPlusSmall,
-    IconTrash,
-} from '@posthog/icons'
+import { IconCheck, IconDownload, IconEllipsis, IconNotebook, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -20,7 +11,6 @@ import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/Note
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { PlaylistPopoverButton } from 'scenes/session-recordings/player/playlist-popover/PlaylistPopover'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -28,43 +18,9 @@ import {
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
-import { AccessControlResourceType } from '~/types'
-import { AccessControlLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
-
-function PinToPlaylistButton(): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-
-    const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
-    const description = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
-
-    return logicProps.setPinned && !logicProps.pinned ? (
-        <LemonButton
-            size="xsmall"
-            onClick={() => {
-                logicProps.setPinned?.(true)
-            }}
-            tooltip={tooltip}
-            data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
-            icon={<IconPlusSmall />}
-        />
-    ) : (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.SessionRecording}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            <PlaylistPopoverButton
-                tooltip={tooltip}
-                setPinnedInCurrentPlaylist={logicProps.setPinned}
-                icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
-                size="xsmall"
-            >
-                {description}
-            </PlaylistPopoverButton>
-        </AccessControlAction>
-    )
-}
 
 export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -99,7 +55,7 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                         />
                     ) : null}
 
-                    <PinToPlaylistButton />
+                    {logicProps.metaControls}
                 </>
             ) : null}
         </div>

@@ -1,13 +1,19 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 
+import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { PlaylistPopoverButton } from '../player/playlist-popover/PlaylistPopover'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
@@ -59,12 +65,11 @@ function PlayerWrapper({
 }): JSX.Element {
     const {
         filters,
-        pinnedRecordings,
-        matchingEventsMatchType,
         activeSessionRecording,
         allowHogQLFilters,
         totalFiltersCount,
         nextSessionRecording,
+        pinnedRecordings,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, setSelectedRecordingId } = useActions(sessionRecordingsPlaylistLogic)
 
@@ -76,6 +81,32 @@ function PlayerWrapper({
             setSelectedRecordingId(nextSessionRecording.id)
         }
     }, [nextSessionRecording, setSelectedRecordingId])
+
+    const isInCollection = useMemo(() => {
+        return pinnedRecordings.some((r) => r.id === activeSessionRecording?.id)
+    }, [pinnedRecordings, activeSessionRecording?.id])
+
+    const collectionButton = useMemo(() => {
+        if (!props.onPinnedChange || !activeSessionRecording) {
+            return null
+        }
+        const tooltip = isInCollection ? 'Remove from collection' : 'Add to collection'
+        return (
+            <AccessControlAction
+                resourceType={AccessControlResourceType.SessionRecording}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <PlaylistPopoverButton
+                    tooltip={tooltip}
+                    setPinnedInCurrentPlaylist={() => props.onPinnedChange?.(activeSessionRecording, !isInCollection)}
+                    icon={isInCollection ? <IconMinusSmall /> : <IconPlusSmall />}
+                    size="xsmall"
+                >
+                    {tooltip}
+                </PlaylistPopoverButton>
+            </AccessControlAction>
+        )
+    }, [activeSessionRecording, isInCollection, props])
 
     return (
         <div
@@ -97,24 +128,13 @@ function PlayerWrapper({
                 <SessionRecordingPlayer
                     playerKey={props.logicKey ?? 'playlist'}
                     sessionRecordingId={activeSessionRecording.id}
-                    matchingEventsMatchType={matchingEventsMatchType}
                     onRecordingDeleted={() => {
                         sessionRecordingsPlaylistLogic.actions.loadAllRecordings()
                         sessionRecordingsPlaylistLogic.actions.setSelectedRecordingId(null)
                     }}
                     noBorder
-                    pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
-                    setPinned={
-                        props.onPinnedChange
-                            ? (pinned) => {
-                                  if (!activeSessionRecording.id) {
-                                      return
-                                  }
-                                  props.onPinnedChange?.(activeSessionRecording, pinned)
-                              }
-                            : undefined
-                    }
                     playNextRecording={onPlayNextRecording}
+                    metaControls={collectionButton}
                 />
             ) : (
                 <div className="mt-20">
