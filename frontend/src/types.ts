@@ -5878,6 +5878,8 @@ export interface Conversation {
     type: ConversationType
     has_unsupported_content?: boolean
     agent_mode?: string | null
+    slack_thread_key?: string | null
+    slack_workspace_domain?: string | null
 }
 
 export interface ConversationDetail extends Conversation {

@@ -476,7 +476,6 @@ function MessageGroupSkeleton({
 }): JSX.Element {
     return (
         <MessageContainer className={clsx('items-center', className)} groupType={groupType}>
-            <LemonSkeleton className="w-8 h-8 rounded-full hidden border @md/thread:flex" />
             <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
         </MessageContainer>
     )
