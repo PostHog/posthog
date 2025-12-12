@@ -5,7 +5,7 @@ set -o pipefail     # Exit if any command in a pipeline fails
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
 # --scope flag: run specific migration(s) only. Without --scope, runs all.
-# Usage: bin/migrate [--scope=postgres] [--scope=clickhouse] [--scope=persons] ...
+# Usage: bin/migrate [--scope=postgres] [--scope=clickhouse] [--scope=async] ...
 SCOPES=()
 for arg in "$@"; do
     [[ "$arg" == --scope=* ]] && SCOPES+=("${arg#*=}")
@@ -134,6 +134,9 @@ if [ "$RUN_POSTGRES" = "1" ]; then
         exit 1
     fi
 
+fi
+
+if run_scope "async"; then
     # NOTE: we do not apply any non-noop migrations here. Rather these are run
     # manually within the UI. See https://posthog.com/docs/runbook/async-migrations
     # for details.
