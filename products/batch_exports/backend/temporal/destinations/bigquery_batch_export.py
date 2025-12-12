@@ -12,7 +12,7 @@ from django.conf import settings
 
 import pyarrow as pa
 import requests
-from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound
+from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound, TooManyRequests
 from google.cloud import bigquery
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
@@ -49,9 +49,17 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     PipelineTransformer,
     SchemaTransformer,
 )
-from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult, reduce_batch_export_results
+from products.batch_exports.backend.temporal.spmc import (
+    RecordBatchQueue,
+    raise_on_task_failure,
+    wait_for_schema_or_producer,
+)
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    handle_non_retryable_errors,
+    make_retryable_with_exponential_backoff,
+)
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on missing permissions.
@@ -696,14 +704,27 @@ class BigQueryClient:
 
         self.logger.info("Waiting for BigQuery load job", format=format, table_id=table.name)
 
-        try:
-            result = await asyncio.to_thread(load_job.result)
-        except Forbidden as err:
-            if err.reason == "quotaExceeded":
-                raise BigQueryQuotaExceededError(err.message) from err
-            raise
+        result = await run_load_job(load_job)
 
         return result
+
+
+async def run_load_job(load_job: bigquery.LoadJob):
+    """Run a BigQuery LoadJob and return its result.
+
+    Ensures we retry on transient ``TooManyRequests`` errors.
+    """
+    run_in_retryable_thread = make_retryable_with_exponential_backoff(
+        asyncio.to_thread, max_attempts=None, retryable_exceptions=(TooManyRequests,)
+    )
+
+    try:
+        result = await run_in_retryable_thread(load_job.result)
+    except Forbidden as err:
+        if err.reason == "quotaExceeded":
+            raise BigQueryQuotaExceededError(err.message) from err
+        raise
+    return result
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -788,6 +809,66 @@ class BigQueryConsumer(Consumer):
         )
 
         self.current_buffer = io.BytesIO()
+
+
+async def run_consumers(
+    client: BigQueryClient,
+    table: BigQueryTable,
+    file_format: FileFormat,
+    producer_task: asyncio.Task[None],
+    queue: RecordBatchQueue,
+    can_perform_merge: bool,
+    max_consumers: int,
+) -> BatchExportResult:
+    tasks = []
+    max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES / max_consumers
+
+    async with asyncio.TaskGroup() as tg:
+        for _ in range(max_consumers):
+            consumer = BigQueryConsumer(
+                client=client,
+                table=table,
+                file_format=file_format,
+            )
+
+            if can_perform_merge:
+                transformer: ChunkTransformerProtocol = PipelineTransformer(
+                    transformers=(
+                        SchemaTransformer(
+                            table=table,
+                        ),
+                        ParquetStreamTransformer(
+                            compression="zstd",
+                            max_file_size_bytes=max_file_size_bytes_per_consumer,
+                        ),
+                    )
+                )
+            else:
+                transformer = PipelineTransformer(
+                    transformers=(
+                        SchemaTransformer(
+                            table=table,
+                        ),
+                        JSONLStreamTransformer(
+                            max_file_size_bytes=max_file_size_bytes_per_consumer,
+                        ),
+                    )
+                )
+
+            tasks.append(
+                tg.create_task(
+                    consumer.start(
+                        queue=queue,
+                        producer_task=producer_task,
+                        transformer=transformer,
+                        json_columns=(),
+                    )
+                )
+            )
+
+    await raise_on_task_failure(producer_task)
+
+    return reduce_batch_export_results(task.result() for task in tasks)
 
 
 class MergeSettings(typing.NamedTuple):
@@ -949,44 +1030,60 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 create=can_perform_merge,
                 delete=can_perform_merge,
             ) as bigquery_consumer_table:
-                consumer = BigQueryConsumer(
-                    client=bq_client,
-                    table=bigquery_consumer_table,
-                    file_format="Parquet" if can_perform_merge else "JSONLines",
-                )
-
-                if can_perform_merge:
-                    transformer: ChunkTransformerProtocol = PipelineTransformer(
-                        transformers=(
-                            SchemaTransformer(
-                                table=bigquery_consumer_table,
-                            ),
-                            ParquetStreamTransformer(
-                                compression="zstd",
-                                max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                            ),
-                        )
+                file_format = "Parquet" if can_perform_merge else "JSONLines"
+                if inputs.team_id in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
+                    # This just repeats what's in `run_consumers` to preserve backwards compatibility
+                    # while testing.
+                    # TODO: Remove this or the else block after we have tested out whether multiple
+                    # consumers are viable.
+                    consumer = BigQueryConsumer(
+                        client=bq_client,
+                        table=bigquery_consumer_table,
+                        file_format=file_format,
                     )
+
+                    if can_perform_merge:
+                        transformer: ChunkTransformerProtocol = PipelineTransformer(
+                            transformers=(
+                                SchemaTransformer(
+                                    table=bigquery_consumer_table,
+                                ),
+                                ParquetStreamTransformer(
+                                    compression="zstd",
+                                    max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                                ),
+                            )
+                        )
+                    else:
+                        transformer = PipelineTransformer(
+                            transformers=(
+                                SchemaTransformer(
+                                    table=bigquery_consumer_table,
+                                ),
+                                JSONLStreamTransformer(
+                                    max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                                ),
+                            )
+                        )
+
+                    result = await run_consumer_from_stage(
+                        queue=queue,
+                        producer_task=producer_task,
+                        consumer=consumer,
+                        transformer=transformer,
+                        json_columns=(),
+                    )
+
                 else:
-                    transformer = PipelineTransformer(
-                        transformers=(
-                            SchemaTransformer(
-                                table=bigquery_consumer_table,
-                            ),
-                            JSONLStreamTransformer(
-                                max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES
-                            ),
-                        )
+                    result = await run_consumers(
+                        client=bq_client,
+                        table=bigquery_consumer_table,
+                        file_format=file_format,
+                        producer_task=producer_task,
+                        queue=queue,
+                        can_perform_merge=can_perform_merge,
+                        max_consumers=settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS,
                     )
-
-                result = await run_consumer_from_stage(
-                    queue=queue,
-                    consumer=consumer,
-                    producer_task=producer_task,
-                    transformer=transformer,
-                    # TODO: Deprecate this argument once all other destinations are also migrated.
-                    json_columns=(),
-                )
 
                 if can_perform_merge:
                     _ = await bq_client.merge_tables(
