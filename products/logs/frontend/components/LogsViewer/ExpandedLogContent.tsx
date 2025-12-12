@@ -47,15 +47,17 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
     const expandedBreakdownsForThisLog = expandedAttributeBreakdowns[log.uuid] || []
 
     const rows = [
-        ...Object.entries(log.resource_attributes).map(([key, value]) => ({
+        ...Object.entries(log.resource_attributes).map(([key, value], index) => ({
             key,
             value,
             type: PropertyFilterType.LogResourceAttribute,
+            index,
         })),
-        ...Object.entries(log.attributes).map(([key, value]) => ({
+        ...Object.entries(log.attributes).map(([key, value], index) => ({
             key,
             value,
             type: PropertyFilterType.LogAttribute,
+            index,
         })),
     ]
 
