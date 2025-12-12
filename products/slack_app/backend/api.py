@@ -13,6 +13,7 @@ import structlog
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError
+from posthog.models.organization import OrganizationMembership
 from posthog.temporal.ai.slack_conversation import (
     THINKING_MESSAGES,
     SlackConversationRunnerWorkflow,
@@ -48,7 +49,11 @@ if settings.DEBUG:
 def route_slack_event_to_relevant_region(request: HttpRequest, event: dict, slack_team_id: str) -> None:
     """Handle app_mention events - when the bot is @mentioned."""
     # Find a Slack integration for this workspace
-    integration = Integration.objects.filter(kind="slack", integration_id=slack_team_id).first()
+    integration = (
+        Integration.objects.filter(kind="slack", integration_id=slack_team_id)
+        .select_related("team", "team__organization")
+        .first()
+    )
     if integration and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         # We're in the right region
         if event.get("type") == "app_mention":
@@ -92,23 +97,14 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
     if not thread_ts:
         return
 
-    # Security: In Slack Connect channels, users from external workspaces can mention our bot.
-    # We must reject these to prevent data leakage to unauthorized users.
-    # `user_team` is only present when the user is from a different workspace than where the app is installed.
-    user_team = event.get("user_team")
-    if user_team and user_team != slack_team_id:
-        logger.warning(
-            "slack_app_mention_from_external_workspace",
-            user_team=user_team,
-            app_workspace=slack_team_id,
-            user=event.get("user"),
-        )
+    slack_user_id = event.get("user")
+    if not slack_user_id:
         return
 
     logger.info(
         "slack_app_mention_received",
         channel=channel,
-        user=event.get("user"),
+        user=slack_user_id,
         text=event.get("text"),
         thread_ts=thread_ts,
         slack_team_id=slack_team_id,
@@ -123,6 +119,52 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
 
     try:
         slack = SlackIntegration(integration)
+
+        # Look up Slack user's email and match to PostHog user
+        try:
+            slack_user_info = slack.client.users_info(user=slack_user_id)
+            slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")
+            if not slack_email:
+                logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id)
+                slack.client.chat_postEphemeral(
+                    channel=channel,
+                    user=slack_user_id,
+                    thread_ts=thread_ts,
+                    text="Sorry, I couldn't find your email address in Slack. Please make sure your email is visible in your Slack profile.",
+                )
+                return
+
+            # Find PostHog user by email
+            membership = (
+                OrganizationMembership.objects.filter(
+                    organization_id=integration.team.organization_id, user__email=slack_email
+                )
+                .select_related("user")
+                .first()
+            )
+            if not membership or not membership.user:
+                organization_name = integration.team.organization.name
+                slack.client.chat_postEphemeral(
+                    channel=channel,
+                    user=slack_user_id,
+                    thread_ts=thread_ts,
+                    text=(
+                        f"Sorry, I couldn't find {slack_email} in the {organization_name} organization. "
+                        f"Please make sure you're a member of that PostHog organization connected to this Slack workspace."
+                    ),
+                )
+                return
+
+            posthog_user = membership.user
+        except Exception as e:
+            logger.exception("slack_app_user_lookup_failed", error=str(e))
+            slack.client.chat_postEphemeral(
+                channel=channel,
+                user=slack_user_id,
+                thread_ts=thread_ts,
+                text="Sorry, I encountered an error looking up your user account. Please try again later.",
+            )
+            return
 
         # Get our bot's IDs so we can filter out our own messages and check reactions
         auth_response = slack.client.auth_test()
@@ -251,6 +293,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             messages=messages,
             slack_thread_key=slack_thread_key,
             conversation_id=conversation_id,
+            user_id=posthog_user.id,
         )
 
         # Deterministic workflow ID ensures only one workflow runs per Slack thread at a time
