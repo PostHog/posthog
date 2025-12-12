@@ -2,8 +2,10 @@ import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Hub, Team } from '../../types'
+import { Team } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
+import { TeamManager } from '../../utils/team-manager'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
@@ -19,7 +21,21 @@ export type PerDistinctIdPipelineInput = EventSubpipelineInput &
     ClientIngestionWarningSubpipelineInput
 
 export interface PerDistinctIdPipelineConfig {
-    hub: Hub
+    options: {
+        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+        SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
+        TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
+        PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
+        PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
+        PERSON_MERGE_ASYNC_ENABLED: boolean
+        PERSON_MERGE_ASYNC_TOPIC: string
+        PERSON_MERGE_SYNC_BATCH_SIZE: number
+        PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
+        PERSON_PROPERTIES_UPDATE_ALL: boolean
+    }
+    teamManager: TeamManager
+    groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
     kafkaProducer: KafkaProducerWrapper
@@ -50,7 +66,17 @@ export function createPerDistinctIdPipeline<
     TInput extends PerDistinctIdPipelineInput,
     TContext extends PerDistinctIdPipelineContext,
 >(builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>, config: PerDistinctIdPipelineConfig) {
-    const { hub, hogTransformer, personsStore, kafkaProducer, groupId, dlqTopic, promiseScheduler } = config
+    const {
+        options,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        personsStore,
+        kafkaProducer,
+        groupId,
+        dlqTopic,
+        promiseScheduler,
+    } = config
 
     const pipelineConfig: PipelineConfig = {
         kafkaProducer,
@@ -74,7 +100,9 @@ export function createPerDistinctIdPipeline<
                                             )
                                             .branch('heatmap', (b) =>
                                                 createHeatmapSubpipeline(b, {
-                                                    hub,
+                                                    options,
+                                                    teamManager,
+                                                    groupTypeManager,
                                                     hogTransformer,
                                                     personsStore,
                                                     kafkaProducer,
@@ -82,7 +110,9 @@ export function createPerDistinctIdPipeline<
                                             )
                                             .branch('event', (b) =>
                                                 createEventSubpipeline(b, {
-                                                    hub,
+                                                    options,
+                                                    teamManager,
+                                                    groupTypeManager,
                                                     hogTransformer,
                                                     personsStore,
                                                     kafkaProducer,

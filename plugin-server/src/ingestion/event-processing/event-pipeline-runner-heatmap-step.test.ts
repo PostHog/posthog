@@ -3,8 +3,11 @@ import { v4 } from 'uuid'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { EventHeaders, Hub, ISOTimestamp, PipelineEvent, PreIngestionEvent, ProjectId, Team } from '../../types'
+import { KafkaProducerWrapper } from '../../kafka/producer'
+import { EventHeaders, ISOTimestamp, PipelineEvent, PreIngestionEvent, ProjectId, Team } from '../../types'
+import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineHeatmapResult, EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResultType, dlq, drop, ok } from '../pipelines/results'
@@ -64,7 +67,20 @@ const createTestPreIngestionEvent = (overrides: Partial<PreIngestionEvent> = {})
 }
 
 describe('event-pipeline-runner-heatmap-step', () => {
-    let mockHub: Hub
+    let mockConfig: {
+        SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
+        TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
+        PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
+        PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
+        PERSON_MERGE_ASYNC_ENABLED: boolean
+        PERSON_MERGE_ASYNC_TOPIC: string
+        PERSON_MERGE_SYNC_BATCH_SIZE: number
+        PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
+        PERSON_PROPERTIES_UPDATE_ALL: boolean
+    }
+    let mockKafkaProducer: KafkaProducerWrapper
+    let mockTeamManager: TeamManager
+    let mockGroupTypeManager: GroupTypeManager
     let mockHogTransformer: HogTransformerService
     let mockPersonsStore: PersonsStore
     let mockGroupStore: GroupStoreForBatch
@@ -76,7 +92,20 @@ describe('event-pipeline-runner-heatmap-step', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
-        mockHub = {} as Hub
+        mockConfig = {
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+            TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: 0,
+            PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30000,
+            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 100,
+            PERSON_MERGE_ASYNC_ENABLED: false,
+            PERSON_MERGE_ASYNC_TOPIC: '',
+            PERSON_MERGE_SYNC_BATCH_SIZE: 1,
+            PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
+            PERSON_PROPERTIES_UPDATE_ALL: false,
+        }
+        mockKafkaProducer = {} as KafkaProducerWrapper
+        mockTeamManager = {} as TeamManager
+        mockGroupTypeManager = {} as GroupTypeManager
         mockHogTransformer = {} as HogTransformerService
         mockPersonsStore = {} as PersonsStore
         mockGroupStore = {} as GroupStoreForBatch
@@ -106,7 +135,14 @@ describe('event-pipeline-runner-heatmap-step', () => {
         const mockResult = ok({ lastStep: 'prepareEventStep', preparedEvent: createTestPreIngestionEvent() })
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
-        const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)
+        const step = createEventPipelineRunnerHeatmapStep(
+            mockConfig,
+            mockKafkaProducer,
+            mockTeamManager,
+            mockGroupTypeManager,
+            mockHogTransformer,
+            mockPersonsStore
+        )
 
         const input = {
             normalizedEvent: mockEvent,
@@ -119,7 +155,10 @@ describe('event-pipeline-runner-heatmap-step', () => {
         const result = await step(input)
 
         expect(EventPipelineRunner).toHaveBeenCalledWith(
-            mockHub,
+            mockConfig,
+            mockKafkaProducer,
+            mockTeamManager,
+            mockGroupTypeManager,
             mockEvent,
             mockHogTransformer,
             mockPersonsStore,
@@ -139,7 +178,14 @@ describe('event-pipeline-runner-heatmap-step', () => {
         const mockResult = drop<EventPipelineHeatmapResult>('heatmap_processing_failed')
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
-        const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)
+        const step = createEventPipelineRunnerHeatmapStep(
+            mockConfig,
+            mockKafkaProducer,
+            mockTeamManager,
+            mockGroupTypeManager,
+            mockHogTransformer,
+            mockPersonsStore
+        )
 
         const input = {
             normalizedEvent: mockEvent,
@@ -161,7 +207,14 @@ describe('event-pipeline-runner-heatmap-step', () => {
         const mockResult = dlq<EventPipelineHeatmapResult>('heatmap_error', mockError)
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
-        const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)
+        const step = createEventPipelineRunnerHeatmapStep(
+            mockConfig,
+            mockKafkaProducer,
+            mockTeamManager,
+            mockGroupTypeManager,
+            mockHogTransformer,
+            mockPersonsStore
+        )
 
         const input = {
             normalizedEvent: mockEvent,
@@ -184,7 +237,14 @@ describe('event-pipeline-runner-heatmap-step', () => {
         const mockResult = ok({ lastStep: 'prepareEventStep', preparedEvent: createTestPreIngestionEvent() })
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
-        const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)
+        const step = createEventPipelineRunnerHeatmapStep(
+            mockConfig,
+            mockKafkaProducer,
+            mockTeamManager,
+            mockGroupTypeManager,
+            mockHogTransformer,
+            mockPersonsStore
+        )
 
         const input = {
             normalizedEvent: mockEvent,
@@ -197,7 +257,10 @@ describe('event-pipeline-runner-heatmap-step', () => {
         await step(input)
 
         expect(EventPipelineRunner).toHaveBeenCalledWith(
-            mockHub,
+            mockConfig,
+            mockKafkaProducer,
+            mockTeamManager,
+            mockGroupTypeManager,
             mockEvent,
             mockHogTransformer,
             mockPersonsStore,
