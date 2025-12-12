@@ -255,7 +255,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 hex(trace_id),
                 hex(span_id),
                 body,
-                attributes,
+                mapFilter((k, v) -> not(has(resource_attributes, k)), attributes),
                 timestamp,
                 observed_timestamp,
                 severity_text,
@@ -278,18 +278,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
     def where(self):
         exprs: list[ast.Expr] = []
-
-        if self.query.severityLevels:
-            exprs.append(
-                parse_expr(
-                    "severity_text IN {severityLevels}",
-                    placeholders={
-                        "severityLevels": ast.Tuple(
-                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
-                        )
-                    },
-                )
-            )
 
         if self.query.serviceNames:
             exprs.append(
@@ -367,6 +355,18 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 exprs.append(property_to_expr(log_filters, team=self.team))
 
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
+
+        if self.query.severityLevels:
+            exprs.append(
+                parse_expr(
+                    "severity_text IN {severityLevels}",
+                    placeholders={
+                        "severityLevels": ast.Tuple(
+                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
+                        )
+                    },
+                )
+            )
 
         if self.query.liveLogsCheckpoint:
             exprs.append(

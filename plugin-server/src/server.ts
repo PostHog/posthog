@@ -15,6 +15,7 @@ import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membersh
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
@@ -202,6 +203,14 @@ export class PluginServer {
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.cdpDataWarehouseEvents) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpDatawarehouseEventsConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })
