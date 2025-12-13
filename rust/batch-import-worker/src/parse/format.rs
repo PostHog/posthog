@@ -272,8 +272,7 @@ fn user_facing_schema_error_generic(err: &serde_json::Error) -> String {
     if err_str.contains("missing field") {
         if let Some(field_name) = extract_field_name(&err_str, "missing field `", "`") {
             return format!(
-                "Missing required field '{}'. Please check that your data includes this field.",
-                field_name
+                "Missing required field '{field_name}'. Please check that your data includes this field."
             );
         }
     }
@@ -285,23 +284,20 @@ fn user_facing_schema_error_generic(err: &serde_json::Error) -> String {
         if let (Some(got), Some(expected)) = (got, expected) {
             if expected.contains("map") {
                 return format!(
-                    "Expected an object/map but got {}. This field must be a JSON object like {{\"key\": \"value\"}}.",
-                    got
+                    "Expected an object/map but got {got}. This field must be a JSON object like {{\"key\": \"value\"}}."
                 );
             }
             if expected == "a string" {
                 return format!(
-                    "Expected a string value but got {}. String values must be quoted.",
-                    got
+                    "Expected a string value but got {got}. String values must be quoted."
                 );
             }
             if expected == "an integer" || expected == "a number" {
-                return format!("Expected a number but got {}.", got);
+                return format!("Expected a number but got {got}.");
             }
 
             return format!(
-                "Type mismatch: expected {} but got {}. Please check your data format.",
-                expected, got
+                "Type mismatch: expected {expected} but got {got}. Please check your data format."
             );
         }
     }
@@ -309,8 +305,7 @@ fn user_facing_schema_error_generic(err: &serde_json::Error) -> String {
     if err_str.contains("unknown field") {
         if let Some(field_name) = extract_field_name(&err_str, "unknown field `", "`") {
             return format!(
-                "Unknown field '{}'. This field is not recognized. Check for typos or remove this field.",
-                field_name
+                "Unknown field '{field_name}'. This field is not recognized. Check for typos or remove this field."
             );
         }
     }

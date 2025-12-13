@@ -21,7 +21,7 @@ impl UserFacingParseError for RawEvent {
                     "properties" => "Missing required field 'properties'. Each line must have a 'properties' object (can be empty: \"properties\": {}).".to_string(),
                     "distinct_id" => "Missing required field 'distinct_id'. Each event must identify a user with 'distinct_id'.".to_string(),
                     "timestamp" => "Missing required field 'timestamp'. Each event must have a timestamp (e.g., \"timestamp\": \"2024-01-01T00:00:00Z\").".to_string(),
-                    _ => format!("Missing required field '{}'. Please check that your data includes this field.", field_name),
+                    _ => format!("Missing required field '{field_name}'. Please check that your data includes this field."),
                 };
             }
         }
@@ -33,14 +33,12 @@ impl UserFacingParseError for RawEvent {
             if let (Some(got), Some(expected)) = (got, expected) {
                 if err_str.contains("`event`") || (expected == "a string" && err.column() < 20) {
                     return format!(
-                        "The 'event' field must be a string (e.g., \"event\": \"$pageview\"), but got {}.",
-                        got
+                        "The 'event' field must be a string (e.g., \"event\": \"$pageview\"), but got {got}."
                     );
                 }
                 if expected.contains("map") {
                     return format!(
-                        "Expected an object/map but got {}. The 'properties' field must be a JSON object like {{\"key\": \"value\"}}.",
-                        got
+                        "Expected an object/map but got {got}. The 'properties' field must be a JSON object like {{\"key\": \"value\"}}."
                     );
                 }
             }

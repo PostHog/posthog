@@ -388,8 +388,7 @@ impl Job {
             .map_err(|e| {
                 let inner_msg = get_user_message(&e);
                 e.context(UserError::new(format!(
-                    "Parsing data in file '{}' failed: {}",
-                    key_for_error, inner_msg
+                    "Parsing data in file '{key_for_error}' failed: {inner_msg}"
                 )))
             })
             .context(format!("Processing part chunk {next_part:?}"))?;

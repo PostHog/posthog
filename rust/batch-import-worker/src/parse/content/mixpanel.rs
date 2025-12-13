@@ -51,7 +51,7 @@ impl UserFacingParseError for MixpanelEvent {
                     "event" => "Missing required field 'event'. Each Mixpanel event must have an 'event' field with the event name (e.g., \"event\": \"page_view\").".to_string(),
                     "properties" => "Missing required field 'properties'. Each Mixpanel event must have a 'properties' object containing at least the 'time' field.".to_string(),
                     "time" => "Missing required field 'time' in 'properties'. Each Mixpanel event must have a timestamp (e.g., \"properties\": {\"time\": 1697379000}).".to_string(),
-                    _ => format!("Missing required field '{}'. Please check that your Mixpanel export includes this field.", field_name),
+                    _ => format!("Missing required field '{field_name}'. Please check that your Mixpanel export includes this field."),
                 };
             }
         }
@@ -63,20 +63,17 @@ impl UserFacingParseError for MixpanelEvent {
             if let (Some(got), Some(expected)) = (got, expected) {
                 if err_str.contains("`event`") || (expected == "a string" && err.column() < 15) {
                     return format!(
-                        "The 'event' field must be a string (e.g., \"event\": \"page_view\"), but got {}.",
-                        got
+                        "The 'event' field must be a string (e.g., \"event\": \"page_view\"), but got {got}."
                     );
                 }
                 if err_str.contains("`time`") || expected.contains("i64") {
                     return format!(
-                        "The 'time' field must be a Unix timestamp (integer), but got {}. Use seconds since epoch (e.g., 1697379000).",
-                        got
+                        "The 'time' field must be a Unix timestamp (integer), but got {got}. Use seconds since epoch (e.g., 1697379000)."
                     );
                 }
                 if expected.contains("map") || expected.contains("struct") {
                     return format!(
-                        "Expected an object/map but got {}. The 'properties' field must be a JSON object like {{\"time\": 1697379000}}.",
-                        got
+                        "Expected an object/map but got {got}. The 'properties' field must be a JSON object like {{\"time\": 1697379000}}."
                     );
                 }
             }
