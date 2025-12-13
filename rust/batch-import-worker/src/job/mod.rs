@@ -825,7 +825,8 @@ mod tests {
 
     #[test]
     fn test_decide_on_error_separates_developer_and_user_messages() {
-        let root_error = std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid byte sequence");
+        let root_error =
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid byte sequence");
         let error = anyhow::Error::from(root_error)
             .context("Failed to parse JSON")
             .context("Processing chunk");

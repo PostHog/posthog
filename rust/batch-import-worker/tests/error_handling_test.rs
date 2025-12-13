@@ -163,8 +163,7 @@ async fn test_error_chain_preserves_all_context() {
     use anyhow::Context;
     use batch_import_worker::error::UserError;
 
-    let root_error =
-        serde_json::from_str::<serde_json::Value>("not valid json").unwrap_err();
+    let root_error = serde_json::from_str::<serde_json::Value>("not valid json").unwrap_err();
     let error = anyhow::Error::from(root_error)
         .context(UserError::new("User-friendly message"))
         .context("Developer context 1")
@@ -234,7 +233,8 @@ fn test_mixpanel_schema_errors_produce_helpful_messages() {
         msg
     );
 
-    let missing_time = b"{\"event\": \"test_event\", \"properties\": {\"distinct_id\": \"user1\"}}\n".to_vec();
+    let missing_time =
+        b"{\"event\": \"test_event\", \"properties\": {\"distinct_id\": \"user1\"}}\n".to_vec();
     let err = json_nd::<MixpanelEvent>(false)(missing_time).unwrap_err();
     let msg = get_user_message(&err);
     assert!(
@@ -252,11 +252,14 @@ fn test_mixpanel_schema_errors_produce_helpful_messages() {
         msg
     );
 
-    let wrong_time_type = b"{\"event\": \"test\", \"properties\": {\"time\": \"not a number\"}}\n".to_vec();
+    let wrong_time_type =
+        b"{\"event\": \"test\", \"properties\": {\"time\": \"not a number\"}}\n".to_vec();
     let err = json_nd::<MixpanelEvent>(false)(wrong_time_type).unwrap_err();
     let msg = get_user_message(&err);
     assert!(
-        msg.to_lowercase().contains("time") || msg.to_lowercase().contains("timestamp") || msg.to_lowercase().contains("integer"),
+        msg.to_lowercase().contains("time")
+            || msg.to_lowercase().contains("timestamp")
+            || msg.to_lowercase().contains("integer"),
         "Wrong time type should mention timestamp/integer issue, got: {}",
         msg
     );
@@ -287,7 +290,8 @@ fn test_amplitude_schema_errors_produce_helpful_messages() {
 
     // event_properties field has wrong type (string instead of object)
     // Note: serde doesn't always include field name in type errors, so we just check for helpful type guidance
-    let wrong_properties = b"{\"event_type\": \"test\", \"event_properties\": \"not an object\"}\n".to_vec();
+    let wrong_properties =
+        b"{\"event_type\": \"test\", \"event_properties\": \"not an object\"}\n".to_vec();
     let err = json_nd::<AmplitudeEvent>(false)(wrong_properties).unwrap_err();
     let msg = get_user_message(&err);
     assert!(
@@ -296,7 +300,8 @@ fn test_amplitude_schema_errors_produce_helpful_messages() {
         msg
     );
 
-    let wrong_user_properties = b"{\"event_type\": \"test\", \"user_properties\": [\"not\", \"object\"]}\n".to_vec();
+    let wrong_user_properties =
+        b"{\"event_type\": \"test\", \"user_properties\": [\"not\", \"object\"]}\n".to_vec();
     let err = json_nd::<AmplitudeEvent>(false)(wrong_user_properties).unwrap_err();
     let msg = get_user_message(&err);
     assert!(
@@ -313,4 +318,3 @@ fn test_amplitude_schema_errors_produce_helpful_messages() {
         result.err()
     );
 }
-

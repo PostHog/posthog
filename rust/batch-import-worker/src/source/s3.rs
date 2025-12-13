@@ -160,28 +160,40 @@ mod tests {
     fn test_extract_user_friendly_error_invalid_access_key() {
         let err = MockS3Error("InvalidAccessKeyId: The access key ID is invalid".to_string());
         let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
-        assert_eq!(msg, "Invalid AWS Access Key ID - please check your credentials");
+        assert_eq!(
+            msg,
+            "Invalid AWS Access Key ID - please check your credentials"
+        );
     }
 
     #[test]
     fn test_extract_user_friendly_error_signature_mismatch() {
         let err = MockS3Error("SignatureDoesNotMatch: The signature did not match".to_string());
         let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
-        assert_eq!(msg, "Invalid AWS Secret Access Key - please check your credentials");
+        assert_eq!(
+            msg,
+            "Invalid AWS Secret Access Key - please check your credentials"
+        );
     }
 
     #[test]
     fn test_extract_user_friendly_error_access_denied() {
         let err = MockS3Error("AccessDenied: Access Denied".to_string());
         let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
-        assert_eq!(msg, "Access denied to S3 bucket 'my-bucket' - check your permissions");
+        assert_eq!(
+            msg,
+            "Access denied to S3 bucket 'my-bucket' - check your permissions"
+        );
     }
 
     #[test]
     fn test_extract_user_friendly_error_no_such_bucket() {
         let err = MockS3Error("NoSuchBucket: The specified bucket does not exist".to_string());
         let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
-        assert_eq!(msg, "S3 bucket 'my-bucket' does not exist or you don't have access to it");
+        assert_eq!(
+            msg,
+            "S3 bucket 'my-bucket' does not exist or you don't have access to it"
+        );
     }
 
     #[test]
@@ -202,6 +214,9 @@ mod tests {
     fn test_extract_user_friendly_error_unknown() {
         let err = MockS3Error("Some other unknown error".to_string());
         let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
-        assert_eq!(msg, "S3 list objects failed - check your credentials, bucket name, and permissions");
+        assert_eq!(
+            msg,
+            "S3 list objects failed - check your credentials, bucket name, and permissions"
+        );
     }
 }

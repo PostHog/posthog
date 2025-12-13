@@ -25,7 +25,6 @@ impl<T, E: std::error::Error + Send + Sync + 'static> ToUserError<T> for Result<
     }
 }
 
-
 const DEFAULT_USER_ERROR_MESSAGE: &str = "An unknown error occurred";
 
 pub fn get_user_message(error: &anyhow::Error) -> String {
@@ -146,8 +145,10 @@ mod tests {
         let inner_error = anyhow::Error::from(UserError::new("specific parse error"));
         let inner_msg = get_user_message(&inner_error);
 
-        let outer_error =
-            inner_error.context(UserError::new(format!("File 'test.json' failed: {}", inner_msg)));
+        let outer_error = inner_error.context(UserError::new(format!(
+            "File 'test.json' failed: {}",
+            inner_msg
+        )));
 
         let result = get_user_message(&outer_error);
         assert_eq!(result, "File 'test.json' failed: specific parse error");

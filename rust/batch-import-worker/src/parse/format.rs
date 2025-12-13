@@ -7,8 +7,8 @@ use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::{context::AppContext, job::model::JobModel};
 use crate::error::UserError;
+use crate::{context::AppContext, job::model::JobModel};
 
 use super::{
     content::{
