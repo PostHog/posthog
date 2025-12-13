@@ -12,6 +12,7 @@ use hyper_util::server::graceful::GracefulShutdown;
 use limiters::redis::ServiceName;
 use tokio::net::TcpListener;
 use tower::Service;
+use tracing::{debug, error, info, warn};
 
 use crate::config::CaptureMode;
 use crate::config::Config;
@@ -29,6 +30,12 @@ use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
 use limiters::token_dropper::TokenDropper;
+
+// failsafe to prevent infinite loop if k8s endpoint removal is not working in prod
+const MAX_DRAINABLE_CONNECTIONS: u64 = 1000;
+
+const METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS: &str = "capture_hyper_accepted_connections";
+const METRIC_CAPTURE_HYPER_ACCEPT_ERROR: &str = "capture_hyper_accept_error";
 
 /// Returns true for errors that commonly occur during accept and don't indicate
 /// a problem with the listener itself. These are silently retried without logging.
@@ -220,11 +227,10 @@ where
         config.request_timeout_seconds,
     );
 
-    tracing::info!("listening on {:?}", listener.local_addr().unwrap());
-    tracing::info!(
+    info!("listening on {:?}", listener.local_addr().unwrap());
+    info!(
         "config: is_mirror_deploy == {:?} ; log_level == {:?}",
-        config.is_mirror_deploy,
-        config.log_level
+        config.is_mirror_deploy, config.log_level
     );
 
     // Set up hyper server with manual connection handling and graceful shutdown
@@ -238,16 +244,27 @@ where
         tokio::select! {
             result = listener.accept() => {
                 let (socket, remote_addr) = match result {
-                    Ok(conn) => conn,
+                    Ok(conn) => {
+                        metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS, "stage" => "accept").increment(1);
+                        conn
+                    },
                     Err(e) => {
                         // Match axum::serve behavior:
                         // - Connection errors (reset, aborted, refused) are silently retried
                         // - Other errors (EMFILE, etc.) are logged and we back off 1s to avoid
                         //   tight loops under resource exhaustion
                         if is_connection_error(&e) {
-                            tracing::error!(error_type = "connection", pause = "none", "Hyper accept loop: {}", e);
+                            metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                                "err_type" => "connection",
+                                "stage" => "accept",
+                            ).increment(1);
+                            error!("Hyper accept loop: connection error: {}", e);
                         } else {
-                            tracing::error!(error_type = "resources", pause = "1s", "Hyper accept loop: {}", e);
+                            metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                                "err_type" => "resources",
+                                "stage" => "accept",
+                            ).increment(1);
+                            error!("Hyper accept loop: resource error: {}", e);
                             tokio::time::sleep(Duration::from_secs(1)).await;
                         }
                         continue;
@@ -256,7 +273,11 @@ where
 
                 // Match axum default: set TCP_NODELAY for low-latency
                 if let Err(e) = socket.set_nodelay(true) {
-                    tracing::warn!(error_type = "set_tcp_nodelay", pause = "none", "Hyper accept loop: {}", e);
+                    metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                        "err_type" => "set_tcp_nodelay",
+                        "stage" => "accept",
+                    ).increment(1);
+                    warn!("Hyper accept loop: error setting TCP_NODELAY: {}", e);
                 }
 
                 // Create a service for this connection that injects ConnectInfo
@@ -279,19 +300,113 @@ where
 
                 tokio::spawn(async move {
                     if let Err(e) = conn.await {
-                        tracing::debug!(error_type = "conn_closed", pause = "none", "Hyper accept loop: {}", e);
+                        metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                            "err_type" => "conn_closed",
+                            "stage" => "accept",
+                        ).increment(1);
+                        error!("Hyper accept loop: connection closed with error: {}", e);
                     }
                 });
             }
             _ = &mut shutdown => {
-                tracing::info!("Hyper accept loop: shutdown signal received");
+                info!("Hyper accept loop: shutdown signal received");
                 break;
             }
         }
     }
 
+    // Drain any connections already queued in the TCP accept backlog.
+    // These connections are already established at the TCP level, so we should
+    // serve them rather than let them see connection reset.
+    info!("Hyper accept loop (draining): checking for queued connections...");
+    let mut drained_count: u64 = 0;
+    loop {
+        if drained_count > MAX_DRAINABLE_CONNECTIONS {
+            error!("Hyper accept loop (draining): reached loop limit of {} connections", MAX_DRAINABLE_CONNECTIONS);
+            break;
+        }
+        // Use a minimal timeout to check if there are queued connections
+        match tokio::time::timeout(Duration::from_millis(1), listener.accept()).await {
+            Ok(Ok((socket, remote_addr))) => {
+                metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS, "stage" => "drain").increment(1);
+                drained_count += 1;
+
+                if let Err(e) = socket.set_nodelay(true) {
+                    metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                        "err_type" => "set_tcp_nodelay",
+                        "stage" => "drain",
+                    ).increment(1);
+                    warn!("Hyper accept loop (draining): error setting TCP_NODELAY: {}", e);
+                }
+
+                let app = app.clone();
+                let service = hyper::service::service_fn(
+                    move |req: hyper::Request<hyper::body::Incoming>| {
+                        let mut app = app.clone();
+                        let mut req = req.map(axum::body::Body::new);
+                        req.extensions_mut().insert(ConnectInfo(remote_addr));
+                        async move { app.call(req).await }
+                    },
+                );
+
+                let conn = builder.serve_connection_with_upgrades(TokioIo::new(socket), service);
+
+                let conn = graceful.watch(conn.into_owned());
+
+                tokio::spawn(async move {
+                    if let Err(e) = conn.await {
+                        metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                            "err_type" => "conn_closed",
+                            "stage" => "drain",
+                        ).increment(1);
+                        debug!(
+                            error_type = "conn_closed",
+                            pause = "none",
+                            "Hyper accept loop (draining): {}",
+                            e
+                        );
+                    }
+                });
+            }
+            Ok(Err(e)) => {
+                // Accept error during drain - log but don't sleep, we're draining
+                if is_connection_error(&e) {
+                    metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                        "err_type" => "connection",
+                        "stage" => "drain",
+                    ).increment(1);
+                    error!(
+                        error_type = "connection",
+                        pause = "none",
+                        "Hyper accept loop (draining): {}",
+                        e
+                    );
+                } else {
+                    metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                        "err_type" => "resources",
+                        "stage" => "drain",
+                    ).increment(1);
+                    error!(
+                        error_type = "resources",
+                        pause = "none",
+                        "Hyper accept loop (draining): {}",
+                        e
+                    );
+                }
+            }
+            Err(_) => {
+                // Timeout - accept queue is empty, done draining
+                break;
+            }
+        }
+    }
+    info!(
+        drained_connections = drained_count,
+        "Hyper accept loop (shutdown): drained queued connections"
+    );
+
     // Wait for all in-flight connections to complete
-    tracing::info!("Hyper accept loop: waiting for in-flight connections to complete");
+    info!("Hyper accept loop (shutdown): waiting for in-flight request handlers to complete...");
     graceful.shutdown().await;
-    tracing::info!("Hyper accept loop: graceful shutdown completed");
+    info!("Hyper accept loop (shutdown): graceful shutdown completed");
 }
