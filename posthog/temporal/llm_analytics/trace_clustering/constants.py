@@ -71,8 +71,8 @@ ALLOWED_TEAM_IDS: list[int] = [
 ]
 
 # Cluster labeling configuration
-DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING = 20  # Number of representative traces to use for LLM labeling
-LABELING_LLM_MODEL = "gpt-5.1"
+DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING = 30  # Number of representative traces to use for LLM labeling
+LABELING_LLM_MODEL = "gpt-4.1"  # Using 4.1 for its 1M context window - more examples = better labels
 LABELING_LLM_TIMEOUT = 240.0
 
 # HDBSCAN clustering parameters

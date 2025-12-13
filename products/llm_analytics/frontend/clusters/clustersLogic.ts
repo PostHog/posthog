@@ -95,16 +95,19 @@ export const clustersLogic = kea<clustersLogicType>([
             [] as ClusteringRunOption[],
             {
                 loadClusteringRuns: async () => {
-                    const response = await api.queryHogQL(hogql`
-                        SELECT
-                            JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                            JSONExtractString(properties, '$ai_window_end') as window_end,
-                            timestamp
-                        FROM events
-                        WHERE event = '$ai_trace_clusters'
-                        ORDER BY timestamp DESC
-                        LIMIT 20
-                    `)
+                    const response = await api.queryHogQL(
+                        hogql`
+                            SELECT
+                                JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
+                                JSONExtractString(properties, '$ai_window_end') as window_end,
+                                timestamp
+                            FROM events
+                            WHERE event = '$ai_trace_clusters'
+                            ORDER BY timestamp DESC
+                            LIMIT 20
+                        `,
+                        { refresh: 'force_blocking' }
+                    )
 
                     return (response.results || []).map((row: string[]) => ({
                         runId: row[0],

@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
 import { ClusterTraceInfo, TraceSummary } from './types'
 
@@ -49,6 +50,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
         totalPages,
         currentPage,
         paginatedTracesWithSummaries,
+        traceSummaries,
         traceSummariesLoading,
         windowStart,
         windowEnd,
@@ -111,6 +113,15 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                     )}
                 </div>
                 <ClusterDescription description={cluster.description} />
+            </div>
+
+            {/* Cluster scatter plot */}
+            <div className="border rounded-lg p-4 mb-4 bg-surface-primary">
+                <h3 className="font-semibold text-sm mb-2">Cluster visualization</h3>
+                <p className="text-muted text-xs mb-3">
+                    Each point represents a trace. Click to view details. Drag to zoom, double-click to reset.
+                </p>
+                <ClusterDetailScatterPlot cluster={cluster} traceSummaries={traceSummaries} />
             </div>
 
             {/* Pagination controls at top */}

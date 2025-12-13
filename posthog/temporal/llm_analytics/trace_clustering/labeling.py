@@ -194,7 +194,7 @@ Here are the {num_clusters} clusters with their representative traces:
 Based on these representative traces, provide a title and description for each cluster:
 
 1. **Title**: 3-10 words that capture the main pattern (e.g., "PDF Generation Errors", "Authentication Flows", "Data Pipeline Processing")
-2. **Description**: 3-5 bullet points (using "- " prefix) explaining what traces in this cluster have in common in terms of similar usage patterns, error messages, functionality or anything that jumps out as interesting.
+2. **Description**: 2-5 bullet points (using "- " prefix) explaining what traces in this cluster have in common in terms of similar usage patterns, error messages, functionality or anything that jumps out as interesting.
 
 Respond with JSON in this exact format:
 {
