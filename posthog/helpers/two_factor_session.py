@@ -1,5 +1,4 @@
 import time
-import logging
 import datetime
 
 from django.conf import settings
@@ -9,6 +8,7 @@ from django.http import HttpRequest
 from django.utils.crypto import constant_time_compare
 from django.utils.http import base36_to_int
 
+import structlog
 from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from rest_framework.exceptions import PermissionDenied
@@ -19,7 +19,7 @@ from posthog.email import is_email_available
 from posthog.models.user import User
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
-mfa_logger = logging.getLogger("posthog.auth.mfa")
+mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
 
 def _obfuscate_token(token: str | None) -> str:
@@ -197,11 +197,9 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
         if not (user and token):
             mfa_logger.warning(
                 "Email MFA token check failed: missing user or token",
-                extra={
-                    "user_id": getattr(user, "pk", None),
-                    "has_token": bool(token),
-                    "token": _obfuscate_token(token),
-                },
+                user_id=getattr(user, "pk", None),
+                has_token=bool(token),
+                token=_obfuscate_token(token),
             )
             return False
 
@@ -211,7 +209,8 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
         except ValueError:
             mfa_logger.warning(
                 "Email MFA token check failed: malformed token",
-                extra={"user_id": user.pk, "token": _obfuscate_token(token)},
+                user_id=user.pk,
+                token=_obfuscate_token(token),
             )
             return False
 
@@ -222,11 +221,9 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
         else:
             mfa_logger.warning(
                 "Email MFA token check failed: signature mismatch (token may have been invalidated by login, password change, email change, or account deactivation)",
-                extra={
-                    "user_id": user.pk,
-                    "user_last_login": str(user.last_login) if user.last_login else None,
-                    "token": _obfuscate_token(token),
-                },
+                user_id=user.pk,
+                user_last_login=str(user.last_login) if user.last_login else None,
+                token=_obfuscate_token(token),
             )
             return False
 
@@ -235,22 +232,18 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
         if token_age_seconds > 600:
             mfa_logger.warning(
                 "Email MFA token check failed: token expired",
-                extra={
-                    "user_id": user.pk,
-                    "token_age_seconds": token_age_seconds,
-                    "max_age_seconds": 600,
-                    "token": _obfuscate_token(token),
-                },
+                user_id=user.pk,
+                token_age_seconds=token_age_seconds,
+                max_age_seconds=600,
+                token=_obfuscate_token(token),
             )
             return False
 
         mfa_logger.info(
             "Email MFA token check successful",
-            extra={
-                "user_id": user.pk,
-                "token_age_seconds": token_age_seconds,
-                "token": _obfuscate_token(token),
-            },
+            user_id=user.pk,
+            token_age_seconds=token_age_seconds,
+            token=_obfuscate_token(token),
         )
         return True
 
@@ -302,17 +295,16 @@ class EmailMFAVerifier:
             request.session["email_mfa_token_created_at"] = int(time.time())
             mfa_logger.info(
                 "Email MFA verification email sent",
-                extra={
-                    "user_id": user.pk,
-                    "user_last_login": str(user.last_login) if user.last_login else None,
-                    "token": _obfuscate_token(token),
-                },
+                user_id=user.pk,
+                user_last_login=str(user.last_login) if user.last_login else None,
+                token=_obfuscate_token(token),
             )
             return True
         except Exception as e:
             mfa_logger.exception(
                 "Email MFA verification email failed",
-                extra={"user_id": user.pk, "error": str(e)},
+                user_id=user.pk,
+                error=str(e),
             )
             capture_exception(Exception(f"Email MFA verification email failed: {e}"))
             return False
