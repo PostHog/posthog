@@ -168,6 +168,7 @@ export function ClustersView(): JSX.Element {
                             onToggleExpand={() => toggleClusterExpanded(cluster.cluster_id)}
                             traceSummaries={traceSummaries}
                             loadingTraces={traceSummariesLoading}
+                            runId={effectiveRunId || ''}
                         />
                     ))}
                 </div>

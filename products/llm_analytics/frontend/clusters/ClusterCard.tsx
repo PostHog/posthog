@@ -1,5 +1,7 @@
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { ClusterTraceList } from './ClusterTraceList'
 import { Cluster, NOISE_CLUSTER_ID, TraceSummary } from './types'
@@ -11,6 +13,7 @@ interface ClusterCardProps {
     onToggleExpand: () => void
     traceSummaries: Record<string, TraceSummary>
     loadingTraces: boolean
+    runId: string
 }
 
 export function ClusterCard({
@@ -20,6 +23,7 @@ export function ClusterCard({
     onToggleExpand,
     traceSummaries,
     loadingTraces,
+    runId,
 }: ClusterCardProps): JSX.Element {
     const percentage = totalTraces > 0 ? Math.round((cluster.size / totalTraces) * 100) : 0
     const isOutlierCluster = cluster.cluster_id === NOISE_CLUSTER_ID
@@ -58,6 +62,17 @@ export function ClusterCard({
             {isExpanded && (
                 <div className="border-t">
                     <ClusterTraceList cluster={cluster} traceSummaries={traceSummaries} loading={loadingTraces} />
+                    {/* View all link for clusters with more than 20 traces */}
+                    {Object.keys(cluster.traces).length > 20 && (
+                        <div className="p-3 border-t bg-surface-secondary">
+                            <Link
+                                to={urls.llmAnalyticsCluster(runId, cluster.cluster_id)}
+                                className="text-link hover:underline text-sm font-medium"
+                            >
+                                View all {Object.keys(cluster.traces).length} traces →
+                            </Link>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
