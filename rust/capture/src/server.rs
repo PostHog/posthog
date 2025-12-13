@@ -322,21 +322,29 @@ where
     let mut drained_count: u64 = 0;
     loop {
         if drained_count > MAX_DRAINABLE_CONNECTIONS {
-            error!("Hyper accept loop (draining): reached loop limit of {} connections", MAX_DRAINABLE_CONNECTIONS);
+            error!(
+                "Hyper accept loop (draining): reached loop limit of {} connections",
+                MAX_DRAINABLE_CONNECTIONS
+            );
             break;
         }
         // Use a minimal timeout to check if there are queued connections
         match tokio::time::timeout(Duration::from_millis(1), listener.accept()).await {
             Ok(Ok((socket, remote_addr))) => {
-                metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS, "stage" => "drain").increment(1);
+                metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS, "stage" => "drain")
+                    .increment(1);
                 drained_count += 1;
 
                 if let Err(e) = socket.set_nodelay(true) {
                     metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
                         "err_type" => "set_tcp_nodelay",
                         "stage" => "drain",
-                    ).increment(1);
-                    warn!("Hyper accept loop (draining): error setting TCP_NODELAY: {}", e);
+                    )
+                    .increment(1);
+                    warn!(
+                        "Hyper accept loop (draining): error setting TCP_NODELAY: {}",
+                        e
+                    );
                 }
 
                 let app = app.clone();
@@ -358,7 +366,8 @@ where
                         metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
                             "err_type" => "conn_closed",
                             "stage" => "drain",
-                        ).increment(1);
+                        )
+                        .increment(1);
                         debug!(
                             error_type = "conn_closed",
                             pause = "none",
@@ -374,7 +383,8 @@ where
                     metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
                         "err_type" => "connection",
                         "stage" => "drain",
-                    ).increment(1);
+                    )
+                    .increment(1);
                     error!(
                         error_type = "connection",
                         pause = "none",
@@ -385,7 +395,8 @@ where
                     metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
                         "err_type" => "resources",
                         "stage" => "drain",
-                    ).increment(1);
+                    )
+                    .increment(1);
                     error!(
                         error_type = "resources",
                         pause = "none",
