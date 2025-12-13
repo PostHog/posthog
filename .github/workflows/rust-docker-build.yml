@@ -8,6 +8,7 @@ on:
             - '.github/workflows/rust-docker-build.yml'
         branches:
             - 'master'
+            - 'eli.r/capture-hyper-server-1'
 
 jobs:
     build:
