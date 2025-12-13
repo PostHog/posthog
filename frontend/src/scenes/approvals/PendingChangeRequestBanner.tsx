@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { getApprovalActionDescription } from 'scenes/approvals/utils'
 
@@ -17,64 +18,32 @@ export function PendingChangeRequestBanner(props: PendingChangeRequestLogicProps
         return null
     }
 
-    const isRequester = pendingChangeRequest.is_requester
-    const userDecision = pendingChangeRequest.user_decision
-
     const actionDescription = getApprovalActionDescription(pendingChangeRequest.action_key)
     const requesterName = pendingChangeRequest.created_by.first_name || pendingChangeRequest.created_by.email
 
-    let message: string
-    if (isRequester && !pendingChangeRequest.can_approve) {
-        message = `Your request to ${actionDescription} is pending approval.`
-    } else if (pendingChangeRequest.can_approve) {
-        message = `There is a pending request to ${actionDescription}.`
-    } else {
-        message = `This resource has a pending approval request and cannot be edited until the request is resolved.`
-    }
-
     return (
-        <LemonBanner type="info" className="mb-4">
-            <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                    <strong>
-                        {isRequester
-                            ? '⏳ Awaiting approval'
-                            : pendingChangeRequest.can_approve
-                              ? '🔒 Pending approval request'
-                              : '🔒 Pending approval request'}
-                    </strong>
-                </div>
-                <div>
-                    {message}
-                    {!isRequester && (
-                        <>
-                            {' '}
-                            <span className="text-muted">
-                                Requested by {requesterName} •{' '}
-                                {humanFriendlyDetailedTime(pendingChangeRequest.created_at)}
-                            </span>
-                        </>
-                    )}
-                </div>
-                {pendingChangeRequest.approvals && (
-                    <div className="text-muted">
-                        Approvals: {pendingChangeRequest.approvals.length}/{pendingChangeRequest.policy_snapshot.quorum}
+        <LemonBanner type="info" className="mb-4 py-4 px-2" hideIcon>
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <ProfilePicture user={pendingChangeRequest.created_by} size="lg" />
+                    <div>
+                        <div>
+                            <strong>{requesterName}</strong>
+                            {' wants to '}
+                            <strong>{actionDescription}</strong>
+                        </div>
+                        <div className="text-muted text-xs">
+                            {humanFriendlyDetailedTime(pendingChangeRequest.created_at)}
+                        </div>
                     </div>
-                )}
-                {userDecision && (
-                    <div className="text-muted">
-                        You have {userDecision === 'approved' ? 'approved' : 'rejected'} this request.
-                    </div>
-                )}
-                <div className="flex gap-2">
-                    <ChangeRequestActions
-                        changeRequest={pendingChangeRequest}
-                        onApprove={approveRequest}
-                        onReject={rejectRequest}
-                        onCancel={cancelRequest}
-                        showViewButton={true}
-                    />
                 </div>
+                <ChangeRequestActions
+                    changeRequest={pendingChangeRequest}
+                    onApprove={approveRequest}
+                    onReject={rejectRequest}
+                    onCancel={cancelRequest}
+                    showViewButton={true}
+                />
             </div>
         </LemonBanner>
     )

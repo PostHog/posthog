@@ -1,4 +1,5 @@
-import { LemonButton, LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
+import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -21,142 +22,128 @@ export function ChangeRequestActions({
 }: ChangeRequestActionsProps): JSX.Element {
     const canApprove = changeRequest.can_approve
     const canCancel = changeRequest.can_cancel
+    const isRequester = changeRequest.is_requester
     const userDecision = changeRequest.user_decision
-
-    const actions: JSX.Element[] = []
-
-    // View Request button (only show if explicitly requested)
-    if (showViewButton && (canApprove || canCancel)) {
-        actions.push(
-            <LemonButton key="view" type="secondary" size="small" to={urls.approval(changeRequest.id)}>
-                View Request
-            </LemonButton>
-        )
-    }
-
-    // Approve/Reject buttons (only if pending, user can approve, AND hasn't already voted)
     const isPending = changeRequest.state === ChangeRequestState.Pending
-    if (isPending && canApprove && !userDecision) {
-        // Approve button
-        actions.push(
-            <LemonButton
-                key="approve"
-                type="primary"
-                size="small"
-                onClick={() => {
-                    LemonDialog.open({
-                        title: 'Approve this change request?',
-                        content: (
-                            <div className="text-sm text-secondary">
-                                This will add your approval to the change request and may automatically apply the
-                                change.
-                            </div>
-                        ),
-                        primaryButton: {
-                            children: 'Approve',
-                            type: 'primary',
-                            onClick: () => onApprove(changeRequest.id),
-                            size: 'small',
-                        },
-                        secondaryButton: {
-                            children: 'Cancel',
-                            type: 'tertiary',
-                            size: 'small',
-                        },
-                    })
-                }}
-            >
-                Approve
-            </LemonButton>
-        )
 
-        // Reject button (only for approvers)
-        actions.push(
-            <LemonButton
-                key="reject"
-                type="secondary"
-                status="danger"
-                size="small"
-                onClick={() => {
-                    LemonDialog.open({
-                        title: 'Reject this change request?',
-                        content: (
-                            <div>
-                                <div className="text-sm text-secondary mb-2">
-                                    This will reject the change request and prevent it from being applied.
-                                </div>
-                                <LemonInput id="reject-reason" placeholder="Reason for rejection (required)" />
-                            </div>
-                        ),
-                        primaryButton: {
-                            children: 'Reject',
-                            type: 'primary',
-                            status: 'danger',
-                            onClick: () => {
-                                const reason = (
-                                    document.getElementById('reject-reason') as HTMLInputElement
-                                )?.value?.trim()
-                                if (reason) {
-                                    onReject(changeRequest.id, reason)
-                                } else {
-                                    lemonToast.error('Please provide a reason for rejection')
-                                }
-                            },
-                            size: 'small',
-                        },
-                        secondaryButton: {
-                            children: 'Cancel',
-                            type: 'tertiary',
-                            size: 'small',
-                        },
-                    })
-                }}
-            >
-                Reject
-            </LemonButton>
-        )
+    const showApproveButton = isPending && canApprove && !userDecision
+    const showRejectButton = isPending && canApprove && !isRequester && !userDecision
+    const showCancelButton = isPending && isRequester && canCancel
+
+    const handleApprove = (): void => {
+        LemonDialog.open({
+            title: 'Approve this change request?',
+            content: (
+                <div className="text-sm text-secondary">
+                    This will add your approval to the change request and may automatically apply the change.
+                </div>
+            ),
+            primaryButton: {
+                children: 'Approve',
+                type: 'primary',
+                onClick: () => onApprove(changeRequest.id),
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
     }
 
-    // Cancel request button (only if pending and user can cancel)
-    if (isPending && canCancel) {
-        actions.push(
-            <LemonButton
-                key="cancel"
-                type="secondary"
-                size="small"
-                onClick={() => {
-                    LemonDialog.open({
-                        title: 'Cancel this change request?',
-                        content: (
-                            <div>
-                                <div className="text-sm text-secondary mb-2">
-                                    This will cancel your change request and it will not be applied.
-                                </div>
-                                <LemonInput id="cancel-reason" placeholder="Reason for canceling (optional)" />
-                            </div>
-                        ),
-                        primaryButton: {
-                            children: 'Cancel request',
-                            type: 'primary',
-                            status: 'danger',
-                            onClick: () => {
-                                const reason = (document.getElementById('cancel-reason') as HTMLInputElement)?.value
-                                onCancel(changeRequest.id, reason || undefined)
-                            },
-                            size: 'small',
-                        },
-                        secondaryButton: {
-                            children: 'Nevermind',
-                            type: 'tertiary',
-                            size: 'small',
-                        },
-                    })
-                }}
-            >
-                Cancel request
-            </LemonButton>
-        )
+    const handleReject = (): void => {
+        LemonDialog.open({
+            title: 'Reject this change request?',
+            content: (
+                <div>
+                    <div className="text-sm text-secondary mb-2">
+                        This will reject the change request and prevent it from being applied.
+                    </div>
+                    <LemonInput id="reject-reason" placeholder="Reason for rejection (required)" />
+                </div>
+            ),
+            primaryButton: {
+                children: 'Reject',
+                type: 'primary',
+                status: 'danger',
+                onClick: () => {
+                    const reason = (document.getElementById('reject-reason') as HTMLInputElement)?.value?.trim()
+                    if (reason) {
+                        onReject(changeRequest.id, reason)
+                    } else {
+                        lemonToast.error('Please provide a reason for rejection')
+                    }
+                },
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
     }
 
-    return <>{actions}</>
+    const handleCancel = (): void => {
+        LemonDialog.open({
+            title: 'Cancel this change request?',
+            content: (
+                <div>
+                    <div className="text-sm text-secondary mb-2">
+                        This will cancel your change request and it will not be applied.
+                    </div>
+                    <LemonInput id="cancel-reason" placeholder="Reason for canceling (optional)" />
+                </div>
+            ),
+            primaryButton: {
+                children: 'Cancel request',
+                type: 'primary',
+                status: 'danger',
+                onClick: () => {
+                    const reason = (document.getElementById('cancel-reason') as HTMLInputElement)?.value
+                    onCancel(changeRequest.id, reason || undefined)
+                },
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Nevermind',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    const menuItems = []
+    if (showViewButton) {
+        menuItems.push({
+            label: 'View details',
+            to: urls.approval(changeRequest.id),
+        })
+    }
+
+    return (
+        <div className="flex items-center gap-2">
+            {showApproveButton && (
+                <LemonButton type="primary" size="small" onClick={handleApprove}>
+                    Approve
+                </LemonButton>
+            )}
+            {showRejectButton && (
+                <LemonButton type="secondary" size="small" onClick={handleReject}>
+                    Reject
+                </LemonButton>
+            )}
+            {showCancelButton && (
+                <LemonButton type="secondary" size="small" onClick={handleCancel}>
+                    Cancel
+                </LemonButton>
+            )}
+            {menuItems.length > 0 && (
+                <LemonMenu items={menuItems}>
+                    <LemonButton type="secondary" size="small" icon={<IconEllipsis />} />
+                </LemonMenu>
+            )}
+        </div>
+    )
 }
