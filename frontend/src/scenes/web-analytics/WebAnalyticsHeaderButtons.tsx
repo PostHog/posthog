@@ -32,7 +32,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
 
     return (
         <div className="flex items-center gap-2">
-            <WebAnalyticsLiveUserCount />
+            {featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && <WebAnalyticsLiveUserCount />}
             {hasFeatureFlag && (
                 <Popover
                     visible={showPopover}

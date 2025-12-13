@@ -42,7 +42,7 @@ const TooltipContent = (): JSX.Element | null => {
                 {usersOnlineString}
                 {inTeamString}
             </div>
-            {updatedString && <div className="text-xs text-muted">({updatedString})</div>}
+            {updatedString && <div className="text-xs">({updatedString})</div>}
         </div>
     )
 }
@@ -72,7 +72,7 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
             >
                 <div className={clsx('live-user-indicator', isOnline ? 'online' : 'offline')} />
                 <span className="text-xs font-medium whitespace-nowrap" data-attr="web-analytics-live-user-count">
-                    <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> online
+                    <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> recently online
                 </span>
             </div>
         </Tooltip>

@@ -3,16 +3,7 @@ import { Form } from 'kea-forms'
 import { useState } from 'react'
 
 import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonSelect,
-    LemonSwitch,
-    Link,
-    Popover,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -27,14 +18,13 @@ import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import MaxTool from 'scenes/max/MaxTool'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { AvailableFeature, PropertyMathType } from '~/types'
+import { PropertyMathType } from '~/types'
 
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
+import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 import { WebConversionGoal } from './WebConversionGoal'
 import {
     WEB_ANALYTICS_PROPERTY_ALLOW_LIST,
@@ -44,11 +34,12 @@ import {
 import { ProductTab } from './common'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
-const CondensedFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
+const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
+        isPathCleaningEnabled,
     } = useValues(webAnalyticsLogic)
-    const { setDates } = useActions(webAnalyticsLogic)
+    const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
 
     return (
         <FilterBar
@@ -65,7 +56,7 @@ const CondensedFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
                     <ShareButton />
                     <WebVitalsPercentileToggle />
                     <FiltersPopover />
-                    <WebAnalyticsDeviceToggle />
+                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                     <WebAnalyticsDomainSelector />
                     <TableSortingIndicator />
                 </>
@@ -84,7 +75,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
-        return <CondensedFilterBar tabs={tabs} />
+        return <CondensedWebAnalyticsFilterBar tabs={tabs} />
     }
 
     return (
@@ -97,11 +88,12 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
                     <WebAnalyticsDomainSelector />
                     <WebAnalyticsDeviceToggle />
+                    <WebAnalyticsLiveUserCount />
                 </>
             }
             right={
                 <>
-                    <ShareButton />
+                    {featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && <ShareButton />}
                     <WebAnalyticsCompareFilter />
 
                     <WebConversionGoal />
@@ -216,6 +208,38 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
 const WebAnalyticsDeviceToggle = (): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
+        return (
+            <LemonSelect
+                size="small"
+                value={deviceTypeFilter ?? undefined}
+                allowClear={true}
+                onChange={(value) => setDeviceTypeFilter(value !== deviceTypeFilter ? value : null)}
+                options={[
+                    {
+                        value: 'Desktop',
+                        label: (
+                            <div>
+                                <IconMonitor className="mx-1" /> Desktop
+                            </div>
+                        ),
+                        tooltip: 'Desktop devices include laptops and desktops.',
+                    },
+                    {
+                        value: 'Mobile',
+                        label: (
+                            <div>
+                                <IconPhone className="mx-1" /> Mobile
+                            </div>
+                        ),
+                        tooltip: 'Mobile devices include smartphones and tablets.',
+                    },
+                ]}
+            />
+        )
+    }
 
     return (
         <LemonSegmentedSelect
@@ -297,15 +321,11 @@ const ShareButton = (): JSX.Element => {
 
 function FiltersPopover(): JSX.Element {
     const [displayFilters, setDisplayFilters] = useState(false)
-    const { rawWebAnalyticsFilters, isPathCleaningEnabled, conversionGoal, preAggregatedEnabled, productTab } =
-        useValues(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters, conversionGoal, preAggregatedEnabled, productTab } = useValues(webAnalyticsLogic)
 
-    const { setWebAnalyticsFilters, setIsPathCleaningEnabled, setConversionGoal } = useActions(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setConversionGoal } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { hasAvailableFeature } = useValues(userLogic)
-
-    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const showConversionGoal =
         productTab === ProductTab.ANALYTICS &&
         (!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG])
@@ -313,7 +333,7 @@ function FiltersPopover(): JSX.Element {
     const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false)
     const propertyAllowList = preAggregatedEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
 
-    const activeFilterCount = rawWebAnalyticsFilters.length + (conversionGoal ? 1 : 0) + (isPathCleaningEnabled ? 1 : 0)
+    const activeFilterCount = rawWebAnalyticsFilters.length + (conversionGoal ? 1 : 0)
 
     const filtersContent = (
         <div className="p-3 w-96 max-w-[90vw]">
@@ -333,30 +353,16 @@ function FiltersPopover(): JSX.Element {
                     />
                 </div>
 
+                <LemonDivider />
+                <div className="text-xs font-semibold text-muted uppercase mb-2">Device filters</div>
+                <WebAnalyticsDeviceToggle />
+
                 {showConversionGoal && (
                     <>
                         <LemonDivider />
                         <div>
                             <div className="text-xs font-semibold text-muted uppercase mb-2">Conversion goal</div>
                             <WebConversionGoal value={conversionGoal} onChange={setConversionGoal} />
-                        </div>
-                    </>
-                )}
-
-                {hasAdvancedPaths && (
-                    <>
-                        <LemonDivider />
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <div className="text-xs font-semibold text-muted uppercase mb-1">Path cleaning</div>
-                                <div className="text-xs text-muted">
-                                    Standardize URLs by removing parameters.{' '}
-                                    <Link to={urls.settings('project-product-analytics', 'path-cleaning')}>
-                                        Configure rules
-                                    </Link>
-                                </div>
-                            </div>
-                            <LemonSwitch checked={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                         </div>
                     </>
                 )}
