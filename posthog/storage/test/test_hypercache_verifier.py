@@ -317,10 +317,9 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.errors == 1
         assert result.total_fixed == 0
 
-    def test_batch_load_fn_called_when_available(self):
-        """Test that batch_load_fn is called when configured."""
+    def test_batch_load_fn_called_when_available(self) -> None:
         mock_config = MagicMock()
-        mock_batch_data = {self.team.id: {"flags": []}}
+        mock_batch_data: dict = {self.team.id: {"flags": []}}
         mock_config.hypercache.batch_load_fn.return_value = mock_batch_data
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
 

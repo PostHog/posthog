@@ -16,11 +16,8 @@ from posthog.tasks.hypercache_verification import verify_and_fix_hypercaches_tas
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixHypercachesTask(TestCase):
-    """Test verify_and_fix_hypercaches_task Celery task."""
-
     @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
-    def test_verifies_both_caches(self, mock_run_verification):
-        """Test that task verifies both team_metadata and flags caches."""
+    def test_verifies_both_caches(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = MagicMock()
 
         verify_and_fix_hypercaches_task()
@@ -35,8 +32,9 @@ class TestVerifyAndFixHypercachesTask(TestCase):
 
     @patch("posthog.tasks.hypercache_verification.capture_exception")
     @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
-    def test_continues_to_second_cache_if_first_fails(self, mock_run_verification, mock_capture):
-        """Test that task continues to verify second cache even if first fails."""
+    def test_continues_to_second_cache_if_first_fails(
+        self, mock_run_verification: MagicMock, mock_capture: MagicMock
+    ) -> None:
         # First call raises, second succeeds
         mock_run_verification.side_effect = [
             Exception("team_metadata verification failed"),
@@ -57,8 +55,7 @@ class TestVerifyAndFixHypercachesTask(TestCase):
 
     @patch("posthog.tasks.hypercache_verification.capture_exception")
     @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
-    def test_captures_and_reraises_first_error(self, mock_run_verification, mock_capture):
-        """Test that first error is captured and re-raised, not the second."""
+    def test_captures_and_reraises_first_error(self, mock_run_verification: MagicMock, mock_capture: MagicMock) -> None:
         first_error = Exception("first error")
         second_error = Exception("second error")
         mock_run_verification.side_effect = [first_error, second_error]
@@ -73,8 +70,7 @@ class TestVerifyAndFixHypercachesTask(TestCase):
         assert context.exception is first_error
 
     @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
-    def test_does_not_raise_when_both_succeed(self, mock_run_verification):
-        """Test that task completes without error when both caches verify successfully."""
+    def test_does_not_raise_when_both_succeed(self, mock_run_verification: MagicMock) -> None:
         mock_run_verification.return_value = MagicMock()
 
         # Should not raise
@@ -85,11 +81,8 @@ class TestVerifyAndFixHypercachesTask(TestCase):
 
 @override_settings(FLAGS_REDIS_URL=None)
 class TestVerifyAndFixHypercachesTaskDisabled(TestCase):
-    """Test verify_and_fix_hypercaches_task when FLAGS_REDIS_URL is not set."""
-
     @patch("posthog.storage.hypercache_verifier._run_verification_for_cache")
-    def test_skips_verification_when_no_redis_url(self, mock_run_verification):
-        """Test that task skips verification when FLAGS_REDIS_URL is not configured."""
+    def test_skips_verification_when_no_redis_url(self, mock_run_verification: MagicMock) -> None:
         verify_and_fix_hypercaches_task()
 
         # Should not call verification at all
