@@ -287,7 +287,7 @@ def verify_team_metadata(team: Team, batch_data: dict | None = None) -> dict:
             diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
 
     if not diffs:
-        return {"status": "match", "issue": "", "details": ""}
+        return {"status": "match", "issue": None, "details": ""}
 
     return {
         "status": "mismatch",

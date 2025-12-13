@@ -260,7 +260,7 @@ def verify_team_flags(team: Team, batch_data: dict | None = None) -> dict:
                 diffs.append({"type": "FIELD_MISMATCH", "flag_id": flag_id})
 
     if not diffs:
-        return {"status": "match", "issue": "", "details": ""}
+        return {"status": "match", "issue": None, "details": ""}
 
     # Summarize diffs
     missing_count = sum(1 for d in diffs if d.get("type") == "MISSING_IN_CACHE")
