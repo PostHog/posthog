@@ -18,7 +18,7 @@ const OUTLIER_COLOR = '#888888'
 
 export interface ScatterDataset {
     label: string
-    data: Array<{ x: number; y: number; traceId?: string }>
+    data: Array<{ x: number; y: number; traceId?: string; clusterId?: number }>
     backgroundColor: string
     borderColor: string
     borderWidth: number
@@ -242,7 +242,7 @@ export const clustersLogic = kea<clustersLogicType>([
                     if (!isOutlier) {
                         centroidDatasets.push({
                             label: `${label} (centroid)`,
-                            data: [{ x: cluster.centroid_x, y: cluster.centroid_y }],
+                            data: [{ x: cluster.centroid_x, y: cluster.centroid_y, clusterId: cluster.cluster_id }],
                             backgroundColor: `${color}40`,
                             borderColor: color,
                             borderWidth: 2,

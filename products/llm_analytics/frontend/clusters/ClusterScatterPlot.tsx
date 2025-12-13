@@ -13,6 +13,7 @@ interface ScatterPoint {
     x: number
     y: number
     traceId?: string
+    clusterId?: number
 }
 
 interface ClusterScatterPlotProps {
@@ -20,7 +21,7 @@ interface ClusterScatterPlotProps {
 }
 
 export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps): JSX.Element {
-    const { scatterPlotDatasets, traceToClusterTitle, sortedClusters } = useValues(clustersLogic)
+    const { scatterPlotDatasets, traceToClusterTitle, sortedClusters, effectiveRunId } = useValues(clustersLogic)
 
     const handleClick = (
         _event: MouseEvent,
@@ -37,12 +38,17 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
             return
         }
 
-        // Don't navigate for centroid clicks
+        const point = dataset.data?.[element.index] as ScatterPoint | undefined
+
+        // Navigate to cluster page for centroid clicks
         if (dataset.label?.includes('(centroid)')) {
+            if (point?.clusterId !== undefined && effectiveRunId) {
+                router.actions.push(urls.llmAnalyticsCluster(effectiveRunId, point.clusterId))
+            }
             return
         }
 
-        const point = dataset.data?.[element.index] as ScatterPoint | undefined
+        // Navigate to trace page for trace clicks
         if (point?.traceId) {
             router.actions.push(urls.llmAnalyticsTrace(point.traceId, { tab: 'summary' }))
         }
@@ -64,12 +70,8 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
                     onHover: (event, elements) => {
                         const canvas = event.native?.target as HTMLCanvasElement | undefined
                         if (canvas) {
-                            // Show pointer cursor for trace points (not centroids)
-                            const hasClickableElement = elements.some((el) => {
-                                const dataset = scatterPlotDatasets[el.datasetIndex]
-                                return dataset && !dataset.label?.includes('(centroid)')
-                            })
-                            canvas.style.cursor = hasClickableElement ? 'pointer' : 'default'
+                            // Show pointer cursor for all clickable points (traces and centroids)
+                            canvas.style.cursor = elements.length > 0 ? 'pointer' : 'default'
                         }
                     },
                     plugins: {
@@ -119,12 +121,12 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
                                 footer: (context) => {
                                     const isCentroid = context[0]?.dataset?.label?.includes('(centroid)')
                                     if (isCentroid) {
-                                        return ''
+                                        return 'click to view cluster'
                                     }
 
                                     const point = context[0]?.raw as ScatterPoint
                                     if (point?.traceId) {
-                                        return 'click to view'
+                                        return 'click to view trace'
                                     }
                                     return ''
                                 },
