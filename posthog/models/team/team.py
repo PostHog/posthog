@@ -384,6 +384,9 @@ class Team(UUIDTClassicModel):
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")
 
+    # Product tours
+    product_tours_opt_in = models.BooleanField(null=True, blank=True)
+
     # Capture / Autocapture
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)

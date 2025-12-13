@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { EventHeaders, Hub, PipelineEvent, Team } from '../../types'
+import { EventHeaders, PipelineEvent, Team } from '../../types'
 import { normalizeEventStep } from '../../worker/ingestion/event-pipeline/normalizeEventStep'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -10,7 +10,7 @@ import { ProcessingStep } from '../pipelines/steps'
 export function createNormalizeEventStep<
     TInput extends { event: PipelineEvent; headers: EventHeaders; team: Team; processPerson: boolean },
 >(
-    hub: Pick<Hub, 'TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE'>
+    timestampComparisonLoggingSampleRate: number
 ): ProcessingStep<TInput, Omit<TInput, 'event'> & { normalizedEvent: PipelineEvent; timestamp: DateTime }> {
     return async function normalizeEventStepWrapper(
         input: TInput
@@ -26,7 +26,7 @@ export function createNormalizeEventStep<
             pluginEvent,
             input.processPerson,
             input.headers,
-            hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE
+            timestampComparisonLoggingSampleRate
         )
 
         return ok({

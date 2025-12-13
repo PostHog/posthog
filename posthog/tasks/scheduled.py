@@ -350,7 +350,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*", minute="0"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
     )

@@ -169,7 +169,7 @@ impl ServerHandle {
             let cohort_cache = Arc::new(
                 feature_flags::cohorts::cohort_cache_manager::CohortCacheManager::new(
                     non_persons_reader.clone(),
-                    Some(config.cache_max_cohort_entries),
+                    Some(config.cohort_cache_capacity_bytes),
                     Some(config.cache_ttl_seconds),
                 ),
             );
