@@ -24,7 +24,7 @@ class ClusteringWorkflowInputs:
     max_samples: int = DEFAULT_MAX_SAMPLES
     min_k: int = DEFAULT_MIN_K
     max_k: int = DEFAULT_MAX_K
-    embedding_normalization: str = "none"  # "none" or "l2" - whether to L2 normalize embeddings before clustering
+    embedding_normalization: str = "l2"  # "none" or "l2" - whether to L2 normalize embeddings before clustering
     dimensionality_reduction_method: str = "umap"  # "none", "umap", or "pca"
     dimensionality_reduction_ndims: int = 100  # target dimensions for umap/pca (ignored if method is "none")
     run_label: str = ""  # optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
@@ -51,7 +51,7 @@ class ClusteringActivityInputs:
     max_samples: int = DEFAULT_MAX_SAMPLES
     min_k: int = DEFAULT_MIN_K
     max_k: int = DEFAULT_MAX_K
-    embedding_normalization: str = "none"  # "none" or "l2" - whether to L2 normalize embeddings before clustering
+    embedding_normalization: str = "l2"  # "none" or "l2" - whether to L2 normalize embeddings before clustering
     dimensionality_reduction_method: str = "umap"  # "none", "umap", or "pca"
     dimensionality_reduction_ndims: int = 100  # target dimensions for umap/pca (ignored if method is "none")
     run_label: str = ""  # optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)

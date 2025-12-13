@@ -76,7 +76,7 @@ LABELING_LLM_MODEL = "gpt-5.1"
 LABELING_LLM_TIMEOUT = 240.0
 
 # HDBSCAN clustering parameters
-DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.05  # 5% of samples as minimum cluster size
+DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.01  # 1% of samples as minimum cluster size
 DEFAULT_HDBSCAN_MIN_SAMPLES = 5  # Minimum samples in neighborhood for core points
 DEFAULT_UMAP_N_COMPONENTS = 100  # Dimensionality for clustering (not visualization)
 DEFAULT_UMAP_N_NEIGHBORS = 15  # UMAP neighborhood size
