@@ -58,12 +58,10 @@ pub async fn insert_flags_for_team_in_redis(
     team_id: i32,
     json_value: Option<String>,
 ) -> Result<(), Error> {
-    // Parse the flags array and wrap in hypercache format {"flags": [...]}
+    // Parse the flags array
     let flags_array: serde_json::Value = match json_value {
-        Some(value) => serde_json::from_str(&value).unwrap_or_else(|_| {
-            // If it's already a raw array string, parse it
-            json!([])
-        }),
+        Some(value) => serde_json::from_str(&value)
+            .expect("Failed to parse JSON for flags array in test setup"),
         None => json!([{
             "id": 1,
             "key": "flag1",
@@ -88,12 +86,15 @@ pub async fn insert_flags_for_team_in_redis(
     };
 
     // Wrap in hypercache format: {"flags": [...]}
-    let payload = json!({ "flags": flags_array }).to_string();
+    // Then pickle to match Django's cache format: Pickle(JSON)
+    let json_string = json!({ "flags": flags_array }).to_string();
+    let pickled_bytes =
+        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle flags");
 
     // Write to hypercache key format with Django's version prefix
     // Format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
     let cache_key = format!("posthog:1:cache/teams/{team_id}/feature_flags/flags.json");
-    client.set(cache_key, payload).await?;
+    client.set_bytes(cache_key, pickled_bytes, None).await?;
 
     Ok(())
 }
