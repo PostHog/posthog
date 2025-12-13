@@ -110,7 +110,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                         </span>
                     )}
                 </div>
-                <p className="text-secondary m-0">{cluster.description}</p>
+                <ClusterDescription description={cluster.description} />
             </div>
 
             {/* Pagination controls at top */}
@@ -296,6 +296,25 @@ function BulletList({ items }: { items: BulletItem[] }): JSX.Element {
             ))}
         </ul>
     )
+}
+
+function ClusterDescription({ description }: { description: string }): JSX.Element {
+    // Check if description contains bullet points (lines starting with "- ")
+    const lines = description.split('\n').filter((line) => line.trim())
+    const isBulletList = lines.length > 1 && lines.every((line) => line.trim().startsWith('- '))
+
+    if (isBulletList) {
+        return (
+            <ul className="text-secondary text-sm list-disc list-inside space-y-0.5 m-0">
+                {lines.map((line, index) => (
+                    <li key={index}>{line.trim().slice(2)}</li>
+                ))}
+            </ul>
+        )
+    }
+
+    // Fallback to plain text for non-bullet descriptions
+    return <p className="text-secondary m-0">{description}</p>
 }
 
 export default LLMAnalyticsClusterScene
