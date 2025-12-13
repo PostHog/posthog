@@ -103,6 +103,7 @@ export const clustersLogic = kea<clustersLogicType>([
                                 timestamp
                             FROM events
                             WHERE event = '$ai_trace_clusters'
+                                AND timestamp >= now() - INTERVAL 7 DAY
                             ORDER BY timestamp DESC
                             LIMIT 20
                         `,
