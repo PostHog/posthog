@@ -1117,6 +1117,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
         self.assertEqual(duplicated_dashboard.filters, new_filters)
 
+    def test_dashboard_duplication_without_filters(self):
+        """Test that dashboards without filters can be duplicated successfully"""
+        existing_dashboard = Dashboard.objects.create(
+            team=self.team, name="Dashboard without filters", created_by=self.user
+        )
+
+        # Duplicate the dashboard (filters should default to empty dict)
+        _, response = self.dashboard_api.create_dashboard(
+            {"name": "Duplicated dashboard", "use_dashboard": existing_dashboard.pk}
+        )
+
+        # Verify filters are empty
+        self.assertEqual(response["filters"], {})
+
+        duplicated_dashboard = Dashboard.objects.get(id=response["id"])
+        self.assertEqual(duplicated_dashboard.filters, {})
+
     def test_return_cached_results_dashboard_has_filters(self):
         # create a dashboard with no filters
         dashboard: Dashboard = Dashboard.objects.create(team=self.team, name="dashboard")

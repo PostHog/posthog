@@ -307,6 +307,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
 
+        existing_dashboard: Dashboard | None = None
         if use_dashboard:
             try:
                 existing_dashboard = Dashboard.objects.get(
@@ -320,7 +321,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if not isinstance(request_filters, dict):
                 raise serializers.ValidationError("Filters must be a dictionary")
             filters = request_filters
-        elif use_dashboard:
+        elif existing_dashboard:
             filters = existing_dashboard.filters
         else:
             filters = {}
@@ -339,7 +340,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
                 raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
 
-        elif use_dashboard:
+        elif existing_dashboard:
             existing_tiles = (
                 DashboardTile.objects.filter(dashboard=existing_dashboard)
                 .exclude(deleted=True)
