@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -395,4 +395,39 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             actions.setSearchQuery(search || '')
         },
     })),
+
+    actionToUrl(({ values }) => {
+        const buildUrl = (): string | void => {
+            if (!values.traceId) {
+                return
+            }
+            const params: Record<string, string> = {}
+            if (values.eventId) {
+                params.event = values.eventId
+            }
+            if (values.dateRange) {
+                if (values.dateRange.dateFrom && !values.dateRange.dateTo) {
+                    params.timestamp = values.dateRange.dateFrom
+                } else if (values.dateRange.dateFrom && values.dateRange.dateTo) {
+                    params.exception_ts = dayjs(values.dateRange.dateFrom)
+                        .add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes')
+                        .toISOString()
+                }
+            }
+            if (values.searchQuery) {
+                params.search = values.searchQuery
+            }
+            if (values.lineNumber) {
+                params.line = values.lineNumber.toString()
+            }
+            // Always include tab parameter
+            params.tab = values.viewMode
+            return urls.llmAnalyticsTrace(values.traceId, params)
+        }
+
+        return {
+            setViewMode: buildUrl,
+            setInitialTab: buildUrl,
+        }
+    }),
 ])
