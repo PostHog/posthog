@@ -386,7 +386,6 @@ impl Job {
         let parsed = tokio::task::spawn_blocking(move || (m_tf)(next_chunk))
             .await?
             .map_err(|e| {
-                // Get the inner user message (specific parse error) and combine with filename
                 let inner_msg = get_user_message(&e);
                 e.context(UserError::new(format!(
                     "Parsing data in file '{}' failed: {}",
@@ -701,9 +700,7 @@ mod tests {
                 error_msg,
                 display_msg,
             } => {
-                // error_msg contains the full error chain (for developers)
                 assert!(error_msg.contains("500 Internal Server Error"));
-                // display_msg contains the user-friendly message
                 assert_eq!(display_msg, "Remote server error");
             }
             _ => panic!("expected pause"),
@@ -828,7 +825,6 @@ mod tests {
 
     #[test]
     fn test_decide_on_error_separates_developer_and_user_messages() {
-        // Create a nested error chain
         let root_error = std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid byte sequence");
         let error = anyhow::Error::from(root_error)
             .context("Failed to parse JSON")
@@ -851,7 +847,6 @@ mod tests {
                 error_msg,
                 display_msg,
             } => {
-                // Developer message should contain the full error chain
                 assert!(
                     error_msg.contains("Processing chunk"),
                     "Developer message should contain outer context: {}",
@@ -868,7 +863,6 @@ mod tests {
                     error_msg
                 );
 
-                // User message should be the simple user-friendly message
                 assert_eq!(
                     display_msg,
                     "User-friendly error message (Date range: 2023-01-01 to 2023-01-02)"

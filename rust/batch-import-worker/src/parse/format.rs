@@ -233,7 +233,6 @@ pub trait UserFacingParseError {
         format!("{} (Error at column {})", base_message, err.column())
     }
 
-    /// Returns a user-facing error message for truncated/incomplete JSON.
     fn user_facing_eof_error(err: &serde_json::Error) -> String {
         let err_str = err.to_string();
         if err_str.contains("parsing a value") && err.column() == 0 {
@@ -244,7 +243,6 @@ pub trait UserFacingParseError {
         }
     }
 
-    /// Returns a user-facing error message for JSON syntax errors.
     fn user_facing_syntax_error(err: &serde_json::Error) -> String {
         let err_str = err.to_string();
         if err_str.contains("key must be a string") {
@@ -263,19 +261,14 @@ pub trait UserFacingParseError {
         }
     }
 
-    /// Returns a user-facing error message for schema/data mismatch errors.
-    /// Override this method to provide format-specific error messages.
     fn user_facing_schema_error(err: &serde_json::Error) -> String {
         user_facing_schema_error_generic(err)
     }
 }
 
-/// Generic implementation for schema errors when types don't provide specific messages.
-/// This provides reasonable defaults for common error patterns.
 fn user_facing_schema_error_generic(err: &serde_json::Error) -> String {
     let err_str = err.to_string();
 
-    // Handle missing required fields
     if err_str.contains("missing field") {
         if let Some(field_name) = extract_field_name(&err_str, "missing field `", "`") {
             return format!(
@@ -285,7 +278,6 @@ fn user_facing_schema_error_generic(err: &serde_json::Error) -> String {
         }
     }
 
-    // Handle wrong type errors
     if err_str.contains("invalid type:") {
         let got = extract_between(&err_str, "invalid type: ", ", expected");
         let expected = extract_between(&err_str, "expected ", " at line");
@@ -314,7 +306,6 @@ fn user_facing_schema_error_generic(err: &serde_json::Error) -> String {
         }
     }
 
-    // Handle unknown field errors (if strict parsing)
     if err_str.contains("unknown field") {
         if let Some(field_name) = extract_field_name(&err_str, "unknown field `", "`") {
             return format!(
@@ -328,7 +319,6 @@ fn user_facing_schema_error_generic(err: &serde_json::Error) -> String {
     "The JSON structure doesn't match the expected format. Please check that your data matches the required schema.".to_string()
 }
 
-/// Helper functions for parsing error messages - exported for use by content modules
 pub fn extract_field_name(s: &str, prefix: &str, suffix: &str) -> Option<String> {
     let start = s.find(prefix)? + prefix.len();
     let end = s[start..].find(suffix)? + start;
@@ -381,7 +371,6 @@ mod tests {
         name: String,
     }
 
-    // Implement UserFacingParseError for TestData to use json_nd in tests
     impl UserFacingParseError for TestData {}
 
     async fn setup_test_files() -> (TempDir, FolderSource) {
