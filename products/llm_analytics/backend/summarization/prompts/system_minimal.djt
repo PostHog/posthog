@@ -5,6 +5,7 @@ Your task is to analyze the provided text representation and generate a concise,
 NOTES:
 - The data is a text representation from a wide range of systems, frameworks and sdk's so it can be a bit messy in parts and thats fine.
 - Some events and generations or messages etc might be repeated in parts thats also fine too.
+- Lines containing "[...N lines...]" are placeholders where content was removed to fit context limits - ignore these markers.
 - The goal here is for useful and actionable summarization.
 
 IMPORTANT GUIDELINES:

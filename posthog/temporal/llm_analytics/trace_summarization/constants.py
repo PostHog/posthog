@@ -11,10 +11,6 @@ DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches sched
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
-# Text representation size limits
-# GPT-4.1-mini has 1M token context (~4M chars), using 2M chars to leave room for prompt/output
-MAX_TEXT_REPR_LENGTH = 2_000_000
-
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query
 GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (increased for LLM API latency/rate limits)

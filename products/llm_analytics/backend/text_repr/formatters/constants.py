@@ -10,6 +10,12 @@ DEFAULT_TRUNCATE_BUFFER = 1000  # Characters to show at start/end when truncatin
 MAX_UNPARSED_DISPLAY_LENGTH = 500  # Max length for unparsed content display
 MAX_UNABLE_TO_PARSE_REPR_LENGTH = 500  # Max length for repr() fallback in error messages
 
+# Line dropping for large text representations
+# GPT-4.1-mini has 1M token context (~4M chars), using 3M chars to leave room for prompt/output
+DEFAULT_MAX_LENGTH = 3_000_000
+CHUNK_SIZE_LINES = 3  # Number of lines per chunk when dropping
+PRESERVE_HEADER_LINES = 5  # Number of header lines to never drop
+
 # Tool formatting
 DEFAULT_TOOLS_COLLAPSE_THRESHOLD = 5  # Collapse tool lists longer than this
 

@@ -157,24 +157,8 @@ async def generate_and_save_summary_activity(
 
     trace, hierarchy, text_repr, team = result
 
-    # Check if trace is too large for LLM processing
-    if len(text_repr) > constants.MAX_TEXT_REPR_LENGTH:
-        logger.warning(
-            "Skipping trace - text representation too large for LLM",
-            trace_id=trace_id,
-            text_repr_length=len(text_repr),
-            max_length=constants.MAX_TEXT_REPR_LENGTH,
-        )
-        return SummarizationActivityResult(
-            trace_id=trace_id,
-            success=False,
-            skipped=True,
-            skip_reason="text_repr_too_large",
-            text_repr_length=len(text_repr),
-            event_count=len(hierarchy),
-        )
-
     # Generate summary using LLM
+    # Note: text_repr is automatically reduced to fit LLM context if needed (see format_trace_text_repr)
     summary_result = await summarize(
         text_repr=text_repr,
         team_id=team_id,

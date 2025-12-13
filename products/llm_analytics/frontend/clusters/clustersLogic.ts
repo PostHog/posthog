@@ -24,6 +24,17 @@ export interface ScatterDataset {
     borderWidth: number
     pointRadius: number
     pointHoverRadius: number
+    pointStyle?:
+        | 'circle'
+        | 'cross'
+        | 'crossRot'
+        | 'dash'
+        | 'line'
+        | 'rect'
+        | 'rectRounded'
+        | 'rectRot'
+        | 'star'
+        | 'triangle'
 }
 
 export const clustersLogic = kea<clustersLogicType>([
@@ -222,8 +233,9 @@ export const clustersLogic = kea<clustersLogicType>([
                         backgroundColor: `${color}80`,
                         borderColor: color,
                         borderWidth: 1,
-                        pointRadius: isOutlier ? 3 : 4, // Smaller points for outliers
-                        pointHoverRadius: isOutlier ? 5 : 6,
+                        pointRadius: isOutlier ? 4 : 4,
+                        pointHoverRadius: isOutlier ? 6 : 6,
+                        pointStyle: isOutlier ? 'crossRot' : 'circle', // X shape for outliers
                     })
 
                     // Centroid marker (skip for outliers - they don't have a real centroid)
