@@ -1,16 +1,18 @@
 use std::future::Future;
 use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ConnectInfo;
+use axum::Router;
 use common_redis::RedisClient;
 use health::{ComponentStatus, HealthRegistry};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use hyper_util::server::graceful::GracefulShutdown;
 use limiters::redis::ServiceName;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tower::Service;
 use tracing::{debug, error, info, warn};
 
@@ -47,6 +49,53 @@ fn is_connection_error(e: &io::Error) -> bool {
             | io::ErrorKind::ConnectionAborted
             | io::ErrorKind::ConnectionReset
     )
+}
+
+/// Configures and spawns a connection handler for an accepted TCP connection.
+/// Sets TCP_NODELAY, creates the hyper service with ConnectInfo, registers with
+/// graceful shutdown, and spawns the connection handler task.
+fn spawn_connection_handler(
+    socket: TcpStream,
+    remote_addr: SocketAddr,
+    app: Router,
+    builder: &AutoBuilder<TokioExecutor>,
+    graceful: &GracefulShutdown,
+    stage: &'static str,
+) {
+    if let Err(e) = socket.set_nodelay(true) {
+        metrics::counter!(
+            METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+            "err_type" => "set_tcp_nodelay",
+            "stage" => stage,
+        )
+        .increment(1);
+        warn!(
+            "Hyper accept loop ({}): error setting TCP_NODELAY: {}",
+            stage, e
+        );
+    }
+
+    let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+        let mut app = app.clone();
+        let mut req = req.map(axum::body::Body::new);
+        req.extensions_mut().insert(ConnectInfo(remote_addr));
+        async move { app.call(req).await }
+    });
+
+    let conn = builder.serve_connection_with_upgrades(TokioIo::new(socket), service);
+    let conn = graceful.watch(conn.into_owned());
+
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            metrics::counter!(
+                METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                "err_type" => "conn_closed",
+                "stage" => stage,
+            )
+            .increment(1);
+            debug!("Hyper accept loop ({}): connection closed: {}", stage, e);
+        }
+    });
 }
 
 async fn create_sink(
@@ -271,42 +320,14 @@ where
                     }
                 };
 
-                // Match axum default: set TCP_NODELAY for low-latency
-                if let Err(e) = socket.set_nodelay(true) {
-                    metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
-                        "err_type" => "set_tcp_nodelay",
-                        "stage" => "accept",
-                    ).increment(1);
-                    warn!("Hyper accept loop: error setting TCP_NODELAY: {}", e);
-                }
-
-                // Create a service for this connection that injects ConnectInfo
-                let app = app.clone();
-                let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
-                    let mut app = app.clone();
-                    let mut req = req.map(axum::body::Body::new);
-                    req.extensions_mut().insert(ConnectInfo(remote_addr));
-                    async move { app.call(req).await }
-                });
-
-                // Serve the connection with HTTP/1 + HTTP/2 auto-detection and upgrade support
-                let conn = builder.serve_connection_with_upgrades(
-                    TokioIo::new(socket),
-                    service,
+                spawn_connection_handler(
+                    socket,
+                    remote_addr,
+                    app.clone(),
+                    &builder,
+                    &graceful,
+                    "accept",
                 );
-
-                // Register connection with graceful shutdown handler
-                let conn = graceful.watch(conn.into_owned());
-
-                tokio::spawn(async move {
-                    if let Err(e) = conn.await {
-                        metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
-                            "err_type" => "conn_closed",
-                            "stage" => "accept",
-                        ).increment(1);
-                        error!("Hyper accept loop: connection closed with error: {}", e);
-                    }
-                });
             }
             _ = &mut shutdown => {
                 info!("Hyper accept loop: shutdown signal received");
@@ -335,47 +356,14 @@ where
                     .increment(1);
                 drained_count += 1;
 
-                if let Err(e) = socket.set_nodelay(true) {
-                    metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
-                        "err_type" => "set_tcp_nodelay",
-                        "stage" => "drain",
-                    )
-                    .increment(1);
-                    warn!(
-                        "Hyper accept loop (draining): error setting TCP_NODELAY: {}",
-                        e
-                    );
-                }
-
-                let app = app.clone();
-                let service = hyper::service::service_fn(
-                    move |req: hyper::Request<hyper::body::Incoming>| {
-                        let mut app = app.clone();
-                        let mut req = req.map(axum::body::Body::new);
-                        req.extensions_mut().insert(ConnectInfo(remote_addr));
-                        async move { app.call(req).await }
-                    },
+                spawn_connection_handler(
+                    socket,
+                    remote_addr,
+                    app.clone(),
+                    &builder,
+                    &graceful,
+                    "drain",
                 );
-
-                let conn = builder.serve_connection_with_upgrades(TokioIo::new(socket), service);
-
-                let conn = graceful.watch(conn.into_owned());
-
-                tokio::spawn(async move {
-                    if let Err(e) = conn.await {
-                        metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
-                            "err_type" => "conn_closed",
-                            "stage" => "drain",
-                        )
-                        .increment(1);
-                        debug!(
-                            error_type = "conn_closed",
-                            pause = "none",
-                            "Hyper accept loop (draining): {}",
-                            e
-                        );
-                    }
-                });
             }
             Ok(Err(e)) => {
                 // Accept error during drain - log but don't sleep, we're draining
