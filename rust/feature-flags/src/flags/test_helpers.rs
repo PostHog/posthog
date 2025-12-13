@@ -133,9 +133,9 @@ pub async fn get_flags_from_redis(
 /// Writes flags in Django-compatible format: Pickle(JSON)
 /// at key: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
 ///
-/// The Redis client's get_raw_bytes handles zstd decompression automatically,
-/// so we write Pickle(JSON) format to match what Django writes (for data < 512 bytes)
-/// and what HyperCacheReader expects to receive after Redis client decompression.
+/// This helper writes uncompressed Pickle(JSON) to match small payloads from Django
+/// (data < 512 bytes). For larger payloads, Django writes Zstd(Pickle(JSON)), but
+/// the Redis client's get_raw_bytes automatically decompresses such data.
 pub async fn update_flags_in_hypercache(
     client: Arc<dyn RedisClient + Send + Sync>,
     team_id: TeamId,

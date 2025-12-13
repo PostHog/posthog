@@ -61,6 +61,7 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tokio-retry = "0.3"
+serde-pickle = { version = "1.1.1" }
 
 [lints]
 workspace = true
@@ -74,4 +75,3 @@ test-case = "3.3.1"
 tokio = { workspace = true, features = ["test-util"] }
 metrics-util = { workspace = true }
 common-s3 = { path = "../common/s3" }
-serde-pickle = { version = "1.1.1" }
