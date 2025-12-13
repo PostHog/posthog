@@ -7,7 +7,7 @@ from products.endpoints.backend.models import Endpoint
 
 def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) -> dict:
     """Generate OpenAPI 3.0 spec for a single endpoint."""
-    base_url = settings.SITE_URL or f"{request.scheme}://{request.get_host()}"
+    base_url = settings.SITE_URL
     run_path = f"/api/environments/{team_id}/endpoints/{endpoint.name}/run"
 
     return {

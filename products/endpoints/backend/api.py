@@ -811,7 +811,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         """Generate OpenAPI 3.0 specification for this endpoint.
 
         Returns a spec that can be used with tools like openapi-generator,
-        @hey-api/openapi-ts, or any other OpenAPI-compatible SDK generator.
+        `@hey-api/openapi-ts`, or any other OpenAPI-compatible SDK generator.
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
         spec = generate_openapi_spec(endpoint, self.team.id, request)
