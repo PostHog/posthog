@@ -325,6 +325,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
             filters = existing_dashboard.filters
         else:
             filters = {}
+
+        if existing_dashboard and existing_dashboard.variables:
+            validated_data["variables"] = existing_dashboard.variables
+
+        if existing_dashboard and existing_dashboard.breakdown_colors:
+            validated_data["breakdown_colors"] = existing_dashboard.breakdown_colors
+
+        if existing_dashboard and existing_dashboard.data_color_theme_id:
+            validated_data["data_color_theme_id"] = existing_dashboard.data_color_theme_id
+
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
         if use_template:
