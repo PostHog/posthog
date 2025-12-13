@@ -60,7 +60,7 @@ from posthog.tasks.email import (
 )
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
 
-logger = logging.getLogger(__name__)
+mfa_logger = logging.getLogger("posthog.auth.mfa")
 
 USER_AUTH_METHOD_MISMATCH = Counter(
     "user_auth_method_mismatches_sso_enforcement",
@@ -421,12 +421,12 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             {"token": ["This verification link is invalid or has expired."]}, code="invalid_token"
         )
 
-        logger.info("Email MFA verification attempt", extra={"token": _obfuscate_token(token)})
+        mfa_logger.info("Email MFA verification attempt", extra={"token": _obfuscate_token(token)})
 
         try:
             user = User.objects.filter(is_active=True, email=email).get()
         except User.DoesNotExist:
-            logger.warning(
+            mfa_logger.warning(
                 "Email MFA verification failed: user not found or inactive",
                 extra={"token": _obfuscate_token(token)},
             )
@@ -439,7 +439,7 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(request)
         report_user_logged_in(user, social_provider="")
-        logger.info(
+        mfa_logger.info(
             "Email MFA login successful",
             extra={"user_id": user.pk, "token": _obfuscate_token(token)},
         )

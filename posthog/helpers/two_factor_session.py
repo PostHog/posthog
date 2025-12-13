@@ -19,7 +19,7 @@ from posthog.email import is_email_available
 from posthog.models.user import User
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
-logger = logging.getLogger(__name__)
+mfa_logger = logging.getLogger("posthog.auth.mfa")
 
 
 def _obfuscate_token(token: str | None) -> str:
@@ -195,7 +195,7 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
     def check_token(self, user, token):
         """Override to use 10-minute timeout instead of PASSWORD_RESET_TIMEOUT (1 hour)."""
         if not (user and token):
-            logger.warning(
+            mfa_logger.warning(
                 "Email MFA token check failed: missing user or token",
                 extra={
                     "user_id": getattr(user, "pk", None),
@@ -209,7 +209,7 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
             ts_b36, _ = token.split("-")
             ts = base36_to_int(ts_b36)
         except ValueError:
-            logger.warning(
+            mfa_logger.warning(
                 "Email MFA token check failed: malformed token",
                 extra={"user_id": user.pk, "token": _obfuscate_token(token)},
             )
@@ -220,7 +220,7 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
             if constant_time_compare(self._make_token_with_timestamp(user, ts, secret), token):
                 break
         else:
-            logger.warning(
+            mfa_logger.warning(
                 "Email MFA token check failed: signature mismatch (token may have been invalidated by login, password change, email change, or account deactivation)",
                 extra={
                     "user_id": user.pk,
@@ -233,7 +233,7 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
         # Check 10-minute timeout (600 seconds)
         token_age_seconds = self._num_seconds(self._now()) - ts
         if token_age_seconds > 600:
-            logger.warning(
+            mfa_logger.warning(
                 "Email MFA token check failed: token expired",
                 extra={
                     "user_id": user.pk,
@@ -244,7 +244,7 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
             )
             return False
 
-        logger.info(
+        mfa_logger.info(
             "Email MFA token check successful",
             extra={
                 "user_id": user.pk,
@@ -300,7 +300,7 @@ class EmailMFAVerifier:
             email.send_email_mfa_link(user.pk, token)
             request.session["email_mfa_pending_user_id"] = user.pk
             request.session["email_mfa_token_created_at"] = int(time.time())
-            logger.info(
+            mfa_logger.info(
                 "Email MFA verification email sent",
                 extra={
                     "user_id": user.pk,
@@ -310,7 +310,7 @@ class EmailMFAVerifier:
             )
             return True
         except Exception as e:
-            logger.exception(
+            mfa_logger.exception(
                 "Email MFA verification email failed",
                 extra={"user_id": user.pk, "error": str(e)},
             )
