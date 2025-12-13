@@ -324,6 +324,14 @@ class ChangeRequestService:
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
 
+            # Create a rejection record with the cancellation reason
+            Approval.objects.create(
+                change_request=change_request,
+                created_by=self.user,
+                decision=ApprovalDecision.REJECTED,
+                reason=reason,
+            )
+
             change_request.state = ChangeRequestState.REJECTED
             change_request.save()
 
