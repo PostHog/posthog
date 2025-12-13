@@ -450,13 +450,11 @@ mod tests {
         let user_message = get_user_message(&err);
         assert!(
             user_message.contains("Invalid JSON syntax") || user_message.contains("plain text"),
-            "Expected user message to give specific guidance, got: {}",
-            user_message
+            "Expected user message to give specific guidance, got: {user_message}"
         );
         assert!(
             user_message.contains("column"),
-            "Expected user message to include column info, got: {}",
-            user_message
+            "Expected user message to include column info, got: {user_message}"
         );
     }
 
@@ -468,11 +466,10 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
 
-        let full_error = format!("{:#}", err);
+        let full_error = format!("{err:#}");
         assert!(
             full_error.contains("expected value") || full_error.contains("expected ident"),
-            "Expected full error to contain serde details, got: {}",
-            full_error
+            "Expected full error to contain serde details, got: {full_error}"
         );
     }
 
@@ -485,8 +482,7 @@ mod tests {
         let msg = get_user_message(&err);
         assert!(
             msg.contains("truncated") || msg.contains("incomplete"),
-            "Truncated JSON should mention truncation: {}",
-            msg
+            "Truncated JSON should mention truncation: {msg}"
         );
 
         let trailing_comma = b"{\"id\": 1,}\n".to_vec();
@@ -494,8 +490,7 @@ mod tests {
         let msg = get_user_message(&err);
         assert!(
             msg.contains("trailing comma"),
-            "Trailing comma should be mentioned: {}",
-            msg
+            "Trailing comma should be mentioned: {msg}"
         );
 
         let single_quotes = b"{'id': 1}\n".to_vec();
@@ -503,8 +498,7 @@ mod tests {
         let msg = get_user_message(&err);
         assert!(
             msg.contains("double quotes") || msg.contains("quoted strings"),
-            "Single quotes error should suggest double quotes: {}",
-            msg
+            "Single quotes error should suggest double quotes: {msg}"
         );
 
         let missing_comma = b"{\"id\": 1 \"name\": \"test\"}\n".to_vec();
@@ -512,8 +506,7 @@ mod tests {
         let msg = get_user_message(&err);
         assert!(
             msg.contains("comma"),
-            "Missing comma should be mentioned: {}",
-            msg
+            "Missing comma should be mentioned: {msg}"
         );
     }
 }

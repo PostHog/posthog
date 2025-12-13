@@ -95,15 +95,13 @@ async fn test_invalid_json_produces_user_friendly_error() {
     let user_message = get_user_message(&err);
     assert!(
         user_message.contains("JSON") && user_message.contains("column"),
-        "User message should mention JSON and include column info, got: {}",
-        user_message
+        "User message should mention JSON and include column info, got: {user_message}"
     );
 
-    let full_error = format!("{:#}", err);
+    let full_error = format!("{err:#}");
     assert!(
         full_error.contains("json parse"),
-        "Full error should mention json parsing, got: {}",
-        full_error
+        "Full error should mention json parsing, got: {full_error}"
     );
 }
 
@@ -124,8 +122,7 @@ async fn test_truncated_json_produces_user_friendly_error() {
     let user_message = get_user_message(&err);
     assert!(
         user_message.contains("truncated") || user_message.contains("incomplete"),
-        "User message should mention truncated/incomplete JSON, got: {}",
-        user_message
+        "User message should mention truncated/incomplete JSON, got: {user_message}"
     );
 }
 
@@ -145,16 +142,14 @@ async fn test_error_message_extraction_from_nested_errors() {
     let inner_msg = get_user_message(&inner_error);
     let error = inner_error
         .context(UserError::new(format!(
-            "Parsing data in file 'test_file.jsonl' failed: {}",
-            inner_msg
+            "Parsing data in file 'test_file.jsonl' failed: {inner_msg}"
         )))
         .context("Processing part chunk");
 
     let user_message = get_user_message(&error);
     assert!(
         user_message.contains("test_file.jsonl") && user_message.contains("invalid JSON"),
-        "Should have file context with specific error, got: {}",
-        user_message
+        "Should have file context with specific error, got: {user_message}"
     );
 }
 
@@ -169,7 +164,7 @@ async fn test_error_chain_preserves_all_context() {
         .context("Developer context 1")
         .context("Developer context 2");
 
-    let full_error = format!("{:#}", error);
+    let full_error = format!("{error:#}");
 
     assert!(full_error.contains("Developer context 1"));
     assert!(full_error.contains("Developer context 2"));
@@ -186,8 +181,7 @@ fn test_schema_mismatch_produces_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.contains("event") && msg.contains("required"),
-        "Missing event field should produce helpful message, got: {}",
-        msg
+        "Missing event field should produce helpful message, got: {msg}"
     );
 
     let wrong_type = b"{\"event\": 123, \"distinct_id\": \"user1\"}\n".to_vec();
@@ -195,8 +189,7 @@ fn test_schema_mismatch_produces_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.contains("event") && msg.contains("string"),
-        "Wrong type for event should mention it needs to be a string, got: {}",
-        msg
+        "Wrong type for event should mention it needs to be a string, got: {msg}"
     );
 
     let wrong_properties = b"{\"event\": \"test\", \"properties\": \"not an object\"}\n".to_vec();
@@ -204,8 +197,7 @@ fn test_schema_mismatch_produces_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.contains("object") || msg.contains("map"),
-        "Wrong properties type should mention it needs to be an object, got: {}",
-        msg
+        "Wrong properties type should mention it needs to be an object, got: {msg}"
     );
 }
 
@@ -220,8 +212,7 @@ fn test_mixpanel_schema_errors_produce_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.to_lowercase().contains("event") && msg.to_lowercase().contains("missing"),
-        "Missing event field should produce helpful message, got: {}",
-        msg
+        "Missing event field should produce helpful message, got: {msg}"
     );
 
     let missing_properties = b"{\"event\": \"test_event\"}\n".to_vec();
@@ -229,8 +220,7 @@ fn test_mixpanel_schema_errors_produce_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.to_lowercase().contains("properties") && msg.to_lowercase().contains("missing"),
-        "Missing properties field should produce helpful message, got: {}",
-        msg
+        "Missing properties field should produce helpful message, got: {msg}"
     );
 
     let missing_time =
@@ -239,8 +229,7 @@ fn test_mixpanel_schema_errors_produce_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.to_lowercase().contains("time") && msg.to_lowercase().contains("missing"),
-        "Missing time field should produce helpful message, got: {}",
-        msg
+        "Missing time field should produce helpful message, got: {msg}"
     );
 
     let wrong_event_type = b"{\"event\": 123, \"properties\": {\"time\": 1697379000}}\n".to_vec();
@@ -248,8 +237,7 @@ fn test_mixpanel_schema_errors_produce_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.to_lowercase().contains("event") && msg.to_lowercase().contains("string"),
-        "Wrong event type should mention it needs to be a string, got: {}",
-        msg
+        "Wrong event type should mention it needs to be a string, got: {msg}"
     );
 
     let wrong_time_type =
@@ -260,8 +248,7 @@ fn test_mixpanel_schema_errors_produce_helpful_messages() {
         msg.to_lowercase().contains("time")
             || msg.to_lowercase().contains("timestamp")
             || msg.to_lowercase().contains("integer"),
-        "Wrong time type should mention timestamp/integer issue, got: {}",
-        msg
+        "Wrong time type should mention timestamp/integer issue, got: {msg}"
     );
 }
 
@@ -275,8 +262,7 @@ fn test_amplitude_schema_errors_produce_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.to_lowercase().contains("event_type") && msg.to_lowercase().contains("string"),
-        "Wrong event_type should mention it needs to be a string, got: {}",
-        msg
+        "Wrong event_type should mention it needs to be a string, got: {msg}"
     );
 
     let wrong_user_id = b"{\"event_type\": \"test\", \"user_id\": 12345}\n".to_vec();
@@ -284,8 +270,7 @@ fn test_amplitude_schema_errors_produce_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.to_lowercase().contains("user_id") && msg.to_lowercase().contains("string"),
-        "Wrong user_id type should mention it needs to be a string, got: {}",
-        msg
+        "Wrong user_id type should mention it needs to be a string, got: {msg}"
     );
 
     // event_properties field has wrong type (string instead of object)
@@ -296,8 +281,7 @@ fn test_amplitude_schema_errors_produce_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.to_lowercase().contains("object"),
-        "Wrong event_properties type should mention it needs to be an object, got: {}",
-        msg
+        "Wrong event_properties type should mention it needs to be an object, got: {msg}"
     );
 
     let wrong_user_properties =
@@ -306,8 +290,7 @@ fn test_amplitude_schema_errors_produce_helpful_messages() {
     let msg = get_user_message(&err);
     assert!(
         msg.to_lowercase().contains("object"),
-        "Wrong user_properties type should mention it needs to be an object, got: {}",
-        msg
+        "Wrong user_properties type should mention it needs to be an object, got: {msg}"
     );
 
     let valid_event = b"{\"event_type\": \"button_click\", \"user_id\": \"user123\", \"event_time\": \"2023-10-15 14:30:00\"}\n".to_vec();

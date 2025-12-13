@@ -849,18 +849,15 @@ mod tests {
             } => {
                 assert!(
                     error_msg.contains("Processing chunk"),
-                    "Developer message should contain outer context: {}",
-                    error_msg
+                    "Developer message should contain outer context: {error_msg}"
                 );
                 assert!(
                     error_msg.contains("Failed to parse JSON"),
-                    "Developer message should contain inner context: {}",
-                    error_msg
+                    "Developer message should contain inner context: {error_msg}"
                 );
                 assert!(
                     error_msg.contains("invalid byte sequence"),
-                    "Developer message should contain root cause: {}",
-                    error_msg
+                    "Developer message should contain root cause: {error_msg}"
                 );
 
                 assert_eq!(
