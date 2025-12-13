@@ -203,7 +203,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
 
     if (isNotFound) {
         return (
-            <div className="text-center">
+            <div className="flex-1 w-full flex justify-center">
                 <RecordingNotFound />
             </div>
         )

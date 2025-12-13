@@ -482,8 +482,9 @@ class _Printer(Visitor[str]):
             clauses.append(f"LIMIT {self.visit(limit)}")
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
-            if node.offset is not None:
-                clauses.append(f"OFFSET {self.visit(node.offset)}")
+
+        if node.offset is not None:
+            clauses.append(f"OFFSET {self.visit(node.offset)}")
 
         if (
             self.context.output_format

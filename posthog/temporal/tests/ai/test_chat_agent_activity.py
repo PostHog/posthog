@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from posthog.schema import AgentMode
 
 from posthog.temporal.ai.chat_agent import (
-    AssistantConversationRunnerWorkflowInputs,
+    ChatAgentWorkflowInputs,
     get_conversation_stream_key,
+    process_chat_agent_activity,
     process_conversation_activity,
 )
 
 from ee.hogai.stream.redis_stream import CONVERSATION_STREAM_PREFIX
-from ee.hogai.utils.types import AssistantMode
 from ee.models import Conversation
 
 
@@ -47,14 +47,15 @@ class TestProcessChatAgentActivity:
 
     @pytest.fixture
     def conversation_inputs(self, team, user, conversation):
-        return AssistantConversationRunnerWorkflowInputs(
+        """Basic conversation inputs."""
+        return ChatAgentWorkflowInputs(
             team_id=team.id,
             user_id=user.id,
             conversation_id=conversation.id,
             message={"content": "Hello", "type": "human"},
             is_new_conversation=True,
             trace_id="test-trace",
-            mode=AssistantMode.ASSISTANT,
+            stream_key=get_conversation_stream_key(conversation.id),
         )
 
     @pytest.mark.asyncio
@@ -72,8 +73,7 @@ class TestProcessChatAgentActivity:
         ):
             await process_conversation_activity(conversation_inputs)
 
-            expected_stream_key = f"{CONVERSATION_STREAM_PREFIX}{conversation_inputs.conversation_id}"
-            mock_redis_stream_class.assert_called_once_with(expected_stream_key)
+            mock_redis_stream_class.assert_called_once_with(conversation_inputs.stream_key)
             mock_redis_stream.write_to_stream.assert_called_once()
 
     @pytest.mark.asyncio
@@ -109,11 +109,13 @@ class TestProcessChatAgentActivity:
         mock_redis_stream,
         mock_assistant,
     ):
-        inputs = AssistantConversationRunnerWorkflowInputs(
+        """Test processing without a message."""
+        inputs = ChatAgentWorkflowInputs(
             team_id=team.id,
             user_id=user.id,
             conversation_id=conversation.id,
             message=None,
+            stream_key=get_conversation_stream_key(uuid4()),
         )
 
         with (
@@ -122,7 +124,8 @@ class TestProcessChatAgentActivity:
                 "posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant
             ) as mock_assistant_create,
         ):
-            await process_conversation_activity(inputs)
+            # Execute the activity
+            await process_chat_agent_activity(inputs)
 
             mock_assistant_create.assert_called_once()
             call_args = mock_assistant_create.call_args
@@ -138,12 +141,14 @@ class TestProcessChatAgentActivity:
         mock_redis_stream,
         mock_assistant,
     ):
-        inputs = AssistantConversationRunnerWorkflowInputs(
+        """Ensure agent mode is forwarded to the runner."""
+        inputs = ChatAgentWorkflowInputs(
             team_id=team.id,
             user_id=user.id,
             conversation_id=conversation.id,
             message={"content": "Hello", "type": "human"},
             agent_mode=AgentMode.SESSION_REPLAY,
+            stream_key=get_conversation_stream_key(uuid4()),
         )
 
         with (
@@ -152,9 +157,40 @@ class TestProcessChatAgentActivity:
                 "posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant
             ) as mock_assistant_create,
         ):
-            await process_conversation_activity(inputs)
+            await process_chat_agent_activity(inputs)
 
             assert mock_assistant_create.call_args[1]["agent_mode"] == AgentMode.SESSION_REPLAY
+            mock_redis_stream.write_to_stream.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_conversation_activity_passes_parent_span_id(
+        self,
+        team,
+        user,
+        conversation,
+        mock_redis_stream,
+        mock_assistant,
+    ):
+        """Ensure parent_span_id is forwarded to the runner for subagent tracing."""
+        parent_span_id = "test-parent-span-id"
+        inputs = ChatAgentWorkflowInputs(
+            team_id=team.id,
+            user_id=user.id,
+            conversation_id=conversation.id,
+            message={"content": "Hello", "type": "human"},
+            parent_span_id=parent_span_id,
+            stream_key=get_conversation_stream_key(uuid4()),
+        )
+
+        with (
+            patch("posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream),
+            patch(
+                "posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant
+            ) as mock_assistant_create,
+        ):
+            await process_chat_agent_activity(inputs)
+
+            assert mock_assistant_create.call_args[1]["parent_span_id"] == parent_span_id
             mock_redis_stream.write_to_stream.assert_called_once()
 
     @pytest.mark.asyncio

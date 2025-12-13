@@ -359,3 +359,6 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertEqual(call_kwargs["group_properties"], {"organization": {"id": str(self.team.organization_id)}})
         self.assertIn("person_properties", call_kwargs)
         self.assertEqual(call_kwargs["person_properties"], {"email": self.user.email})
+        # Server-side evaluation to access Early Access Feature enrollment properties
+        self.assertEqual(call_kwargs["only_evaluate_locally"], False)
+        self.assertEqual(call_kwargs["send_feature_flag_events"], False)

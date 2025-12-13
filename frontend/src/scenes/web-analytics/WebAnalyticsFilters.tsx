@@ -1,15 +1,27 @@
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { useState } from 'react'
 
-import { IconFilter, IconGlobe, IconPhone } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, Link, Popover, Tooltip } from '@posthog/lemon-ui'
+import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonSwitch,
+    Link,
+    Popover,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -164,28 +176,19 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
     )
 }
 
-const DomainSettingsLink = (): JSX.Element => (
-    <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>settings</Link>
-)
-
 const WebAnalyticsDomainSelector = (): JSX.Element => {
-    const { domainFilter, hasHostFilter, authorizedDomains } = useValues(webAnalyticsLogic)
+    const { validatedDomainFilter, hasHostFilter, authorizedDomains, showProposedURLForm } =
+        useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
 
     return (
         <LemonSelect
             className="grow md:grow-0"
             size="small"
-            value={hasHostFilter ? 'host' : (domainFilter ?? 'all')}
+            value={hasHostFilter ? 'host' : (validatedDomainFilter ?? 'all')}
             icon={<IconGlobe />}
             onChange={(value) => setDomainFilter(value)}
-            disabledReason={
-                authorizedDomains.length === 0 ? (
-                    <span>
-                        No authorized domains, authorize them on <DomainSettingsLink />
-                    </span>
-                ) : undefined
-            }
+            menu={{ closeParentPopoverOnClickInside: !showProposedURLForm }}
             options={[
                 {
                     options: [
@@ -203,11 +206,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                             : []),
                         ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
                     ],
-                    footer: (
-                        <span className="text-xs px-2">
-                            Have more domains? Go to <DomainSettingsLink />
-                        </span>
-                    ),
+                    footer: showProposedURLForm ? <AddAuthorizedUrlForm /> : <AddSuggestedAuthorizedUrlList />,
                 },
             ]}
         />
@@ -389,4 +388,65 @@ function FiltersPopover(): JSX.Element {
     )
 
     return <WebAnalyticsAIFilters>{popover}</WebAnalyticsAIFilters>
+}
+
+const AddAuthorizedUrlForm = (): JSX.Element => {
+    const { isProposedUrlSubmitting } = useValues(webAnalyticsLogic)
+    const { cancelProposingAuthorizedUrl } = useActions(webAnalyticsLogic)
+
+    return (
+        <Form
+            logic={authorizedUrlListLogic}
+            props={{
+                actionId: null,
+                experimentId: null,
+                type: AuthorizedUrlListType.WEB_ANALYTICS,
+                allowWildCards: false,
+            }}
+            formKey="proposedUrl"
+            enableFormOnSubmit
+        >
+            <div className="p-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                <LemonField name="url">
+                    <LemonInput size="small" placeholder="https://example.com" autoFocus />
+                </LemonField>
+                <div className="flex gap-2 justify-end">
+                    <LemonButton size="small" type="secondary" onClick={cancelProposingAuthorizedUrl}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton size="small" type="primary" htmlType="submit" loading={isProposedUrlSubmitting}>
+                        Add
+                    </LemonButton>
+                </div>
+            </div>
+        </Form>
+    )
+}
+
+const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
+    const { urlSuggestions } = useValues(webAnalyticsLogic)
+    const { addAuthorizedUrl, newAuthorizedUrl } = useActions(webAnalyticsLogic)
+
+    return (
+        <div className="flex flex-col gap-1 p-1" onClick={(e) => e.stopPropagation()}>
+            {urlSuggestions.length > 0 && (
+                <div className="flex flex-col gap-1">
+                    <span className="text-xs text-muted px-1">Suggestions</span>
+                    {urlSuggestions.slice(0, 3).map((suggestion) => (
+                        <div key={suggestion.url} className="flex items-center justify-between gap-2 px-1">
+                            <span className="text-xs truncate flex-1" title={suggestion.url}>
+                                {suggestion.url}
+                            </span>
+                            <LemonButton size="xsmall" type="primary" onClick={() => addAuthorizedUrl(suggestion.url)}>
+                                Add
+                            </LemonButton>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <LemonButton size="small" icon={<IconPlus />} onClick={newAuthorizedUrl} fullWidth>
+                Add authorized URL
+            </LemonButton>
+        </div>
+    )
 }
