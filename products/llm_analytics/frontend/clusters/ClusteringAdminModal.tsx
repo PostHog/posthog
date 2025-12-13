@@ -8,7 +8,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_CLUSTERING_PARAMS, clustersAdminLogic } from './clustersAdminLogic'
 
 export function ClusteringAdminModal(): JSX.Element {
-    const { isModalOpen, params, isRunning, clusteringRun } = useValues(clustersAdminLogic)
+    const { isModalOpen, params, isRunning } = useValues(clustersAdminLogic)
     const { closeModal, setParams, triggerClusteringRun, resetParams } = useActions(clustersAdminLogic)
 
     return (
@@ -33,15 +33,6 @@ export function ClusteringAdminModal(): JSX.Element {
             }
         >
             <div className="space-y-6">
-                {clusteringRun && (
-                    <div className="p-3 bg-success-highlight rounded border border-success">
-                        <div className="font-semibold text-success">Workflow started successfully</div>
-                        <div className="text-sm text-muted mt-1">
-                            Workflow ID: <code className="text-xs">{clusteringRun.workflow_id}</code>
-                        </div>
-                    </div>
-                )}
-
                 {/* Run Label */}
                 <div>
                     <h4 className="font-semibold mb-3">Experiment tracking</h4>

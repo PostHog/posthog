@@ -2,6 +2,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { AnyPropertyFilter } from '~/types'
 
@@ -97,8 +98,16 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
     }),
 
     listeners(({ actions }) => ({
-        triggerClusteringRunSuccess: () => {
-            // Reset params after successful run
+        triggerClusteringRunSuccess: ({ clusteringRun }) => {
+            lemonToast.success(`Clustering workflow started`, {
+                toastId: `clustering-run-${clusteringRun?.workflow_id}`,
+                button: {
+                    label: 'Copy workflow ID',
+                    action: () => {
+                        void navigator.clipboard.writeText(clusteringRun?.workflow_id || '')
+                    },
+                },
+            })
             actions.resetParams()
         },
     })),
