@@ -114,6 +114,11 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    last_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this endpoint was last executed via the run API. Updated with hour granularity.",
+    )
 
     class Meta:
         constraints = [

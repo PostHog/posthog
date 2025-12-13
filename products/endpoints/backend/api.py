@@ -709,6 +709,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise ValidationError("An internal error occurred while resolving the query.")
         except ConcurrencyLimitExceeded:
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
+
+        if get_query_tag_value("access_method") == "personal_api_key":
+            now = timezone.now()
+            if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > timedelta(hours=1)):
+                endpoint.last_executed_at = now
+                endpoint.save(update_fields=["last_executed_at"])
+
         if version_obj and isinstance(result.data, dict):
             result.data["endpoint_version"] = version_obj.version
             result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
