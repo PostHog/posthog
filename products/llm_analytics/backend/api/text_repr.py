@@ -325,6 +325,26 @@ The response includes the formatted text and metadata about the rendering.
             # Markers look like: "L10-L12: [...3 lines...]"
             truncated_by_max_length = "[..." in text and "lines...]" in text
 
+            # For UI display, fail if truncation was needed - let frontend fallback to collapsed view
+            # This prevents showing a wall of "[...3 lines...]" markers for extreme outliers
+            if truncated_by_max_length:
+                max_length = options.get("max_length")
+                logger.info(
+                    "Text representation exceeded max_length, returning error for fallback",
+                    event_type=event_type,
+                    entity_id=entity_id,
+                    team_id=self.team_id,
+                    char_count=len(text),
+                    max_length=max_length,
+                )
+                return Response(
+                    {
+                        "error": "Trace too large for text view",
+                        "detail": f"This trace exceeds the maximum size for text view ({max_length:,} chars). Use the collapsed view instead.",
+                    },
+                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                )
+
             # Build response with metadata
             # Extract trace_id - different location for traces vs events
             if event_type == "$ai_trace":
@@ -340,7 +360,7 @@ The response includes the formatted text and metadata about the rendering.
                     "trace_id": trace_id,
                     "rendering": "detailed",
                     "char_count": len(text),
-                    "truncated": truncated_by_max_length,
+                    "truncated": False,  # We now fail instead of returning truncated content
                 },
             }
 
@@ -362,7 +382,6 @@ The response includes the formatted text and metadata about the rendering.
                     "event_type": event_type,
                     "entity_id": entity_id,
                     "char_count": len(text),
-                    "truncated": truncated_by_max_length,
                     "duration_seconds": duration_seconds,
                 },
                 self.team,
