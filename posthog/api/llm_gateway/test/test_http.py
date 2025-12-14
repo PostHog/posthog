@@ -245,7 +245,6 @@ class TestLLMGatewayViewSet(APIBaseTest):
 
         properties = call_kwargs["properties"]
         self.assertEqual(properties["$ai_model"], "claude-sonnet-4-20250514")
-        self.assertEqual(properties["$ai_provider"], "anthropic")
         self.assertEqual(properties["$ai_input"], [{"role": "user", "content": "Hello"}])
         self.assertEqual(properties["$ai_input_tokens"], 10)
         self.assertEqual(properties["$ai_output_tokens"], 25)

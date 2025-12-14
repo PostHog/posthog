@@ -57,6 +57,7 @@ jobs:
               id: build
               uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
               with:
+                  project: c1f2m5s6zd
                   file: ./Dockerfile.ai-evals
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true

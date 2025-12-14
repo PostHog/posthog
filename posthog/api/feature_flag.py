@@ -32,7 +32,12 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature, FlagRequestType
+from posthog.constants import (
+    PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
+    SURVEY_TARGETING_FLAG_PREFIX,
+    AvailableFeature,
+    FlagRequestType,
+)
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -76,6 +81,8 @@ from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
+
+from products.product_tours.backend.models import ProductTour
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -1528,8 +1535,13 @@ class FeatureFlagViewSet(
             survey_internal_targeting_flags = Survey.objects.filter(
                 team__project_id=self.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
-            queryset = queryset.exclude(Q(id__in=survey_targeting_flags)).exclude(
-                Q(id__in=survey_internal_targeting_flags)
+            product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+                team__project_id=self.project_id, internal_targeting_flag__isnull=False
+            ).values_list("internal_targeting_flag_id", flat=True)
+            queryset = (
+                queryset.exclude(Q(id__in=survey_targeting_flags))
+                .exclude(Q(id__in=survey_internal_targeting_flags))
+                .exclude(Q(id__in=product_tour_internal_targeting_flags))
             )
 
             # add additional filters provided by the client
@@ -1937,7 +1949,9 @@ class FeatureFlagViewSet(
 
             # Add request for analytics
             if len(flag_keys) > 0 and not all(
-                flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag_key in flag_keys
+                flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX)
+                or flag_key.startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+                for flag_key in flag_keys
             ):
                 increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
@@ -1965,9 +1979,11 @@ class FeatureFlagViewSet(
         if cached_response is None:
             return None
 
-        # Increment request count for analytics (exclude survey targeting flags)
+        # Increment request count for analytics (exclude survey and product tour targeting flags)
         if cached_response.get("flags") and not all(
-            flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in cached_response["flags"]
+            flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX)
+            or flag.get("key", "").startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+            for flag in cached_response["flags"]
         ):
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 

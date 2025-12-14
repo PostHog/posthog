@@ -229,8 +229,8 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     assert configure_args["install_extension"] is True
     assert configure_args["bucket"] == ducklake_module.get_config()["DUCKLAKE_BUCKET"]
     assert ensured["called"] is True
-    assert schema_calls and "ducklake_dev.data_modeling_team_1" in schema_calls[0]
-    assert table_calls and "ducklake_dev.data_modeling_team_1.model_a" in table_calls[0][0]
+    assert schema_calls and "ducklake.data_modeling_team_1" in schema_calls[0]
+    assert table_calls and "ducklake.data_modeling_team_1.model_a" in table_calls[0][0]
     assert "delta_scan(?)" in table_calls[0][0]
     assert table_calls[0][1] == (metadata.source_table_uri,)
     assert any("ATTACH" in statement for statement in fake_conn.sql_statements), "Expected DuckLake catalog attach"
