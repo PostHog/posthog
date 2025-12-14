@@ -9,6 +9,7 @@ METRICS_TIME_TO_SEE_ENGINE = lambda: MergeTreeEngine("metrics_time_to_see_data",
 CREATE_METRICS_TIME_TO_SEE = (
     lambda: f"""
 CREATE TABLE metrics_time_to_see_data ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+    `team_events_last_month` UInt64,
     `query_id` String,
     `primary_interaction_id` String,
     `team_id` UInt64,
@@ -42,6 +43,7 @@ DROP_METRICS_TIME_TO_SEE_TABLE = lambda: f"DROP TABLE metrics_time_to_see_data O
 CREATE_KAFKA_METRICS_TIME_TO_SEE = (
     lambda: f"""
 CREATE TABLE kafka_metrics_time_to_see_data ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+    `team_events_last_month` UInt64,
     `query_id` String,
     `team_id` UInt64,
     `user_id` UInt64,
@@ -76,6 +78,7 @@ CREATE_METRICS_TIME_TO_SEE_MV = (
 CREATE MATERIALIZED VIEW metrics_time_to_see_data_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 TO {CLICKHOUSE_DATABASE}.metrics_time_to_see_data
 AS SELECT
+dictGet('team_events_last_month_dictionary', 'event_count', team_id) AS team_events_last_month,
 query_id,
 team_id,
 user_id,
@@ -121,6 +124,7 @@ CREATE TABLE metrics_query_log ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     `is_initial_query` UInt8,
     `exception_code` Int32,
     `team_id` Int64,
+    `team_events_last_month` UInt64,
     `user_id` Int64,
     `session_id` String,
     `kind` String,
@@ -163,8 +167,10 @@ SELECT
     result_bytes,
     memory_usage,
     is_initial_query,
+    exception_code > 0 AS is_exception,
     exception_code,
     JSONExtractInt(log_comment, 'team_id') AS team_id,
+    dictGet('team_events_last_month_dictionary', 'event_count', team_id) AS team_events_last_month,
     JSONExtractInt(log_comment, 'user_id') AS user_id,
     JSONExtractString(log_comment, 'session_id') AS session_id,
     JSONExtractString(log_comment, 'kind') AS kind,
@@ -197,27 +203,31 @@ DROP_METRICS_QUERY_LOG_MV = lambda: f"DROP TABLE metrics_query_log_mv ON CLUSTER
 # NOTE Tim May 2024: removed this as it was doing a bunch of queries. Should move this to schema migration if we want to keep it.
 # :KLUDGE: Temporary tooling to make (re)creating this schema easier
 # Invoke via `python manage.py shell <  posthog/models/query_metrics/sql.py`
-if __name__ == "django.core.management.commands.shell":
-    print("To drop query metrics schema:\n")  # noqa: T201
-    for drop_query in reversed(
-        [
-            DROP_METRICS_TIME_TO_SEE_TABLE,
-            DROP_KAFKA_METRICS_TIME_TO_SEE,
-            DROP_METRICS_TIME_TO_SEE_MV,
-            DROP_METRICS_QUERY_LOG,
-            DROP_METRICS_QUERY_LOG_MV,
-        ]
-    ):
-        print(drop_query())  # noqa: T201
-        print()  # noqa: T201
+# if __name__ == "django.core.management.commands.shell":
+#     print("To drop query metrics schema:\n")  # noqa: T201
+#     for drop_query in reversed(
+#         [
+#             DROP_TEAM_EVENTS_LAST_MONTH_VIEW,
+#             DROP_TEAM_EVENTS_LAST_MONTH_DICTIONARY,
+#             DROP_METRICS_TIME_TO_SEE_TABLE,
+#             DROP_KAFKA_METRICS_TIME_TO_SEE,
+#             DROP_METRICS_TIME_TO_SEE_MV,
+#             DROP_METRICS_QUERY_LOG,
+#             DROP_METRICS_QUERY_LOG_MV,
+#         ]
+#     ):
+#         print(drop_query())  # noqa: T201
+#         print()  # noqa: T201
 
-    print("To create query metrics schema:\n")  # noqa: T201
-    for create_query in [
-        CREATE_METRICS_TIME_TO_SEE,
-        CREATE_KAFKA_METRICS_TIME_TO_SEE,
-        CREATE_METRICS_TIME_TO_SEE_MV,
-        CREATE_METRICS_QUERY_LOG,
-        CREATE_METRICS_QUERY_LOG_MV,
-    ]:
-        print(create_query())  # noqa: T201
-        print()  # noqa: T201
+#     print("To create query metrics schema:\n")  # noqa: T201
+#     for create_query in [
+#         CREATE_TEAM_EVENTS_LAST_MONTH_VIEW,
+#         CREATE_TEAM_EVENTS_LAST_MONTH_DICTIONARY,
+#         CREATE_METRICS_TIME_TO_SEE,
+#         CREATE_KAFKA_METRICS_TIME_TO_SEE,
+#         CREATE_METRICS_TIME_TO_SEE_MV,
+#         CREATE_METRICS_QUERY_LOG,
+#         CREATE_METRICS_QUERY_LOG_MV,
+#     ]:
+#         print(create_query())  # noqa: T201
+#         print()  # noqa: T201
