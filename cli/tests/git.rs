@@ -93,7 +93,9 @@ fn test_get_git_info_from_vercel_env() {
     std::env::set_var("VERCEL_GIT_COMMIT_REF", "main");
     std::env::set_var("VERCEL_GIT_COMMIT_SHA", "abc123def456");
 
-    let info = get_git_info(None).expect("should not error").expect("should return info");
+    let info = get_git_info(None)
+        .expect("should not error")
+        .expect("should return info");
 
     assert_eq!(info.branch, "main");
     assert_eq!(info.commit_id, "abc123def456");
