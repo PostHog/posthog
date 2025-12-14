@@ -328,7 +328,7 @@ services:
             COOKIELESS_REDIS_PORT: 6379
 
     livestream:
-        image: 'ghcr.io/posthog/livestream:main'
+        image: 'ghcr.io/posthog/posthog/livestream:master'
         restart: on-failure
         depends_on:
             kafka:

@@ -7,6 +7,7 @@ import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { urls } from 'scenes/urls'
 
+import { FEATURE_FLAGS } from '~/lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 import { PropertyFilterType, PropertyOperator, SessionRecordingPlaylistType } from '~/types'
 
@@ -82,6 +83,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04',
+        featureFlags: [FEATURE_FLAGS.LIVE_EVENTS_ACTIVE_RECORDINGS],
         testOptions: {
             loaderTimeout: 15000,
             waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
@@ -90,6 +92,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': () => [
                     200,
                     { has_next: false, results: recordings, version: '1' },
