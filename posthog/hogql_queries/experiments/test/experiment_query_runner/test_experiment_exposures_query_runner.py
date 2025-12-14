@@ -1157,3 +1157,129 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_series.exposure_counts[-1], 2)
         # All test exposures on 2024-01-02
         self.assertEqual(test_series.exposure_counts[-1], 3)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_srm_calculation_with_balanced_distribution(self):
+        """SRM should have high p-value when distribution matches expected ratios"""
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        # Create balanced exposures (50 control, 50 test for 50/50 split)
+        journeys = {}
+        for i in range(50):
+            journeys[f"user_control_{i}"] = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02",
+                    "properties": {
+                        "$feature_flag_response": "control",
+                        ff_property: "control",
+                        "$feature_flag": self.feature_flag.key,
+                    },
+                },
+            ]
+            journeys[f"user_test_{i}"] = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02",
+                    "properties": {
+                        "$feature_flag_response": "test",
+                        ff_property: "test",
+                        "$feature_flag": self.feature_flag.key,
+                    },
+                },
+            ]
+
+        journeys_for(journeys, self.team)
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        query_runner = ExperimentExposuresQueryRunner(
+            team=self.team,
+            query=query,
+        )
+
+        response = query_runner.calculate()
+
+        self.assertIsNotNone(response.sample_ratio_mismatch)
+
+        # With perfectly balanced distribution, p-value should be 1.0
+        self.assertEqual(response.sample_ratio_mismatch.p_value, 1.0)
+
+        # Expected counts should match observed for 50/50 split
+        self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
+        self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_srm_calculation_detects_significant_mismatch(self):
+        """SRM should have low p-value when distribution is significantly different from expected"""
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        # Create highly imbalanced exposures (90 control, 10 test for 50/50 split)
+        # This should trigger SRM detection
+        journeys = {}
+        for i in range(90):
+            journeys[f"user_control_{i}"] = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02",
+                    "properties": {
+                        "$feature_flag_response": "control",
+                        ff_property: "control",
+                        "$feature_flag": self.feature_flag.key,
+                    },
+                },
+            ]
+
+        for i in range(10):
+            journeys[f"user_test_{i}"] = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02",
+                    "properties": {
+                        "$feature_flag_response": "test",
+                        ff_property: "test",
+                        "$feature_flag": self.feature_flag.key,
+                    },
+                },
+            ]
+
+        journeys_for(journeys, self.team)
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        query_runner = ExperimentExposuresQueryRunner(
+            team=self.team,
+            query=query,
+        )
+
+        response = query_runner.calculate()
+
+        self.assertIsNotNone(response.sample_ratio_mismatch)
+
+        # With 90/10 split on a 50/50 expected, p-value should be very low
+        # (well below the 0.001 threshold for SRM detection)
+        self.assertLess(response.sample_ratio_mismatch.p_value, 0.001)
+
+        # Expected counts should be 50/50 of total (100)
+        self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
+        self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)

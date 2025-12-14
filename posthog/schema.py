@@ -2787,16 +2787,6 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative21(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    date_range: DateRange
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
-
-
 class QueryResponseAlternative73(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3026,6 +3016,14 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     )
     property: str | None = None
     static: CurrencyCode | None = None
+
+
+class SampleRatioMismatch(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expected: dict[str, float]
+    p_value: float
 
 
 class SamplingRate(BaseModel):
@@ -4562,6 +4560,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     )
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
 
@@ -5158,6 +5157,17 @@ class QueryResponseAlternative10(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class QueryResponseAlternative21(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_range: DateRange
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
 
 
 class QueryResponseAlternative29(BaseModel):
@@ -7125,6 +7135,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     timezone: str
     total_exposures: dict[str, float]
