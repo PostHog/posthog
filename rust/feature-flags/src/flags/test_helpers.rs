@@ -93,7 +93,7 @@ pub async fn get_flags_from_redis(
         cache_key
     );
 
-    // Read raw bytes (pickle format)
+    // Read raw bytes (zstd decompression handled by Redis client, pickle format)
     let raw_bytes = client.get_raw_bytes(cache_key.clone()).await?;
 
     // Deserialize pickle -> JSON string

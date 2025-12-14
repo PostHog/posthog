@@ -85,8 +85,8 @@ pub async fn insert_flags_for_team_in_redis(
         }]),
     };
 
-    // Wrap in hypercache format: {"flags": [...]}
-    // Then pickle to match Django's cache format: Pickle(JSON)
+    // Create hypercache format JSON object ({"flags": [...]}) as a string,
+    // then pickle the JSON string to match Django's cache format: Pickle(JSON)
     let json_string = json!({ "flags": flags_array }).to_string();
     let pickled_bytes =
         serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle flags");
