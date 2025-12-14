@@ -11,7 +11,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(1))), 0), ifNull(lessOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(7))), 0)), 1, 0)) AS value
+            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -84,7 +84,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(1))), 0), ifNull(lessOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(7))), 0)), 1, 0)) AS value
+            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -157,7 +157,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(1))), 0), ifNull(lessOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(7))), 0)), 1, 0)) AS value
+            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -230,7 +230,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(1))), 0), ifNull(lessOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(7))), 0)), 1, 0)) AS value
+            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -303,7 +303,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(1))), 0), ifNull(lessOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(7))), 0)), 1, 0)) AS value
+            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -376,7 +376,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(7))), 0), ifNull(lessOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(7))), 0)), 1, 0)) AS value
+            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0), ifNull(lessOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -449,7 +449,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(7))), 0), ifNull(lessOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(7))), 0)), 1, 0)) AS value
+            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0), ifNull(lessOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0)), 1, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -522,7 +522,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(7))), 0), ifNull(lessOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(14))), 0)), 1, 0)) AS value
+            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(7))), 0), ifNull(lessOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(14))), 0)), 1, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -595,7 +595,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(1))), 0), ifNull(lessOrEquals(completion_events.completion_timestamp, plus(start_events.start_timestamp, toIntervalDay(3))), 0)), 1, 0)) AS value
+            max(if(and(isNotNull(completion_events.completion_timestamp), ifNull(greaterOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(1))), 0), ifNull(lessOrEquals(toStartOfDay(completion_events.completion_timestamp), plus(toStartOfDay(start_events.start_timestamp), toIntervalDay(3))), 0)), 1, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
