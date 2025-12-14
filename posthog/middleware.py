@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -12,11 +13,13 @@ from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
+from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_POST
 
 import structlog
 from django_prometheus.middleware import Metrics
@@ -637,11 +640,17 @@ class AutoLogoutImpersonateMiddleware:
 
         session_is_expired = impersonated_session_expires_at < datetime.now()
 
+        # Handle logout for impersonated sessions (expired or not)
+        # Redirect back to the impersonated user's admin page
+        if request.path.startswith("/logout"):
+            impersonated_user_pk = request.user.pk
+            restore_original_login(request)
+            return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
+
         if session_is_expired:
             # TRICKY: We need to handle different cases here:
             # 1. For /api requests we want to respond with a code that will force the UI to redirect to the logout page (401)
             # 2. For any other endpoint we want to redirect to the logout page
-            # 3. BUT we wan't to intercept the /logout endpoint so that we can restore the original login
 
             if request.path.startswith("/static/"):
                 # Skip static files
@@ -651,11 +660,8 @@ class AutoLogoutImpersonateMiddleware:
                     "Impersonation session has expired. Please log in again.",
                     status=401,
                 )
-            elif not request.path.startswith("/logout"):
-                return redirect("/logout/")
             else:
-                restore_original_login(request)
-                return redirect("/admin/")
+                return redirect("/logout/")
 
         return self.get_response(request)
 
@@ -804,3 +810,124 @@ class SocialAuthExceptionMiddleware:
 
         # Handle other exceptions with existing middleware
         return None
+
+
+# Session key used to mark an impersonation session as read-only
+IMPERSONATION_READ_ONLY_SESSION_KEY = "impersonation_read_only"
+
+
+def is_read_only_impersonation(request: HttpRequest) -> bool:
+    """Check if the current session is a read-only impersonation session."""
+    return is_impersonated_session(request) and request.session.get(IMPERSONATION_READ_ONLY_SESSION_KEY, False)
+
+
+# HTTP methods that are considered idempotent/safe and allowed during impersonation
+IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+
+# Paths that are allowed for non-idempotent requests during impersonation.
+# These should be paths that are safe or necessary for the impersonated session to function.
+# Supports both prefix strings and compiled regex patterns.
+IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
+    # These endpoints use POST but are read-only
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
+]
+
+
+class ImpersonationReadOnlyMiddleware:
+    """
+    Restricts impersonated sessions to read-only (idempotent) HTTP methods.
+
+    When a staff user is impersonating another user via django-loginas,
+    this middleware blocks non-idempotent requests (POST, PUT, PATCH, DELETE)
+    to prevent unintended modifications to the impersonated user's data.
+
+    Safe methods (GET, HEAD, OPTIONS, TRACE) are always allowed.
+    Specific paths can be allowlisted via IMPERSONATION_ALLOWLISTED_PATHS.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if not is_read_only_impersonation(request):
+            return self.get_response(request)
+
+        if request.method in IMPERSONATION_SAFE_METHODS:
+            return self.get_response(request)
+
+        if self._is_path_allowlisted(request.path):
+            return self.get_response(request)
+
+        return JsonResponse(
+            {
+                "type": "authentication_error",
+                "code": "impersonation_read_only",
+                "detail": "This action is not allowed during read-only user impersonation.",
+            },
+            status=403,
+        )
+
+    def _is_path_allowlisted(self, path: str) -> bool:
+        for allowed_path in IMPERSONATION_ALLOWLISTED_PATHS:
+            if isinstance(allowed_path, re.Pattern):
+                if allowed_path.match(path):
+                    return True
+            elif path.startswith(allowed_path):
+                return True
+        return False
+
+
+def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
+    """
+    Log out of an impersonated session and redirect back to the
+    impersonated user's admin change page.
+    """
+    if not is_impersonated_session(request):
+        return redirect("/admin/")
+
+    impersonated_user_pk = request.user.pk
+    restore_original_login(request)
+    return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
+
+
+@csrf_protect
+@require_POST
+def login_as_user_read_only(request: HttpRequest, user_id: str) -> HttpResponse:
+    """
+    Log in as another user in read-only mode.
+
+    This view wraps django-loginas functionality but additionally sets
+    a session flag that triggers read-only restrictions via
+    ImpersonationReadOnlyMiddleware.
+    """
+    from django.contrib import messages
+    from django.contrib.admin.utils import unquote
+    from django.contrib.auth import get_user_model
+    from django.core.exceptions import PermissionDenied
+
+    from loginas.utils import login_as
+
+    User = get_user_model()
+
+    can_login_as = settings.CAN_LOGIN_AS
+    target_user = User.objects.get(pk=unquote(user_id))
+
+    error_message = None
+    try:
+        if not can_login_as(request, target_user):
+            error_message = "You do not have permission to do that."
+    except PermissionDenied as e:
+        error_message = str(e)
+
+    if error_message:
+        messages.error(request, error_message)
+        return redirect(f"/admin/posthog/user/{target_user.pk}/change/")
+
+    login_as(target_user, request)
+
+    # Mark this session as read-only
+    request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
+
+    return redirect("/")
