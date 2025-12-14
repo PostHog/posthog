@@ -971,7 +971,21 @@ export const surveyLogic = kea<surveyLogicType>([
                     actions.setSelectedSection(SurveyEditSection.DisplayConditions)
                 } else if (
                     values.surveyErrors.questions != null &&
-                    !values.surveyErrors.questions.every((q) => q.question === false)
+                    !values.surveyErrors.questions.every((errorObj, index) => {
+                        const question = values.survey.questions[index]
+                        if (question == null) {
+                            return errorObj.question === false
+                        }
+                        if (question.type === SurveyQuestionType.Rating) {
+                            if ('lowerBoundLabel' in errorObj && errorObj.lowerBoundLabel !== false) {
+                                return false
+                            }
+                            if ('upperBoundLabel' in errorObj && errorObj.upperBoundLabel !== false) {
+                                return false
+                            }
+                        }
+                        return errorObj.question === false
+                    })
                 ) {
                     actions.setSelectedSection(SurveyEditSection.Steps)
                     const page = values.surveyErrors.questions.findIndex((q) => q.question !== false)
