@@ -132,8 +132,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Holdout takes its percentage from the total, other variants share the remainder
         if self.query.holdout:
             holdout_key = f"holdout-{self.query.holdout.id}"
-            holdout_filters = self.query.holdout.get("filters", [])
-            holdout_pct = holdout_filters[0].get("rollout_percentage", 0) if holdout_filters else 0
+            holdout_filters = self.query.holdout.filters
+            holdout_pct = (
+                holdout_filters[0].rollout_percentage
+                if holdout_filters and holdout_filters[0].rollout_percentage is not None
+                else 0
+            )
 
             if holdout_pct > 0:
                 rollout_percentages[holdout_key] = holdout_pct
