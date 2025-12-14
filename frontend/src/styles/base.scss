@@ -1095,6 +1095,29 @@
         outline: 2px solid var(--color-accent);
     }
 
+    .input-like {
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+        outline: 0 solid transparent;
+        box-shadow: 0 0 0 0 transparent;
+        transition: box-shadow 0.1s ease-in-out;
+
+        & input,
+        & textarea {
+            box-shadow: none;
+        }
+
+        &:not([disabled]):hover {
+            border-color: var(--color-border-secondary);
+        }
+
+        &:not([disabled]):focus-visible,
+        &:not([disabled]):focus-within {
+            border-color: var(--color-border-secondary);
+            box-shadow: 0 0 0 3px var(--color-bg-fill-highlight-75);
+        }
+    }
+
     body {
         font-size: 14px;
         font-weight: 400;
