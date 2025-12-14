@@ -7,10 +7,8 @@ use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
 };
 use common_database::PostgresReader;
+use common_hypercache::HYPER_CACHE_EMPTY_VALUE;
 use common_types::TeamId;
-
-/// Hypercache sentinel value indicating the team has no flags
-const HYPERCACHE_MISSING_VALUE: &str = "__missing__";
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
@@ -33,7 +31,7 @@ impl FeatureFlagList {
         }
 
         // Check for the sentinel value indicating no flags for this team
-        if data.as_str() == Some(HYPERCACHE_MISSING_VALUE) {
+        if data.as_str() == Some(HYPER_CACHE_EMPTY_VALUE) {
             tracing::debug!("Hypercache sentinel (no flags) for team {}", team_id);
             return Ok(vec![]);
         }

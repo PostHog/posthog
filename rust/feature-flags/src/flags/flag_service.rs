@@ -155,7 +155,7 @@ mod tests {
     use crate::{
         flags::{
             flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup},
-            test_helpers::update_flags_in_hypercache,
+            test_helpers::{hypercache_test_key, update_flags_in_hypercache},
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
@@ -164,12 +164,6 @@ mod tests {
             TestContext,
         },
     };
-
-    /// Generate the Django-compatible hypercache key for test mocks
-    /// Format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
-    fn hypercache_test_key(team_id: TeamId) -> String {
-        format!("posthog:1:cache/teams/{team_id}/feature_flags/flags.json")
-    }
 
     use super::*;
 
