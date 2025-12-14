@@ -16,7 +16,7 @@ use common_types::TeamId;
 /// Generate the Django-compatible hypercache key for tests
 /// Format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
 /// The "posthog:1:" prefix matches Django's cache versioning
-fn hypercache_test_key(team_id: TeamId) -> String {
+pub fn hypercache_test_key(team_id: TeamId) -> String {
     format!("posthog:1:cache/teams/{team_id}/feature_flags/flags.json")
 }
 

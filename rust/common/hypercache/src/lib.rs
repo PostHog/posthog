@@ -49,12 +49,14 @@ use tracing::{debug, info, warn};
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
 const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
 
-/// Tombstone metric for tracking "impossible" failures that should never happen in production
-/// Note this is a duplicate of the const in feature_flags::metrics::consts::TOMBSTONE_COUNTER
+/// Tombstone metric for tracking "impossible" failures that should never happen in production.
+/// This is duplicated from feature_flags::metrics::consts::TOMBSTONE_COUNTER because hypercache
+/// is a standalone crate that shouldn't depend on feature-flags.
 const TOMBSTONE_COUNTER_NAME: &str = "posthog_tombstone_total";
 
-/// Sentinel value used in Redis to indicate that a cache key exists but has no data
-const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
+/// Sentinel value used in Redis to indicate that a cache key exists but has no data.
+/// This value is written by Django's HyperCache when a team has no flags.
+pub const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
 
 /// Cache key type matching Django's KeyType = Team | str | int
 #[derive(Debug)]
