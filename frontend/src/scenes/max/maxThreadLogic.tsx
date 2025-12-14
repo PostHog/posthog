@@ -45,10 +45,13 @@ import {
     FailureMessage,
     HumanMessage,
     RootAssistantMessage,
+    SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { ToolRegistration } from './max-constants'
 import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -61,6 +64,7 @@ import {
     isAssistantToolCallMessage,
     isHumanMessage,
     isNotebookUpdateMessage,
+    isSubagentUpdateEvent,
     threadEndsWithMultiQuestionForm,
 } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
@@ -84,14 +88,14 @@ export interface MaxThreadLogicProps {
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
-    path(['scenes', 'max', 'maxThreadLogic']),
-
     key((props) => {
         if (!props.tabId) {
             throw new Error('Max thread logic must have a tabId prop')
         }
         return `${props.conversationId}-${props.tabId}`
     }),
+
+    path((key) => ['scenes', 'max', 'maxThreadLogic', key]),
 
     props({} as MaxThreadLogicProps),
 
@@ -118,7 +122,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
             maxLogic({ tabId }),
-            ['question', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
+            ['question', 'autoRun', 'threadLogicKey as activeThreadKey', 'activeStreamingThreads'],
             maxContextLogic,
             ['compiledContext'],
             maxBillingContextLogic,
@@ -177,9 +181,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
+        setSupportOverrideEnabled: (enabled: boolean) => ({ enabled }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
-        setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
+        setToolCallUpdate: (
+            update: AssistantUpdateEvent | SubagentUpdateEvent,
+            toolMap: Record<string, ToolRegistration>
+        ) => ({
+            update,
+            toolMap,
+        }),
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
     }),
 
@@ -282,14 +293,29 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         toolCallUpdateMap: [
             new Map<string, string[]>(),
             {
-                setToolCallUpdate: (value, { update }: { update: AssistantUpdateEvent }) => {
+                setToolCallUpdate: (
+                    value,
+                    {
+                        update,
+                        toolMap,
+                    }: { update: AssistantUpdateEvent | SubagentUpdateEvent; toolMap: Record<string, ToolRegistration> }
+                ) => {
                     const currentValue = value.get(update.tool_call_id) || []
-                    if (currentValue.includes(update.content) || update.content === '') {
+                    const newMap = new Map(value)
+                    let newValue: string
+                    if (isSubagentUpdateEvent(update)) {
+                        const [description, _] = getToolCallDescriptionAndWidget(
+                            update.content as unknown as EnhancedToolCall,
+                            toolMap
+                        )
+                        newValue = description
+                    } else {
+                        newValue = update.content
+                    }
+                    if (currentValue.includes(newValue) || newValue === '') {
                         return value
                     }
-
-                    const newMap = new Map(value)
-                    newMap.set(update.tool_call_id, [...currentValue, update.content])
+                    newMap.set(update.tool_call_id, [...currentValue, newValue])
                     return newMap
                 },
             },
@@ -318,6 +344,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 stopGeneration: (state) => state + 1,
                 resetThread: () => 0,
                 resetCancelCount: () => 0,
+            },
+        ],
+
+        // Whether support agents have explicitly acknowledged they want to use an existing conversation
+        supportOverrideEnabled: [
+            false,
+            {
+                setSupportOverrideEnabled: (_, { enabled }) => enabled,
+                // Reset when changing conversations
+                setConversation: () => false,
             },
         ],
     })),
@@ -508,6 +544,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
         askMax: async ({ prompt, addToThread = true, uiContext }) => {
+            // Only process if this thread is the currently active one
+            if (values.conversationId !== values.activeThreadKey) {
+                return
+            }
             if (!values.dataProcessingAccepted) {
                 return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
             }
@@ -605,7 +645,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.updateGlobalConversationCache(newConversation)
 
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
-            if (values.selectedConversationId !== values.conversationId && cache.unmount) {
+            if (values.activeThreadKey !== values.conversationId && cache.unmount) {
                 cache.unmount()
             }
         },
@@ -667,6 +707,30 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         isSharedThread: [
             (s) => [s.conversation, userLogic.selectors.user],
             (conversation, user): boolean => !!conversation?.user && !!user && conversation.user.uuid !== user.uuid,
+        ],
+
+        // Whether the current user is impersonating and viewing an existing conversation
+        isImpersonatingExistingConversation: [
+            (s) => [s.conversation, s.supportOverrideEnabled, userLogic.selectors.user],
+            (conversation, supportOverrideEnabled, user): boolean => {
+                // Only when user is impersonating
+                if (!user?.is_impersonated) {
+                    return false
+                }
+                // If conversation was created during impersonation (is_internal), allow typing
+                if (conversation?.is_internal) {
+                    return false
+                }
+                // Only applies to existing conversations
+                if (!conversation?.title) {
+                    return false
+                }
+                // Support agent has explicitly acknowledged they want to continue
+                if (supportOverrideEnabled) {
+                    return false
+                }
+                return true
+            },
         ],
 
         threadLoading: [
@@ -784,27 +848,53 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 s.threadLoading,
                 s.dataProcessingAccepted,
                 s.isSharedThread,
+                s.isImpersonatingExistingConversation,
             ],
-            (formPending, multiQuestionFormPending, threadLoading, dataProcessingAccepted, isSharedThread) =>
+            (
+                formPending,
+                multiQuestionFormPending,
+                threadLoading,
+                dataProcessingAccepted,
+                isSharedThread,
+                isImpersonatingExistingConversation
+            ) =>
                 // Input unavailable when:
                 // - Answer must be provided using a form returned by Max only
                 // - Answer must be provided using a multi-question form
                 // - We are awaiting user to approve or reject external AI processing data
-                isSharedThread || formPending || multiQuestionFormPending || (threadLoading && !dataProcessingAccepted),
+                // - Support agent is viewing an existing conversation without override
+                isSharedThread ||
+                formPending ||
+                multiQuestionFormPending ||
+                (threadLoading && !dataProcessingAccepted) ||
+                isImpersonatingExistingConversation,
         ],
 
         submissionDisabledReason: [
-            (s) => [s.formPending, s.multiQuestionFormPending, s.question, s.threadLoading, s.activeStreamingThreads],
+            (s) => [
+                s.formPending,
+                s.multiQuestionFormPending,
+                s.question,
+                s.threadLoading,
+                s.activeStreamingThreads,
+                s.isImpersonatingExistingConversation,
+            ],
             (
                 formPending,
                 multiQuestionFormPending,
                 question,
                 threadLoading,
-                activeStreamingThreads
+                activeStreamingThreads,
+                isImpersonatingExistingConversation
             ): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
+                }
+
+                // Support agents should create new conversations instead of using existing ones
+                if (isImpersonatingExistingConversation) {
+                    return 'You should create new conversations during impersonation. Use the checkbox to override.'
                 }
 
                 if (formPending) {
@@ -819,9 +909,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return 'I need some input first'
                 }
 
-                // Prevent submission if there are active streaming threads
-                if (activeStreamingThreads > 0) {
-                    return 'Please wait for one of the chats to finish'
+                // Prevent submission if too many active streaming threads (limit: 10)
+                if (activeStreamingThreads >= 10) {
+                    return 'You have too many chats running. Please wait for one to finish.'
                 }
 
                 return undefined
@@ -1005,11 +1095,11 @@ async function onEventImplementation(
         actions.setConversation(conversationWithTitle)
         actions.updateGlobalConversationCache(conversationWithTitle)
     } else if (event === AssistantEventType.Update) {
-        const parsedResponse = parseResponse<AssistantUpdateEvent>(data)
+        const parsedResponse = parseResponse<AssistantUpdateEvent | SubagentUpdateEvent>(data)
         if (!parsedResponse) {
             return
         }
-        actions.setToolCallUpdate(parsedResponse)
+        actions.setToolCallUpdate(parsedResponse, values.toolMap)
         return
     } else if (event === AssistantEventType.Message) {
         const parsedResponse = parseResponse<RootAssistantMessage>(data)

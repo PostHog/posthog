@@ -9,6 +9,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { WebAnalyticsLiveUserCount } from 'scenes/web-analytics/WebAnalyticsLiveUserCount'
 import { WebAnalyticsMenu } from 'scenes/web-analytics/WebAnalyticsMenu'
 
 export function WebAnalyticsHeaderButtons(): JSX.Element {
@@ -31,6 +32,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
 
     return (
         <div className="flex items-center gap-2">
+            {featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && <WebAnalyticsLiveUserCount />}
             {hasFeatureFlag && (
                 <Popover
                     visible={showPopover}

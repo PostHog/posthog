@@ -13,7 +13,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.survey import get_surveys_count, get_surveys_opt_in
 from posthog.api.utils import get_project_id, get_token, on_permitted_recording_domain
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
     RequestParsingError,
@@ -568,7 +568,10 @@ def _record_feature_flag_metrics(
     ).inc()
 
     # Handle billing analytics
-    if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
+    if not all(
+        flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) or flag.startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+        for flag in feature_flags.keys()
+    ):
         if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
             count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
             increment_request_count(team.id, count)

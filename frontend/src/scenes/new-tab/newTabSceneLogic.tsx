@@ -259,6 +259,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         }),
         setNewTabSearchInputRef: (ref: RefObject<SearchInputHandle> | null) => ({ ref }),
         focusNewTabSearchInput: true,
+        triggerSearchPulse: true,
         setActiveExplorerFolderPath: (path: string | null) => ({ path }),
         toggleExplorerFolderExpansion: (path: string) => ({ path }),
         setHighlightedExplorerEntryPath: (path: string | null) => ({ path }),
@@ -2063,6 +2064,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         focusNewTabSearchInput: () => {
             if (values.newTabSearchInputRef?.current) {
                 values.newTabSearchInputRef.current.focus()
+            }
+        },
+        triggerSearchPulse: () => {
+            if (values.newTabSearchInputRef?.current) {
+                values.newTabSearchInputRef.current.triggerPulse()
             }
         },
     })),
