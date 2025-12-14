@@ -683,7 +683,7 @@ export function ShipVariantModal(): JSX.Element {
             // First test variant selected by default
             setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
         }
-    }, [experiment.id, experiment.parameters.feature_flag_variants, experiment.parameters.feature_flag_variants.length])
+    }, [experiment.id, experiment.parameters.feature_flag_variants.length, experiment.parameters.feature_flag_variants])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null

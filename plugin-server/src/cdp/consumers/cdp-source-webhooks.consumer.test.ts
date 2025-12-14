@@ -137,6 +137,12 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should capture an event using internal capture', async () => {
+                // Mock the monitoring service to verify events ARE captured for regular webhooks
+                const mockQueueInvocationResults = jest.spyOn(
+                    api['cdpSourceWebhooksConsumer']['hogFunctionMonitoringService'],
+                    'queueInvocationResults'
+                )
+
                 const res = await doPostRequest({
                     body: {
                         event: 'my-event',
@@ -148,6 +154,11 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toEqual({
                     status: 'ok',
                 })
+
+                // Verify that queueInvocationResults WAS called for regular webhooks (this captures the event)
+                expect(mockQueueInvocationResults).toHaveBeenCalledTimes(1)
+                const result = mockQueueInvocationResults.mock.calls[0][0][0]
+                expect(result.capturedPostHogEvents[0].properties).toHaveProperty('$hog_function_execution_count', 1)
 
                 await waitForBackgroundTasks()
                 expect(mockInternalFetch).toHaveBeenCalledTimes(1)
@@ -332,6 +343,45 @@ describe('SourceWebhooksConsumer', () => {
                         count: 1,
                     }),
                 ])
+            })
+
+            it('should not capture webhook event to database and should remove execution count property', async () => {
+                // Mock the monitoring service to track what events would be captured
+                const mockQueueInvocationResults = jest.spyOn(
+                    api['cdpSourceWebhooksConsumer']['hogFunctionMonitoringService'],
+                    'queueInvocationResults'
+                )
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                        properties: {
+                            custom_prop: 'custom_value',
+                        },
+                    },
+                })
+
+                expect(res.status).toEqual(201)
+
+                // Verify that queueInvocationResults was NOT called for workflows
+                // (this is what actually captures the event)
+                expect(mockQueueInvocationResults).not.toHaveBeenCalled()
+
+                // Verify the workflow invocation was queued
+                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
+                const invocation = mockQueueInvocationsSpy.mock.calls[0][0][0]
+
+                expect(invocation.state.event).toMatchObject({
+                    event: 'my-event',
+                    distinct_id: 'test-distinct-id',
+                    properties: expect.objectContaining({}),
+                })
+
+                // Explicitly check that $hog_function_execution_count is not in the properties
+                // this key prevents the infinite loop protection from triggering
+                expect(invocation.state.event.properties).not.toHaveProperty('$hog_function_execution_count')
             })
 
             it('should add logs and metrics for a controlled failed hog flow', async () => {
