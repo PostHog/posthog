@@ -70,6 +70,8 @@ from common.hogvm.python.utils import HogVMException
 MIN_CACHE_AGE_SECONDS = 300
 MAX_CACHE_AGE_SECONDS = 86400
 
+ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
+
 
 @extend_schema(tags=["endpoints"])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
@@ -173,9 +175,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             if name is not None or strict:
                 raise ValidationError("Endpoint must have a name.")
             return
-        if not isinstance(name, str) or not re.fullmatch(r"^[a-zA-Z0-9_-]{1,128}$", name):
+        if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
             raise ValidationError(
-                "Endpoint name must be alphanumeric characters, hyphens, underscores, or spaces, "
+                "Endpoint name must start with a letter, contain only alphanumeric characters, hyphens, or underscores, "
                 "and be between 1 and 128 characters long."
             )
 
@@ -701,7 +703,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 result = self._execute_materialized_endpoint(endpoint, data, request, debug=debug)
             else:
                 # Use version's query if available, otherwise use endpoint.query
-                query_to_use = version_obj.query if version_obj else endpoint.query.copy()
+                query_to_use = (version_obj.query if version_obj else endpoint.query).copy()
                 result = self._execute_inline_endpoint(endpoint, data, request, query_to_use, debug=debug)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError("An internal error occurred.", getattr(e, "code_name", None))
@@ -742,8 +744,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     status=200,
                 )
 
-            quoted_names = [f"'{name}'" for name in names]
-            names_list = ",".join(quoted_names)
+            validated_names = []
+            for name in names:
+                if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
+                    raise ValidationError(f"Invalid endpoint name: {name}")
+                validated_names.append(f"'{name}'")
+            names_list = ",".join(validated_names)
 
             query = HogQLQuery(
                 query=f"select name, max(query_start_time) as last_executed_at from query_log where name in ({names_list}) and endpoint like '%/endpoints/%' and query_start_time >= (today() - interval 6 month) group by name",

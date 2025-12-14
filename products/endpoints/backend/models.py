@@ -235,8 +235,8 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     def get_version(self, version: int | None = None) -> EndpointVersion | None:
         """Get a specific version, or the latest if version is None.
 
-        Raises:
-            EndpointVersion.DoesNotExist: If the version doesn't exist
+        Returns None if no versions exist when version is None.
+        Raises EndpointVersion.DoesNotExist if a specific version number is requested but doesn't exist.
         """
         if version is not None:
             return EndpointVersion.objects.get(endpoint=self, version=version)
