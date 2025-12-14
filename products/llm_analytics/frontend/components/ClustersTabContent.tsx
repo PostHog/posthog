@@ -77,7 +77,7 @@ export function ClustersTabContent(): JSX.Element {
 
     useEffect(() => {
         void loadClusters()
-    }, [traceId])
+    }, [traceId, loadClusters])
 
     if (loading) {
         return (

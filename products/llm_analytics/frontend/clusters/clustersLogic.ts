@@ -18,7 +18,7 @@ const OUTLIER_COLOR = '#888888'
 
 export interface ScatterDataset {
     label: string
-    data: Array<{ x: number; y: number; traceId?: string; clusterId?: number }>
+    data: Array<{ x: number; y: number; traceId?: string; clusterId?: number; timestamp?: string }>
     backgroundColor: string
     borderColor: string
     borderWidth: number
@@ -233,6 +233,7 @@ export const clustersLogic = kea<clustersLogicType>([
                             x: traceInfo.x,
                             y: traceInfo.y,
                             traceId,
+                            timestamp: traceInfo.timestamp,
                         })),
                         backgroundColor: `${color}80`,
                         borderColor: color,

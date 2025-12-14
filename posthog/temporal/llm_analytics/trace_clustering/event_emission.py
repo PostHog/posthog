@@ -10,12 +10,15 @@ import uuid
 import dataclasses
 from typing import TypedDict
 
+from django.utils.dateparse import parse_datetime
+
 import numpy as np
 
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
+from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_summaries
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterData, ClusterLabel, TraceId
 
 
@@ -24,6 +27,7 @@ class _TraceDistanceData(TypedDict):
     distance_to_centroid: float
     x: float
     y: float
+    timestamp: str
 
 
 def emit_cluster_events(
@@ -47,8 +51,8 @@ def emit_cluster_events(
     Args:
         team_id: Team ID
         clustering_run_id: Unique ID for this clustering run
-        window_start: Start of time window
-        window_end: End of time window
+        window_start: Start of time window (ISO format)
+        window_end: End of time window (ISO format)
         labels: Cluster assignments
         centroids: Cluster centroids (center points in embedding space)
         trace_ids: All trace IDs being clustered
@@ -63,6 +67,24 @@ def emit_cluster_events(
     team = Team.objects.get(id=team_id)
     num_clusters = len(centroids)
 
+    # Fetch trace summaries to get timestamps for efficient linking
+    window_start_dt = parse_datetime(window_start)
+    window_end_dt = parse_datetime(window_end)
+    if window_start_dt is None or window_end_dt is None:
+        raise ValueError(f"Invalid datetime format: window_start={window_start}, window_end={window_end}")
+
+    trace_summaries = fetch_trace_summaries(
+        team=team,
+        trace_ids=trace_ids,
+        window_start=window_start_dt,
+        window_end=window_end_dt,
+    )
+
+    # Extract timestamps from summaries
+    trace_timestamps: dict[str, str] = {
+        trace_id: summary.get("trace_timestamp", "") for trace_id, summary in trace_summaries.items()
+    }
+
     # Build clusters array with centroids and trace distances
     clusters = _build_cluster_data(
         num_clusters=num_clusters,
@@ -73,6 +95,7 @@ def emit_cluster_events(
         cluster_labels=cluster_labels,
         coords_2d=coords_2d,
         centroid_coords_2d=centroid_coords_2d,
+        trace_timestamps=trace_timestamps,
     )
 
     # Build and emit event
@@ -106,6 +129,7 @@ def _build_cluster_data(
     cluster_labels: dict[int, ClusterLabel],
     coords_2d: np.ndarray,
     centroid_coords_2d: np.ndarray,
+    trace_timestamps: dict[str, str],
 ) -> list[ClusterData]:
     """Build cluster data structure with traces and metadata.
 
@@ -121,6 +145,7 @@ def _build_cluster_data(
         cluster_labels: Dict mapping cluster_id -> ClusterLabel
         coords_2d: UMAP 2D coordinates for each trace, shape (n_traces, 2)
         centroid_coords_2d: UMAP 2D coordinates for each centroid, shape (n_clusters, 2)
+        trace_timestamps: Dict mapping trace_id -> timestamp (ISO format)
 
     Returns:
         List of ClusterData objects (regular clusters first, then noise if present)
@@ -133,12 +158,14 @@ def _build_cluster_data(
         cluster_trace_data: list[_TraceDistanceData] = []
         for i, label in enumerate(labels):
             if label == cluster_id:
+                trace_id = trace_ids[i]
                 cluster_trace_data.append(
                     {
-                        "trace_id": trace_ids[i],
+                        "trace_id": trace_id,
                         "distance_to_centroid": float(distances_matrix[i][cluster_id]),
                         "x": float(coords_2d[i][0]),
                         "y": float(coords_2d[i][1]),
+                        "timestamp": trace_timestamps.get(trace_id, ""),
                     }
                 )
 
@@ -150,6 +177,7 @@ def _build_cluster_data(
                 "rank": rank,
                 "x": t["x"],
                 "y": t["y"],
+                "timestamp": t["timestamp"],
             }
             for rank, t in enumerate(cluster_trace_data)
         }
@@ -181,6 +209,7 @@ def _build_cluster_data(
 
         for i, label in enumerate(labels):
             if label == NOISE_CLUSTER_ID:
+                trace_id = trace_ids[i]
                 # For noise points, use minimum distance to any centroid
                 if distances_matrix.shape[1] > 0:
                     min_distance = float(np.min(distances_matrix[i]))
@@ -189,10 +218,11 @@ def _build_cluster_data(
 
                 noise_trace_data.append(
                     {
-                        "trace_id": trace_ids[i],
+                        "trace_id": trace_id,
                         "distance_to_centroid": min_distance,
                         "x": float(coords_2d[i][0]),
                         "y": float(coords_2d[i][1]),
+                        "timestamp": trace_timestamps.get(trace_id, ""),
                     }
                 )
                 noise_coords.append(coords_2d[i])
@@ -206,6 +236,7 @@ def _build_cluster_data(
                 "rank": rank,
                 "x": t["x"],
                 "y": t["y"],
+                "timestamp": t["timestamp"],
             }
             for rank, t in enumerate(noise_trace_data)
         }

@@ -77,6 +77,7 @@ class TraceClusterMetadata(TypedDict):
     rank: int
     x: float  # UMAP 2D x coordinate for scatter plot visualization
     y: float  # UMAP 2D y coordinate for scatter plot visualization
+    timestamp: str  # First event timestamp of the trace (ISO format) for efficient linking
 
 
 @dataclass
@@ -122,6 +123,7 @@ class TraceSummary(TypedDict):
     flow_diagram: str
     bullets: str
     interesting_notes: str
+    trace_timestamp: str  # First event timestamp of the trace (ISO format)
 
 
 # Type aliases for data access

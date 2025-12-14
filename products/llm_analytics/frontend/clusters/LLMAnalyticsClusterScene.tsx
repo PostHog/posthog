@@ -240,7 +240,10 @@ function TraceListItem({
                     #{displayRank}
                 </LemonTag>
                 <span className="font-medium flex-1 min-w-0 truncate">{summary?.title || 'Loading...'}</span>
-                <Link to={urls.llmAnalyticsTrace(traceId)} className="text-sm text-link hover:underline shrink-0">
+                <Link
+                    to={urls.llmAnalyticsTrace(traceId, summary?.timestamp ? { timestamp: summary.timestamp } : {})}
+                    className="text-sm text-link hover:underline shrink-0"
+                >
                     View trace →
                 </Link>
             </div>

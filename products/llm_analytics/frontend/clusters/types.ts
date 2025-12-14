@@ -7,6 +7,7 @@ export interface ClusterTraceInfo {
     rank: number
     x: number // UMAP 2D x coordinate for scatter plot
     y: number // UMAP 2D y coordinate for scatter plot
+    timestamp: string // First event timestamp of the trace (ISO format) for efficient linking
 }
 
 // Cluster data structure from the $ai_clusters property

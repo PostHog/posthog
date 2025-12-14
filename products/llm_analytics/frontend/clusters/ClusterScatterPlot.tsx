@@ -14,6 +14,7 @@ interface ScatterPoint {
     y: number
     traceId?: string
     clusterId?: number
+    timestamp?: string
 }
 
 interface ClusterScatterPlotProps {
@@ -50,7 +51,12 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
 
         // Navigate to trace page for trace clicks
         if (point?.traceId) {
-            router.actions.push(urls.llmAnalyticsTrace(point.traceId, { tab: 'summary' }))
+            router.actions.push(
+                urls.llmAnalyticsTrace(point.traceId, {
+                    tab: 'summary',
+                    ...(point.timestamp ? { timestamp: point.timestamp } : {}),
+                })
+            )
         }
     }
 

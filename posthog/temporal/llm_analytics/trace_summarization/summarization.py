@@ -47,8 +47,12 @@ async def generate_and_save_summary_activity(
 
     def _fetch_trace_and_format(
         trace_id: str, team_id: int, window_start: str, window_end: str
-    ) -> tuple[dict, list, str, Team] | None:
-        """Fetch trace data and format text representation."""
+    ) -> tuple[dict, list, str, Team, str] | None:
+        """Fetch trace data and format text representation.
+
+        Returns tuple of (trace_dict, hierarchy, text_repr, team, trace_timestamp) or None if not found.
+        trace_timestamp is the first event timestamp of the trace (ISO format).
+        """
         team = Team.objects.get(id=team_id)
 
         query = TraceQuery(
@@ -64,6 +68,8 @@ async def generate_and_save_summary_activity(
 
         llm_trace = response.results[0]
         trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
+        # Extract the trace's first event timestamp for efficient linking
+        trace_timestamp = llm_trace.createdAt
 
         options: FormatterOptions = {
             "include_line_numbers": True,
@@ -78,9 +84,11 @@ async def generate_and_save_summary_activity(
             options=options,
         )
 
-        return trace_dict, hierarchy, text_repr, team
+        return trace_dict, hierarchy, text_repr, team, trace_timestamp
 
-    def _save_summary_event(summary_result: SummarizationResponse, hierarchy: list, text_repr: str, team: Team) -> None:
+    def _save_summary_event(
+        summary_result: SummarizationResponse, hierarchy: list, text_repr: str, team: Team, trace_timestamp: str
+    ) -> None:
         """Save summary as $ai_trace_summary event to ClickHouse."""
 
         event_uuid = uuid4()
@@ -98,6 +106,7 @@ async def generate_and_save_summary_activity(
             "$ai_summary_interesting_notes": summary_notes_json,
             "$ai_text_repr_length": len(text_repr),
             "$ai_event_count": len(hierarchy),
+            "trace_timestamp": trace_timestamp,
         }
 
         create_event(
@@ -155,7 +164,7 @@ async def generate_and_save_summary_activity(
             skip_reason="trace_not_found",
         )
 
-    trace, hierarchy, text_repr, team = result
+    trace, hierarchy, text_repr, team, trace_timestamp = result
 
     # Generate summary using LLM
     # Note: text_repr is automatically reduced to fit LLM context if needed (see format_trace_text_repr)
@@ -168,7 +177,7 @@ async def generate_and_save_summary_activity(
 
     # Save event to ClickHouse immediately
     await database_sync_to_async(_save_summary_event, thread_sensitive=False)(
-        summary_result, hierarchy, text_repr, team
+        summary_result, hierarchy, text_repr, team, trace_timestamp
     )
 
     # Generate embedding immediately after saving summary

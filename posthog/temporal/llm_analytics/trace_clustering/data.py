@@ -210,7 +210,7 @@ def fetch_trace_summaries(
         window_end: End of time window
 
     Returns:
-        Dictionary mapping trace_id -> {title, flow_diagram, bullets, interesting_notes}
+        Dictionary mapping trace_id -> {title, flow_diagram, bullets, interesting_notes, trace_timestamp}
     """
     if not trace_ids:
         return {}
@@ -222,7 +222,8 @@ def fetch_trace_summaries(
             properties.$ai_summary_title as title,
             properties.$ai_summary_flow_diagram as flow_diagram,
             properties.$ai_summary_bullets as bullets,
-            properties.$ai_summary_interesting_notes as interesting_notes
+            properties.$ai_summary_interesting_notes as interesting_notes,
+            properties.trace_timestamp as trace_timestamp
         FROM events
         WHERE event = {event_name}
             AND timestamp >= {start_dt}
@@ -248,14 +249,23 @@ def fetch_trace_summaries(
         )
 
     rows = result.results or []
-    trace_summaries: TraceSummaries = {
-        row[0]: {
+    trace_summaries: TraceSummaries = {}
+    for row in rows:
+        # trace_timestamp may be a datetime object from HogQL, convert to ISO string
+        trace_ts = row[5]
+        if trace_ts is None:
+            trace_ts_str = ""
+        elif hasattr(trace_ts, "isoformat"):
+            trace_ts_str = trace_ts.isoformat()
+        else:
+            trace_ts_str = str(trace_ts) if trace_ts else ""
+
+        trace_summaries[row[0]] = {
             "title": row[1],
             "flow_diagram": row[2],
             "bullets": row[3],
             "interesting_notes": row[4],
+            "trace_timestamp": trace_ts_str,
         }
-        for row in rows
-    }
 
     return trace_summaries
