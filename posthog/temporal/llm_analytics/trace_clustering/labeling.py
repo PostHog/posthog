@@ -1,309 +1,154 @@
 """LLM-based cluster labeling for trace clustering workflow.
 
-This module contains functions for generating human-readable cluster labels
-using LLM to create titles and descriptions based on representative traces.
+This module provides cluster labeling using a LangGraph agent that can
+iteratively explore cluster structure and generate high-quality labels.
 """
 
-import os
 from datetime import datetime
 
-from django.conf import settings
-
 import numpy as np
-import openai
 import structlog
-from pydantic import BaseModel
 
-from posthog.cloud_utils import is_cloud
 from posthog.models.team import Team
-from posthog.temporal.llm_analytics.trace_clustering.constants import (
-    LABELING_LLM_MODEL,
-    LABELING_LLM_TIMEOUT,
-    NOISE_CLUSTER_ID,
-)
+from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_summaries
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, ClusterRepresentatives
-from posthog.utils import get_instance_region
+from posthog.temporal.llm_analytics.trace_clustering.labeling_agent import run_labeling_agent
+from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.state import ClusterTraceData
+from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, TraceLabelingMetadata
 
 logger = structlog.get_logger(__name__)
 
 
-class ClusterLabelModel(BaseModel):
-    cluster_id: int
-    title: str
-    description: str
-
-
-class ClusterLabelsResponse(BaseModel):
-    clusters: list[ClusterLabelModel]
-
-
 def generate_cluster_labels(
     team: Team,
-    labels: np.ndarray,
-    representative_trace_ids: ClusterRepresentatives,
+    trace_ids: list[str],
+    labels: list[int],
+    trace_metadata: list[TraceLabelingMetadata],
+    centroid_coords_2d: list[list[float]],
     window_start: datetime,
     window_end: datetime,
 ) -> dict[int, ClusterLabel]:
-    """Generate titles and descriptions for all clusters using LLM.
+    """Generate titles and descriptions for all clusters using the labeling agent.
 
-    Strategy:
-    1. Fetch summaries for representative traces from $ai_trace_summary events using HogQL
-    2. Send regular clusters to LLM in one call for better global context
-    3. Generate fixed label for noise/outlier cluster (-1)
-    4. LLM generates title + description for each regular cluster
+    The agent has tools to explore cluster structure and iteratively generate
+    high-quality, distinctive labels for each cluster.
 
     Args:
         team: Team object for HogQL queries
+        trace_ids: List of all trace IDs in clustering
         labels: Cluster assignments for each trace (-1 = noise/outliers)
-        representative_trace_ids: Dict mapping cluster_id to list of representative trace IDs
+        trace_metadata: Precomputed per-trace metadata (x, y, distance, rank)
+        centroid_coords_2d: UMAP 2D coordinates for each centroid
         window_start: Start of time window
         window_end: End of time window
 
     Returns:
         Dict mapping cluster_id -> ClusterLabel
     """
-    unique_labels = np.unique(labels)
-    regular_cluster_ids = [cid for cid in unique_labels if cid != NOISE_CLUSTER_ID]
-    has_noise_cluster = NOISE_CLUSTER_ID in unique_labels
+    labels_array = np.array(labels)
+    unique_cluster_ids = np.unique(labels_array)
 
-    representative_trace_summaries = fetch_trace_summaries(
+    # Build cluster data structure for the agent
+    cluster_data = _build_cluster_data(
+        trace_ids=trace_ids,
+        labels=labels_array,
+        trace_metadata=trace_metadata,
+        centroid_coords_2d=centroid_coords_2d,
+        unique_cluster_ids=unique_cluster_ids,
+    )
+
+    # Fetch trace summaries for all traces
+    all_trace_summaries = fetch_trace_summaries(
         team=team,
-        trace_ids=[tid for tids in representative_trace_ids.values() for tid in tids],
+        trace_ids=trace_ids,
         window_start=window_start,
         window_end=window_end,
     )
 
-    # Build data for regular clusters only (exclude noise)
-    clusters_data = []
-    for cluster_id in sorted(regular_cluster_ids):
-        trace_ids_in_cluster = representative_trace_ids.get(cluster_id, [])
-
-        representative_traces = []
-        for trace_id in trace_ids_in_cluster:
-            if trace_id in representative_trace_summaries:
-                representative_traces.append(representative_trace_summaries[trace_id])
-
-        clusters_data.append(
-            {
-                "cluster_id": cluster_id,
-                "size": int((labels == cluster_id).sum()),
-                "representative_traces": representative_traces,
-            }
-        )
-
-    # Get LLM labels for regular clusters
-    labels_dict: dict[int, ClusterLabel] = {}
-
-    if clusters_data:
-        prompt = _build_cluster_labels_prompt(len(clusters_data), clusters_data)
-        labels_dict = _call_llm_for_labels(prompt, team.id, len(clusters_data), labels)
-
-    # Add fixed label for noise cluster if it exists
-    if has_noise_cluster:
-        noise_count = int((labels == NOISE_CLUSTER_ID).sum())
-        noise_traces = representative_trace_ids.get(NOISE_CLUSTER_ID, [])
-
-        # Build a description based on noise trace summaries
-        noise_description = _generate_noise_cluster_description(
-            noise_count,
-            noise_traces,
-            representative_trace_summaries,
-        )
-
-        labels_dict[NOISE_CLUSTER_ID] = ClusterLabel(
-            title="Outliers",
-            description=noise_description,
-        )
-
-    return labels_dict
-
-
-def _generate_noise_cluster_description(
-    noise_count: int,
-    noise_trace_ids: list[str],
-    trace_summaries: dict[str, dict],
-) -> str:
-    """Generate a description for the noise/outlier cluster.
-
-    Args:
-        noise_count: Number of traces in the noise cluster
-        noise_trace_ids: Representative trace IDs from noise cluster
-        trace_summaries: Dict of trace_id -> summary data
-
-    Returns:
-        Description string for the outliers cluster
-    """
-    base_description = (
-        f"These {noise_count} traces did not fit into any of the main clusters. "
-        "They may represent edge cases, errors, or uncommon usage patterns worth investigating."
+    logger.info(
+        "cluster_labeling_starting",
+        team_id=team.id,
+        num_clusters=len(cluster_data),
+        num_traces=len(trace_ids),
+        num_summaries_fetched=len(all_trace_summaries),
     )
 
-    # Add context from a few example traces if available
-    example_titles = []
-    for trace_id in noise_trace_ids[:3]:
-        if trace_id in trace_summaries:
-            title = trace_summaries[trace_id].get("title", "")
-            if title:
-                example_titles.append(title)
+    # Run the labeling agent
+    result_labels = run_labeling_agent(
+        team_id=team.id,
+        cluster_data=cluster_data,
+        all_trace_summaries=all_trace_summaries,
+    )
 
-    if example_titles:
-        examples_str = ", ".join(f'"{t}"' for t in example_titles)
-        base_description += f" Examples include: {examples_str}."
-
-    return base_description
+    return result_labels
 
 
-def _build_cluster_labels_prompt(num_clusters: int, clusters_data: list[dict]) -> str:
-    """Build the prompt for generating cluster labels.
-
-    Args:
-        num_clusters: Number of clusters
-        clusters_data: List of dicts with cluster_id, size, and representative_traces
-
-    Returns:
-        Formatted prompt string for LLM
-    """
-    prompt = f"""You are analyzing {num_clusters} clusters of similar LLM traces. For each cluster, provide a short title and description that captures what makes traces in that cluster similar.
-
-Having context about ALL clusters helps you create more distinctive and useful labels that differentiate between clusters.
-
-Here are the {num_clusters} clusters with their representative traces:
-
-"""
-
-    for cluster in clusters_data:
-        prompt += f"\n## Cluster {cluster['cluster_id']} ({cluster['size']} traces)\n\n"
-        prompt += "Representative traces (closest to cluster center):\n\n"
-
-        for i, trace in enumerate(cluster["representative_traces"], 1):
-            prompt += f"### {i}. {trace.get('title', 'Untitled')}\n\n"
-
-            if trace.get("flow_diagram"):
-                prompt += f"**Flow:**\n```\n{trace['flow_diagram']}\n```\n\n"
-
-            if trace.get("bullets"):
-                prompt += f"**Summary:**\n{trace['bullets']}\n\n"
-
-            if trace.get("interesting_notes"):
-                prompt += f"**Notes:**\n{trace['interesting_notes']}\n\n"
-
-            prompt += "---\n\n"
-
-    prompt += """
-Based on these representative traces, provide a title and description for each cluster:
-
-1. **Title**: 3-10 words that capture the main pattern (e.g., "PDF Generation Errors", "Authentication Flows", "Data Pipeline Processing")
-2. **Description**: 2-5 bullet points (using "- " prefix) explaining what traces in this cluster have in common in terms of similar usage patterns, error messages, functionality or anything that jumps out as interesting.
-
-Respond with JSON in this exact format:
-{
-  "clusters": [
-    {
-      "cluster_id": 0,
-      "title": "Short Pattern Title",
-      "description": "- First key observation about these traces\\n- Second pattern they share\\n- Third common characteristic"
-    },
-    {
-      "cluster_id": 1,
-      "title": "Another Pattern explaining the cluster",
-      "description": "- First key observation\\n- Second pattern\\n- Third common characteristic"
-    }
-  ]
-}
-
-Make titles and descriptions distinctive - users need to quickly understand how clusters differ from each other.
-"""
-    return prompt
-
-
-def _call_llm_for_labels(
-    prompt: str,
-    team_id: int,
-    num_clusters: int,
+def _build_cluster_data(
+    trace_ids: list[str],
     labels: np.ndarray,
-) -> dict[int, ClusterLabel]:
-    """Call OpenAI LLM to generate cluster labels.
+    trace_metadata: list[TraceLabelingMetadata],
+    centroid_coords_2d: list[list[float]],
+    unique_cluster_ids: np.ndarray,
+) -> dict[int, ClusterTraceData]:
+    """Build the cluster data structure expected by the labeling agent.
 
-    Args:
-        prompt: The formatted prompt
-        team_id: Team ID for tracking
-        num_clusters: Number of clusters
-        labels: Cluster assignments (for fallback labels)
-
-    Returns:
-        Dict mapping cluster_id -> ClusterLabel
+    Uses precomputed per-trace metadata to build the cluster structure.
     """
-    # Validate environment
-    if not settings.DEBUG and not is_cloud():
-        raise Exception("AI features are only available in PostHog Cloud")
+    cluster_data: dict[int, ClusterTraceData] = {}
+    centroid_coords = np.array(centroid_coords_2d) if centroid_coords_2d else np.zeros((0, 2))
 
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise Exception("OpenAI API key is not configured")
+    # Map non-noise cluster IDs to centroid indices
+    non_noise_ids = sorted([int(cid) for cid in unique_cluster_ids if cid != NOISE_CLUSTER_ID])
+    cluster_to_centroid_idx = {cid: idx for idx, cid in enumerate(non_noise_ids)}
 
-    # Create OpenAI client
-    client = openai.OpenAI(
-        timeout=LABELING_LLM_TIMEOUT,
-        base_url=getattr(settings, "OPENAI_BASE_URL", None),
-    )
+    for cluster_id in unique_cluster_ids:
+        cluster_id_int = int(cluster_id)
 
-    # Prepare user param for tracking
-    instance_region = get_instance_region() or "HOBBY"
-    user_param = f"{instance_region}/{team_id}"
+        # Get indices of traces in this cluster
+        cluster_mask = labels == cluster_id
+        cluster_trace_indices = np.where(cluster_mask)[0]
+        cluster_size = len(cluster_trace_indices)
 
-    try:
-        response = client.beta.chat.completions.parse(
-            model=LABELING_LLM_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            user=user_param,
-            response_format=ClusterLabelsResponse,
+        if cluster_size == 0:
+            continue
+
+        # Get centroid coordinates
+        if cluster_id == NOISE_CLUSTER_ID:
+            # For noise cluster, compute mean of noise trace coordinates
+            noise_x = np.mean([trace_metadata[i].x for i in cluster_trace_indices])
+            noise_y = np.mean([trace_metadata[i].y for i in cluster_trace_indices])
+            centroid_x, centroid_y = float(noise_x), float(noise_y)
+        else:
+            centroid_idx = cluster_to_centroid_idx.get(cluster_id_int)
+            if centroid_idx is not None and centroid_idx < len(centroid_coords):
+                centroid_x = float(centroid_coords[centroid_idx, 0])
+                centroid_y = float(centroid_coords[centroid_idx, 1])
+            else:
+                # Fallback to mean of cluster trace coordinates
+                cluster_x = np.mean([trace_metadata[i].x for i in cluster_trace_indices])
+                cluster_y = np.mean([trace_metadata[i].y for i in cluster_trace_indices])
+                centroid_x, centroid_y = float(cluster_x), float(cluster_y)
+
+        # Build trace metadata for this cluster using precomputed values
+        traces_metadata: dict[str, dict] = {}
+        for trace_idx in cluster_trace_indices:
+            trace_id = trace_ids[trace_idx]
+            meta = trace_metadata[trace_idx]
+            traces_metadata[trace_id] = {
+                "trace_id": trace_id,
+                "title": "",  # Will be filled from summaries by the agent
+                "rank": meta.rank,
+                "distance_to_centroid": meta.distance_to_centroid,
+                "x": meta.x,
+                "y": meta.y,
+            }
+
+        cluster_data[cluster_id_int] = ClusterTraceData(
+            cluster_id=cluster_id_int,
+            size=cluster_size,
+            centroid_x=centroid_x,
+            centroid_y=centroid_y,
+            traces=traces_metadata,
         )
 
-        # Get parsed response
-        result = response.choices[0].message.parsed
-        if not result:
-            raise Exception("OpenAI returned empty response")
-
-        # Convert to dict[cluster_id -> ClusterLabel], validating cluster IDs
-        valid_cluster_ids = set(range(num_clusters))
-        labels_dict = {}
-        for cluster in result.clusters:
-            if cluster.cluster_id not in valid_cluster_ids:
-                logger.warning(
-                    "llm_returned_invalid_cluster_id",
-                    cluster_id=cluster.cluster_id,
-                    valid_ids=list(valid_cluster_ids),
-                )
-                continue
-            labels_dict[cluster.cluster_id] = ClusterLabel(
-                title=cluster.title,
-                description=cluster.description,
-            )
-
-        # Fill in any missing clusters with fallback labels
-        for cluster_id in valid_cluster_ids:
-            if cluster_id not in labels_dict:
-                logger.warning("llm_missing_cluster_label", cluster_id=cluster_id)
-                labels_dict[cluster_id] = ClusterLabel(
-                    title=f"Cluster {cluster_id}",
-                    description=f"Cluster of {sum(1 for label in labels if label == cluster_id)} similar traces",
-                )
-
-        return labels_dict
-
-    except Exception as e:
-        logger.exception(
-            "failed_to_generate_cluster_labels",
-            error=str(e),
-            error_type=type(e).__name__,
-            team_id=team_id,
-            num_clusters=num_clusters,
-        )
-        # Return fallback labels
-        return {
-            cluster_id: ClusterLabel(
-                title=f"Cluster {cluster_id}",
-                description=f"Cluster of {sum(1 for label in labels if label == cluster_id)} similar traces",
-            )
-            for cluster_id in range(num_clusters)
-        }
+    return cluster_data

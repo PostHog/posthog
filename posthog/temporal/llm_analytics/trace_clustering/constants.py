@@ -70,10 +70,11 @@ ALLOWED_TEAM_IDS: list[int] = [
     112495,  # Dogfooding project
 ]
 
-# Cluster labeling configuration
-DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING = 30  # Number of representative traces to use for LLM labeling
-LABELING_LLM_MODEL = "gpt-4.1"  # Using 4.1 for its 1M context window - more examples = better labels
-LABELING_LLM_TIMEOUT = 240.0
+# Cluster labeling agent configuration
+LABELING_AGENT_MODEL = "claude-sonnet-4-20250514"  # Claude Sonnet 4.5 for reasoning
+LABELING_AGENT_MAX_ITERATIONS = 50  # Max agent iterations before forced finalization
+LABELING_AGENT_RECURSION_LIMIT = 150  # LangGraph recursion limit (> 2 * max_iterations)
+LABELING_AGENT_TIMEOUT = 600.0  # 10 minutes for full agent run
 
 # HDBSCAN clustering parameters
 DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.01  # 1% of samples as minimum cluster size

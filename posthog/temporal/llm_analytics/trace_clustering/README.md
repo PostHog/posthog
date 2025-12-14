@@ -9,15 +9,22 @@ posthog/temporal/llm_analytics/trace_clustering/
 ├── workflow.py              # Temporal workflow definition (orchestrates 3 activities)
 ├── activities.py            # Temporal activity definitions (3 activities)
 ├── data.py                  # Data access layer (HogQL queries for team-scoped data)
-├── clustering.py            # K-means implementation and distance calculations
-├── labeling.py              # LLM-based cluster labeling
+├── clustering.py            # HDBSCAN clustering, UMAP reduction, distance calculations
+├── labeling.py              # Entry point for cluster labeling (calls labeling agent)
 ├── event_emission.py        # Event building and emission to ClickHouse
 ├── models.py                # Data models (ClusteringInputs, ClusteringResult, etc.)
-├── constants.py             # Configuration constants (timeouts, defaults, k range)
+├── constants.py             # Configuration constants (timeouts, defaults, agent config)
 ├── coordinator.py           # Coordinator workflow (processes teams from allowlist)
 ├── schedule.py              # Temporal schedule configuration
 ├── test_workflow.py         # Workflow and activity tests
-└── README.md                # This file
+├── README.md                # This file
+└── labeling_agent/          # LangGraph agent for cluster labeling
+    ├── __init__.py
+    ├── graph.py             # StateGraph assembly and entry point
+    ├── state.py             # TypedDict state schema
+    ├── nodes.py             # Graph nodes (agent, tools, finalize)
+    ├── tools.py             # Tool definitions (6 tools)
+    └── prompts.py           # System prompt for the labeling agent
 ```
 
 ## Overview
@@ -25,11 +32,12 @@ posthog/temporal/llm_analytics/trace_clustering/
 This workflow implements trace clustering for LLM analytics:
 
 1. **Fetch trace IDs and embeddings** - Query trace IDs and embeddings via HogQL from the document embeddings table
-2. **Perform clustering with optimal k** - Test k values using silhouette score and return the best clustering result
-3. **Compute distances** - Calculate distance from each trace to cluster centroids
-4. **Select representatives** - Pick traces closest to each centroid for labeling
-5. **Generate labels** - Use LLM to create human-readable titles and descriptions
-6. **Emit events** - Store results as `$ai_trace_clusters` events in ClickHouse
+2. **Dimensionality reduction** - Use UMAP to reduce embeddings to 100 dimensions for clustering
+3. **HDBSCAN clustering** - Density-based clustering that automatically determines cluster count and identifies outliers
+4. **Compute distances** - Calculate distance from each trace to cluster centroids
+5. **2D projection** - Generate UMAP 2D coordinates for visualization
+6. **Generate labels** - Use a LangGraph agent with Claude to create distinctive titles and descriptions
+7. **Emit events** - Store results as `$ai_trace_clusters` events in ClickHouse
 
 The workflow is designed to run on a schedule (daily) and is **versioned** - each run creates a fresh clustering that can be tracked over time.
 
@@ -46,13 +54,20 @@ graph TB
 
     subgraph "Activity 1: Compute (120s timeout)"
         ACT1 --> FETCH[Fetch Embeddings]
-        FETCH --> CLUSTER[K-Means Clustering]
+        FETCH --> UMAP1[UMAP 100D Reduction]
+        UMAP1 --> CLUSTER[HDBSCAN Clustering]
         CLUSTER --> DIST[Compute Distances]
-        DIST --> REPS[Select Representatives]
+        DIST --> UMAP2[UMAP 2D Projection]
     end
 
     subgraph "Activity 2: Label (300s timeout)"
-        ACT2 --> LABEL[Generate LLM Labels]
+        ACT2 --> AGENT[LangGraph Labeling Agent]
+        AGENT --> TOOLS[Agent Tools]
+        TOOLS --> |get_clusters_overview| AGENT
+        TOOLS --> |get_cluster_trace_titles| AGENT
+        TOOLS --> |get_trace_details| AGENT
+        TOOLS --> |set_cluster_label| AGENT
+        TOOLS --> |finalize_labels| AGENT
     end
 
     subgraph "Activity 3: Emit (60s timeout)"
@@ -61,7 +76,7 @@ graph TB
 
     subgraph "Data Sources"
         CH_EMB[(document_embeddings)] --> FETCH
-        CH_SUM[(events: $ai_trace_summary)] --> LABEL
+        CH_SUM[(events: $ai_trace_summary)] --> AGENT
     end
 
     subgraph "Output"
@@ -86,8 +101,6 @@ graph TB
 - `team_id` (required): Team ID to cluster traces for
 - `lookback_days` (optional): Days of trace history to analyze (default: 7)
 - `max_samples` (optional): Maximum traces to sample (default: 1000)
-- `min_k` (optional): Minimum number of clusters to test (default: 2)
-- `max_k` (optional): Maximum number of clusters to test (default: 10)
 
 ### Three Activity Architecture
 
@@ -109,14 +122,18 @@ The workflow uses **three separate activities** with independent timeouts and re
 **Activity 1 (Compute)** - CPU-bound work:
 
 - Fetches embeddings via HogQL (team-scoped)
-- Performs k-means clustering with optimal k selection
-- Computes distance matrix
-- Selects representative traces for labeling
+- Reduces dimensionality with UMAP (3072D → 100D for clustering)
+- Performs HDBSCAN density-based clustering (auto-determines cluster count)
+- Computes distance matrix and centroid coordinates
+- Generates 2D UMAP projection for visualization
 
-**Activity 2 (Label)** - External API call:
+**Activity 2 (Label)** - LangGraph agent:
 
-- Fetches trace summaries for representative traces
-- Calls OpenAI to generate cluster titles and descriptions
+- Runs a multi-turn LangGraph agent powered by Claude Sonnet 4
+- Agent explores clusters using tools (overview, trace titles, trace details)
+- Iteratively generates distinctive labels for each cluster
+- Ensures labels differentiate clusters from each other
+- See `labeling_agent/README.md` for detailed agent architecture
 
 **Activity 3 (Emit)** - Database write:
 
@@ -144,15 +161,22 @@ The workflow uses **three separate activities** with independent timeouts and re
 
 **`clustering.py`** - Clustering algorithms:
 
-- `perform_kmeans_with_optimal_k()` - Test k values using silhouette score and return `KMeansResult` with labels and centroids
+- `perform_hdbscan_clustering()` - HDBSCAN density-based clustering with UMAP reduction
 - `calculate_trace_distances()` - Compute distances to all centroids
-- `select_representatives_from_distances()` - Pick traces closest to centroids, returns `ClusterRepresentatives`
+- Returns `HDBSCANResult` with labels, centroids, 2D coordinates, and membership probabilities
+- Automatically determines optimal cluster count and identifies noise/outliers (cluster -1)
 
-**`labeling.py`** - LLM label generation:
+**`labeling.py`** - Entry point for labeling:
 
-- `generate_cluster_labels()` - Create titles and descriptions
-- Uses trace summaries (title, flow_diagram, bullets, interesting_notes)
-- Calls OpenAI with structured output for consistent formatting
+- `generate_cluster_labels()` - Orchestrates the labeling agent
+- Prepares cluster data and trace summaries for the agent
+- Calls `run_labeling_agent()` from the labeling_agent module
+
+**`labeling_agent/`** - LangGraph agent for cluster labeling:
+
+- Multi-turn agent that explores clusters and generates distinctive labels
+- Uses Claude Sonnet 4 with 6 tools for cluster exploration
+- See `labeling_agent/README.md` for detailed architecture
 
 **`event_emission.py`** - Event building and emission:
 
@@ -165,24 +189,39 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
 
 ```python
 {
-    "$ai_clustering_run_id": "team_123_2025-01-23T00:00:00Z",
+    "$ai_clustering_run_id": "1_20250123_000000",
     "$ai_window_start": "2025-01-16T00:00:00Z",
     "$ai_window_end": "2025-01-23T00:00:00Z",
-    "$ai_total_traces_analyzed": 1847,
+    "$ai_total_traces_analyzed": 315,
 
     # Clusters array (native JSON, not string)
     "$ai_clusters": [
         {
             "cluster_id": 0,
-            "size": 523,
-            "title": "Weather Data Retrieval",
-            "description": "Traces focusing on weather information queries...",
+            "size": 37,
+            "title": "PostHog Documentation and Support",
+            "description": "- Customer support queries about PostHog features\n- Documentation lookups...",
             "traces": {
-                "trace_1": {"distance_to_centroid": 0.38, "rank": 0},
-                "trace_2": {"distance_to_centroid": 0.42, "rank": 1},
+                "trace_1": {
+                    "distance_to_centroid": 0.08,
+                    "rank": 0,
+                    "x": -2.3,           # 2D UMAP x coordinate
+                    "y": 0.9,            # 2D UMAP y coordinate
+                    "timestamp": "2025-01-22T15:30:00Z"
+                },
+                "trace_2": {"distance_to_centroid": 0.12, "rank": 1, "x": -2.1, "y": 0.7, "timestamp": "..."},
                 # ... all traces in cluster, keyed by trace_id
             },
-            "centroid": [0.123, -0.456, ...]  # 3072-dimensional vector
+            "centroid": [0.123, -0.456, ...],  # 100-dimensional vector (UMAP reduced)
+            "centroid_x": -2.2,                # 2D centroid x coordinate
+            "centroid_y": 0.8                  # 2D centroid y coordinate
+        },
+        {
+            "cluster_id": -1,  # Noise/outliers cluster
+            "size": 35,
+            "title": "Outliers and Diverse Edge Cases",
+            "description": "- Traces that didn't fit other clusters...",
+            # ...
         },
         # ... more clusters
     ]
@@ -193,23 +232,31 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
 
 - `$ai_clusters` is stored as **native JSON** (not a JSON string)
 - `traces` is a dict keyed by trace_id for easy lookup
-- Each trace includes `rank` (0-indexed, 0 = closest to centroid) and `distance_to_centroid`
-- Centroids enable assigning new traces to existing clusters
+- Each trace includes `rank` (0-indexed, 0 = closest to centroid), `distance_to_centroid`, and 2D coordinates (`x`, `y`)
+- `centroid_x` and `centroid_y` provide 2D positions for visualization
+- Cluster `-1` contains noise/outliers identified by HDBSCAN
+- Centroids are 100-dimensional (UMAP reduced from 3072D)
 
 ## Usage
 
 ### Manual Trigger (Development/Testing)
 
 ```bash
-# Using Temporal CLI
+# Using Temporal CLI (local development)
 temporal workflow start \
+  --address 127.0.0.1:7233 \
   --task-queue development-task-queue \
   --type daily-trace-clustering \
   --workflow-id "trace-clustering-test-$(date +%Y%m%d-%H%M%S)" \
-  --input '{"team_id": 1, "lookback_days": 7, "max_samples": 1000, "min_k": 2, "max_k": 10}'
+  --input '{"team_id": 1, "lookback_days": 7, "max_samples": 1000}'
 
 # Check status
-temporal workflow describe --workflow-id "trace-clustering-test-YYYYMMDD-HHMMSS"
+temporal workflow describe \
+  --address 127.0.0.1:7233 \
+  --workflow-id "trace-clustering-test-YYYYMMDD-HHMMSS"
+
+# View in Temporal UI
+open http://localhost:8081/namespaces/default/workflows
 ```
 
 ### Query Results
@@ -264,21 +311,23 @@ To add new teams, simply add their IDs to this list.
 
 Key constants in `constants.py`:
 
-| Constant                                  | Default           | Description                           |
-| ----------------------------------------- | ----------------- | ------------------------------------- |
-| `DEFAULT_LOOKBACK_DAYS`                   | 7                 | Days of trace history to analyze      |
-| `DEFAULT_MAX_SAMPLES`                     | 1000              | Maximum traces to sample              |
-| `DEFAULT_MIN_K`                           | 2                 | Minimum clusters to test              |
-| `DEFAULT_MAX_K`                           | 10                | Maximum clusters to test              |
-| `MIN_TRACES_FOR_CLUSTERING`               | 20                | Minimum traces required for workflow  |
-| `COMPUTE_ACTIVITY_TIMEOUT`                | 120s              | Clustering compute timeout            |
-| `LLM_ACTIVITY_TIMEOUT`                    | 300s              | LLM labeling timeout                  |
-| `EMIT_ACTIVITY_TIMEOUT`                   | 60s               | Event emission timeout                |
-| `DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING` | 7                 | Representatives for LLM               |
-| `LABELING_LLM_MODEL`                      | gpt-5.1           | OpenAI model for labeling             |
-| `LABELING_LLM_TIMEOUT`                    | 240.0             | LLM request timeout (seconds)         |
-| `LLMA_TRACE_DOCUMENT_TYPE`                | llm-trace-summary | Document type filter for embeddings   |
-| `ALLOWED_TEAM_IDS`                        | [1, 2, 112495]    | Teams to process (allowlist approach) |
+| Constant                           | Default              | Description                                 |
+| ---------------------------------- | -------------------- | ------------------------------------------- |
+| `DEFAULT_LOOKBACK_DAYS`            | 7                    | Days of trace history to analyze            |
+| `DEFAULT_MAX_SAMPLES`              | 1000                 | Maximum traces to sample                    |
+| `MIN_TRACES_FOR_CLUSTERING`        | 20                   | Minimum traces required for workflow        |
+| `COMPUTE_ACTIVITY_TIMEOUT`         | 120s                 | Clustering compute timeout                  |
+| `LLM_ACTIVITY_TIMEOUT`             | 300s                 | LLM labeling timeout                        |
+| `EMIT_ACTIVITY_TIMEOUT`            | 60s                  | Event emission timeout                      |
+| `LABELING_AGENT_MODEL`             | claude-sonnet-4      | Claude model for labeling agent             |
+| `LABELING_AGENT_MAX_ITERATIONS`    | 50                   | Max agent iterations before finalization    |
+| `LABELING_AGENT_RECURSION_LIMIT`   | 150                  | LangGraph recursion limit                   |
+| `LABELING_AGENT_TIMEOUT`           | 600.0                | Full agent run timeout (seconds)            |
+| `DEFAULT_HDBSCAN_MIN_SAMPLES`      | 5                    | Min samples for HDBSCAN core points         |
+| `DEFAULT_UMAP_N_COMPONENTS`        | 100                  | UMAP dimensions for clustering              |
+| `NOISE_CLUSTER_ID`                 | -1                   | HDBSCAN noise/outlier cluster ID            |
+| `LLMA_TRACE_DOCUMENT_TYPE`         | llm-trace-summary    | Document type filter for embeddings         |
+| `ALLOWED_TEAM_IDS`                 | [1, 2, 112495]       | Teams to process (allowlist approach)       |
 
 ## Processing Flow
 
@@ -287,25 +336,29 @@ Key constants in `constants.py`:
    - Filter by product, document_type, and rendering
    - Sample if more than `max_samples`
 
-2. **Cluster with Optimal K**
-   - Test k values from `min_k` to `max_k`
-   - Calculate silhouette score for each k
-   - Return `KMeansResult` with best labels and centroids
-   - Compute distance matrix (traces × centroids)
-   - **Distances computed once and reused**
+2. **Dimensionality Reduction**
+   - Reduce embeddings from 3072D to 100D using UMAP
+   - Preserves semantic structure while enabling efficient clustering
 
-3. **Select Representatives**
-   - For each cluster, pick N traces closest to centroid
-   - Uses pre-computed distance matrix
-   - Returns `ClusterRepresentatives` mapping
+3. **HDBSCAN Clustering**
+   - Density-based clustering that automatically determines cluster count
+   - Identifies noise/outliers as cluster -1
+   - Computes soft cluster membership probabilities
+   - Calculates centroid for each cluster
 
-4. **Generate Labels**
-   - Fetch trace summaries from `$ai_trace_summary` events
-   - Build prompt with representative trace details
-   - Call OpenAI to generate titles and descriptions
+4. **2D Projection**
+   - Generate UMAP 2D coordinates for visualization
+   - Both trace positions and centroid positions
 
-5. **Emit Events**
-   - Build cluster data with traces sorted by distance
+5. **Generate Labels (Agent)**
+   - LangGraph agent iteratively explores clusters
+   - Uses tools to examine cluster structure and trace details
+   - Generates distinctive titles and descriptions
+   - Ensures labels differentiate clusters from each other
+
+6. **Emit Events**
+   - Build cluster data with traces sorted by distance rank
+   - Include 2D coordinates and centroids
    - Emit single `$ai_trace_clusters` event
 
 ## Error Handling
@@ -333,9 +386,11 @@ Test coverage:
 
 ## Dependencies
 
-- **sklearn**: K-means clustering and silhouette score
+- **hdbscan**: Density-based clustering algorithm
+- **umap-learn**: Dimensionality reduction for clustering and visualization
 - **numpy**: Vector operations and distance calculations
-- **OpenAI**: LLM-based cluster labeling (configured via `LABELING_LLM_MODEL`)
+- **langchain-anthropic**: Claude API integration for labeling agent
+- **langgraph**: Agent orchestration framework
 - **Temporal**: Workflow orchestration
 
 ## References

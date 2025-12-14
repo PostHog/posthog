@@ -24,8 +24,6 @@ from posthog.temporal.llm_analytics.trace_clustering.clustering import (
     perform_kmeans_with_optimal_k,
     reduce_dimensions_for_clustering,
     reduce_dimensions_pca,
-    select_representatives_by_probability,
-    select_representatives_from_distances,
 )
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_embeddings_for_clustering
 from posthog.temporal.llm_analytics.trace_clustering.event_emission import emit_cluster_events
@@ -122,14 +120,6 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
 
         # Step 3: Compute distance matrix
         distances_matrix = calculate_trace_distances(clustering_embeddings, centroids_array)
-
-        # Step 4: Select representatives using distances
-        representative_trace_ids = select_representatives_from_distances(
-            labels=labels_array,
-            distances_matrix=distances_matrix,
-            trace_ids=trace_ids,
-            n_closest=constants.DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING,
-        )
     else:
         # Default to HDBSCAN
         min_cluster_size_fraction = clustering_params.get(
@@ -159,15 +149,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             centroids_array,
         )
 
-        # Step 4: Select representatives using HDBSCAN probabilities
-        representative_trace_ids = select_representatives_by_probability(
-            labels=labels_array,
-            probabilities=np.array(hdbscan_result.probabilities),
-            trace_ids=trace_ids,
-            n_representatives=constants.DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING,
-        )
-
-    # Step 5: Compute 2D coordinates for visualization
+    # Step 4: Compute 2D coordinates for visualization
     # Use the same embeddings that went into clustering so the scatter plot accurately represents the clustering space
     coords_2d, centroid_coords_2d = compute_2d_coordinates(
         clustering_embeddings,
@@ -181,7 +163,6 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         labels=labels_list,
         centroids=centroids_list,
         distances=distances_matrix.tolist(),
-        representative_trace_ids=representative_trace_ids,
         coords_2d=coords_2d.tolist(),
         centroid_coords_2d=centroid_coords_2d.tolist(),
         probabilities=probabilities,
@@ -195,30 +176,35 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
 
     This activity handles all the compute-intensive work:
     - Fetches embeddings from ClickHouse
-    - Performs k-means clustering with optimal k selection
+    - Performs clustering (HDBSCAN or k-means)
     - Calculates distances from each trace to all centroids
-    - Selects representative traces for labeling
+    - Computes 2D coordinates for visualization
 
-    Output is ~150 KB (labels, centroids, distances, representative_trace_ids).
+    Output is ~150 KB (labels, centroids, distances, coords).
     Embeddings (~3-4 MB) are not passed to subsequent activities.
     """
     return await asyncio.to_thread(_perform_clustering_compute, inputs)
 
 
 def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
-    """LLM labeling implementation called by the activity."""
+    """LLM labeling implementation called by the activity.
+
+    Uses a LangGraph agent that can iteratively explore cluster structure
+    and generate high-quality, distinctive labels.
+    """
     window_start = parse_datetime(inputs.window_start)
     window_end = parse_datetime(inputs.window_end)
     if window_start is None or window_end is None:
         raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
-    # Fetch team object for HogQL queries
     team = Team.objects.get(id=inputs.team_id)
 
     cluster_labels = generate_cluster_labels(
         team=team,
-        labels=np.array(inputs.labels),
-        representative_trace_ids=inputs.representative_trace_ids,
+        trace_ids=inputs.trace_ids,
+        labels=inputs.labels,
+        trace_metadata=inputs.trace_metadata,
+        centroid_coords_2d=inputs.centroid_coords_2d,
         window_start=window_start,
         window_end=window_end,
     )
@@ -230,10 +216,12 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
 async def generate_cluster_labels_activity(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
     """Activity 2: LLM labeling - generate titles and descriptions for clusters.
 
-    This activity has a longer timeout (240s) for the LLM API call.
-    It fetches trace summaries internally and calls OpenAI to generate labels.
+    This activity runs a LangGraph agent (Claude Sonnet 4.5) that iteratively
+    explores cluster structure using tools to sample traces and generate
+    high-quality, distinctive labels.
 
-    Input: ~2.5 KB (representative trace IDs)
+    Timeout: 10 minutes for full agent run
+    Input: ~250 KB (trace IDs, cluster data, coordinates)
     Output: ~4 KB (cluster labels)
     """
     return await asyncio.to_thread(_generate_cluster_labels, inputs)

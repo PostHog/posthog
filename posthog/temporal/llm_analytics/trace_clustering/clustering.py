@@ -9,7 +9,7 @@ from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
 from umap import UMAP
 
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusterRepresentatives, HDBSCANResult, KMeansResult
+from posthog.temporal.llm_analytics.trace_clustering.models import HDBSCANResult, KMeansResult
 
 
 def perform_kmeans_with_optimal_k(
@@ -85,47 +85,6 @@ def calculate_trace_distances(
     # Shape: (n_samples, n_clusters)
     # broadcasting: (n_samples, 1, n_features) - (1, n_clusters, n_features)
     return np.sqrt(((embeddings[:, np.newaxis, :] - centroids[np.newaxis, :, :]) ** 2).sum(axis=2))
-
-
-def select_representatives_from_distances(
-    labels: np.ndarray,
-    distances_matrix: np.ndarray,
-    trace_ids: list[str],
-    n_closest: int = 5,
-) -> "ClusterRepresentatives":
-    """
-    Select representative traces using pre-computed distances.
-
-    For each cluster, selects n_closest traces closest to the cluster centroid
-    using distances that have already been calculated.
-
-    Args:
-        labels: Cluster assignments, shape (n_samples,)
-        distances_matrix: Pre-computed distances, shape (n_samples, k)
-        trace_ids: List of trace IDs corresponding to rows
-        n_closest: Number of closest traces to select per cluster
-
-    Returns:
-        ClusterRepresentatives mapping cluster_id to list of representative trace_ids
-    """
-    representatives: ClusterRepresentatives = {}
-    unique_labels = np.unique(labels)
-
-    for cluster_id in unique_labels:
-        cluster_mask = labels == cluster_id
-        cluster_indices = np.where(cluster_mask)[0]
-        cluster_trace_ids = [trace_ids[i] for i in cluster_indices]
-
-        # Get distances to this cluster's centroid (column cluster_id)
-        distances = distances_matrix[cluster_mask, cluster_id]
-
-        # Select closest traces
-        closest_local_indices = np.argsort(distances)[:n_closest]
-        closest_trace_ids = [cluster_trace_ids[i] for i in closest_local_indices]
-
-        representatives[int(cluster_id)] = closest_trace_ids
-
-    return representatives
 
 
 def compute_2d_coordinates(
@@ -344,49 +303,6 @@ def perform_hdbscan_clustering(
         probabilities=probabilities.tolist(),
         num_noise_points=num_noise_points,
     )
-
-
-def select_representatives_by_probability(
-    labels: np.ndarray,
-    probabilities: np.ndarray,
-    trace_ids: list[str],
-    n_representatives: int = 5,
-) -> ClusterRepresentatives:
-    """
-    Select representative traces using HDBSCAN membership probabilities.
-
-    For each cluster, selects traces with highest membership probability.
-    For noise cluster (-1), selects traces with lowest probability (most anomalous).
-
-    Args:
-        labels: Cluster assignments, shape (n_samples,)
-        probabilities: Membership probabilities from HDBSCAN
-        trace_ids: List of trace IDs corresponding to rows
-        n_representatives: Number of representatives per cluster
-
-    Returns:
-        ClusterRepresentatives mapping cluster_id to list of representative trace_ids
-    """
-    representatives: ClusterRepresentatives = {}
-    unique_labels = np.unique(labels)
-
-    for cluster_id in unique_labels:
-        cluster_mask = labels == cluster_id
-        cluster_indices = np.where(cluster_mask)[0]
-        cluster_trace_ids = [trace_ids[i] for i in cluster_indices]
-        cluster_probs = probabilities[cluster_mask]
-
-        if cluster_id == -1:
-            # For noise cluster, select traces with lowest probability (most anomalous)
-            sorted_indices = np.argsort(cluster_probs)[:n_representatives]
-        else:
-            # For regular clusters, select traces with highest probability
-            sorted_indices = np.argsort(cluster_probs)[::-1][:n_representatives]
-
-        representative_trace_ids = [cluster_trace_ids[i] for i in sorted_indices]
-        representatives[int(cluster_id)] = representative_trace_ids
-
-    return representatives
 
 
 def calculate_distances_to_cluster_means(

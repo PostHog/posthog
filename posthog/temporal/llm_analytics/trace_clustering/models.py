@@ -130,7 +130,6 @@ class TraceSummary(TypedDict):
 TraceId = str
 TraceEmbeddings = dict[TraceId, list[float]]
 TraceSummaries = dict[TraceId, TraceSummary]
-ClusterRepresentatives = dict[int, list[TraceId]]  # cluster_id -> list of representative trace IDs
 
 
 @dataclass
@@ -164,7 +163,6 @@ class ClusteringComputeResult:
     labels: list[int]  # cluster assignment per trace (-1 = noise/outlier for HDBSCAN)
     centroids: list[list[float]]  # k centroids (excludes noise cluster)
     distances: list[list[float]]  # n_traces x k_clusters distance matrix
-    representative_trace_ids: ClusterRepresentatives  # cluster_id -> trace_ids (includes -1 for noise)
     coords_2d: list[list[float]]  # UMAP 2D coordinates per trace, shape (n_traces, 2)
     centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid, shape (k, 2)
     probabilities: list[float]  # Cluster membership probability per sample (0 for noise)
@@ -172,12 +170,31 @@ class ClusteringComputeResult:
 
 
 @dataclass
+class TraceLabelingMetadata:
+    """Per-trace metadata for the labeling activity.
+
+    Precomputed from distances matrix to avoid O(n × k) payload size.
+    """
+
+    x: float  # UMAP 2D x coordinate
+    y: float  # UMAP 2D y coordinate
+    distance_to_centroid: float  # Distance to own cluster's centroid
+    rank: int  # Rank within cluster (1 = closest to centroid)
+
+
+@dataclass
 class GenerateLabelsActivityInputs:
-    """Input for the LLM labeling activity."""
+    """Input for the LLM labeling activity.
+
+    Contains precomputed per-trace metadata for the labeling agent.
+    Payload size is O(n) instead of O(n × k) by precomputing ranks/distances.
+    """
 
     team_id: int
-    labels: list[int]
-    representative_trace_ids: ClusterRepresentatives
+    trace_ids: list[str]
+    labels: list[int]  # cluster assignment per trace (-1 = noise)
+    trace_metadata: list[TraceLabelingMetadata]  # per-trace: x, y, distance, rank
+    centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid
     window_start: str
     window_end: str
 
