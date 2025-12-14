@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
 from django.contrib.postgres.fields import ArrayField
@@ -282,8 +282,8 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     ):
         from posthog.api.survey import SurveySerializer
 
-        if "launch" not in payload and "end" not in payload:
-            raise Exception("Payload must contain either 'launch' or 'end' key")
+        if "scheduled_start_datetime" not in payload and "scheduled_end_datetime" not in payload:
+            raise Exception("Payload must contain either 'scheduled_start_datetime' or 'scheduled_end_datetime' key")
 
         # Store scheduled change context on the instance for activity logging
         if scheduled_change_id is not None:
@@ -301,20 +301,21 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         }
 
         serializer_data = {}
-        if payload.get("launch"):
+        if payload.get("scheduled_start_datetime"):
             # this survey is already running, nothing to do here.
             # do we want to restart the survey if its already ended?
             if self.start_date and not self.end_date:
                 return
 
-            serializer_data["start_date"] = datetime.now()
+            serializer_data["start_date"] = payload.get("scheduled_start_datetime")
             serializer_data["end_date"] = None
-        elif payload.get("end"):
+
+        elif payload.get("scheduled_end_datetime"):
             # this survey is not running, nothing to do here.
             if self.end_date:
                 return
 
-            serializer_data["end_date"] = datetime.now()
+            serializer_data["end_date"] = payload.get("scheduled_end_datetime")
 
         serializer = SurveySerializer(self, data=serializer_data, context=context, partial=True)
         if serializer.is_valid(raise_exception=True):

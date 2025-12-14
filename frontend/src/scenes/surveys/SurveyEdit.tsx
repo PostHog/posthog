@@ -68,14 +68,14 @@ import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
-import { DataCollectionType, SurveyEditSection, SurveyEndType, SurveyStartType, surveyLogic } from './surveyLogic'
+import { DataCollectionType, SurveyEditSection, SurveyScheduleType, surveyLogic } from './surveyLogic'
 
 function SurveyLaunchSchedule(): JSX.Element {
     const { survey, startType, endType } = useValues(surveyLogic)
     const { setSurveyValue, setStartType, setEndType } = useActions(surveyLogic)
     const [startDateVisible, setStartDateVisible] = useState(false)
     const [endDateVisible, setEndDateVisible] = useState(false)
-    const surveyStartDateTimeOptions: LemonRadioOption<SurveyStartType>[] = [
+    const surveyStartDateTimeOptions: LemonRadioOption<SurveyScheduleType>[] = [
         {
             value: 'manual',
             label: 'When I click Launch',
@@ -85,7 +85,7 @@ function SurveyLaunchSchedule(): JSX.Element {
             label: 'At a chosen date and time',
         },
     ]
-    const surveyEndDateTimeOptions: LemonRadioOption<SurveyEndType>[] = [
+    const surveyEndDateTimeOptions: LemonRadioOption<SurveyScheduleType>[] = [
         {
             value: 'manual',
             label: 'When I click Stop',
@@ -123,7 +123,7 @@ function SurveyLaunchSchedule(): JSX.Element {
                     <LemonRadio
                         value={startType}
                         options={surveyStartDateTimeOptions}
-                        onChange={(newValue: SurveyStartType) => {
+                        onChange={(newValue: SurveyScheduleType) => {
                             if (newValue === 'manual') {
                                 setSurveyValue('scheduled_start_datetime', null)
                             }
@@ -168,7 +168,7 @@ function SurveyLaunchSchedule(): JSX.Element {
                     <LemonRadio
                         value={endType}
                         options={surveyEndDateTimeOptions}
-                        onChange={(newValue: SurveyEndType) => {
+                        onChange={(newValue: SurveyScheduleType) => {
                             if (newValue === 'manual') {
                                 setSurveyValue('scheduled_end_datetime', null)
                             }

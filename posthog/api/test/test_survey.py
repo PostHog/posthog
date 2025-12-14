@@ -17,7 +17,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test.client import Client
@@ -25,13 +25,13 @@ from django.test.client import Client
 from nanoid import generate
 from rest_framework import status
 
-from posthog.api.survey import nh3_clean_with_allow_list
+from posthog.api.survey import SurveySerializerCreateUpdateOnly, nh3_clean_with_allow_list
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Person, Team
+from posthog.models import Action, FeatureFlag, Person, Survey, Team, User
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization
-from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT
 from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 
 from products.product_tours.backend.models import ProductTour
@@ -1339,6 +1339,24 @@ class TestSurvey(APIBaseTest):
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_400_BAD_REQUEST
         assert (
             updated_survey_deletes_targeting_flag.json()["detail"] == "There is already another survey with this name."
+        )
+
+    def test_cannot_create_scheduled_launch_after_scheduled_end(self):
+        invalid_launch_schedule_survey = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "scheduled_start_datetime": "2023-05-10T12:00:00Z",
+                "scheduled_end_datetime": "2023-05-05T12:00:00Z",
+            },
+            format="json",
+        ).json()
+
+        assert invalid_launch_schedule_survey.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            invalid_launch_schedule_survey.json()["detail"]
+            == "Scheduled end datetime must be after scheduled start datetime."
         )
 
     @freeze_time("2023-05-01 12:00:00")
@@ -4845,3 +4863,160 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(uuid1, uuids)
         self.assertIn(uuid2, uuids)
         self.assertNotIn(uuid3, uuids)
+
+
+class TestAddLaunchSchedules(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        self.team = MagicMock(spec=Team)
+        self.team.id = 1
+        self.user = MagicMock(spec=User)
+        self.user.id = 1
+        self.survey = MagicMock(spec=Survey)
+        self.survey.id = 123
+        self.survey.team = self.team
+        self.survey.created_by = self.user
+        self.context = {
+            "request": MagicMock(user=self.user),
+            "team_id": self.team.id,
+        }
+        self.serializer = SurveySerializerCreateUpdateOnly(context=self.context)
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_no_change_in_schedule_noop(self, mock_filter, mock_create):
+        before = datetime.now(UTC).isoformat()
+        self.serializer._add_launch_schedules(self.survey, before, before, before, before)
+        mock_filter.assert_not_called()
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_null_schedule_noop(self, mock_filter, mock_create):
+        self.serializer._add_launch_schedules(self.survey, None, None, None, None)
+        mock_filter.assert_not_called()
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_deletes_existing_schedules_that_have_already_run(self, mock_filter, _):
+        before = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+        after = (datetime.now(UTC) + timedelta(days=2)).isoformat()
+        mock_delete = MagicMock()
+        mock_filter.return_value.delete = mock_delete
+        self.serializer._add_launch_schedules(self.survey, after, after, before, before)
+        mock_filter.assert_called_once_with(model_name="Survey", record_id=self.survey.id, executed_at__isnull=True)
+        mock_delete.assert_called_once()
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_does_not_create_schedules_if_dates_in_past(self, mock_filter, mock_create):
+        start = (datetime.now(UTC) - timedelta(days=3)).isoformat()
+        end = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+        self.serializer._add_launch_schedules(self.survey, start, end, None, None)
+        mock_create.assert_not_called()
+        mock_filter.assert_called_once_with(model_name="Survey", record_id=self.survey.id, executed_at__isnull=True)
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_create_start_schedule(self, _, mock_create):
+        start = (datetime.now(UTC) + timedelta(days=2)).isoformat()
+        self.serializer._add_launch_schedules(self.survey, start, None, None, None)
+        mock_create.assert_called_once_with(
+            model_name="Survey",
+            record_id=self.survey.id,
+            scheduled_at=start,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_start_datetime": start},
+        )
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_create_end_schedule(self, _, mock_create):
+        end = (datetime.now(UTC) + timedelta(days=2)).isoformat()
+        self.serializer._add_launch_schedules(self.survey, None, end, None, None)
+        mock_create.assert_called_once_with(
+            model_name="Survey",
+            record_id=self.survey.id,
+            scheduled_at=end,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_end_datetime": end},
+        )
+
+
+class TestSurveyScheduledChangesDispatcher(APIBaseTest, QueryMatchingTest):
+    def setUp(self):
+        super().setUp()
+
+        self.survey = Survey.objects.create(
+            name="Test Survey",
+            team=self.team,
+        )
+
+        self.survey_serializer = MagicMock()
+        self.instantiated_survey_serializer = MagicMock()
+        self.survey_serializer.return_value = self.instantiated_survey_serializer
+        self.instantiated_survey_serializer.is_valid = MagicMock()
+        self.instantiated_survey_serializer.is_valid.return_value = True
+        self.instantiated_survey_serializer.save = MagicMock()
+        self.mock_serializer_instance = MagicMock()
+        self.mock_serializer_instance.SurveySerializer = self.survey_serializer
+
+    def test_does_not_update_start_if_survey_already_running(self):
+        with patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}):
+            self.survey.start_date = datetime.now(UTC)
+            self.survey.end_date = None
+            scheduled_start_datetime = datetime.now(UTC)
+            self.survey.scheduled_changes_dispatcher(
+                {"scheduled_start_datetime": scheduled_start_datetime}, user=self.user
+            )
+
+            self.survey_serializer.assert_not_called()
+
+    def test_does_not_update_end_if_survey_already_ended(self):
+        with patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}):
+            self.survey.end_date = datetime.now(UTC)
+            scheduled_end_datetime = datetime.now(UTC)
+            self.survey.scheduled_changes_dispatcher({"scheduled_end_datetime": scheduled_end_datetime}, user=self.user)
+            self.survey_serializer.assert_not_called()
+
+    def test_start_datetime_calls_validate_and_save(self):
+        with patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}):
+            scheduled_start_datetime = datetime.now(UTC)
+            self.survey.start_date = None
+            self.survey.end_date = datetime.now(UTC)
+
+            self.survey.scheduled_changes_dispatcher(
+                {"scheduled_start_datetime": scheduled_start_datetime}, user=self.user
+            )
+
+            self.survey_serializer.assert_called_once()
+            _, kwargs = self.survey_serializer.call_args
+            assert kwargs["data"] == {"start_date": scheduled_start_datetime, "end_date": None}
+            self.instantiated_survey_serializer.is_valid.assert_called_once_with(raise_exception=True)
+            self.instantiated_survey_serializer.save.assert_called_once()
+
+    def test_end_datetime_calls_validate_and_save(self):
+        with patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}):
+            scheduled_end_datetime = datetime.now(UTC)
+            self.survey.end_date = None
+
+            self.survey.scheduled_changes_dispatcher({"scheduled_end_datetime": scheduled_end_datetime}, user=self.user)
+            self.survey_serializer.assert_called_once()
+            _, kwargs = self.survey_serializer.call_args
+            assert kwargs["data"] == {"end_date": scheduled_end_datetime}
+            self.instantiated_survey_serializer.is_valid.assert_called_once_with(raise_exception=True)
+            self.instantiated_survey_serializer.save.assert_called_once()
+
+    def test_raises_exception_if_payload_invalid(self):
+        with patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}):
+            with pytest.raises(
+                Exception,
+                match="Payload must contain either 'scheduled_start_datetime' or 'scheduled_end_datetime' key",
+            ):
+                self.survey.scheduled_changes_dispatcher({"invalid_payload_key": 123}, user=self.user)
+
+            self.survey_serializer.assert_not_called()

@@ -745,7 +745,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
         self._add_launch_schedules(
-            instance, validated_data.get("scheduled_start_datetime"), validated_data.get("scheduled_end_datetime")
+            instance,
+            validated_data.get("scheduled_start_datetime"),
+            validated_data.get("scheduled_end_datetime"),
+            before_update.get("scheduled_start_datetime"),
+            before_update.get("scheduled_end_datetime"),
         )
 
         return instance
@@ -771,30 +775,44 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         )
         instance.save()
 
-    def _add_launch_schedules(self, instance: Survey, start_datetime: str | None, end_datetime: str | None) -> None:
-        # delete previous schedules.
-        # TODO: we could potentially store scheduled change IDs as a foreign key on the survey which would allow us to update here instead of delete/create
-        ScheduledChange.objects.filter(model_name="Survey", record_id=instance.id).delete()
+    def _add_launch_schedules(
+        self,
+        instance: Survey,
+        scheduled_start_datetime: str | None,
+        scheduled_end_datetime: str | None,
+        before_update_scheduled_start_datetime: str | None,
+        before_update_scheduled_end_datetime: str | None,
+    ) -> None:
+        # no new launch schedules, exit early
+        if (
+            scheduled_start_datetime == before_update_scheduled_start_datetime
+            and scheduled_end_datetime == before_update_scheduled_end_datetime
+        ):
+            return
 
-        # create new schedule changes
-        if start_datetime:
+        # if this is an update, delete existing schedules that have not run yet
+        ScheduledChange.objects.filter(model_name="Survey", record_id=instance.id, executed_at__isnull=True).delete()
+
+        # create start schedule if its in the future
+        if scheduled_start_datetime and datetime.fromisoformat(scheduled_start_datetime) > datetime.now(UTC):
             ScheduledChange.objects.create(
                 model_name="Survey",
                 record_id=instance.id,
-                scheduled_at=start_datetime,
+                scheduled_at=scheduled_start_datetime,
                 created_by_id=self.context["request"].user.id,
                 team_id=self.context["team_id"],
-                payload={"launch": True},
+                payload={"scheduled_start_datetime": scheduled_start_datetime},
             )
 
-        if end_datetime:
+        # create end schedule if its in the future
+        if scheduled_end_datetime and datetime.fromisoformat(scheduled_end_datetime) > datetime.now(UTC):
             ScheduledChange.objects.create(
                 model_name="Survey",
                 record_id=instance.id,
-                scheduled_at=end_datetime,
+                scheduled_at=scheduled_end_datetime,
                 created_by_id=self.context["request"].user.id,
                 team_id=self.context["team_id"],
-                payload={"end": True},
+                payload={"scheduled_end_datetime": scheduled_end_datetime},
             )
 
     def _associate_actions(self, instance: Survey, conditions):
