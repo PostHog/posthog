@@ -22,10 +22,12 @@ pub struct SourceMapContent {
     pub fields: BTreeMap<String, Value>,
 }
 
+#[derive(Debug)]
 pub struct SourceMapFile {
     pub inner: SourceFile<SourceMapContent>,
 }
 
+#[derive(Debug)]
 pub struct MinifiedSourceFile {
     pub inner: SourceFile<String>,
 }

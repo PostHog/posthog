@@ -42,7 +42,7 @@ const TooltipContent = (): JSX.Element | null => {
                 {usersOnlineString}
                 {inTeamString}
             </div>
-            {updatedString && <div>({updatedString})</div>}
+            {updatedString && <div className="text-xs">({updatedString})</div>}
         </div>
     )
 }
@@ -55,6 +55,8 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
         return null
     }
 
+    const isOnline = liveUserCount > 0
+
     return (
         <Tooltip
             title={<TooltipContent />}
@@ -62,9 +64,14 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
             delayMs={0}
             docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
         >
-            <div className="flex flex-row items-center justify-center">
-                <div className={clsx('live-user-indicator', liveUserCount > 0 ? 'online' : 'offline')} />
-                <span className="whitespace-nowrap" data-attr="web-analytics-live-user-count">
+            <div
+                className={clsx(
+                    'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
+                    isOnline ? 'bg-success-highlight' : 'bg-border-light'
+                )}
+            >
+                <div className={clsx('live-user-indicator', isOnline ? 'online' : 'offline')} />
+                <span className="text-xs font-medium whitespace-nowrap" data-attr="web-analytics-live-user-count">
                     <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> recently online
                 </span>
             </div>

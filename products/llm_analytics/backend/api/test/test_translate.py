@@ -212,10 +212,10 @@ class TestTranslateAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        mock_feature_enabled.assert_called_once_with(
-            LLM_ANALYTICS_TRANSLATION,
-            str(self.user.distinct_id),
-        )
+        assert mock_feature_enabled.call_count == 2
+        call_kwargs = mock_feature_enabled.call_args_list[0][1]
+        assert call_kwargs["only_evaluate_locally"] is False
+        assert call_kwargs["send_feature_flag_events"] is False
 
     @patch("products.llm_analytics.backend.api.translate.settings")
     @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled")
@@ -256,7 +256,8 @@ class TestTranslateAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        mock_feature_enabled.assert_called_once_with(
-            LLM_ANALYTICS_TRANSLATION,
-            str(self.user.distinct_id),
-        )
+        assert mock_feature_enabled.call_count == 1
+        call_args = mock_feature_enabled.call_args
+        assert call_args[0][0] == LLM_ANALYTICS_TRANSLATION
+        assert call_args[1]["only_evaluate_locally"] is False
+        assert call_args[1]["send_feature_flag_events"] is False

@@ -156,14 +156,14 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('delete session recording', () => {
-        it('on playlist page', async () => {
+        it('calls onRecordingDeleted callback when provided', async () => {
             silenceKeaLoadersErrors()
-            const listLogic = sessionRecordingsPlaylistLogic({})
-            listLogic.mount()
+            const onRecordingDeleted = jest.fn()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
                 playerKey: 'test',
-                playlistLogic: listLogic,
+                blobV2PollingDisabled: true,
+                onRecordingDeleted,
             })
             logic.mount()
             jest.spyOn(api, 'delete')
@@ -171,40 +171,11 @@ describe('sessionRecordingPlayerLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
             })
-                .toDispatchActions([
-                    'deleteRecording',
-                    listLogic.actionTypes.loadAllRecordings,
-                    listLogic.actionCreators.setSelectedRecordingId(null),
-                ])
-                .toNotHaveDispatchedActions([
-                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
-                ])
+                .toDispatchActions(['deleteRecording'])
+                .toFinishAllListeners()
 
             expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
-            resumeKeaLoadersErrors()
-        })
-
-        it('on any other recordings page with a list', async () => {
-            silenceKeaLoadersErrors()
-            const listLogic = sessionRecordingsPlaylistLogic({ updateSearchParams: true })
-            listLogic.mount()
-            logic = sessionRecordingPlayerLogic({
-                sessionRecordingId: '3',
-                playerKey: 'test',
-                playlistLogic: listLogic,
-            })
-            logic.mount()
-            jest.spyOn(api, 'delete')
-
-            await expectLogic(logic, () => {
-                logic.actions.deleteRecording()
-            }).toDispatchActions([
-                'deleteRecording',
-                listLogic.actionTypes.loadAllRecordings,
-                listLogic.actionCreators.setSelectedRecordingId(null),
-            ])
-
-            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(onRecordingDeleted).toHaveBeenCalled()
             resumeKeaLoadersErrors()
         })
 

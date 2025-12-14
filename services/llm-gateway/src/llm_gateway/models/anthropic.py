@@ -8,4 +8,5 @@ class AnthropicMessagesRequest(BaseModel):
 
     model: str
     messages: list[dict[str, Any]]
+    max_tokens: int = 4096
     stream: bool = False
