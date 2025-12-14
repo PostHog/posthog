@@ -966,32 +966,29 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.setFlagPropertyErrors(null)
             },
             submitSurveyFailure: async () => {
+                const findStepErrorPageIndex = (): number => {
+                    if (values.surveyErrors.questions == null) {
+                        return -1
+                    }
+                    const pageIndex = values.surveyErrors.questions.findIndex((errorObj) => {
+                        if ('lowerBoundLabel' in errorObj && errorObj.lowerBoundLabel !== false) {
+                            return true
+                        }
+                        if ('upperBoundLabel' in errorObj && errorObj.upperBoundLabel !== false) {
+                            return true
+                        }
+                        return errorObj.question !== false
+                    })
+                    return pageIndex
+                }
+
+                const stepErrorPageIndex = findStepErrorPageIndex()
                 // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
                 if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
                     actions.setSelectedSection(SurveyEditSection.DisplayConditions)
-                } else if (
-                    values.surveyErrors.questions != null &&
-                    !values.surveyErrors.questions.every((errorObj, index) => {
-                        const question = values.survey.questions[index]
-                        if (question == null) {
-                            return errorObj.question === false
-                        }
-                        if (question.type === SurveyQuestionType.Rating) {
-                            if ('lowerBoundLabel' in errorObj && errorObj.lowerBoundLabel !== false) {
-                                return false
-                            }
-                            if ('upperBoundLabel' in errorObj && errorObj.upperBoundLabel !== false) {
-                                return false
-                            }
-                        }
-                        return errorObj.question === false
-                    })
-                ) {
+                } else if (stepErrorPageIndex >= 0) {
                     actions.setSelectedSection(SurveyEditSection.Steps)
-                    const page = values.surveyErrors.questions.findIndex((q) => q.question !== false)
-                    if (page >= 0) {
-                        actions.setSelectedPageIndex(page)
-                    }
+                    actions.setSelectedPageIndex(stepErrorPageIndex)
                 } else if (hasFormErrors(values.survey.appearance)) {
                     actions.setSelectedSection(SurveyEditSection.Customization)
                 } else {
