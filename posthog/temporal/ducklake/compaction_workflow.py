@@ -5,7 +5,8 @@ from typing import NamedTuple
 import structlog
 from temporalio import activity, common, workflow
 
-from posthog.ducklake.common import attach_catalog, configure_connection, get_config
+from posthog.ducklake.common import attach_catalog, get_config
+from posthog.ducklake.storage import configure_connection
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput

@@ -3,8 +3,6 @@ import json
 import datetime as dt
 import dataclasses
 
-from django.conf import settings
-
 import duckdb
 import deltalake
 import posthoganalytics
@@ -13,12 +11,8 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.ducklake.common import (
-    attach_catalog,
-    configure_connection,
-    escape as ducklake_escape,
-    get_config,
-)
+from posthog.ducklake.common import attach_catalog, get_config
+from posthog.ducklake.storage import configure_connection, ensure_ducklake_bucket_exists, get_deltalake_storage_options
 from posthog.ducklake.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
@@ -37,7 +31,6 @@ from posthog.temporal.ducklake.metrics import (
 from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
 LOGGER = get_logger(__name__)
 DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX = "data_modeling"
@@ -177,9 +170,8 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
         conn = duckdb.connect()
         alias = "ducklake"
         try:
-            _configure_s3_secrets(conn)
-            configure_connection(conn, config, install_extension=True)
-            _ensure_ducklake_bucket_exists(config)
+            configure_connection(conn)
+            ensure_ducklake_bucket_exists(config=config)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             qualified_schema = f"{alias}.{inputs.model.schema_name}"
@@ -218,8 +210,7 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
         results: list[DuckLakeCopyVerificationResult] = []
 
         try:
-            _configure_s3_secrets(conn)
-            configure_connection(conn, config, install_extension=True)
+            configure_connection(conn)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             ducklake_table = f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}"
@@ -427,91 +418,6 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
         get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)
 
 
-def _get_s3_credentials() -> tuple[str, str, str, str]:
-    """Get S3 credentials (access_key, secret_key, region, endpoint)."""
-    config = get_config()
-    return (
-        config.get("DUCKLAKE_S3_ACCESS_KEY", ""),
-        config.get("DUCKLAKE_S3_SECRET_KEY", ""),
-        config.get("DUCKLAKE_BUCKET_REGION", ""),
-        getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or "",
-    )
-
-
-def _configure_s3_secrets(conn: duckdb.DuckDBPyConnection) -> None:
-    conn.execute("INSTALL httpfs")
-    conn.execute("LOAD httpfs")
-    conn.execute("INSTALL delta")
-    conn.execute("LOAD delta")
-
-    if settings.USE_LOCAL_SETUP:
-        # Local dev: explicit credentials for both source and destination
-        access_key, secret_key, region, endpoint = _get_s3_credentials()
-
-        normalized_endpoint = ""
-        use_ssl = True
-        if endpoint:
-            normalized_endpoint, use_ssl = _normalize_object_storage_endpoint(endpoint)
-
-        secret_parts = ["TYPE S3"]
-        if access_key:
-            secret_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
-        if secret_key:
-            secret_parts.append(f"SECRET '{ducklake_escape(secret_key)}'")
-        if region:
-            secret_parts.append(f"REGION '{ducklake_escape(region)}'")
-        if normalized_endpoint:
-            secret_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
-        secret_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
-        secret_parts.append("URL_STYLE 'path'")
-        conn.execute(f"CREATE OR REPLACE SECRET ducklake_s3 ({', '.join(secret_parts)})")
-    else:
-        # Production: IRSA via credential chain
-        config = get_config()
-        region = config.get("DUCKLAKE_BUCKET_REGION", "us-east-1")
-        conn.execute(f"""
-            CREATE OR REPLACE SECRET ducklake_s3 (
-                TYPE S3,
-                PROVIDER CREDENTIAL_CHAIN,
-                REGION '{ducklake_escape(region)}'
-            )
-        """)
-
-
-def _normalize_object_storage_endpoint(endpoint: str) -> tuple[str, bool]:
-    """Normalize object storage endpoint URL.
-
-    Returns tuple of (endpoint, use_ssl).
-    """
-    value = endpoint.strip()
-    if not value:
-        return "", True
-
-    if "://" in value:
-        from urllib.parse import urlparse
-
-        parsed = urlparse(value)
-        normalized = parsed.netloc or parsed.path
-        use_ssl = parsed.scheme.lower() == "https"
-    else:
-        use_ssl = value.lower().startswith("https")
-        normalized = value.rstrip("/")
-
-    return normalized.rstrip("/") or "", use_ssl
-
-
-def _ensure_ducklake_bucket_exists(config: dict[str, str]) -> None:
-    if not settings.USE_LOCAL_SETUP:
-        return
-
-    ensure_bucket_exists(
-        f"s3://{config['DUCKLAKE_BUCKET'].rstrip('/')}",
-        config["DUCKLAKE_S3_ACCESS_KEY"],
-        config["DUCKLAKE_S3_SECRET_KEY"],
-        settings.OBJECT_STORAGE_ENDPOINT,
-    )
-
-
 def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, str], alias: str) -> None:
     """Attach the DuckLake catalog, swallowing the error if already attached."""
     try:
@@ -546,7 +452,7 @@ def _detect_partition_column_name(table_uri: str) -> str | None:
 
 
 def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
-    options = _get_delta_storage_options()
+    options = get_deltalake_storage_options()
     try:
         delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=options)
     except Exception as exc:
@@ -561,26 +467,6 @@ def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
 
     partition_columns = getattr(metadata, "partition_columns", None) or []
     return [column for column in partition_columns if column]
-
-
-def _get_delta_storage_options() -> dict[str, str]:
-    access_key, secret_key, region, endpoint = _get_s3_credentials()
-
-    options: dict[str, str] = {
-        "aws_access_key_id": access_key,
-        "aws_secret_access_key": secret_key,
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
-
-    if region:
-        options["region_name"] = region
-        options["AWS_DEFAULT_REGION"] = region
-
-    if endpoint:
-        options["endpoint_url"] = endpoint
-        options["AWS_ALLOW_HTTP"] = "true"
-
-    return {key: value for key, value in options.items() if value}
 
 
 def _get_column_type_from_schema(schema: list[tuple[str, str]], column_name: str) -> str | None:
