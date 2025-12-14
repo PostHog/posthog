@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 from django.contrib.postgres.fields import ArrayField
@@ -277,17 +277,43 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             should_delete=False,
         )
 
+    def get_lifecycle_analytics_event(
+        self,
+        before_start_date: datetime | None,
+        before_end_date: datetime | None,
+        trigger_source: str | None = None,
+    ) -> tuple[str, dict] | None:
+        properties = {
+            "name": self.name,
+            "id": self.id,
+            "survey_type": self.type,
+            "question_types": [question.get("type") for question in self.questions] if self.questions else [],
+            "created_at": self.created_at,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+        }
+
+        if trigger_source is not None:
+            properties["trigger_source"] = trigger_source
+
+        if before_start_date is None and self.start_date is not None:
+            return "survey launched", properties
+        if before_end_date is None and self.end_date is not None:
+            return "survey stopped", properties
+        if before_start_date is not None and before_end_date is not None and self.end_date is None:
+            return "survey resumed", properties
+
+        return None
+
     def scheduled_changes_dispatcher(
         self, payload, user: Optional[AbstractBaseUser] = None, scheduled_change_id: Optional[int] = None
     ):
         from posthog.api.survey import SurveySerializer
+        from posthog.event_usage import report_user_action
+        from posthog.models.user import User
 
         if "scheduled_start_datetime" not in payload and "scheduled_end_datetime" not in payload:
             raise Exception("Payload must contain either 'scheduled_start_datetime' or 'scheduled_end_datetime' key")
-
-        # Store scheduled change context on the instance for activity logging
-        if scheduled_change_id is not None:
-            self._scheduled_change_context = {"scheduled_change_id": scheduled_change_id}
 
         http_request = HttpRequest()
         # We kind of cheat here and set the request user to the user who created the scheduled change
@@ -300,10 +326,12 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             "project_id": self.team.project_id,
         }
 
+        before_start_date = self.start_date
+        before_end_date = self.end_date
+
         serializer_data = {}
         if payload.get("scheduled_start_datetime"):
-            # this survey is already running, nothing to do here.
-            # do we want to restart the survey if its already ended?
+            # this survey is already running. nothing to do here.
             if self.start_date and not self.end_date:
                 return
 
@@ -311,7 +339,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             serializer_data["end_date"] = None
 
         elif payload.get("scheduled_end_datetime"):
-            # this survey is not running, nothing to do here.
+            # this survey is not running. nothing to do here.
             if self.end_date:
                 return
 
@@ -320,6 +348,21 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         serializer = SurveySerializer(self, data=serializer_data, context=context, partial=True)
         if serializer.is_valid(raise_exception=True):
             serializer.save()
+
+        actor = user if isinstance(user, User) else None
+        if actor is None:
+            return
+
+        event_payload = self.get_lifecycle_analytics_event(
+            before_start_date=before_start_date,
+            before_end_date=before_end_date,
+            trigger_source="scheduled_change",
+        )
+        if event_payload is None:
+            return
+
+        event, properties = event_payload
+        report_user_action(actor, event, properties, team=self.team)
 
 
 def update_response_sampling_limits(sender, instance, **kwargs):

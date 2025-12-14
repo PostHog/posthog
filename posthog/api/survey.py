@@ -708,38 +708,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             detail=Detail(changes=changes, name=instance.name),
         )
 
-        # Report survey events based on start_date and end_date changes
-
-        properties = {
-            "name": instance.name,
-            "id": instance.id,
-            "survey_type": instance.type,
-            "question_types": [question.get("type") for question in instance.questions] if instance.questions else [],
-            "created_at": instance.created_at,
-            "start_date": instance.start_date,
-            "end_date": instance.end_date,
-        }
-        if before_update.start_date is None and instance.start_date is not None:
-            report_user_action(
-                user,
-                "survey launched",
-                properties,
-                team,
-            )
-        elif before_update.end_date is None and instance.end_date is not None:
-            report_user_action(
-                user,
-                "survey stopped",
-                properties,
-                team,
-            )
-        elif before_update.start_date is not None and before_update.end_date is not None and instance.end_date is None:
-            report_user_action(
-                user,
-                "survey resumed",
-                properties,
-                team,
-            )
+        event_payload = instance.get_lifecycle_analytics_event(
+            before_start_date=before_update.start_date,
+            before_end_date=before_update.end_date,
+        )
+        if event_payload is not None:
+            event, properties = event_payload
+            report_user_action(user, event, properties, team)
 
         self._add_user_survey_interacted_filters(instance, end_date)
         self._associate_actions(instance, validated_data.get("conditions"))
@@ -748,8 +723,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             instance,
             validated_data.get("scheduled_start_datetime"),
             validated_data.get("scheduled_end_datetime"),
-            before_update.get("scheduled_start_datetime"),
-            before_update.get("scheduled_end_datetime"),
+            before_update.scheduled_start_datetime,
+            before_update.scheduled_end_datetime,
         )
 
         return instance
@@ -780,8 +755,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance: Survey,
         scheduled_start_datetime: str | None,
         scheduled_end_datetime: str | None,
-        before_update_scheduled_start_datetime: str | None,
-        before_update_scheduled_end_datetime: str | None,
+        before_update_scheduled_start_datetime: datetime | str | None,
+        before_update_scheduled_end_datetime: datetime | str | None,
     ) -> None:
         # no new launch schedules, exit early
         if (
