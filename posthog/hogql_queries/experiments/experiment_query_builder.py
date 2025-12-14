@@ -1644,6 +1644,10 @@ class ExperimentQueryBuilder:
 
         This is a performance optimization - we'll do the exact retention window
         calculation in the entity_metrics CTE.
+
+        For DAY/HOUR units that use timestamp truncation, we add a buffer to account
+        for the truncation window. This ensures that same-period retention (e.g., [0,0])
+        captures all events within that period, not just events at the exact same second.
         """
         assert isinstance(self.metric, ExperimentRetentionMetric)
 
@@ -1652,13 +1656,26 @@ class ExperimentQueryBuilder:
             self.metric.retention_window_unit,
         )
 
+        # For DAY/HOUR units, add a buffer to account for truncation
+        # This ensures same-period retention windows work correctly
+        truncation_buffer = 0
+        if self.metric.retention_window_unit == FunnelConversionWindowTimeUnit.DAY:
+            # For DAY units, allow completions within the same day (24 hours)
+            truncation_buffer = 86400  # 1 day in seconds
+        elif self.metric.retention_window_unit == FunnelConversionWindowTimeUnit.HOUR:
+            # For HOUR units, allow completions within the same hour
+            truncation_buffer = 3600  # 1 hour in seconds
+
+        # Add buffer to retention window end
+        buffered_window_end_seconds = retention_window_end_seconds + truncation_buffer
+
         return parse_expr(
             """
             completion_events.completion_timestamp >= start_events.start_timestamp
             AND completion_events.completion_timestamp <= start_events.start_timestamp + toIntervalSecond({retention_window_end_seconds})
             """,
             placeholders={
-                "retention_window_end_seconds": ast.Constant(value=retention_window_end_seconds),
+                "retention_window_end_seconds": ast.Constant(value=buffered_window_end_seconds),
             },
         )
 

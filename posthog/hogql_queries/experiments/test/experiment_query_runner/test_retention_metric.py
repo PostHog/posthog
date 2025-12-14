@@ -836,6 +836,414 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_b_variant.denominator_sum_squares, 6)
         self.assertEqual(test_b_variant.numerator_denominator_sum_product, 5)
 
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_retention_day_zero_same_day_as_start(self):
+        """
+        Test Day 0 retention (same day as start event).
+
+        Window [0, 0] should capture users who complete on the same day they started.
+        This is a common activation metric: "Did user activate on signup day?"
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create a retention metric with [0, 0] window (same day as start)
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="signup",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="first_action",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=0,
+            retention_window_end=0,  # Same day as start
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        def _create_events_for_user(variant: str, user_id: str, completion_hours_after_start: int | None) -> list[dict]:
+            """
+            completion_hours_after_start:
+            - 0-23: Same day (day 0) - should be captured
+            - 24+: Next day (day 1+) - should NOT be captured
+            - None: Never completes
+            """
+            events = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T10:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                {
+                    "event": "signup",
+                    "timestamp": "2024-01-02T10:00:00",  # 10:00 AM on Jan 2
+                    "properties": {ff_property: variant},
+                },
+            ]
+
+            if completion_hours_after_start is not None:
+                # Calculate timestamp for completion event
+                if completion_hours_after_start < 24:
+                    # Same day
+                    hour = 10 + completion_hours_after_start
+                    day = 2
+                else:
+                    # Next day(s)
+                    hour = 10 + (completion_hours_after_start % 24)
+                    day = 2 + (completion_hours_after_start // 24)
+
+                events.append(
+                    {
+                        "event": "first_action",
+                        "timestamp": f"2024-01-{day:02d}T{hour:02d}:00:00",
+                        "properties": {ff_property: variant},
+                    }
+                )
+
+            return events
+
+        journeys_for(
+            {
+                # Control variant
+                "control_1": _create_events_for_user("control", "user_c1", 2),  # Same day, 2 hours later - COUNTS
+                "control_2": _create_events_for_user("control", "user_c2", 8),  # Same day, 8 hours later - COUNTS
+                "control_3": _create_events_for_user("control", "user_c3", 13),  # Same day, 13 hours later - COUNTS
+                "control_4": _create_events_for_user("control", "user_c4", 24),  # Next day - NOT counted
+                "control_5": _create_events_for_user("control", "user_c5", None),  # Never completes - NOT counted
+                # Test variant
+                "test_1": _create_events_for_user("test", "user_t1", 1),  # Same day, 1 hour later - COUNTS
+                "test_2": _create_events_for_user("test", "user_t2", 5),  # Same day, 5 hours later - COUNTS
+                "test_3": _create_events_for_user("test", "user_t3", 24),  # Next day - NOT counted
+                "test_4": _create_events_for_user("test", "user_t4", 48),  # 2 days later - NOT counted
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # Control: 5 users started, 3 completed same day (60%)
+        self.assertEqual(control_variant.number_of_samples, 5)
+        self.assertEqual(control_variant.sum, 3)
+        self.assertEqual(control_variant.sum_squares, 3)
+
+        # Test: 4 users started, 2 completed same day (50%)
+        self.assertEqual(test_variant.number_of_samples, 4)
+        self.assertEqual(test_variant.sum, 2)
+        self.assertEqual(test_variant.sum_squares, 2)
+
+        # Verify ratio-specific fields
+        self.assertEqual(control_variant.denominator_sum, 5)
+        self.assertEqual(control_variant.denominator_sum_squares, 5)
+        self.assertEqual(control_variant.numerator_denominator_sum_product, 3)
+        self.assertEqual(test_variant.denominator_sum, 4)
+        self.assertEqual(test_variant.denominator_sum_squares, 4)
+        self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_retention_hour_based_same_hour(self):
+        """
+        Test Hour-based retention with [0, 0] window (same hour as start).
+
+        Window [0, 0] with HOUR unit should capture users who complete within
+        the same hour they started (using toStartOfHour truncation).
+
+        Example:
+        - User starts at 10:15, completes at 10:45 → RETAINED (same hour: 10:00-10:59)
+        - User starts at 10:59, completes at 11:01 → NOT RETAINED (different hour)
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create a retention metric with [0, 0] HOUR window
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="session_start",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="key_action",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=0,
+            retention_window_end=0,  # Same hour as start
+            retention_window_unit=FunnelConversionWindowTimeUnit.HOUR,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        def _create_events_for_user(
+            variant: str, user_id: str, start_minute: int, completion_minute_offset: int | None
+        ) -> list[dict]:
+            """
+            start_minute: Minute of the hour when user starts (0-59)
+            completion_minute_offset:
+            - Positive within same hour: should be captured
+            - Causes next hour: should NOT be captured
+            - None: Never completes
+            """
+            events = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": f"2024-01-02T10:{start_minute:02d}:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                {
+                    "event": "session_start",
+                    "timestamp": f"2024-01-02T10:{start_minute:02d}:00",
+                    "properties": {ff_property: variant},
+                },
+            ]
+
+            if completion_minute_offset is not None:
+                completion_minute = start_minute + completion_minute_offset
+                if completion_minute < 60:
+                    # Same hour
+                    events.append(
+                        {
+                            "event": "key_action",
+                            "timestamp": f"2024-01-02T10:{completion_minute:02d}:00",
+                            "properties": {ff_property: variant},
+                        }
+                    )
+                else:
+                    # Next hour(s)
+                    hour = 10 + (completion_minute // 60)
+                    minute = completion_minute % 60
+                    events.append(
+                        {
+                            "event": "key_action",
+                            "timestamp": f"2024-01-02T{hour:02d}:{minute:02d}:00",
+                            "properties": {ff_property: variant},
+                        }
+                    )
+
+            return events
+
+        journeys_for(
+            {
+                # Control variant
+                "control_1": _create_events_for_user("control", "user_c1", 10, 5),  # 10:10 → 10:15 (same hour) - COUNTS
+                "control_2": _create_events_for_user(
+                    "control", "user_c2", 15, 30
+                ),  # 10:15 → 10:45 (same hour) - COUNTS
+                "control_3": _create_events_for_user("control", "user_c3", 55, 4),  # 10:55 → 10:59 (same hour) - COUNTS
+                "control_4": _create_events_for_user(
+                    "control", "user_c4", 59, 2
+                ),  # 10:59 → 11:01 (next hour) - NOT counted
+                "control_5": _create_events_for_user("control", "user_c5", 30, None),  # Never completes - NOT counted
+                # Test variant
+                "test_1": _create_events_for_user("test", "user_t1", 0, 0),  # 10:00 → 10:00 (same minute) - COUNTS
+                "test_2": _create_events_for_user("test", "user_t2", 20, 39),  # 10:20 → 10:59 (same hour) - COUNTS
+                "test_3": _create_events_for_user("test", "user_t3", 45, 60),  # 10:45 → 11:45 (next hour) - NOT counted
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # Control: 5 users started, 3 completed in same hour (60%)
+        self.assertEqual(control_variant.number_of_samples, 5)
+        self.assertEqual(control_variant.sum, 3)
+        self.assertEqual(control_variant.sum_squares, 3)
+
+        # Test: 3 users started, 2 completed in same hour (66.7%)
+        self.assertEqual(test_variant.number_of_samples, 3)
+        self.assertEqual(test_variant.sum, 2)
+        self.assertEqual(test_variant.sum_squares, 2)
+
+        # Verify ratio-specific fields
+        self.assertEqual(control_variant.denominator_sum, 5)
+        self.assertEqual(control_variant.denominator_sum_squares, 5)
+        self.assertEqual(control_variant.numerator_denominator_sum_product, 3)
+        self.assertEqual(test_variant.denominator_sum, 3)
+        self.assertEqual(test_variant.denominator_sum_squares, 3)
+        self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_retention_multiple_completions_in_window(self):
+        """
+        Test that multiple completion events within the retention window are handled correctly.
+
+        Users should be counted as retained (value = 1) even if they complete the event
+        multiple times within the window. The MAX() aggregation in the query (line 1445
+        in experiment_query_builder.py) ensures this.
+
+        Scenario: User completes on day 3, day 5, and day 7 with window [1,7]
+        Expected: User is retained (counted once), not counted 3 times
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="signup",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        def _create_events_for_user(variant: str, user_id: str, completion_days: list[int] | None) -> list[dict]:
+            """
+            completion_days: List of days after signup when user completes
+            - [3, 5, 7]: Multiple completions within window
+            - [3]: Single completion
+            - None or []: No completions
+            """
+            events = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                {
+                    "event": "signup",
+                    "timestamp": "2024-01-02T12:01:00",
+                    "properties": {ff_property: variant},
+                },
+            ]
+
+            if completion_days:
+                for day_offset in completion_days:
+                    events.append(
+                        {
+                            "event": "purchase",
+                            "timestamp": f"2024-01-{2 + day_offset:02d}T14:00:00",
+                            "properties": {ff_property: variant},
+                        }
+                    )
+
+            return events
+
+        journeys_for(
+            {
+                # Control variant
+                "control_1": _create_events_for_user("control", "user_c1", [3, 5, 7]),  # 3 completions - COUNTS as 1
+                "control_2": _create_events_for_user("control", "user_c2", [2, 4, 6]),  # 3 completions - COUNTS as 1
+                "control_3": _create_events_for_user("control", "user_c3", [1, 1, 1]),  # Same day 3x - COUNTS as 1
+                "control_4": _create_events_for_user("control", "user_c4", [4]),  # 1 completion - COUNTS as 1
+                "control_5": _create_events_for_user("control", "user_c5", None),  # No completions - NOT counted
+                "control_6": _create_events_for_user("control", "user_c6", [10, 12]),  # Outside window - NOT counted
+                # Test variant
+                "test_1": _create_events_for_user("test", "user_t1", [1, 3, 5, 7]),  # 4 completions - COUNTS as 1
+                "test_2": _create_events_for_user("test", "user_t2", [2]),  # 1 completion - COUNTS as 1
+                "test_3": _create_events_for_user("test", "user_t3", None),  # No completions - NOT counted
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # Control: 6 users started, 4 retained (even though they had multiple completions)
+        # Each retained user counts as 1, not as sum of their completions
+        self.assertEqual(control_variant.number_of_samples, 6)
+        self.assertEqual(control_variant.sum, 4)  # 4 users retained, not 9 (total completions)
+        self.assertEqual(control_variant.sum_squares, 4)  # 1^2 * 4 = 4
+
+        # Test: 3 users started, 2 retained (even though they had multiple completions)
+        self.assertEqual(test_variant.number_of_samples, 3)
+        self.assertEqual(test_variant.sum, 2)  # 2 users retained, not 5 (total completions)
+        self.assertEqual(test_variant.sum_squares, 2)  # 1^2 * 2 = 2
+
+        # Verify ratio-specific fields
+        self.assertEqual(control_variant.denominator_sum, 6)
+        self.assertEqual(control_variant.denominator_sum_squares, 6)
+        self.assertEqual(control_variant.numerator_denominator_sum_product, 4)
+        self.assertEqual(test_variant.denominator_sum, 3)
+        self.assertEqual(test_variant.denominator_sum_squares, 3)
+        self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
+
     @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
