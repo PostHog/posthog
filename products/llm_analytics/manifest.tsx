@@ -91,6 +91,13 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
         },
+        LLMAnalyticsPrompt: {
+            import: () => import('./frontend/prompts/LLMPromptScene'),
+            projectBased: true,
+            name: 'LLM analytics prompt',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
     },
     routes: {
         '/llm-analytics': ['LLMAnalytics', 'llmAnalytics'],
@@ -108,6 +115,8 @@ export const manifest: ProductManifest = {
         '/llm-analytics/evaluations': ['LLMAnalytics', 'llmAnalyticsEvaluations'],
         '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
         '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
+        '/llm-analytics/prompts': ['LLMAnalytics', 'llmAnalyticsPrompts'],
+        '/llm-analytics/prompts/:id': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
         '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
         '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
         '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
@@ -167,6 +176,8 @@ export const manifest: ProductManifest = {
         llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
         llmAnalyticsEvaluationTemplates: (): string => '/llm-analytics/evaluations/templates',
         llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
+        llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
+        llmAnalyticsPrompt: (id: string): string => `/llm-analytics/prompts/${id}`,
         llmAnalyticsSettings: (): string => '/llm-analytics/settings',
         llmAnalyticsClusters: (runId?: string): string =>
             runId ? `/llm-analytics/clusters/${runId}` : '/llm-analytics/clusters',

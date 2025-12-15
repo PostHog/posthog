@@ -79,6 +79,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMAnalyticsEvaluationTemplates: () =>
         import('../../products/llm_analytics/frontend/evaluations/EvaluationTemplates'),
     LLMAnalyticsCluster: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClusterScene'),
+    LLMAnalyticsPrompt: () => import('../../products/llm_analytics/frontend/prompts/LLMPromptScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
@@ -134,6 +135,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/evaluations': ['LLMAnalytics', 'llmAnalyticsEvaluations'],
     '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
     '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
+    '/llm-analytics/prompts': ['LLMAnalytics', 'llmAnalyticsPrompts'],
+    '/llm-analytics/prompts/:id': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
     '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
     '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
@@ -351,6 +354,12 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
     },
+    LLMAnalyticsPrompt: {
+        projectBased: true,
+        name: 'LLM analytics prompt',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/llm-analytics/installation',
+    },
     Logs: {
         projectBased: true,
         name: 'Logs',
@@ -528,6 +537,8 @@ export const productUrls = {
     llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
     llmAnalyticsEvaluationTemplates: (): string => '/llm-analytics/evaluations/templates',
     llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
+    llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
+    llmAnalyticsPrompt: (id: string): string => `/llm-analytics/prompts/${id}`,
     llmAnalyticsSettings: (): string => '/llm-analytics/settings',
     llmAnalyticsClusters: (runId?: string): string =>
         runId ? `/llm-analytics/clusters/${runId}` : '/llm-analytics/clusters',
@@ -1094,6 +1105,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsEvaluation',
             'LLMAnalyticsEvaluationTemplates',
             'LLMAnalyticsCluster',
+            'LLMAnalyticsPrompt',
         ],
     },
     {

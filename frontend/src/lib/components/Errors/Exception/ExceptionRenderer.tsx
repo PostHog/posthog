@@ -41,7 +41,7 @@ export function ExceptionRenderer({
             <div>
                 {match(exception.stacktrace)
                     .when(
-                        (stack) => stack === null || stack === undefined || stack.frames.length === 0,
+                        (stack) => stack === null || stack === undefined || !stack.frames || stack.frames.length === 0,
                         () => renderUndefinedTrace(exception, knownException)
                     )
                     .when(

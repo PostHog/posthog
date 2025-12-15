@@ -86,6 +86,11 @@ class AggregationFinder(TraversingVisitor):
 
 
 def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
+    if value is True:
+        value = "true"
+    elif value is False:
+        value = "false"
+
     if value != "true" and value != "false":
         return value
     if property.type == "person":

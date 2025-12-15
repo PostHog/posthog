@@ -70,6 +70,7 @@ import {
     getDefaultGenerationsColumns,
     llmAnalyticsLogic,
 } from './llmAnalyticsLogic'
+import { LLMPromptsScene } from './prompts/LLMPromptsScene'
 import { LLMProviderKeysSettings } from './settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from './settings/TrialUsageMeter'
 import { truncateValue } from './utils'
@@ -786,6 +787,23 @@ export function LLMAnalyticsScene(): JSX.Element {
             ),
             link: combineUrl(urls.llmAnalyticsClusters(), searchParams).url,
             'data-attr': 'clusters-tab',
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS]) {
+        tabs.push({
+            key: 'prompts',
+            label: (
+                <>
+                    Prompts{' '}
+                    <LemonTag className="ml-1" type="completion">
+                        Alpha
+                    </LemonTag>
+                </>
+            ),
+            content: <LLMPromptsScene />,
+            link: combineUrl(urls.llmAnalyticsPrompts(), searchParams).url,
+            'data-attr': 'prompts-tab',
         })
     }
 
