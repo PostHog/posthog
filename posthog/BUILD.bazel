@@ -5,8 +5,14 @@ load("@rules_python//python:defs.bzl", "py_library")
 # and to trigger reruns when legacy code changes.
 py_library(
     name = "core",
-    srcs = ["__init__.py"],
-    data = [":legacy_srcs"],
+    srcs = glob(
+        ["**/*.py"],
+        exclude = [
+            "**/test_*.py",
+            "**/*_test.py",
+            "**/tests/**",
+        ],
+    ),
     visibility = ["//visibility:public"],
     deps = ["//common/bazel:third_party"],
 )
