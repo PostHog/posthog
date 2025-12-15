@@ -451,7 +451,7 @@ export function BIScene(): JSX.Element {
     }, [_queryString])
 
     const rawRows = useMemo(() => {
-        if (!queryResponse?.results || selectedFields.length === 0 || queryResponseLoading) {
+        if (!queryResponse?.results || selectedFields.length === 0) {
             return []
         }
 
@@ -464,7 +464,7 @@ export function BIScene(): JSX.Element {
             })
             return asObject
         })
-    }, [queryResponse, selectedFields, queryResponseLoading])
+    }, [queryResponse, selectedFields])
 
     const rows = useMemo(() => rawRows.slice(0, limit), [rawRows, limit])
     const hasMoreRows = rawRows.length > rows.length
