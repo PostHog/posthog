@@ -33,7 +33,7 @@ class HobbyTester:
         record=None,
     ):
         if not token:
-            token = os.getenv("DIGITALOCEAN_TOKEN")
+            token = os.getenv("DIGITAL_OCEAN_HOBBY_TOKEN")
         self.token = token
         self.branch = branch
         self.release_tag = release_tag
