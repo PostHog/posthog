@@ -160,8 +160,6 @@ export function ProjectTree({
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
-    const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
-
     const { customProducts, customProductsLoading } = useValues(customProductsLogic)
     const { seed } = useActions(customProductsLogic)
 
@@ -178,6 +176,7 @@ export function ProjectTree({
         []
     )
 
+    const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
