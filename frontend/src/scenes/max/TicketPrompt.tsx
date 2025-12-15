@@ -18,6 +18,8 @@ interface TicketPromptProps {
     traceId: string | null
     /** If provided, skip the input step and use this summary directly */
     summary?: string
+    /** If provided, pre-populate the input field with this text */
+    initialText?: string
 }
 
 /**
@@ -25,8 +27,8 @@ interface TicketPromptProps {
  * - If `summary` is provided: shows "Create support ticket" button with pre-filled summary
  * - If no `summary`: shows input field for user to describe their issue
  */
-export function TicketPrompt({ conversationId, traceId, summary }: TicketPromptProps): JSX.Element {
-    const [issueText, setIssueText] = useState('')
+export function TicketPrompt({ conversationId, traceId, summary, initialText }: TicketPromptProps): JSX.Element {
+    const [issueText, setIssueText] = useState(initialText ?? '')
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
 

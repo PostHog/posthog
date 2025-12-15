@@ -86,7 +86,7 @@ import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
-import { getIsTicketPromptNeeded, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
+import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
@@ -108,8 +108,8 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
-    const isTicketPromptNeeded = useMemo(
-        () => getIsTicketPromptNeeded(threadGrouped, streamingActive),
+    const ticketPromptData = useMemo(
+        () => getTicketPromptData(threadGrouped, streamingActive),
         [threadGrouped, streamingActive]
     )
 
@@ -198,8 +198,12 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
                         </MessageTemplate>
                     )}
-                    {conversationId && isTicketPromptNeeded && (
-                        <TicketPrompt conversationId={conversationId} traceId={traceId} />
+                    {conversationId && ticketPromptData.needed && (
+                        <TicketPrompt
+                            conversationId={conversationId}
+                            traceId={traceId}
+                            initialText={ticketPromptData.initialText}
+                        />
                     )}
                 </>
             ) : (
