@@ -53,6 +53,7 @@ def _generate_resource_attribute_filters(
     """
     converted_exprs = []
     for filter in resource_attribute_filters:
+        attribute_type = "resource" if filter.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE else "log"
         if is_negative_filter:
             # invert the negative filter back to the positive equivalent
             # we invert the IN logic instead
@@ -68,15 +69,23 @@ def _generate_resource_attribute_filters(
         if filter.operator == PropertyOperator.IS_SET:
             converted_exprs.append(
                 parse_expr(
-                    "attribute_key = {attribute_key}", placeholders={"attribute_key": ast.Constant(value=filter.key)}
+                    "attribute_type = {attribute_type} AND attribute_key = {attribute_key}",
+                    placeholders={
+                        "attribute_type": ast.Constant(value=attribute_type),
+                        "attribute_key": ast.Constant(value=filter.key),
+                    },
                 )
             )
             continue
 
-        filter_expr = property_to_expr(filter, team=team)
+        filter_expr = property_to_expr(filter, team=team, scope="log_resource")
         converted_expr = parse_expr(
-            "attribute_key = {attribute_key} AND {value_expr}",
-            placeholders={"value_expr": filter_expr, "attribute_key": ast.Constant(value=filter.key)},
+            "attribute_type = {attribute_type} AND attribute_key = {attribute_key} AND {value_expr}",
+            placeholders={
+                "attribute_type": ast.Constant(value=attribute_type),
+                "value_expr": filter_expr,
+                "attribute_key": ast.Constant(value=filter.key),
+            },
         )
         converted_exprs.append(converted_expr)
 
@@ -99,7 +108,6 @@ def _generate_resource_attribute_filters(
             WHERE
                 time_bucket >= toStartOfInterval({{date_from}},toIntervalMinute(10))
                 AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
-                AND attribute_type = 'resource'
                 AND {{resource_attribute_filters}} AND {{existing_filters}}
             GROUP BY resource_fingerprint
             HAVING arrayAll(x -> x > 0, sumForEach({{ops}}))
@@ -140,13 +148,34 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             # todo: datetime?
             return "str"
 
-        self.attribute_filters = []
-        self.log_filters = []
-        self.resource_attribute_positive_filters = []
+        self.resource_attribute_filters = []
         self.resource_attribute_negative_filters = []
-
+        self.log_filters = []
+        self.attribute_filters = []
         if self.query.filterGroup and len(self.query.filterGroup.values) > 0:
-            filter_keys = []
+            for property_group in self.query.filterGroup.values:
+                self.resource_attribute_filters = cast(
+                    list[LogPropertyFilter],
+                    [
+                        f
+                        for f in property_group.values
+                        if f.type in [LogPropertyFilterType.LOG_ATTRIBUTE, LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE]
+                        and not operator_is_negative(f.operator)
+                    ],
+                )
+                self.resource_attribute_negative_filters = cast(
+                    list[LogPropertyFilter],
+                    [
+                        f
+                        for f in property_group.values
+                        if f.type in [LogPropertyFilterType.LOG_ATTRIBUTE, LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE]
+                        and operator_is_negative(f.operator)
+                    ],
+                )
+                self.log_filters = cast(
+                    list[LogPropertyFilter], [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
+                )
+
             # dynamically detect type of the given property values
             # if they all convert cleanly to float, use the __float property mapping instead
             # we keep multiple attribute maps for different types:
@@ -170,43 +199,12 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                             property_type = property_types.pop()
                     else:
                         property_type = get_property_type(property_filter.value)
+
+                    # defensive copy as we mutate the filter here and don't want to impact other copies
+                    property_filter = property_filter.copy(deep=True)
                     property_filter.key = f"{property_filter.key}__{property_type}"
-                    # for all operators except SET and NOT_SET we add an IS_SET operator to force
-                    # the property key bloom filter index to be used.
-                    if property_filter.operator not in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET):
-                        filter_keys.append(property_filter.key)
 
-            for filter_key in filter_keys:
-                self.query.filterGroup.values[0].values.insert(
-                    0,
-                    LogPropertyFilter(
-                        key=filter_key,
-                        operator=PropertyOperator.IS_SET,
-                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
-                    ),
-                )
-
-            for property_group in self.query.filterGroup.values:
-                self.attribute_filters = cast(
-                    list[LogPropertyFilter],
-                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_ATTRIBUTE],
-                )
-                self.log_filters = cast(
-                    list[LogPropertyFilter], [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
-                )
-                resource_attribute_group_filters = cast(
-                    list[LogPropertyFilter],
-                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE],
-                )
-                if resource_attribute_group_filters:
-                    self.resource_attribute_positive_filters += [
-                        filter
-                        for filter in resource_attribute_group_filters
-                        if not operator_is_negative(filter.operator)
-                    ]
-                    self.resource_attribute_negative_filters += [
-                        filter for filter in resource_attribute_group_filters if operator_is_negative(filter.operator)
-                    ]
+                    self.attribute_filters.insert(0, property_filter)
 
     def _calculate(self) -> LogsQueryResponse:
         response = self.paginator.execute_hogql_query(
@@ -395,9 +393,9 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 is_negative_filter=True,
             )
 
-        if self.resource_attribute_positive_filters:
+        if self.resource_attribute_filters:
             return _generate_resource_attribute_filters(
-                self.resource_attribute_positive_filters,
+                self.resource_attribute_filters,
                 team=self.team,
                 # negative resource filter is passed in here
                 existing_filters=[*existing_filters, negative_resource_filter],
