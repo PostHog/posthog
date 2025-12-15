@@ -2,7 +2,7 @@ import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
-import * as monacoModule from 'monaco-editor'
+import * as monaco from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -23,7 +23,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
 
 if (loader) {
-    loader.config({ monaco: monacoModule })
+    loader.config({ monaco })
 }
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
@@ -178,10 +178,10 @@ export function CodeEditor({
         if (!monaco) {
             return
         }
-        monacoModule.typescript.typescriptDefaults.setCompilerOptions({
+        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
             jsx: editorProps?.path?.endsWith('.tsx')
-                ? monacoModule.typescript.JsxEmit.React
-                : monacoModule.typescript.JsxEmit.Preserve,
+                ? monaco.languages.typescript.JsxEmit.React
+                : monaco.languages.typescript.JsxEmit.Preserve,
             esModuleInterop: true,
         })
     }, [monaco, editorProps.path])
@@ -190,7 +190,7 @@ export function CodeEditor({
         if (!monaco) {
             return
         }
-        monacoModule.json.jsonDefaults.setDiagnosticsOptions({
+        monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
             validate: true,
             schemas: schema
                 ? [

@@ -189,7 +189,7 @@
         "md5": "^2.3.0",
         "mdast-util-find-and-replace": "^3.0.2",
         "modern-screenshot": "^4.6.7",
-        "monaco-editor": "^0.55.1",
+        "monaco-editor": "^0.49.0",
         "natural-orderby": "^3.0.2",
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
