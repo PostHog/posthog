@@ -587,6 +587,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Feature flags',
         icon: iconForType('feature_flag'),
+        url: urls.featureFlags(),
         suggestions: [
             {
                 content: 'Create a flag to gradually roll out…',
@@ -605,6 +606,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Experiments',
         icon: iconForType('experiment'),
+        url: urls.experiments(),
         suggestions: [
             {
                 content: 'Create an experiment to test…',
