@@ -87,6 +87,8 @@ export interface BatchWritingPersonsStoreOptions {
     dbWriteMode: PersonBatchWritingDbWriteMode
     maxOptimisticUpdateRetries: number
     optimisticUpdateRetryInterval: number
+    /** When true, all property changes trigger person updates (disables batch-level filtering) */
+    updateAllProperties: boolean
 }
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
@@ -94,6 +96,7 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     maxConcurrentUpdates: 10,
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
+    updateAllProperties: false,
 }
 
 interface CacheMetrics {
@@ -168,8 +171,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             return 'no_change'
         }
 
-        // If force_update is set (from $identify, $set events), bypass filtering and always write
-        if (update.force_update) {
+        // If force_update is set (from $identify, $set events) or updateAllProperties is enabled, bypass filtering
+        if (update.force_update || this.options.updateAllProperties) {
             return 'changed'
         }
 

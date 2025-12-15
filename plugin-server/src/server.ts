@@ -1,4 +1,3 @@
-import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import * as Pyroscope from '@pyroscope/nodejs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
@@ -37,7 +36,6 @@ import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { isTestEnv } from './utils/env-utils'
-import { initializeHeapDump } from './utils/heap-dump'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
@@ -105,20 +103,6 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
-
-        // Initialize heap dump functionality for all services
-        if (this.config.HEAP_DUMP_ENABLED) {
-            let heapDumpS3Client: S3Client | undefined
-            if (this.config.HEAP_DUMP_S3_BUCKET && this.config.HEAP_DUMP_S3_REGION) {
-                const s3Config: S3ClientConfig = {
-                    region: this.config.HEAP_DUMP_S3_REGION,
-                }
-
-                heapDumpS3Client = new S3Client(s3Config)
-            }
-
-            initializeHeapDump(this.config, heapDumpS3Client)
-        }
 
         let _initPluginsPromise: Promise<void> | undefined
 

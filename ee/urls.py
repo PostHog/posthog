@@ -9,6 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from posthog.middleware import impersonated_session_logout, login_as_user_read_only
 from posthog.views import api_key_search_view, redis_values_view
 
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
@@ -128,6 +129,16 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/backfill-precalculated-person-properties/",
             admin.site.admin_view(backfill_precalculated_person_properties_view),
             name="backfill-precalculated-person-properties",
+        ),
+        path(
+            "admin/logout/",
+            admin.site.admin_view(impersonated_session_logout),
+            name="loginas-logout",
+        ),
+        path(
+            "admin/login/user/<str:user_id>/read-only/",
+            login_as_user_read_only,
+            name="loginas-user-login-read-only",
         ),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),

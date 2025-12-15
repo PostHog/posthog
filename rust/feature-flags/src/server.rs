@@ -104,7 +104,7 @@ where
 
     let cohort_cache = Arc::new(CohortCacheManager::new(
         database_pools.non_persons_reader.clone(),
-        Some(config.cache_max_cohort_entries),
+        Some(config.cohort_cache_capacity_bytes),
         Some(config.cache_ttl_seconds),
     ));
 
