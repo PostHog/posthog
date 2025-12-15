@@ -890,6 +890,146 @@ def main():
         success = ht.generate_demo_data()
         exit(0 if success else 1)
 
+    if command == "cleanup-stale":
+        print("Cleaning up stale hobby preview droplets", flush=True)
+        max_inactive_days = int(os.environ.get("MAX_INACTIVE_DAYS", "7"))
+        dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
+        gh_token = os.environ.get("GH_TOKEN", "")
+
+        if dry_run:
+            print("🔍 DRY RUN - no changes will be made", flush=True)
+
+        if not gh_token:
+            print("⚠️  GH_TOKEN not set - cannot check PR status, will only use droplet age")
+
+        token = os.environ.get("DIGITALOCEAN_TOKEN")
+        if not token:
+            print("❌ DIGITALOCEAN_TOKEN not set")
+            exit(1)
+
+        manager = digitalocean.Manager(token=token)
+        all_droplets = manager.get_all_droplets()
+        now = datetime.datetime.now(datetime.UTC)
+        cleaned = 0
+
+        for droplet in all_droplets:
+            # Find droplets with pr:* tags (hobby previews)
+            pr_tag = None
+            for tag in droplet.tags:
+                if tag.startswith("pr:"):
+                    pr_tag = tag
+                    break
+
+            if not pr_tag:
+                continue
+
+            pr_number = pr_tag.split(":")[1]
+            droplet_created = datetime.datetime.fromisoformat(droplet.created_at.replace("Z", "+00:00"))
+            droplet_age_days = (now - droplet_created).days
+
+            print(f"\n📦 Droplet: {droplet.name} (ID: {droplet.id})")
+            print(f"   PR: #{pr_number}, Droplet age: {droplet_age_days} days")
+
+            should_destroy = False
+            reason = ""
+
+            # Check PR status and activity (requires GH_TOKEN)
+            if gh_token:
+                try:
+                    headers = {"Authorization": f"token {gh_token}", "Accept": "application/vnd.github.v3+json"}
+                    resp = requests.get(
+                        f"https://api.github.com/repos/PostHog/posthog/pulls/{pr_number}",
+                        headers=headers,
+                        timeout=10,
+                    )
+                    if resp.status_code == 200:
+                        pr_data = resp.json()
+                        pr_state = pr_data.get("state")
+
+                        if pr_state == "closed":
+                            should_destroy = True
+                            reason = "PR is closed"
+                        else:
+                            # PR is open - check last activity (updated_at includes comments, commits, etc.)
+                            updated_at = pr_data.get("updated_at")
+                            if updated_at:
+                                last_activity = datetime.datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+                                inactive_days = (now - last_activity).days
+                                print(f"   Last PR activity: {inactive_days} days ago")
+
+                                if inactive_days >= max_inactive_days:
+                                    should_destroy = True
+                                    reason = f"PR inactive for {inactive_days} days"
+                    elif resp.status_code == 404:
+                        should_destroy = True
+                        reason = "PR not found"
+                except Exception as e:
+                    print(f"   ⚠️  Could not check PR status: {e}")
+            else:
+                # Fallback: use droplet age if no GH_TOKEN
+                if droplet_age_days >= max_inactive_days:
+                    should_destroy = True
+                    reason = f"droplet older than {max_inactive_days} days (no GH_TOKEN to check PR)"
+
+            if should_destroy:
+                print(f"   🗑️  Will destroy: {reason}")
+                if not dry_run:
+                    # Find DNS record for this droplet
+                    try:
+                        domain = digitalocean.Domain(token=token, name=DOMAIN)
+                        records = domain.get_records()
+                        record_id = None
+                        for record in records:
+                            if record.type == "A" and record.data == droplet.ip_address:
+                                record_id = record.id
+                                break
+
+                        HobbyTester.destroy_environment(droplet_id=droplet.id, record_id=record_id)
+                        cleaned += 1
+                    except Exception as e:
+                        print(f"   ❌ Failed to destroy: {e}")
+            else:
+                print(f"   ✅ Keeping (PR open and active)")
+
+        print(f"\n{'Would clean' if dry_run else 'Cleaned'} {cleaned} droplet(s)")
+
+    if command == "destroy-pr":
+        # Destroy droplet for a specific PR number
+        pr_number = os.environ.get("PR_NUMBER")
+        if not pr_number:
+            print("❌ PR_NUMBER not set")
+            exit(1)
+
+        print(f"Destroying droplet for PR #{pr_number}", flush=True)
+
+        token = os.environ.get("DIGITALOCEAN_TOKEN")
+        if not token:
+            print("❌ DIGITALOCEAN_TOKEN not set")
+            exit(1)
+
+        droplet = HobbyTester.find_existing_droplet_for_pr(pr_number, token)
+        if not droplet:
+            print(f"No droplet found for PR #{pr_number}")
+            exit(0)
+
+        print(f"Found droplet: {droplet.name} (ID: {droplet.id})")
+
+        # Find DNS record
+        try:
+            domain = digitalocean.Domain(token=token, name=DOMAIN)
+            records = domain.get_records()
+            record_id = None
+            for record in records:
+                if record.type == "A" and record.data == droplet.ip_address:
+                    record_id = record.id
+                    break
+
+            HobbyTester.destroy_environment(droplet_id=droplet.id, record_id=record_id)
+            print(f"✅ Destroyed droplet for PR #{pr_number}")
+        except Exception as e:
+            print(f"❌ Failed to destroy: {e}")
+            exit(1)
+
 
 if __name__ == "__main__":
     main()
