@@ -1,4 +1,3 @@
-import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import * as Pyroscope from '@pyroscope/nodejs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
@@ -16,6 +15,7 @@ import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membersh
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
@@ -36,7 +36,6 @@ import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { isTestEnv } from './utils/env-utils'
-import { initializeHeapDump } from './utils/heap-dump'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
@@ -104,20 +103,6 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
-
-        // Initialize heap dump functionality for all services
-        if (this.config.HEAP_DUMP_ENABLED) {
-            let heapDumpS3Client: S3Client | undefined
-            if (this.config.HEAP_DUMP_S3_BUCKET && this.config.HEAP_DUMP_S3_REGION) {
-                const s3Config: S3ClientConfig = {
-                    region: this.config.HEAP_DUMP_S3_REGION,
-                }
-
-                heapDumpS3Client = new S3Client(s3Config)
-            }
-
-            initializeHeapDump(this.config, heapDumpS3Client)
-        }
 
         let _initPluginsPromise: Promise<void> | undefined
 
@@ -202,6 +187,14 @@ export class PluginServer {
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.cdpDataWarehouseEvents) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpDatawarehouseEventsConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -411,21 +404,47 @@ export class PluginServer {
         }
 
         try {
+            const tags = this.collectK8sTags()
+
             Pyroscope.init({
                 serverAddress: this.config.PYROSCOPE_SERVER_ADDRESS,
                 appName: this.config.PYROSCOPE_APPLICATION_NAME || 'plugin-server',
-                tags: {
-                    service: 'plugin-server',
-                },
+                tags,
             })
 
             Pyroscope.start()
             logger.info('Continuous profiling started', {
                 serverAddress: this.config.PYROSCOPE_SERVER_ADDRESS,
                 appName: this.config.PYROSCOPE_APPLICATION_NAME || 'plugin-server',
+                tags,
             })
         } catch (error) {
             logger.error('Failed to start continuous profiling', { error })
         }
+    }
+
+    private collectK8sTags(): Record<string, string> {
+        // K8s metadata environment variables for Pyroscope tags
+        const k8sTagEnvVars: Record<string, string> = {
+            namespace: 'K8S_NAMESPACE',
+            pod: 'K8S_POD_NAME',
+            node: 'K8S_NODE_NAME',
+            pod_template_hash: 'K8S_POD_TEMPLATE_HASH',
+            app_instance: 'K8S_APP_INSTANCE',
+            app: 'K8S_APP',
+            container: 'K8S_CONTAINER_NAME',
+            controller_type: 'K8S_CONTROLLER_TYPE',
+        }
+
+        const tags: Record<string, string> = { src: 'SDK' }
+        for (const [tagName, envVar] of Object.entries(k8sTagEnvVars)) {
+            const value = process.env[envVar]
+            if (value) {
+                tags[tagName] = value
+            } else {
+                logger.warn(`K8s tag ${tagName} not set (env var ${envVar} is empty)`)
+            }
+        }
+        return tags
     }
 }

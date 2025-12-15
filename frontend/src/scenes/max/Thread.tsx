@@ -10,6 +10,7 @@ import {
     IconCheck,
     IconChevronRight,
     IconCollapse,
+    IconCopy,
     IconExpand,
     IconEye,
     IconHide,
@@ -49,6 +50,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { copyToClipboard } from '~/lib/utils/copyToClipboard'
+import { stripMarkdown } from '~/lib/utils/stripMarkdown'
 import { openNotebook } from '~/models/notebooksModel'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -72,6 +75,7 @@ import { Region } from '~/types'
 import { ContextSummary } from './Context'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
+import { TicketPrompt } from './TicketPrompt'
 import { VisualizationArtifactAnswer } from './VisualizationArtifactAnswer'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
@@ -82,6 +86,7 @@ import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
+import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
@@ -102,6 +107,16 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
+
+    const ticketPromptData = useMemo(
+        () => getTicketPromptData(threadGrouped, streamingActive),
+        [threadGrouped, streamingActive]
+    )
+
+    const ticketSummaryData = useMemo(
+        () => getTicketSummaryData(threadGrouped, streamingActive),
+        [threadGrouped, streamingActive]
+    )
 
     return (
         <div
@@ -127,24 +142,44 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         const isLastInGroup =
                             !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
-                        // Hiding rating buttons after /feedback command output
+                        // Hiding rating buttons after /feedback and /ticket command outputs
                         const prevMessage = threadGrouped[index - 1]
-                        const isFeedbackCommandResponse =
+                        const isSlashCommandResponse =
                             message.type !== 'human' &&
                             prevMessage?.type === 'human' &&
                             'content' in prevMessage &&
-                            prevMessage.content.startsWith(SlashCommandName.SlashFeedback)
+                            (prevMessage.content.startsWith(SlashCommandName.SlashFeedback) ||
+                                prevMessage.content.startsWith(SlashCommandName.SlashTicket))
+
+                        // Also hide for ticket confirmation messages
+                        const isTicketConfirmation = isTicketConfirmationMessage(message)
+
+                        // Check if this message is a ticket summary that needs the ticket creation button
+                        const isTicketSummaryMessage = ticketSummaryData && ticketSummaryData.messageIndex === index
 
                         return (
-                            <Message
-                                key={`${conversationId}-${index}`}
-                                message={message}
-                                nextMessage={nextMessage}
-                                isLastInGroup={isLastInGroup}
-                                isFinal={index === threadGrouped.length - 1}
-                                streamingActive={streamingActive}
-                                isFeedbackCommandResponse={isFeedbackCommandResponse}
-                            />
+                            <React.Fragment key={`${conversationId}-${index}`}>
+                                <Message
+                                    message={message}
+                                    nextMessage={nextMessage}
+                                    isLastInGroup={isLastInGroup}
+                                    isFinal={index === threadGrouped.length - 1}
+                                    isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
+                                />
+                                {conversationId &&
+                                    isTicketSummaryMessage &&
+                                    (ticketSummaryData.discarded ? (
+                                        <p className="m-0 ml-1 mt-1 text-xs text-muted italic">
+                                            Ticket creation discarded
+                                        </p>
+                                    ) : (
+                                        <TicketPrompt
+                                            conversationId={conversationId}
+                                            traceId={traceId}
+                                            summary={ticketSummaryData.summary}
+                                        />
+                                    ))}
+                            </React.Fragment>
                         )
                     })}
                     {conversationId && isPromptVisible && !streamingActive && (
@@ -162,6 +197,13 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         <MessageTemplate type="ai">
                             <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
                         </MessageTemplate>
+                    )}
+                    {conversationId && ticketPromptData.needed && (
+                        <TicketPrompt
+                            conversationId={conversationId}
+                            traceId={traceId}
+                            initialText={ticketPromptData.initialText}
+                        />
                     )}
                 </>
             ) : (
@@ -209,17 +251,10 @@ interface MessageProps {
     nextMessage?: ThreadMessage
     isLastInGroup: boolean
     isFinal: boolean
-    streamingActive: boolean
-    isFeedbackCommandResponse?: boolean
+    isSlashCommandResponse?: boolean
 }
 
-function Message({
-    message,
-    nextMessage,
-    isLastInGroup,
-    isFinal,
-    isFeedbackCommandResponse,
-}: MessageProps): JSX.Element {
+function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
@@ -384,7 +419,8 @@ function Message({
                                     <SuccessActions
                                         key={`${key}-actions`}
                                         retriable={retriable}
-                                        hideRatingAndRetry={isFeedbackCommandResponse}
+                                        hideRatingAndRetry={isSlashCommandResponse}
+                                        content={message.content}
                                     />
                                 )
                             }
@@ -472,7 +508,6 @@ function MessageGroupSkeleton({
 }): JSX.Element {
     return (
         <MessageContainer className={clsx('items-center', className)} groupType={groupType}>
-            <LemonSkeleton className="w-8 h-8 rounded-full hidden border @md/thread:flex" />
             <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
         </MessageContainer>
     )
@@ -516,7 +551,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
                   }
 
                   // Show answer actions if the assistant's response is complete at this point
-                  return <SuccessActions retriable={retriable} />
+                  return <SuccessActions retriable={retriable} content={message.content} />
               }
 
               return null
@@ -962,38 +997,9 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             {regularToolCalls.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                     {regularToolCalls.map((toolCall) => {
-                        const commentary = toolCall.args.commentary as string
                         const updates = toolCall.updates ?? []
                         const definition = getToolDefinitionFromToolCall(toolCall)
-                        let description = `Executing ${toolCall.name}`
-                        let widget: JSX.Element | null = null
-                        if (definition) {
-                            if (definition.displayFormatter) {
-                                const displayFormatterResult = definition.displayFormatter(toolCall, {
-                                    registeredToolMap,
-                                })
-                                if (typeof displayFormatterResult === 'string') {
-                                    description = displayFormatterResult
-                                } else {
-                                    description = displayFormatterResult[0]
-                                    switch (displayFormatterResult[1]?.widget) {
-                                        case 'recordings':
-                                            widget = (
-                                                <RecordingsWidget
-                                                    toolCallId={toolCall.id}
-                                                    filters={displayFormatterResult[1].args}
-                                                />
-                                            )
-                                            break
-                                        default:
-                                            break
-                                    }
-                                }
-                            }
-                            if (commentary) {
-                                description = commentary
-                            }
-                        }
+                        const [description, widget] = getToolCallDescriptionAndWidget(toolCall, registeredToolMap)
                         return (
                             <AssistantActionComponent
                                 key={toolCall.id}
@@ -1262,9 +1268,11 @@ function RetriableFailureActions(): JSX.Element {
 function SuccessActions({
     retriable,
     hideRatingAndRetry,
+    content,
 }: {
     retriable: boolean
     hideRatingAndRetry?: boolean
+    content?: string | null
 }): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
@@ -1297,6 +1305,15 @@ function SuccessActions({
     return (
         <>
             <div className="flex items-center ml-1">
+                {content && (
+                    <LemonButton
+                        icon={<IconCopy />}
+                        type="tertiary"
+                        size="xsmall"
+                        tooltip="Copy answer"
+                        onClick={() => copyToClipboard(stripMarkdown(content))}
+                    />
+                )}
                 {!hideRatingAndRetry && rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
@@ -1374,4 +1391,35 @@ function SuccessActions({
             )}
         </>
     )
+}
+
+export const getToolCallDescriptionAndWidget = (
+    toolCall: EnhancedToolCall,
+    registeredToolMap: Record<string, ToolRegistration>
+): [string, JSX.Element | null] => {
+    const commentary = toolCall.args.commentary as string
+    const definition = getToolDefinitionFromToolCall(toolCall)
+    let description = `Executing ${toolCall.name}`
+    let widget: JSX.Element | null = null
+    if (definition) {
+        if (definition.displayFormatter) {
+            const displayFormatterResult = definition.displayFormatter(toolCall, { registeredToolMap })
+            if (typeof displayFormatterResult === 'string') {
+                description = displayFormatterResult
+            } else {
+                description = displayFormatterResult[0]
+                switch (displayFormatterResult[1]?.widget) {
+                    case 'recordings':
+                        widget = <RecordingsWidget toolCallId={toolCall.id} filters={displayFormatterResult[1].args} />
+                        break
+                    default:
+                        break
+                }
+            }
+        }
+        if (commentary) {
+            description = commentary
+        }
+    }
+    return [description, widget]
 }

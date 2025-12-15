@@ -233,7 +233,6 @@
             "alerts",
             "error-tracking",
             "settings-bounce-rate-page-view-mode",
-            "onboarding-dashboard-templates",
             "multiple-breakdowns",
             "settings-session-table-version",
             "posthog-http-batch-exports",
@@ -408,7 +407,6 @@
         "$feature/alerts": true,
         "current_amount_usd.product_analytics": "0.00",
         "$lib": "web",
-        "$feature/onboarding-dashboard-templates": true,
         "billing_period_end": {
             "$D": 27,
             "$H": 11,

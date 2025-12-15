@@ -255,7 +255,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 hex(trace_id),
                 hex(span_id),
                 body,
-                attributes,
+                mapFilter((k, v) -> not(has(resource_attributes, k)), attributes),
                 timestamp,
                 observed_timestamp,
                 severity_text,
@@ -278,18 +278,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
     def where(self):
         exprs: list[ast.Expr] = []
-
-        if self.query.severityLevels:
-            exprs.append(
-                parse_expr(
-                    "severity_text IN {severityLevels}",
-                    placeholders={
-                        "severityLevels": ast.Tuple(
-                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
-                        )
-                    },
-                )
-            )
 
         if self.query.serviceNames:
             exprs.append(
@@ -368,6 +356,18 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
+        if self.query.severityLevels:
+            exprs.append(
+                parse_expr(
+                    "severity_text IN {severityLevels}",
+                    placeholders={
+                        "severityLevels": ast.Tuple(
+                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
+                        )
+                    },
+                )
+            )
+
         if self.query.liveLogsCheckpoint:
             exprs.append(
                 parse_expr(
@@ -387,11 +387,18 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
             op = ">" if self.query.orderBy == "earliest" else "<"
             ts_op = ">=" if self.query.orderBy == "earliest" else "<="
-            # The logs table is partitioned by timestamp, not (timestamp, uuid).
-            # ClickHouse only prunes partitions when the WHERE clause directly matches
-            # the partition key. A tuple comparison like (timestamp, uuid) < (x, y)
-            # won't trigger pruning even though it logically implies timestamp <= x.
-            # So we add an explicit scalar bound to guarantee partition pruning fires.
+            # The logs table is sorted by (team_id, time_bucket, ..., timestamp) where
+            # time_bucket = toStartOfDay(timestamp). ClickHouse only prunes efficiently when
+            # the WHERE clause matches the sorting key. A tuple comparison like
+            # (timestamp, uuid) < (x, y) won't trigger pruning.
+            # We add explicit scalar bounds on both time_bucket and timestamp to ensure
+            # ClickHouse can use the primary index and skip irrelevant parts.
+            exprs.append(
+                parse_expr(
+                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
             exprs.append(
                 parse_expr(
                     f"timestamp {ts_op} {{cursor_ts}}",

@@ -30,7 +30,8 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
         return await this.repository.createPerson(
             createdAt,
@@ -41,7 +42,8 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
             isUserId,
             isIdentified,
             uuid,
-            distinctIds,
+            primaryDistinctId,
+            extraDistinctIds,
             this.transaction
         )
     }

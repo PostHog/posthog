@@ -56,6 +56,8 @@ jobs:
                         - stylelint*
                         - '**/*.md'
                         - '**/*.mdx'
+                        - '**/*.yaml'
+                        - '**/*.yml'
                         - .config/.markdownlint-cli2.jsonc
 
     frontend-format:
@@ -102,6 +104,9 @@ jobs:
 
             - name: Check markdown formatting with prettier
               run: pnpm exec prettier --check "**/*.{md,mdx}"
+
+            - name: Check YAML formatting with prettier
+              run: pnpm exec prettier --check "**/*.{yaml,yml}" --ignore-path .prettierignore
 
             - name: Lint markdown files
               run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
@@ -248,7 +253,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              run: bin/turbo run test --filter=@posthog/frontend
+              run: bin/turbo run test --filter=@posthog/frontend -- --runInBand
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}

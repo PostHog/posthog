@@ -309,12 +309,20 @@ class AssistantTool(StrEnum):
     FILTER_WEB_ANALYTICS = "filter_web_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
     CREATE_EXPERIMENT = "create_experiment"
+    CREATE_TASK = "create_task"
+    RUN_TASK = "run_task"
+    GET_TASK_RUN = "get_task_run"
+    GET_TASK_RUN_LOGS = "get_task_run_logs"
+    LIST_TASKS = "list_tasks"
+    LIST_TASK_RUNS = "list_task_runs"
+    LIST_REPOSITORIES = "list_repositories"
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
     FILTER_SESSION_RECORDINGS = "filter_session_recordings"
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
+    TASK = "task"
 
 
 class AssistantToolCall(BaseModel):
@@ -1553,6 +1561,7 @@ class FileSystemIconType(StrEnum):
     HEATMAP = "heatmap"
     SESSION_REPLAY = "session_replay"
     SURVEY = "survey"
+    PRODUCT_TOUR = "product_tour"
     USER_INTERVIEW = "user_interview"
     EARLY_ACCESS_FEATURE = "early_access_feature"
     EXPERIMENT = "experiment"
@@ -3120,6 +3129,7 @@ class SlashCommandName(StrEnum):
     FIELD_REMEMBER = "/remember"
     FIELD_USAGE = "/usage"
     FIELD_FEEDBACK = "/feedback"
+    FIELD_TICKET = "/ticket"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
@@ -3211,6 +3221,15 @@ class StickinessOperator(StrEnum):
     GTE = "gte"
     LTE = "lte"
     EXACT = "exact"
+
+
+class SubagentUpdateEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: AssistantToolCall
+    id: str
+    tool_call_id: str
 
 
 class SubscriptionDropoffMode(StrEnum):
@@ -4853,6 +4872,7 @@ class LLMTrace(BaseModel):
     inputCost: float | None = None
     inputState: Any | None = None
     inputTokens: float | None = None
+    isSupportTrace: bool | None = None
     outputCost: float | None = None
     outputState: Any | None = None
     outputTokens: float | None = None
@@ -5005,6 +5025,7 @@ class MaxRecordingEventFilter(BaseModel):
         extra="forbid",
     )
     id: str = Field(..., description="Name of the event.")
+    name: str | None = Field(default=None, description="Optional display name for this event.")
     properties: (
         list[
             AssistantGenericPropertyFilter1
@@ -9275,6 +9296,9 @@ class EndpointRunRequest(BaseModel):
             ' {variable.from_date}) For example: {"from_date": "1970-01-01"}'
         ),
     )
+    version: int | None = Field(
+        default=None, description="Specific endpoint version to execute. If not provided, the latest version is used."
+    )
 
 
 class EntityNode(BaseModel):
@@ -12322,6 +12346,7 @@ class TracesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterSupportTraces: bool | None = None
     filterTestAccounts: bool | None = None
     groupKey: str | None = None
     groupTypeIndex: int | None = None

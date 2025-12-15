@@ -14,6 +14,7 @@ axum = { workspace = true }
 metrics = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
 anyhow = { workspace = true } # We use anyhow for now because we're in hack it ship it mode, real error types later
