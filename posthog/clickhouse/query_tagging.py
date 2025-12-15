@@ -87,7 +87,7 @@ class QueryTags(BaseModel):
     api_key_mask: Optional[str] = None
     api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
-    product: Optional[Product] = None
+    product: Optional[str] = None  # Product identifier - can be Product enum value or frontend ProductKey
 
     # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
@@ -120,7 +120,6 @@ class QueryTags(BaseModel):
 
     # frontend UI context (from QueryLogTags)
     scene: Optional[str] = None
-    product_key: Optional[str] = None
 
     alert_config_id: Optional[uuid.UUID] = None
     batch_export_id: Optional[uuid.UUID] = None

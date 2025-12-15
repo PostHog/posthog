@@ -1049,7 +1049,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if tags := getattr(self.query, "tags", None):
                 if tags.productKey:
                     posthoganalytics.tag("product_key", tags.productKey)
-                    tag_queries(product_key=tags.productKey)
+                    tag_queries(product=tags.productKey)
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
