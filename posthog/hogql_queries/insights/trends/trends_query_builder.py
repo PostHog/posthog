@@ -93,16 +93,16 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
         return parse_select(
-            """
+            f"""
             SELECT
-                SUM(total) AS total,
-                {breakdown_select}
+                {self._aggregation_operation.get_outer_aggregation_name()}(total) AS total,
+                {{breakdown_select}}
             FROM
-                {rank_query}
-            WHERE {breakdown_filter}
+                {{rank_query}}
+            WHERE {{breakdown_filter}}
             GROUP BY breakdown_value
             ORDER BY
-                {breakdown_order_by},
+                {{breakdown_order_by}},
                 total DESC,
                 breakdown_value ASC
             """,
@@ -178,7 +178,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     -- "Other" breakdown value
                     SELECT
                         day_start,
-                        sum(count) as value,
+                        {self._aggregation_operation.get_outer_aggregation_name()}(count) as value,
                         {{breakdown_other}} as breakdown_value
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank > {{breakdown_limit}}
@@ -361,10 +361,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         query = cast(
             ast.SelectQuery,
             parse_select(
-                """
+                f"""
                 SELECT
-                    sum(total) AS count
-                FROM {inner_query}
+                    {self._aggregation_operation.get_outer_aggregation_name()}(total) AS count
+                FROM {{inner_query}}
             """,
                 placeholders={"inner_query": inner_query},
             ),

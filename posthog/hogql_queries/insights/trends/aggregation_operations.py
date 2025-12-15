@@ -147,6 +147,19 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def is_first_matching_event(self):
         return self.series.math == "first_matching_event_for_user"
 
+    def get_outer_aggregation_name(self) -> str:
+        """
+        Returns the aggregation function to use when rolling up already-aggregated values.
+
+        For example, if we computed max(price) per day per breakdown, rolling up across
+        breakdowns should use max() not sum() - the max of maxes is the overall max.
+        """
+        if self.series.math == "max":
+            return "max"
+        elif self.series.math == "min":
+            return "min"
+        return "sum"
+
     def _get_math_chain(self) -> list[str | int]:
         if not self.series.math_property:
             raise ValueError("No math property set")
