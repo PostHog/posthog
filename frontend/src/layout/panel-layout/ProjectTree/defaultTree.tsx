@@ -364,7 +364,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
         ...getTreeItemsProducts(),
         {
-            path: `Geschäftsigel`,
+            path: `Data Explorer`,
             category: 'Analytics',
             type: 'hog_function',
             iconType: 'data_pipeline',

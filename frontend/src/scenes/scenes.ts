@@ -45,7 +45,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BI]: {
         projectBased: true,
-        name: 'BI',
+        name: 'Data Explorer',
         description: 'Build and visualize data warehouse queries visually.',
         layout: 'app-full-scene-height',
     },

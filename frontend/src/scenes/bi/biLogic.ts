@@ -235,7 +235,9 @@ export const biLogic = kea<biLogicType>([
         breadcrumbs: [
             (s) => [s.selectedTableObject],
             (selectedTableObject): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [{ key: Scene.BI, name: 'BI', path: urls.bi(), iconType: 'database' }]
+                const breadcrumbs: Breadcrumb[] = [
+                    { key: Scene.BI, name: 'Data Explorer', path: urls.bi(), iconType: 'database' },
+                ]
 
                 if (selectedTableObject) {
                     breadcrumbs.push({

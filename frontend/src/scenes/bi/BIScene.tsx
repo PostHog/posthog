@@ -18,6 +18,7 @@ import {
     IconStack,
 } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCard,
     LemonInput,
@@ -25,6 +26,7 @@ import {
     LemonTable,
     LemonTag,
     LemonTextArea,
+    Link,
     Popover,
     Spinner,
 } from '@posthog/lemon-ui'
@@ -944,9 +946,23 @@ export function BIScene(): JSX.Element {
 
                     <LemonCard className="flex-1 min-h-0 flex flex-col min-w-full max-w-full" hoverEffect={false}>
                         {selectedFields.length === 0 ? (
-                            <div className="text-muted">
-                                <p className="font-bold">Select a table from the left.</p>
-                                <p>You will then be able to query it together with all relations within reach.</p>
+                            <div className="deprecated-space-y-4">
+                                <LemonBanner type="info">
+                                    This is a flagged feature <code>data-explorer</code>. Share your feedback with
+                                    #team-data-stack.
+                                </LemonBanner>
+                                <div className="text-muted">
+                                    <p className="font-bold">Select a table from the left.</p>
+                                    <p>You will then be able to query it and all the relations within reach.</p>
+                                    <p>
+                                        Manage your <Link to={urls.dataPipelines('sources')}>data sources here</Link>.
+                                    </p>
+                                    <p>
+                                        Add a new{' '}
+                                        <Link to={urls.dataWarehouseSourceNew('postgres')}>postgres direct query</Link>{' '}
+                                        source. You must manually select "Direct query mode".
+                                    </p>
+                                </div>
                             </div>
                         ) : (
                             <div className="flex-1 min-h-0 flex flex-col max-w-full">
@@ -1085,6 +1101,7 @@ function ColumnHeader({
                         <LemonButton
                             status="danger"
                             size="small"
+                            type="secondary"
                             onClick={() => {
                                 onRemove()
                                 onPopoverVisibilityChange(false)
