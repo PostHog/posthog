@@ -30,11 +30,11 @@ export function SessionRecordingsPlaylist({
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div
                 className={clsx('w-full h-full', {
-                    'flex flex-col xl:flex-row gap-2 overflow-y-auto xl:overflow-hidden': !isCinemaMode,
+                    'flex flex-col xl:flex-row gap-2': !isCinemaMode,
                 })}
             >
                 <div
-                    className={clsx('flex flex-col overflow-hidden shrink-0 xl:shrink', {
+                    className={clsx('flex flex-col shrink-0 xl:shrink', {
                         'xl:w-1/4 xl:min-w-80 order-last xl:order-first': !isCinemaMode,
                         'w-0': isCinemaMode,
                     })}
@@ -79,10 +79,9 @@ function PlayerWrapper({
 
     return (
         <div
-            className={clsx('Playlist__main overflow-hidden shrink-0 xl:shrink', {
+            className={clsx('Playlist__main overflow-hidden shrink-0 xl:shrink h-full flex-1 rounded border', {
                 'w-full': isCinemaMode,
-                'xl:flex-1 xl:h-full min-h-96 xl:rounded xl:border-y xl:border-r border-l xl:border-l-0 rounded-bl':
-                    !isCinemaMode,
+                'min-h-96': !isCinemaMode,
             })}
         >
             {isFiltersExpanded ? (
