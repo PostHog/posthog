@@ -13,8 +13,16 @@ export const apiMutator = async <T>(url: string, options: RequestInit & { method
     // Handle both JSON strings and FormData bodies
     const data = body ? (typeof body === 'string' ? JSON.parse(body) : body) : undefined
     // Convert Headers object to plain object if needed
-    const headersObj = headers instanceof Headers ? Object.fromEntries(headers.entries()) : headers
-    const apiOptions = { signal, headers: headersObj }
+    let headersObj: Record<string, string> | undefined
+    if (headers instanceof Headers) {
+        headersObj = {}
+        headers.forEach((value, key) => {
+            headersObj![key] = value
+        })
+    } else if (headers) {
+        headersObj = headers as Record<string, string>
+    }
+    const apiOptions = signal ? { signal, headers: headersObj } : { headers: headersObj }
 
     switch (method) {
         case 'GET':
