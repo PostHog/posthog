@@ -10,7 +10,6 @@ import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboar
 import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
-import { TerraformExportModal } from 'lib/components/ExportButton/TerraformExportModal'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -32,6 +31,7 @@ import {
     TEMPLATE_LINK_TOOLTIP,
 } from 'lib/components/Sharing/templateLinkMessages'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -376,10 +376,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         <ButtonPrimitive
                             onClick={() => setTerraformModalOpen(true)}
                             menuItem
-                            data-attr="insight-manage-terraform"
+                            data-attr={`${RESOURCE_TYPE}-manage-terraform`}
                         >
                             <IconCode2 />
-                            Manage with Terraform...
+                            Manage with Terraform
                         </ButtonPrimitive>
 
                         {hasDashboardItemId && featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (

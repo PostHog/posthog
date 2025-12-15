@@ -1,5 +1,3 @@
-import { useValues } from 'kea'
-
 import { IconDownload, IconWarning } from '@posthog/icons'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -7,12 +5,11 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { InsightModel } from '~/types'
 
 import { HclExportResult } from './hclExporter'
-import { generateInsightHCLWithWarnings } from './insightHclExporter'
+import { generateInsightHCL } from './insightHclExporter'
 
 export interface TerraformExportModalProps {
     isOpen: boolean
@@ -21,9 +18,7 @@ export interface TerraformExportModalProps {
 }
 
 export function TerraformExportModal({ isOpen, onClose, insight }: TerraformExportModalProps): JSX.Element {
-    const { preflight } = useValues(preflightLogic)
-
-    const result: HclExportResult = generateInsightHCLWithWarnings(insight, {
+    const result: HclExportResult = generateInsightHCL(insight, {
         includeImport: insight.id !== undefined,
     })
 
@@ -46,7 +41,6 @@ export function TerraformExportModal({ isOpen, onClose, insight }: TerraformExpo
     const providerDocsUrl = 'https://registry.terraform.io/providers/PostHog/posthog/latest/docs'
     const exampleRepoUrl =
         'https://github.com/PostHog/posthog/tree/master/terraform/us/project-2/team-analytics-platform'
-    const isCloud = preflight?.cloud
 
     return (
         <LemonModal
@@ -76,7 +70,6 @@ export function TerraformExportModal({ isOpen, onClose, insight }: TerraformExpo
                     </LemonButton>
                 </div>
             }
-            width={720}
         >
             <div className="space-y-4">
                 {result.warnings.length > 0 && (
@@ -92,16 +85,6 @@ export function TerraformExportModal({ isOpen, onClose, insight }: TerraformExpo
                                 </ul>
                             </div>
                         </div>
-                    </LemonBanner>
-                )}
-
-                {isCloud && (
-                    <LemonBanner type="info">
-                        You'll need to{' '}
-                        <Link to="/settings/user-api-keys" target="_blank">
-                            create a personal API key
-                        </Link>{' '}
-                        to authenticate the Terraform provider.
                     </LemonBanner>
                 )}
 

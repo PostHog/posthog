@@ -1,59 +1,53 @@
-import { InsightModel } from '~/types'
-
 import {
-    FieldMapping,
-    HclExportOptions,
-    HclExportResult,
-    ResourceExporter,
     addManagedByTag,
     formatHclValue,
     formatJsonForHcl,
-    generateHCL,
-} from './hclExporter'
+} from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
-// ============================================================================
-// Insight Exporter
-// ============================================================================
+import { InsightModel } from '~/types'
 
+import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'
+
+/**
+ * @see https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/insight
+ */
 const INSIGHT_FIELD_MAPPINGS: FieldMapping<Partial<InsightModel>>[] = [
     {
         source: 'name',
         target: 'name',
-        condition: (v) => !!v,
+        shouldInclude: (v) => !!v,
     },
     {
         source: 'description',
         target: 'description',
-        condition: (v) => !!v,
+        shouldInclude: (v) => !!v,
     },
     {
         source: 'derived_name',
         target: 'derived_name',
-        condition: (v, insight) => !!v && !insight.name,
+        shouldInclude: (v, insight) => !!v && !insight.name,
     },
     {
         source: 'query',
         target: 'query_json',
-        condition: (v) => !!v,
+        shouldInclude: (v) => !!v,
         transform: (v) => `jsonencode(${formatJsonForHcl(v)})`,
-        blankLineBefore: true,
     },
     {
         source: 'tags',
         target: 'tags',
-        condition: () => true, // Always include tags to add managed-by tag
+        shouldInclude: () => true, // Always include tags to add managed-by tag
         transform: (v) => formatHclValue(addManagedByTag(v)),
-        blankLineBefore: true,
     },
     {
         source: '_create_in_folder',
         target: 'create_in_folder',
-        condition: (v) => !!v,
+        shouldInclude: (v) => !!v,
     },
     {
         source: 'dashboards',
         target: 'dashboard_ids',
-        condition: (v) => Array.isArray(v) && v.length > 0,
+        shouldInclude: (v) => Array.isArray(v) && v.length > 0,
     },
 ]
 
@@ -72,7 +66,7 @@ function validateInsight(insight: Partial<InsightModel>): string[] {
 
     if (insight.dashboards && insight.dashboards.length > 0) {
         warnings.push(
-            'dashboard_ids are hardcoded. Consider using Terraform references instead (e.g., posthog_dashboard.my_dashboard.id) to ensure dashboards exist and are managed together.'
+            '`dashboard_ids` are hardcoded. After exporting, consider referencing the Terraform resource instead (for example, `posthog_dashboard.my_dashboard.id`) so the dashboard is managed alongside this configuration.'
         )
     }
 
@@ -89,23 +83,6 @@ const INSIGHT_EXPORTER: ResourceExporter<Partial<InsightModel>> = {
     getShortId: (i) => i.short_id,
 }
 
-/**
- * Generates Terraform HCL configuration for a PostHog insight.
- * Maps InsightModel fields to the Terraform provider schema.
- *
- * @see https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/insight
- */
-export function generateInsightHCL(insight: Partial<InsightModel>, options: HclExportOptions = {}): string {
-    return generateHCL(insight, INSIGHT_EXPORTER, options).hcl
-}
-
-/**
- * Generates Terraform HCL configuration with validation warnings.
- * Use this when you want to display warnings to the user.
- */
-export function generateInsightHCLWithWarnings(
-    insight: Partial<InsightModel>,
-    options: HclExportOptions = {}
-): HclExportResult {
+export function generateInsightHCL(insight: Partial<InsightModel>, options: HclExportOptions = {}): HclExportResult {
     return generateHCL(insight, INSIGHT_EXPORTER, options)
 }
