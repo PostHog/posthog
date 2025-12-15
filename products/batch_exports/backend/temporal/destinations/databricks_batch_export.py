@@ -673,6 +673,13 @@ class DatabricksClient:
         try:
             await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
         except TimeoutError:
+            self.logger.exception(
+                "Merge timed-out",
+                with_schema_evolution=with_schema_evolution,
+                query="MERGE",
+                query_details=merge_query,
+                timeout=timeout,
+            )
             raise DatabricksOperationTimeoutError(operation="Merge into target table", timeout=timeout)
         except Exception:
             self.logger.exception(
