@@ -20,7 +20,7 @@ export const HogFlowSchema = z.object({
     version: z.number(),
     name: z.string(),
     description: z.string().optional(),
-    status: z.enum(['active', 'draft', 'archived']),
+    status: z.enum(['active', 'draft', 'archived', 'template']),
     trigger: HogFlowTriggerSchema.optional(),
     // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
     trigger_masking: z
@@ -62,4 +62,9 @@ export interface HogFlowActionNode extends Node<HogFlowAction> {}
 
 export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult & {
     schema: z.ZodError | null
+}
+
+// TODOdin: Do we need a separate schema?
+export interface HogFlowTemplate extends z.infer<typeof HogFlowSchema> {
+    created_by?: UserBasicType | null
 }

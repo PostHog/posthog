@@ -1,7 +1,16 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, feed, hog_flow, llm_gateway, metalytics, my_notifications, project
+from posthog.api import (
+    data_color_theme,
+    feed,
+    hog_flow,
+    hog_flow_template,
+    llm_gateway,
+    metalytics,
+    my_notifications,
+    project,
+)
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
@@ -864,6 +873,13 @@ register_grandfathered_environment_nested_viewset(
     r"hog_flows",
     hog_flow.HogFlowViewSet,
     "environment_hog_flows",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"hog_flow_templates",
+    hog_flow_template.HogFlowTemplateViewSet,
+    "environment_hog_flow_templates",
     ["team_id"],
 )
 

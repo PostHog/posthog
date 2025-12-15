@@ -1,5 +1,7 @@
 import { actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { useMountedLogic } from 'kea'
 import { urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import { IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
@@ -23,6 +25,8 @@ import { OptOutScene } from './OptOuts/OptOutScene'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
+import type { HogFlow } from './Workflows/hogflows/types'
+import { workflowsLogic } from './Workflows/workflowsLogic'
 import type { workflowSceneLogicType } from './WorkflowsSceneType'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs'] as const
@@ -91,7 +95,34 @@ export function WorkflowsScene(): JSX.Element {
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
 
+    const workflowsLogicInstance = useMountedLogic(workflowsLogic)
+    const { workflowTemplates, workflowTemplatesLoading } = useValues(workflowsLogicInstance)
+    const { loadWorkflowTemplates } = useActions(workflowsLogicInstance)
+
     const hasWorkflowsFeatureFlag = useFeatureFlag('WORKFLOWS')
+
+    const getTemplateMenuItems = (templates: HogFlow[], loading: boolean): LemonMenuItems => {
+        if (templates.length === 0 && !loading) {
+            return [
+                {
+                    label: 'No templates available',
+                },
+            ]
+        }
+        if (loading) {
+            return [
+                {
+                    label: 'Loading templates...',
+                },
+            ]
+        }
+        return templates.map((template: HogFlow) => ({
+            label: template.name || 'Unnamed template',
+            onClick: () => {
+                router.actions.push(urls.workflowNew(), { templateId: template.id })
+            },
+        }))
+    }
 
     if (!hasWorkflowsFeatureFlag) {
         return (
@@ -176,9 +207,29 @@ export function WorkflowsScene(): JSX.Element {
                 actions={
                     <>
                         {currentTab === 'workflows' && (
-                            <LemonButton data-attr="new-workflow" to={urls.workflowNew()} type="primary" size="small">
-                                New workflow
-                            </LemonButton>
+                            <>
+                                <LemonButton
+                                    data-attr="new-workflow"
+                                    to={urls.workflowNew()}
+                                    type="primary"
+                                    size="small"
+                                >
+                                    New workflow
+                                </LemonButton>
+                                <LemonMenu
+                                    items={getTemplateMenuItems(workflowTemplates, workflowTemplatesLoading)}
+                                    matchWidth
+                                    onVisibilityChange={(visible) => {
+                                        if (visible && workflowTemplates.length === 0 && !workflowTemplatesLoading) {
+                                            loadWorkflowTemplates()
+                                        }
+                                    }}
+                                >
+                                    <LemonButton data-attr="new-workflow-from-template" type="secondary" size="small">
+                                        From template
+                                    </LemonButton>
+                                </LemonMenu>
+                            </>
                         )}
                         {currentTab === 'library' && (
                             <LemonButton

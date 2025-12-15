@@ -67,6 +67,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 },
             },
         ],
+        workflowTemplates: [
+            [] as HogFlow[],
+            {
+                loadWorkflowTemplates: async (): Promise<HogFlow[]> => {
+                    const response = await api.hogFlowTemplates.getHogFlowTemplates()
+                    return response.results as HogFlow[]
+                },
+            },
+        ],
     })),
     selectors({
         workflowsFuse: [

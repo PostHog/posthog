@@ -274,6 +274,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         return HogFlowMinimalSerializer if self.action == "list" else HogFlowSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.exclude(status=HogFlow.State.TEMPLATE)
+
         if self.action == "list":
             queryset = queryset.order_by("-updated_at")
 

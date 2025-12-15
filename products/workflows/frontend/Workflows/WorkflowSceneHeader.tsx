@@ -14,8 +14,15 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)
     const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
-    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, deleteWorkflow } =
-        useActions(logic)
+    const {
+        saveWorkflowPartial,
+        submitWorkflow,
+        discardChanges,
+        setWorkflowValue,
+        duplicate,
+        deleteWorkflow,
+        saveAsTemplate,
+    } = useActions(logic)
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isManualWorkflow = ['manual', 'schedule', 'batch'].includes(workflow?.trigger?.type || '')
@@ -102,6 +109,9 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 Clear changes
                             </LemonButton>
                         )}
+                        <LemonButton type="primary" size="small" onClick={saveAsTemplate}>
+                            Save as template
+                        </LemonButton>
                         <LemonButton
                             type="primary"
                             size="small"
