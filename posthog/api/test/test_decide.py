@@ -4070,6 +4070,48 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # Empty string should fall back to default
         self.assertEqual(conversations["greetingText"], "Hey, how can I help you today?")
 
+    def test_conversations_allowed_when_no_permitted_domains_are_set(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_public_token = "test_token"
+        self.team.conversations_widget_domains = []
+        self.team.save()
+
+        response = self._post_decide(api_version=3, origin="https://any.site.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        conversations = response.json()["conversations"]
+        self.assertEqual(conversations["enabled"], True)
+
+    def test_conversations_domain_not_allowed(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_public_token = "test_token"
+        self.team.conversations_widget_domains = ["https://example.com"]
+        self.team.save()
+
+        response = self._post_decide(api_version=3, origin="https://evil.site.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["conversations"], False)
+
+        response = self._post_decide(api_version=3, origin="https://example.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        conversations = response.json()["conversations"]
+        self.assertEqual(conversations["enabled"], True)
+
+    def test_conversations_domain_wildcard_allowed(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_public_token = "test_token"
+        self.team.conversations_widget_domains = ["https://*.example.com"]
+        self.team.save()
+
+        response = self._post_decide(api_version=3, origin="https://random.example.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        conversations = response.json()["conversations"]
+        self.assertEqual(conversations["enabled"], True)
+
+        # Make sure the domain matches exactly
+        response = self._post_decide(api_version=3, origin="https://random.example.com.evilsite.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["conversations"], False)
+
     def test_only_evaluate_survey_feature_flags_query_param(self, *args):
         # Create a survey flag and a regular flag
         FeatureFlag.objects.create(

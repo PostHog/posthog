@@ -1834,6 +1834,14 @@ def team_api_test_factory():
                     None,
                 ),
                 ("recording_domains_none_field", "recording_domains", None, None, None),
+                (
+                    "conversations_widget_domains_mixed_nulls",
+                    "conversations_widget_domains",
+                    [None, "https://example.com", None, "https://test.com"],
+                    ["https://example.com", "https://test.com"],
+                    None,
+                ),
+                ("conversations_widget_domains_none_field", "conversations_widget_domains", None, None, None),
             ]
         )
         def test_filters_null_values(self, name, field_name, input_data, expected_output, setup_data):

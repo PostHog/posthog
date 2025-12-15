@@ -383,6 +383,9 @@ class Team(UUIDTClassicModel):
     conversations_greeting_text = models.TextField(null=True, blank=True)
     conversations_color = models.CharField(max_length=20, null=True, blank=True)
     conversations_public_token = models.CharField(max_length=200, null=True, blank=True, unique=True)
+    conversations_widget_domains: ArrayField = ArrayField(
+        models.CharField(max_length=200, null=True), blank=True, null=True
+    )
 
     # Capture / Autocapture
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)

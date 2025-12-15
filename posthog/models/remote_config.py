@@ -97,6 +97,16 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
                 if not on_permitted_recording_domain(domains, request=request):
                     config["sessionRecording"] = False
 
+    # Remove domains from conversations widget
+    if config.get("conversations") and isinstance(config["conversations"], dict):
+        if "domains" in config["conversations"]:
+            domains = config["conversations"].pop("domains")
+
+            # Empty list of domains means always permitted
+            if request and domains:
+                if not on_permitted_recording_domain(domains, request=request):
+                    config["conversations"] = False
+
     # Remove site apps JS
     config.pop("siteAppsJS", None)
     return config
@@ -268,6 +278,8 @@ class RemoteConfig(UUIDTModel):
                 "greetingText": team.conversations_greeting_text or "Hey, how can I help you today?",
                 "color": team.conversations_color or "#1d4aff",
                 "token": team.conversations_public_token,
+                # NOTE: domains is cached but stripped out at the api level depending on the caller
+                "domains": team.conversations_widget_domains or [],
             }
         else:
             config["conversations"] = False

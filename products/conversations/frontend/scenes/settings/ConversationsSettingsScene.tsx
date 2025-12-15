@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonCard, LemonColorPicker, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -87,7 +89,22 @@ export function ConversationsSettingsScene(): JSX.Element {
                                 </div>
                             </div>
 
-                            <div className="space-y-1 pt-4">
+                            <div className="space-y-2 pt-8">
+                                <label className="text-sm font-medium">Authorized domains</label>
+                                <p className="text-xs text-muted-alt">
+                                    Restrict which domains can display the conversations widget. Leave empty to allow
+                                    all domains. Wildcards are supported (e.g. https://*.example.com).
+                                </p>
+                                <AuthorizedUrlList
+                                    type={AuthorizedUrlListType.CONVERSATIONS_WIDGET}
+                                    addText="Add authorized domain"
+                                    showLaunch={false}
+                                    displaySuggestions={false}
+                                    addButtonClassName="max-w-80"
+                                />
+                            </div>
+
+                            <div className="space-y-2 pt-8">
                                 <label className="text-sm font-medium">Public token</label>
                                 <p className="text-xs text-muted-alt mb-2">
                                     Automatically generated when you enable conversations. Regenerate if compromised.

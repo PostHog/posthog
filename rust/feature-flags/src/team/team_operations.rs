@@ -82,6 +82,7 @@ const TEAM_COLUMNS: &str = "
     conversations_greeting_text,
     conversations_color,
     conversations_public_token,
+    conversations_widget_domains,
     capture_dead_clicks,
     flags_persistence_default,
     session_recording_sample_rate,

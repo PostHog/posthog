@@ -143,7 +143,7 @@ pub fn session_recording_config_response(
 }
 
 fn session_recording_domain_not_allowed(team: &Team, headers: &HeaderMap) -> bool {
-    matches!(&team.recording_domains, Some(domains) if !domains.is_empty() && !on_permitted_recording_domain(domains, headers))
+    matches!(&team.recording_domains, Some(domains) if !domains.is_empty() && !on_permitted_domain(domains, headers))
 }
 
 fn hostname_in_allowed_url_list(allowed: &[String], hostname: Option<&str>) -> bool {
@@ -205,7 +205,7 @@ fn parse_domain(url: Option<&str>) -> Option<String> {
     })
 }
 
-fn on_permitted_recording_domain(recording_domains: &[String], headers: &HeaderMap) -> bool {
+pub fn on_permitted_domain(allowed_domains: &[String], headers: &HeaderMap) -> bool {
     let origin = headers.get("Origin").and_then(|v| v.to_str().ok());
     let referer = headers.get("Referer").and_then(|v| v.to_str().ok());
     let user_agent = headers.get("User-Agent").and_then(|v| v.to_str().ok());
@@ -215,8 +215,8 @@ fn on_permitted_recording_domain(recording_domains: &[String], headers: &HeaderM
     let referer_hostname = parse_domain(referer);
 
     let is_authorized_web_client =
-        hostname_in_allowed_url_list(recording_domains, origin_hostname.as_deref())
-            || hostname_in_allowed_url_list(recording_domains, referer_hostname.as_deref());
+        hostname_in_allowed_url_list(allowed_domains, origin_hostname.as_deref())
+            || hostname_in_allowed_url_list(allowed_domains, referer_hostname.as_deref());
 
     let is_authorized_mobile_client =
         user_agent.is_some_and(|ua| AUTHORIZED_MOBILE_CLIENTS.iter().any(|&kw| ua.contains(kw)));
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_on_permitted_recording_domain_with_origin() {
+    fn test_on_permitted_domain_with_origin() {
         use axum::http::HeaderMap;
 
         let recording_domains = vec!["https://app.example.com/".to_string()];
@@ -302,26 +302,26 @@ mod tests {
         // Test with Origin header (without trailing slash)
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.example.com".parse().unwrap());
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with Origin header (with trailing slash)
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.example.com/".parse().unwrap());
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with correct domain with path
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.example.com/path".parse().unwrap());
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with wrong domain
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://wrong.example.com".parse().unwrap());
-        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(!on_permitted_domain(&recording_domains, &headers));
     }
 
     #[test]
-    fn test_on_permitted_recording_domain_with_referer() {
+    fn test_on_permitted_domain_with_referer() {
         use axum::http::HeaderMap;
 
         let recording_domains = vec!["https://app.example.com".to_string()];
@@ -332,16 +332,16 @@ mod tests {
             "Referer",
             "https://app.example.com/some/path".parse().unwrap(),
         );
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with wrong domain
         let mut headers = HeaderMap::new();
         headers.insert("Referer", "https://wrong.example.com/path".parse().unwrap());
-        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(!on_permitted_domain(&recording_domains, &headers));
     }
 
     #[test]
-    fn test_on_permitted_recording_domain_with_wildcards() {
+    fn test_on_permitted_domain_with_wildcards() {
         use axum::http::HeaderMap;
 
         let recording_domains = vec!["https://*.example.com".to_string()];
@@ -349,21 +349,21 @@ mod tests {
         // Test with matching subdomain
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.example.com".parse().unwrap());
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with different subdomain
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://test.example.com".parse().unwrap());
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with no subdomain - should NOT match
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://example.com".parse().unwrap());
-        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(!on_permitted_domain(&recording_domains, &headers));
 
         // Test with wrong domain
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.wrong.com".parse().unwrap());
-        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(!on_permitted_domain(&recording_domains, &headers));
     }
 }

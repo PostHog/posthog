@@ -38,6 +38,7 @@ export enum AuthorizedUrlListType {
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
     WEB_ANALYTICS = 'WEB_ANALYTICS',
     WEB_EXPERIMENTS = 'WEB_EXPERIMENTS',
+    CONVERSATIONS_WIDGET = 'CONVERSATIONS_WIDGET',
 }
 
 /**
@@ -289,11 +290,15 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     })),
     subscriptions(({ props, actions }) => ({
         currentTeam: (currentTeam) => {
-            const urls =
-                (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
-                    ? currentTeam.recording_domains
-                    : currentTeam.app_urls) || []
-            actions.setAuthorizedUrls(urls.filter(Boolean))
+            let urls: string[] | null | undefined
+            if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
+                urls = currentTeam.recording_domains
+            } else if (props.type === AuthorizedUrlListType.CONVERSATIONS_WIDGET) {
+                urls = currentTeam.conversations_widget_domains
+            } else {
+                urls = currentTeam.app_urls
+            }
+            actions.setAuthorizedUrls((urls || []).filter(Boolean))
         },
     })),
     afterMount(({ actions }) => {
@@ -369,6 +374,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         saveUrls: async () => {
             if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
                 await teamLogic.asyncActions.updateCurrentTeam({ recording_domains: values.authorizedUrls })
+            } else if (props.type === AuthorizedUrlListType.CONVERSATIONS_WIDGET) {
+                await teamLogic.asyncActions.updateCurrentTeam({ conversations_widget_domains: values.authorizedUrls })
             } else {
                 await teamLogic.asyncActions.updateCurrentTeam({ app_urls: values.authorizedUrls })
             }
@@ -463,7 +470,11 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
         isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
-        onlyAllowDomains: [(_, p) => [p.type], (type) => type === AuthorizedUrlListType.RECORDING_DOMAINS],
+        onlyAllowDomains: [
+            (_, p) => [p.type],
+            (type) =>
+                type === AuthorizedUrlListType.RECORDING_DOMAINS || type === AuthorizedUrlListType.CONVERSATIONS_WIDGET,
+        ],
 
         checkUrlIsAuthorized: [
             (s) => [s.authorizedUrls],

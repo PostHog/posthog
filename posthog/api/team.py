@@ -194,6 +194,7 @@ TEAM_CONFIG_FIELDS = (
     "conversations_greeting_text",
     "conversations_color",
     "conversations_public_token",
+    "conversations_widget_domains",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -600,6 +601,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return [url for url in value if url]
 
     def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [domain for domain in value if domain]
+
+    def validate_conversations_widget_domains(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
             return value
         return [domain for domain in value if domain]

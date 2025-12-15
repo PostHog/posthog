@@ -170,21 +170,17 @@ def validate_traits(traits: dict) -> dict:
 def validate_origin(request: Request, team: Team) -> bool:
     """
     Validate request origin to prevent token reuse on unauthorized domains.
-    For MVP: just log suspicious origins.
-    Post-MVP: team.allowed_widget_domains field and strict enforcement.
+    Checks against team.conversations_widget_domains if configured.
+    Empty list = allow all domains.
     """
-    origin = request.headers.get("Origin") or request.headers.get("Referer")
+    from posthog.api.utils import on_permitted_recording_domain
 
-    if not origin:
-        # Allow requests without origin (mobile apps, etc.)
+    domains = team.conversations_widget_domains or []
+
+    if not domains:
         return True
 
-    # TODO: Add team.allowed_widget_domains field and check:
-    # allowed_domains = team.allowed_widget_domains or []
-    # if allowed_domains and not any(origin.startswith(d) for d in allowed_domains):
-    #     return False
-
-    return True
+    return on_permitted_recording_domain(domains, request._request)
 
 
 # API Views

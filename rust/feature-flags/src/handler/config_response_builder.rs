@@ -122,6 +122,20 @@ async fn apply_config_fields(
         Some(vec![])
     };
 
+    // Handle conversations widget config (requires headers for domain check)
+    response.config.conversations = if team.conversations_enabled.unwrap_or(false)
+        && !conversations_domain_not_allowed(team, &context.headers)
+    {
+        Some(serde_json::json!({
+            "enabled": true,
+            "greetingText": team.conversations_greeting_text.as_deref().unwrap_or("Hey, how can I help you today?"),
+            "color": team.conversations_color.as_deref().unwrap_or("#1d4aff"),
+            "token": team.conversations_public_token.as_deref()
+        }))
+    } else {
+        Some(serde_json::json!(false))
+    };
+
     // Handle error tracking configuration
     response.config.error_tracking = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
         // Try to get suppression rules, but don't fail if database is unavailable
@@ -154,6 +168,10 @@ async fn apply_config_fields(
     };
 
     Ok(())
+}
+
+fn conversations_domain_not_allowed(team: &Team, headers: &HeaderMap) -> bool {
+    matches!(&team.conversations_widget_domains, Some(domains) if !domains.is_empty() && !session_recording::on_permitted_domain(domains, headers))
 }
 
 /// Core config field logic that doesn't require async operations or external dependencies.
@@ -222,17 +240,6 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
     response.config.surveys = Some(serde_json::json!(team.surveys_opt_in.unwrap_or(false)));
     response.config.heatmaps = Some(team.heatmaps_opt_in.unwrap_or(false));
     
-    response.config.conversations = if team.conversations_enabled.unwrap_or(false) {
-        Some(serde_json::json!({
-            "enabled": true,
-            "greetingText": team.conversations_greeting_text.as_deref().unwrap_or("Hey, how can I help you today?"),
-            "color": team.conversations_color.as_deref().unwrap_or("#1d4aff"),
-            "token": team.conversations_public_token.as_deref()
-        }))
-    } else {
-        Some(serde_json::json!(false))
-    };
-    
     response.config.default_identified_only = Some(true);
     response.config.flags_persistence_default =
         Some(team.flags_persistence_default.unwrap_or(false));
@@ -277,6 +284,7 @@ mod tests {
             conversations_greeting_text: None,
             conversations_color: None,
             conversations_public_token: None,
+            conversations_widget_domains: None,
             capture_dead_clicks: None,
             flags_persistence_default: None,
             session_recording_sample_rate: None,
