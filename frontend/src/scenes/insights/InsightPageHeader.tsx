@@ -357,7 +357,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        {featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
+                        {hasDashboardItemId && featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
                             <ButtonPrimitive onClick={() => setEndpointModalOpen(true)} menuItem>
                                 <IconCode2 />
                                 Create endpoint

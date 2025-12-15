@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, date, datetime
 from typing import Optional
 
@@ -7,6 +8,7 @@ from posthog.test.base import BaseTest
 from posthog.hogql.ast import DateType, FloatType, IntegerType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.functions.aggregations import generate_combinator_suffix_combinations
 from posthog.hogql.functions.core import HogQLFunctionMeta, compare_types
 from posthog.hogql.functions.mapping import (
     HOGQL_CLICKHOUSE_FUNCTIONS,
@@ -389,3 +391,15 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["array_length"], 5)  # 5 elements in array
         self.assertEqual(result_dict["string_type"], "String")  # type of "value"
         self.assertEqual(result_dict["extracted_int"], 42)  # extracted integer
+
+    def test_generated_aggregate_combinator_functions_snapshot(self):
+        # Load the snapshot under __snapshots__/generated_aggregate_combinator_functions.txt, relative to this file
+        snapshot_path = os.path.join(os.path.dirname(__file__), "generated_aggregate_combinator_functions.txt")
+        with open(snapshot_path) as f:
+            snapshot = {x.strip() for x in f.readlines()}
+        generated_sigs = [
+            f"{name}: ({sig.min_args}, {sig.max_args})"
+            for (name, sig) in generate_combinator_suffix_combinations().items()
+        ]
+        for sig in generated_sigs:
+            assert sig in snapshot

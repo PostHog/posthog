@@ -15,7 +15,7 @@ from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.ph_client import get_client as get_ph_client
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
@@ -290,7 +290,6 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                     parameters = {
                         "team_id": team.id,
                         "python_now": datetime.now(UTC),
-                        "ttl_days": await database_sync_to_async(ttl_days)(team),
                         "ttl_threshold": TTL_THRESHOLD,
                     }
 

@@ -17,6 +17,7 @@ describe('SnappySessionRecorder', () => {
     const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
         distinct_id: 'distinct_id',
         session_id: 'session_id',
+        token: null,
         eventsByWindowId: {
             [windowId]: events,
         },

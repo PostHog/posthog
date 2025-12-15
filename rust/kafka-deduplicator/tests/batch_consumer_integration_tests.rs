@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::async_trait;
 use kafka_deduplicator::kafka::{
     batch_consumer::*, batch_message::*, test_utils::TestRebalanceHandler,
 };
@@ -14,7 +15,7 @@ use rdkafka::{
     util::Timeout,
 };
 use time::OffsetDateTime;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -47,10 +48,30 @@ fn create_batch_kafka_consumer(
 
     let (chan_tx, chan_rx) = unbounded_channel();
 
+    // Create a test processor that sends batches to the channel
+    struct TestProcessor {
+        sender: UnboundedSender<Batch<CapturedEvent>>,
+    }
+
+    #[async_trait]
+    impl BatchConsumerProcessor<CapturedEvent> for TestProcessor {
+        async fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
+            let mut batch = Batch::new();
+            for msg in messages {
+                batch.push_message(msg);
+            }
+            self.sender
+                .send(batch)
+                .map_err(|e| anyhow::anyhow!("Failed to send batch: {e}"))
+        }
+    }
+
+    let processor = Arc::new(TestProcessor { sender: chan_tx });
+
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
         Arc::new(TestRebalanceHandler::default()),
-        chan_tx,
+        processor,
         shutdown_rx,
         topic,
         batch_size,
@@ -77,7 +98,7 @@ async fn send_test_messages(
         producer
             .send(record, Timeout::After(Duration::from_secs(5)))
             .await
-            .map_err(|(e, _)| anyhow::anyhow!("Failed to send message: {}", e))?;
+            .map_err(|(e, _)| anyhow::anyhow!("Failed to send message: {e}"))?;
     }
 
     // Give kafka some time to process the messages
@@ -101,6 +122,7 @@ fn create_captured_event() -> CapturedEvent {
     CapturedEvent {
         uuid: event_uuid,
         distinct_id: distinct_id.to_string(),
+        session_id: None,
         ip: "127.0.0.1".to_string(),
         now: now_rfc3339.clone(),
         token: token.to_string(),

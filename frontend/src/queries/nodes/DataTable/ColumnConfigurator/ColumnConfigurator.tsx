@@ -100,6 +100,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 data-attr="events-table-column-selector"
                 icon={<IconTuning />}
                 onClick={showModal}
+                size="small"
             >
                 Configure columns
             </LemonButton>
@@ -202,7 +203,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     </div>
                     <div className="HalfColumn">
                         <h4 className="secondary uppercase text-secondary">Available columns</h4>
-                        <div className="h-[360px]">
+                        <div className="h-[min(480px,60vh)]">
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => (
                                     <TaxonomicFilter

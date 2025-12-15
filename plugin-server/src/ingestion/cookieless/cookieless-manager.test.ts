@@ -4,6 +4,7 @@ import path from 'path'
 
 import type { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 
 import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
@@ -172,10 +173,10 @@ describe('CookielessManager', () => {
         let organizationId: string
         let teamId: number
         let team: Team
-        const now = new Date('2025-01-10T11:00:00')
-        const aBitLater = new Date('2025-01-10T11:10:00')
-        const muchLater = new Date('2025-01-10T19:00:00')
-        const differentDay = new Date('2025-01-11T11:00:00')
+        const now = new Date('2025-01-10T11:00:00Z')
+        const aBitLater = new Date('2025-01-10T11:10:00Z')
+        const muchLater = new Date('2025-01-10T19:00:00Z')
+        const differentDay = new Date('2025-01-11T11:00:00Z')
         const userAgent = 'Test User Agent'
         const identifiedDistinctId = 'identified@example.com'
         let event: PluginEvent
@@ -226,10 +227,10 @@ describe('CookielessManager', () => {
         }
 
         beforeEach(async () => {
-            teamId = await createTeam(hub.db.postgres, organizationId)
-            team = (await getTeam(hub, teamId))!
             await clearRedis()
             hub.cookielessManager.deleteAllLocalSalts()
+            teamId = await createTeam(hub.db.postgres, organizationId)
+            team = (await getTeam(hub, teamId))!
             event = deepFreeze({
                 event: 'test event',
                 distinct_id: COOKIELESS_SENTINEL_VALUE,
@@ -339,7 +340,8 @@ describe('CookielessManager', () => {
                 distinct_id?: string
                 timestamp?: string
                 force_disable_person_processing: boolean
-            } = { force_disable_person_processing: false }
+                historical_migration: boolean
+            } = createTestEventHeaders()
         ): Promise<PipelineEvent | undefined> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
@@ -354,6 +356,7 @@ describe('CookielessManager', () => {
                 distinct_id?: string
                 timestamp?: string
                 force_disable_person_processing: boolean
+                historical_migration: boolean
             }
         ): Promise<{
             event: PipelineEvent | undefined
@@ -362,6 +365,7 @@ describe('CookielessManager', () => {
                 distinct_id?: string
                 timestamp?: string
                 force_disable_person_processing: boolean
+                historical_migration: boolean
             }
         }> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
@@ -370,8 +374,8 @@ describe('CookielessManager', () => {
             return {
                 event: isOkResult(result) ? result.value.event : undefined,
                 headers: isOkResult(result)
-                    ? result.value.headers || { force_disable_person_processing: false }
-                    : { force_disable_person_processing: false },
+                    ? result.value.headers || createTestEventHeaders()
+                    : createTestEventHeaders(),
             }
         }
 
@@ -467,48 +471,12 @@ describe('CookielessManager', () => {
                 expect(actual1.properties.$session_id).not.toEqual(actual2.properties.$session_id)
             })
 
-            it('should preserve headers through cookieless processing', async () => {
-                const testHeaders = {
-                    token: 'test-token',
-                    distinct_id: 'test-distinct-id',
-                    timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                }
-
-                const result = await processEventWithHeaders(event, testHeaders)
-
-                expect(result.headers).toEqual(testHeaders)
-                expect(result.event).toBeDefined()
-            })
-
-            it('should preserve headers for non-cookieless events', async () => {
-                const testHeaders = {
-                    token: 'test-token',
-                    distinct_id: 'test-distinct-id',
-                    timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                }
-
-                const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
-
-                expect(result.headers).toEqual(testHeaders)
-                expect(result.event).toBe(nonCookielessEvent)
-            })
-
             it('should not return dropped events but should not throw', async () => {
-                const testHeaders = {
-                    token: 'test-token',
-                    distinct_id: 'test-distinct-id',
-                    timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                }
-
                 // Test with alias event which should be dropped
-                const result = await processEventWithHeaders(aliasEvent, testHeaders)
+                const actual = await processEvent(aliasEvent)
 
-                // Dropped events are not returned in the response array
-                expect(result.event).toBeUndefined()
-                expect(result.headers).toEqual({ force_disable_person_processing: false })
+                // Dropped events return undefined
+                expect(actual).toBeUndefined()
             })
         })
 
@@ -548,6 +516,53 @@ describe('CookielessManager', () => {
                 expect(actual2.distinct_id).toEqual(actual1.distinct_id)
                 expect(actual1.properties.$session_id).toBeDefined()
                 expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
+            })
+
+            it('should preserve headers through cookieless processing', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                    force_disable_person_processing: false,
+                    historical_migration: false,
+                }
+
+                const result = await processEventWithHeaders(event, testHeaders)
+
+                expect(result.headers).toEqual(testHeaders)
+                expect(result.event).toBeDefined()
+            })
+
+            it('should preserve headers for non-cookieless events', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                    force_disable_person_processing: false,
+                    historical_migration: false,
+                }
+
+                const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
+
+                expect(result.headers).toEqual(testHeaders)
+                expect(result.event).toBe(nonCookielessEvent)
+            })
+
+            it('should not return dropped events but should not throw', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                    force_disable_person_processing: false,
+                    historical_migration: false,
+                }
+
+                // Test with alias event which should be dropped
+                const result = await processEventWithHeaders(aliasEvent, testHeaders)
+
+                // Dropped events are not returned in the response array
+                expect(result.event).toBeUndefined()
+                expect(result.headers).toEqual(createTestEventHeaders())
             })
         })
 
@@ -635,8 +650,8 @@ describe('CookielessManager', () => {
                 })
 
                 const response = await hub.cookielessManager.doBatch([
-                    { event, team, message, headers: { force_disable_person_processing: false } },
-                    { event: nonCookielessEvent, team, message, headers: { force_disable_person_processing: false } },
+                    { event, team, message, headers: createTestEventHeaders() },
+                    { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(2)
 
@@ -663,8 +678,8 @@ describe('CookielessManager', () => {
                 })
 
                 const response = await hub.cookielessManager.doBatch([
-                    { event, team, message, headers: { force_disable_person_processing: false } },
-                    { event: nonCookielessEvent, team, message, headers: { force_disable_person_processing: false } },
+                    { event, team, message, headers: createTestEventHeaders() },
+                    { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(2)
 
@@ -681,6 +696,114 @@ describe('CookielessManager', () => {
                 expect(nonCookielessResult.type).toBe(PipelineResultType.OK)
                 if (nonCookielessResult.type === PipelineResultType.OK) {
                     expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
+                }
+            })
+        })
+        describe('timestamp out of range', () => {
+            beforeEach(async () => {
+                await setModeForTeam(CookielessServerHashMode.Stateful)
+            })
+
+            it('should drop only the event with out-of-range timestamp, not other events in batch', async () => {
+                // Create an event with a timestamp that's too old (more than 72h + timezone buffer in the past)
+                const oldTimestamp = new Date('2025-01-05T11:00:00Z') // 5 days before "now" (2025-01-10)
+                const eventWithOldTimestamp = deepFreeze({
+                    ...event,
+                    now: oldTimestamp.toISOString(),
+                    uuid: new UUID7(oldTimestamp.getTime()).toString(),
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    {
+                        event: eventWithOldTimestamp,
+                        team,
+                        message,
+                        headers: createTestEventHeaders(),
+                    },
+                    { event, team, message, headers: createTestEventHeaders() },
+                    { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
+                ])
+                expect(response.length).toBe(3)
+
+                // Event with old timestamp should be dropped
+                const oldTimestampResult = response[0]
+                expect(oldTimestampResult.type).toBe(PipelineResultType.DROP)
+                if (oldTimestampResult.type === PipelineResultType.DROP) {
+                    expect(oldTimestampResult.reason).toBe('cookieless_timestamp_out_of_range')
+                }
+
+                // Valid cookieless event should pass through
+                const validCookielessResult = response[1]
+                expect(validCookielessResult.type).toBe(PipelineResultType.OK)
+
+                // Non-cookieless event should pass through
+                const nonCookielessResult = response[2]
+                expect(nonCookielessResult.type).toBe(PipelineResultType.OK)
+                if (nonCookielessResult.type === PipelineResultType.OK) {
+                    expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
+                }
+            })
+
+            it('should drop events with timestamps too far in the future', async () => {
+                // Create an event with a timestamp that's too far in the future
+                const futureTimestamp = new Date('2025-01-12T11:00:00Z') // 2 days after "now" (2025-01-10)
+                const eventWithFutureTimestamp = deepFreeze({
+                    ...event,
+                    now: futureTimestamp.toISOString(),
+                    uuid: new UUID7(futureTimestamp.getTime()).toString(),
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    {
+                        event: eventWithFutureTimestamp,
+                        team,
+                        message,
+                        headers: createTestEventHeaders(),
+                    },
+                    { event, team, message, headers: createTestEventHeaders() },
+                ])
+                expect(response.length).toBe(2)
+
+                // Event with future timestamp should be dropped
+                const futureTimestampResult = response[0]
+                expect(futureTimestampResult.type).toBe(PipelineResultType.DROP)
+                if (futureTimestampResult.type === PipelineResultType.DROP) {
+                    expect(futureTimestampResult.reason).toBe('cookieless_timestamp_out_of_range')
+                }
+
+                // Valid cookieless event should pass through
+                const validCookielessResult = response[1]
+                expect(validCookielessResult.type).toBe(PipelineResultType.OK)
+            })
+
+            it('should include ingestion warning for dropped events', async () => {
+                const oldTimestamp = new Date('2025-01-05T11:00:00Z')
+                const eventWithOldTimestamp = deepFreeze({
+                    ...event,
+                    now: oldTimestamp.toISOString(),
+                    uuid: new UUID7(oldTimestamp.getTime()).toString(),
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    {
+                        event: eventWithOldTimestamp,
+                        team,
+                        message,
+                        headers: createTestEventHeaders(),
+                    },
+                ])
+                expect(response.length).toBe(1)
+
+                const result = response[0]
+                expect(result.type).toBe(PipelineResultType.DROP)
+                if (result.type === PipelineResultType.DROP) {
+                    expect(result.warnings.length).toBe(1)
+                    expect(result.warnings[0].type).toBe('cookieless_timestamp_out_of_range')
+                    expect(result.warnings[0].details).toMatchObject({
+                        eventUuid: eventWithOldTimestamp.uuid,
+                        event: eventWithOldTimestamp.event,
+                        distinctId: eventWithOldTimestamp.distinct_id,
+                    })
                 }
             })
         })
@@ -702,13 +825,14 @@ describe('CookielessManager', () => {
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 }
 
                 const result = await processEventWithHeaders(event, testHeaders)
 
                 // Dropped events are not returned in the response array
                 expect(result.event).toBeUndefined()
-                expect(result.headers).toEqual({ force_disable_person_processing: false })
+                expect(result.headers).toEqual(createTestEventHeaders())
             })
             it('should preserve headers when passing through non-cookieless events', async () => {
                 const testHeaders = {
@@ -716,6 +840,7 @@ describe('CookielessManager', () => {
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
                     force_disable_person_processing: false,
+                    historical_migration: false,
                 }
 
                 const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
@@ -743,7 +868,7 @@ describe('CookielessManager', () => {
                         event: eventWithoutTimestamp,
                         team,
                         message,
-                        headers: { force_disable_person_processing: false },
+                        headers: createTestEventHeaders(),
                     },
                 ])
                 expect(response.length).toBe(1)
@@ -774,7 +899,7 @@ describe('CookielessManager', () => {
                 })
 
                 const response = await hub.cookielessManager.doBatch([
-                    { event: eventWithoutUA, team, message, headers: { force_disable_person_processing: false } },
+                    { event: eventWithoutUA, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(1)
                 const result = response[0]
@@ -805,7 +930,7 @@ describe('CookielessManager', () => {
                 })
 
                 const response = await hub.cookielessManager.doBatch([
-                    { event: eventWithoutIP, team, message, headers: { force_disable_person_processing: false } },
+                    { event: eventWithoutIP, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(1)
                 const result = response[0]
@@ -836,7 +961,7 @@ describe('CookielessManager', () => {
                 })
 
                 const response = await hub.cookielessManager.doBatch([
-                    { event: eventWithoutHost, team, message, headers: { force_disable_person_processing: false } },
+                    { event: eventWithoutHost, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(1)
                 const result = response[0]

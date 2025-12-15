@@ -5,8 +5,9 @@ from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, Generation, LLMResult
+from parameterized import parameterized
 
-from ee.hogai.llm import MaxChatAnthropic, MaxChatOpenAI
+from ee.hogai.llm import BILLING_SKIPPED_COUNTER, MaxChatAnthropic, MaxChatOpenAI
 
 
 @patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key", "ANTHROPIC_API_KEY": "test-api-key"})
@@ -289,3 +290,77 @@ class TestMaxChatOpenAI(BaseTest):
             self.assertIn("posthog_properties", call_kwargs["metadata"])
             self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], True)
             self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
+
+    @parameterized.expand(
+        [
+            # (model_billable, is_agent_billable, expected_effective_billable, should_increment_counter)
+            (True, True, True, False),  # Normal case: model wants billing, workflow allows it
+            (True, False, False, True),  # Impersonation: model wants billing, workflow blocks it
+            (False, True, False, False),  # Model doesn't want billing, workflow allows it
+            (False, False, False, False),  # Neither wants billing
+        ]
+    )
+    def test_get_effective_billable(
+        self, model_billable: bool, is_agent_billable: bool, expected: bool, should_increment_counter: bool
+    ):
+        llm = MaxChatOpenAI(user=self.user, team=self.team, billable=model_billable)
+
+        config = {"configurable": {"is_agent_billable": is_agent_billable}}
+
+        with (
+            patch("ee.hogai.llm.ensure_config", return_value=config),
+            patch.object(BILLING_SKIPPED_COUNTER, "labels") as mock_labels,
+        ):
+            result = llm._get_effective_billable()
+
+        self.assertEqual(result, expected)
+
+        if should_increment_counter:
+            expected_model = getattr(llm, "model", None) or getattr(llm, "model_name", "unknown")
+            mock_labels.assert_called_once_with(model=expected_model)
+            mock_labels.return_value.inc.assert_called_once()
+        else:
+            mock_labels.return_value.inc.assert_not_called()
+
+    def test_workflow_billing_override_in_generate(self):
+        """Test that workflow-level is_agent_billable=False overrides model billable=True in generate."""
+        llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False, billable=True)
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        config = {"configurable": {"is_agent_billable": False}}
+
+        with (
+            patch("langchain_openai.ChatOpenAI.generate", return_value=mock_result) as mock_generate,
+            patch("ee.hogai.llm.ensure_config", return_value=config),
+        ):
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
+            llm.generate(messages)
+
+            call_kwargs = mock_generate.call_args.kwargs
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
+
+    async def test_workflow_billing_override_in_agenerate(self):
+        """Test that workflow-level is_agent_billable=False overrides model billable=True in agenerate."""
+        llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude", billable=True)
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        config = {"configurable": {"is_agent_billable": False}}
+
+        with (
+            patch("langchain_anthropic.ChatAnthropic.agenerate", return_value=mock_result) as mock_agenerate,
+            patch("ee.hogai.llm.ensure_config", return_value=config),
+        ):
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
+            await llm.agenerate(messages)
+
+            call_kwargs = mock_agenerate.call_args.kwargs
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], False)
+
+    def test_effective_billable_defaults_to_true_when_no_config(self):
+        """Test that is_agent_billable defaults to True when not in config."""
+        llm = MaxChatOpenAI(user=self.user, team=self.team, billable=True)
+
+        with patch("ee.hogai.llm.ensure_config", return_value={}):
+            result = llm._get_effective_billable()
+
+        self.assertTrue(result)

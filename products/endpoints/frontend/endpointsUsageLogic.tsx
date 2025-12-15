@@ -88,6 +88,7 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                         SELECT DISTINCT name
                         FROM query_log
                         WHERE is_personal_api_key_request
+                            AND endpoint like '%endpoints/%/run'
                             AND name IS NOT NULL
                             AND name != ''
                         ORDER BY name ASC

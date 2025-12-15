@@ -29,7 +29,6 @@ import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
-import { getObjectStorage } from '../object_storage'
 import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
 import { UUIDT } from '../utils'
@@ -107,15 +106,6 @@ export async function createHub(
     const cookielessRedisPool = createRedisPool(serverConfig, 'cookieless')
     logger.info('👍', `Cookieless Redis ready`)
 
-    logger.info('🤔', `Connecting to object storage...`)
-
-    const objectStorage = getObjectStorage(serverConfig)
-    if (objectStorage) {
-        logger.info('👍', 'Object storage ready')
-    } else {
-        logger.warn('🪣', `Object storage could not be created`)
-    }
-
     const db = new DB(
         postgres,
         postgresPersonMigration,
@@ -170,7 +160,6 @@ export async function createHub(
         cookielessRedisPool,
         kafka,
         kafkaProducer,
-        objectStorage: objectStorage,
         groupTypeManager,
 
         plugins: new Map(),

@@ -1,6 +1,6 @@
 import time
 import asyncio
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 import structlog
@@ -12,7 +12,7 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, MaxRecordingUniversalFilters, RecordingsQuery
 
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import (
@@ -32,6 +32,11 @@ from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStr
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.stringify import SessionGroupSummaryStringifier
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.tracking import (
+    capture_session_summary_generated,
+    capture_session_summary_started,
+    generate_tracking_id,
+)
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -86,26 +91,43 @@ class SessionSummarizationNode(AssistantNode):
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         # Search for session ids with filters (current or generated)
         search_result = await self._session_search.search_sessions(state, conversation_id, start_time, config)
+        # No sessions were found
+        if not search_result:
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content="No sessions were found.",
+                        tool_call_id=state.root_tool_call_id or "unknown",
+                        id=str(uuid4()),
+                    ),
+                ],
+                session_summarization_query=None,
+                root_tool_call_id=None,
+            )
+        # The search failed or clarification is needed
+        if isinstance(search_result, PartialAssistantState):
+            return search_result
+        # We have session IDs - start tracking
+        session_ids = search_result
+        summary_type: Literal["single", "group"] = (
+            "single" if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS else "group"
+        )
+        video_validation_enabled = self._has_video_validation_feature_flag()
+        tracking_id = generate_tracking_id()
+        capture_session_summary_started(
+            user=self._user,
+            team=self._team,
+            tracking_id=tracking_id,
+            summary_source="chat",
+            summary_type=summary_type,
+            is_streaming=False,
+            session_ids=session_ids,
+            video_validation_enabled=video_validation_enabled,
+        )
         try:
-            # No sessions were found
-            if not search_result:
-                return PartialAssistantState(
-                    messages=[
-                        AssistantToolCallMessage(
-                            content="No sessions were found.",
-                            tool_call_id=state.root_tool_call_id or "unknown",
-                            id=str(uuid4()),
-                        ),
-                    ],
-                    session_summarization_query=None,
-                    root_tool_call_id=None,
-                )
-            # The search failed or clarification is needed
-            if isinstance(search_result, PartialAssistantState):
-                return search_result
             # Summarize sessions
             summaries_content, session_group_summary_id = await self._session_summarizer.summarize_sessions(
-                session_ids=search_result, state=state
+                session_ids=session_ids, state=state
             )
             # Build messages list
             messages: list = []
@@ -136,10 +158,39 @@ class SessionSummarizationNode(AssistantNode):
                     id=str(uuid4()),
                 ),
             )
-            return PartialAssistantState(messages=messages, session_summarization_query=None, root_tool_call_id=None)
+            ready_state = PartialAssistantState(
+                messages=messages, session_summarization_query=None, root_tool_call_id=None
+            )
         except Exception as err:
+            # The session summarization failed
             self._log_failure("Session summarization failed", conversation_id, start_time, err)
+            capture_session_summary_generated(
+                user=self._user,
+                team=self._team,
+                tracking_id=tracking_id,
+                summary_source="chat",
+                summary_type=summary_type,
+                is_streaming=False,
+                session_ids=session_ids,
+                video_validation_enabled=video_validation_enabled,
+                success=False,
+                error_type=type(err).__name__,
+                error_message=str(err),
+            )
             return self._create_error_response(self._base_error_instructions, state)
+        # The session successfully summarized
+        capture_session_summary_generated(
+            user=self._user,
+            team=self._team,
+            tracking_id=tracking_id,
+            summary_source="chat",
+            summary_type=summary_type,
+            is_streaming=False,
+            session_ids=session_ids,
+            video_validation_enabled=video_validation_enabled,
+            success=True,
+        )
+        return ready_state
 
     def _create_error_response(self, message: str, state: AssistantState) -> PartialAssistantState:
         return PartialAssistantState(
@@ -164,6 +215,7 @@ class SessionSummarizationNode(AssistantNode):
                 "error": str(error) if error else None,
             },
             exc_info=error if error else None,
+            signals_type="session-summaries",
         )
 
     @property
@@ -243,63 +295,44 @@ class _SessionSearch:
                     "user_id": getattr(self._node._user, "id", "unknown"),
                     "query": filter_query,
                 },
+                signals_type="session-summaries",
             )
             return None
 
-    def _convert_max_filters_to_recordings_query(self, replay_filters: MaxRecordingUniversalFilters) -> RecordingsQuery:
-        """Convert Max-generated filters into recordings query format"""
-        properties = []
-        if replay_filters.filter_group and replay_filters.filter_group.values:
-            for inner_group in replay_filters.filter_group.values:
-                if hasattr(inner_group, "values"):
-                    properties.extend(inner_group.values)
-        recordings_query = RecordingsQuery(
-            date_from=replay_filters.date_from,
-            date_to=replay_filters.date_to,
-            properties=properties,
-            filter_test_accounts=replay_filters.filter_test_accounts,
-            order=replay_filters.order,
-            # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
-            having_predicates=(
-                [
-                    {"key": dur.key, "type": "recording", "operator": dur.operator, "value": dur.value}
-                    for dur in (replay_filters.duration or [])
-                ]
-                if replay_filters.duration
-                else None
-            ),
-        )
-        return recordings_query
-
-    def _convert_current_filters_to_recordings_query(self, current_filters: dict[str, Any]) -> RecordingsQuery:
-        """Convert current filters into recordings query format"""
-        from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
-
-        # Create a temporary playlist object to use the conversion function
-        temp_playlist = SessionRecordingPlaylist(filters=current_filters)
-        recordings_query = convert_filters_to_recordings_query(temp_playlist)
-        return recordings_query
-
-    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery, limit: int) -> list[str] | None:
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Execute the query to get session IDs
-        replay_filters.limit = limit
         try:
             query_runner = SessionRecordingListFromQuery(
-                team=self._node._team, query=replay_filters, hogql_query_modifiers=None, limit=limit
+                team=self._node._team, query=replay_filters, hogql_query_modifiers=None
             )
             results = query_runner.run()
         except Exception as e:
             self._node.logger.exception(
                 f"Error getting session ids for session summarization with filters query "
-                f"({replay_filters.model_dump_json(exclude_none=True)}): {e}"
+                f"({replay_filters.model_dump_json(exclude_none=True)}): {e}",
+                signals_type="session-summaries",
             )
             return None
         # Extract session IDs
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
+
+    def _validate_specific_session_ids(self, session_ids: list[str]) -> list[str] | None:
+        """Validate that specific session IDs exist in the database."""
+        from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+        replay_events = SessionReplayEvents()
+        sessions_found, _, _ = replay_events.sessions_found_with_timestamps(
+            session_ids=session_ids,
+            team=self._node._team,
+        )
+        if not sessions_found:
+            return None
+        # Preserve the original order, filtering out invalid sessions
+        return [sid for sid in session_ids if sid in sessions_found]
 
     async def _generate_filter_query(self, plain_text_query: str, config: RunnableConfig) -> str:
         """Generate a filter query for the user's summarization query to keep the search context clear"""
@@ -314,9 +347,9 @@ class _SessionSearch:
         filter_query = chain.invoke({}, config=config)
         # Validate the generated filter query is not empty or just whitespace
         if not filter_query or not filter_query.strip():
-            raise ValueError(
-                f"Filter query generated for session summarization is empty or just whitespace (initial query: {plain_text_query})"
-            )
+            msg = f"Filter query generated for session summarization is empty or just whitespace (initial query: {plain_text_query})"
+            self._node.logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
         return filter_query
 
     async def search_sessions(
@@ -354,8 +387,13 @@ class _SessionSearch:
                 return self._node._create_error_response(self._node._base_error_instructions, state)
             # Use specific session IDs, if provided
             if state.specific_session_ids_to_summarize:
-                # Return session ids right away to use in the next step
-                return state.specific_session_ids_to_summarize
+                # Validate that sessions exist before using them
+                valid_session_ids = await database_sync_to_async(
+                    self._validate_specific_session_ids, thread_sensitive=False
+                )(state.specific_session_ids_to_summarize)
+                if not valid_session_ids:
+                    return None
+                return valid_session_ids
             # Use current filters, if provided
             if state.should_use_current_filters:
                 if not current_filters:
@@ -366,7 +404,7 @@ class _SessionSearch:
                     )
                     return self._node._create_error_response(self._node._base_error_instructions, state)
                 current_filters = cast(dict[str, Any], current_filters)
-                replay_filters = self._convert_current_filters_to_recordings_query(current_filters)
+                replay_filters = convert_filters_to_recordings_query(current_filters)
             # If not - generate filters to get session ids from DB
             else:
                 filter_query = await self._generate_filter_query(state.session_summarization_query, config)
@@ -398,15 +436,20 @@ class _SessionSearch:
                         root_tool_call_id=None,
                     )
                 # Use filters when generated successfully
-                replay_filters = self._convert_max_filters_to_recordings_query(filter_generation_result)
+                replay_filters = convert_filters_to_recordings_query(
+                    filter_generation_result.model_dump(exclude_none=True)
+                )
                 self._node._stream_filters(filter_generation_result)
             # Query the filters to get session ids
-            query_limit = state.session_summarization_limit
-            if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+            if (
+                not replay_filters.limit
+                or replay_filters.limit <= 0
+                or replay_filters.limit > MAX_SESSIONS_TO_SUMMARIZE
+            ):
                 # If no limit provided (none or negative) or too large - use the default limit
-                query_limit = MAX_SESSIONS_TO_SUMMARIZE
+                replay_filters.limit = MAX_SESSIONS_TO_SUMMARIZE
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                replay_filters, query_limit
+                replay_filters
             )
             return session_ids
         except Exception as e:
@@ -434,7 +477,7 @@ class _SessionSummarizer:
             nonlocal completed
             result = await execute_summarize_session(
                 session_id=session_id,
-                user_id=self._node._user.id,
+                user=self._node._user,
                 team=self._node._team,
                 model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
                 video_validation_enabled=video_validation_enabled,
@@ -461,13 +504,15 @@ class _SessionSummarizer:
         self, session_ids: list[str], state: AssistantState, summary_title: str | None
     ) -> tuple[str, str]:
         """Summarize sessions as a group (for larger sets). Returns tuple of (summary_str, session_group_summary_id)."""
-        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._node._team)
+        min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
+            session_ids=session_ids, team=self._node._team
+        )
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._node._has_video_validation_feature_flag()
 
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
-            user_id=self._node._user.id,
+            user=self._node._user,
             team=self._node._team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
@@ -478,37 +523,43 @@ class _SessionSummarizer:
             # Max "reasoning" text update message
             if update_type == SessionSummaryStreamUpdate.UI_STATUS:
                 if not isinstance(data, str):
-                    raise TypeError(
+                    msg = (
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
                         f"(expected: str)"
                     )
+                    self._node.logger.error(msg, signals_type="session-summaries")
+                    raise TypeError(msg)
                 # Status message - stream to user
                 self._node._stream_progress(progress_message=data)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                 if not isinstance(data, tuple) or len(data) != 2:
-                    raise ValueError(
+                    msg = (
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(data)} "
                         f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str])"
                     )
+                    self._node.logger.error(msg, signals_type="session-summaries")
+                    raise ValueError(msg)
                 summary, session_group_summary_id = data
                 if not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
-                    raise ValueError(
+                    msg = (  # type: ignore[unreachable]
                         f"Unexpected data type for patterns in stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(summary)} "
                         f"(expected: EnrichedSessionGroupSummaryPatternsList)"
                     )
+                    self._node.logger.error(msg, signals_type="session-summaries")
+                    raise ValueError(msg)
                 # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
                 stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                 summary_str = stringifier.stringify_patterns()
                 return summary_str, session_group_summary_id
             else:
-                raise ValueError(
-                    f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."
-                )
+                msg = f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."  # type: ignore[unreachable]
+                self._node.logger.error(msg, signals_type="session-summaries")
+                raise ValueError(msg)
         else:
-            raise ValueError(
-                f"No summary was generated from session group summarization (session_ids: {logging_session_ids(session_ids)})"
-            )
+            msg = f"No summary was generated from session group summarization (session_ids: {logging_session_ids(session_ids)})"
+            self._node.logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
 
     async def summarize_sessions(
         self,

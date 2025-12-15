@@ -113,7 +113,7 @@ services:
             service: clickhouse
         hostname: clickhouse
         # Development performance optimizations
-        mem_limit: 6g
+        mem_limit: 8g
         cpus: 2
         environment:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
@@ -162,6 +162,8 @@ services:
             service: kafka_ui
         ports:
             - '9093:8080'
+        environment:
+            SERVER_MAX_HTTP_REQUEST_HEADER_SIZE: 65536
         depends_on:
             - kafka
 
@@ -193,8 +195,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: echo_server
-        expose:
-            - '18081:18081'
 
     feature-flags:
         extends:

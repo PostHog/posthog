@@ -30,7 +30,6 @@ import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
-import { ObjectStorage } from './utils/object_storage'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { UUID } from './utils/utils'
@@ -73,6 +72,7 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
+    cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
@@ -196,12 +196,6 @@ export type CdpConfig = {
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
 
-    // Heap dump configuration
-    HEAP_DUMP_ENABLED: boolean
-    HEAP_DUMP_S3_BUCKET: string
-    HEAP_DUMP_S3_PREFIX: string
-    HEAP_DUMP_S3_ENDPOINT: string
-    HEAP_DUMP_S3_REGION: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -235,6 +229,17 @@ export type LogsIngestionConsumerConfig = {
     LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: string
     LOGS_INGESTION_CONSUMER_DLQ_TOPIC: string
     LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
+    LOGS_REDIS_HOST: string
+    LOGS_REDIS_PORT: number
+    LOGS_REDIS_PASSWORD: string
+    LOGS_REDIS_TLS: boolean
+    LOGS_LIMITER_ENABLED_TEAMS: string
+    LOGS_LIMITER_DISABLED_FOR_TEAMS: string
+    LOGS_LIMITER_BUCKET_SIZE_KB: number
+    LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: number
+    LOGS_LIMITER_TTL_SECONDS: number
+    LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
+    LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
 }
 
 /**
@@ -246,6 +251,9 @@ export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig, LogsIngestionConsumerConfig {
+    CONTINUOUS_PROFILING_ENABLED: boolean
+    PYROSCOPE_SERVER_ADDRESS: string
+    PYROSCOPE_APPLICATION_NAME: string
     INSTRUMENT_THREAD_PERFORMANCE: boolean
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
@@ -266,6 +274,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
     PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: number // maximum size in bytes for person properties JSON as stored, checked via pg_column_size(properties)
     PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
+    PERSON_PROPERTIES_UPDATE_ALL: boolean // when true, all property changes trigger person updates (disables filtering of eventToPersonProperties and geoip)
     // Limit per merge for moving distinct IDs. 0 disables limiting.
     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
     // Topic for async person merge processing
@@ -279,6 +288,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
     PERSONS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for persons to both primary and migration databases
     PERSONS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
+    PERSONS_PREFETCH_ENABLED: boolean // Enable prefetching persons in batch before processing events
     GROUPS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for groups to both primary and migration databases
     GROUPS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
@@ -360,12 +370,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
-    OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
-    OBJECT_STORAGE_REGION: string // s3 region
-    OBJECT_STORAGE_ENDPOINT: string // s3 endpoint
-    OBJECT_STORAGE_ACCESS_KEY_ID: string
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
@@ -479,13 +483,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
 
-    // Heap dump configuration
-    HEAP_DUMP_ENABLED: boolean
-    HEAP_DUMP_S3_BUCKET: string
-    HEAP_DUMP_S3_PREFIX: string
-    HEAP_DUMP_S3_ENDPOINT: string
-    HEAP_DUMP_S3_REGION: string
-
     // Pod termination
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
@@ -504,7 +501,6 @@ export interface Hub extends PluginsServerConfig {
     cookielessRedisPool: GenericPool<Redis>
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
-    objectStorage?: ObjectStorage
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
@@ -551,6 +547,7 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
+    cdpDataWarehouseEvents?: boolean
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
@@ -877,6 +874,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     project_id: ProjectId
     timestamp: ClickHouseTimestamp
     created_at: ClickHouseTimestamp
+    captured_at?: ClickHouseTimestamp | null
     properties?: string
     elements_chain: string
     person_created_at?: ClickHouseTimestamp
@@ -892,6 +890,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
+    historical_migration?: boolean
 }
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
@@ -1378,15 +1377,17 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
 export interface EventHeaders {
     token?: string
     distinct_id?: string
+    session_id?: string
     timestamp?: string
     event?: string
     uuid?: string
+    now?: Date
     force_disable_person_processing: boolean
+    historical_migration: boolean
 }
 
 export interface IncomingEvent {
     event: PipelineEvent
-    headers?: EventHeaders
 }
 
 export interface IncomingEventWithTeam {

@@ -44,6 +44,8 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewEmptyState } from './ViewLoadingState'
 import { draftsLogic } from './draftsLogic'
@@ -157,6 +159,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
+            endpointLogic,
+            ['setIsUpdateMode', 'setSelectedEndpointName'],
         ],
     })),
     actions(() => ({
@@ -1112,6 +1116,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const createQueryTab = async (): Promise<void> => {
                 if (searchParams.output_tab) {
                     actions.setActiveTab(searchParams.output_tab as OutputTab)
+                }
+                if (searchParams.endpoint_name) {
+                    actions.setIsUpdateMode(true)
+                    actions.setSelectedEndpointName(searchParams.endpoint_name)
                 }
                 if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
                     const draftId = searchParams.open_draft || hashParams.draft

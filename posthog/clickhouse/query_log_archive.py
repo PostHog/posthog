@@ -1,7 +1,10 @@
-from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
+from django.conf import settings
+
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
+QUERY_LOG_ARCHIVE_WRITABLE_DISTRIBUTED_TABLE = "writable_query_log_archive"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW():
@@ -358,6 +361,18 @@ AS {select_sql}
         view_name=view_name,
         dest_table=dest_table,
         select_sql=MV_SELECT_SQL,
+    )
+
+
+def QUERY_LOG_ARCHIVE_CROSS_CLUSTER_DISTRIBUTED_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_WRITABLE_DISTRIBUTED_TABLE):
+    """
+    Distributed table for cross-cluster writes.
+    Used on stateless clusters to write to main cluster's query_log_archive.
+    """
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=table_name,
+        engine=Distributed(data_table="query_log_archive", cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER),
+        include_table_clauses=False,
     )
 
 

@@ -117,7 +117,7 @@ export function SessionGroupSummariesTable(): JSX.Element {
                         value={filters.search}
                         data-attr="session-group-summaries-search"
                     />
-                    <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <div className="flex items-center gap-2">
                             <span>Created by:</span>
                             <MemberSelect

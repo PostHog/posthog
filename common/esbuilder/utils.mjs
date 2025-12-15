@@ -102,15 +102,15 @@ export function copyIndexHtml(
     // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
     const chunksToServe = isDev ? {} : chunks
     const chunkCode = `
-        window.ESBUILD_LOADED_CHUNKS = new Set(); 
-        window.ESBUILD_LOAD_CHUNKS = function(name) { 
+        window.ESBUILD_LOADED_CHUNKS = new Set();
+        window.ESBUILD_LOAD_CHUNKS = function(name) {
             const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
-            for (const chunk of chunks) { 
-                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
-                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
+            for (const chunk of chunks) {
+                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
+                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
                     window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                } 
-            } 
+                }
+            }
         }
         window.ESBUILD_LOAD_CHUNKS('index');
     `
@@ -404,7 +404,6 @@ export async function buildOrWatch(config) {
             .watch(
                 [
                     path.resolve(absWorkingDir, 'src'),
-                    path.resolve(absWorkingDir, '../ee/frontend'),
                     path.resolve(absWorkingDir, '../common'),
                     path.resolve(absWorkingDir, '../products/*/manifest.tsx'),
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),

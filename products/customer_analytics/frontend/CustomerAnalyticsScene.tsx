@@ -1,22 +1,21 @@
-import { BindLogic, useActions } from 'kea'
+import { BindLogic } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 
-import { EventConfigModal } from 'products/customer_analytics/frontend/components/Insights/EventConfigModal'
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
-import { eventConfigModalLogic } from './components/Insights/eventConfigModalLogic'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
@@ -26,8 +25,6 @@ export const scene: SceneExport = {
 }
 
 export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
-    const { toggleModalOpen } = useActions(eventConfigModalLogic)
-
     if (!tabId) {
         throw new Error('CustomerAnalyticsScene was rendered with no tabId')
     }
@@ -46,9 +43,10 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                             icon={<IconGear />}
                             size="small"
                             type="secondary"
-                            onClick={() => toggleModalOpen()}
+                            to={urls.customerAnalyticsConfiguration()}
                             tooltip="Configure customer analytics"
                             children="Configure"
+                            data-attr="customer-analytics-config"
                         />
                     }
                 />
@@ -57,7 +55,6 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                     <ActiveUsersInsights />
                     <SignupInsights />
                     <SessionInsights />
-                    <EventConfigModal />
                 </div>
             </SceneContent>
         </BindLogic>

@@ -2,7 +2,6 @@ package configs
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 
@@ -33,9 +32,13 @@ type Config struct {
 }
 
 type KafkaConfig struct {
-	Brokers string `mapstructure:"brokers"`
-	Topic   string `mapstructure:"topic"`
-	GroupID string `mapstructure:"group_id"`
+	Brokers                          string `mapstructure:"brokers"`
+	Topic                            string `mapstructure:"topic"`
+	SessionRecordingEnabled          bool   `mapstructure:"session_recording_enabled"`
+	SessionRecordingTopic            string `mapstructure:"session_recording_topic"`
+	SessionRecordingBrokers          string `mapstructure:"session_recording_brokers"`
+	SessionRecordingSecurityProtocol string `mapstructure:"session_recording_security_protocol"`
+	GroupID                          string `mapstructure:"group_id"`
 }
 
 func InitConfigs(filename, configPath string) {
@@ -43,6 +46,7 @@ func InitConfigs(filename, configPath string) {
 	viper.AddConfigPath(configPath)
 
 	viper.SetDefault("kafka.group_id", "livestream")
+	viper.SetDefault("kafka.session_recording_enabled", true)
 
 	err := viper.ReadInConfig()
 	if err != nil {
@@ -51,7 +55,7 @@ func InitConfigs(filename, configPath string) {
 	}
 
 	viper.OnConfigChange(func(e fsnotify.Event) {
-		fmt.Println("Config file changed:", e.Name)
+		log.Printf("Config file changed: %s", e.Name)
 	})
 	viper.WatchConfig()
 
@@ -75,6 +79,17 @@ func LoadConfig() (*Config, error) {
 	}
 	if len(config.CORSAllowOrigins) == 0 {
 		config.CORSAllowOrigins = []string{"*"}
+	}
+	if config.Kafka.SessionRecordingEnabled {
+		if config.Kafka.SessionRecordingTopic == "" {
+			config.Kafka.SessionRecordingTopic = "session_recording_snapshot_item_events"
+		}
+		if config.Kafka.SessionRecordingBrokers == "" {
+			config.Kafka.SessionRecordingBrokers = config.Kafka.Brokers
+		}
+		if config.Kafka.SessionRecordingSecurityProtocol == "" {
+			config.Kafka.SessionRecordingSecurityProtocol = "SSL"
+		}
 	}
 
 	if config.MMDB.Path == "" {

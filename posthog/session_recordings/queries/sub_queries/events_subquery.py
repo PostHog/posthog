@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 import posthoganalytics
@@ -243,12 +243,6 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             ast.Call(
                 name="notEmpty",
                 args=[ast.Field(chain=["$session_id"])],
-            ),
-            # regardless of any other filters limit between TTL and current time
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=datetime.now() - timedelta(days=self.ttl_days)),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,

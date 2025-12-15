@@ -52,7 +52,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
     actions({
         setSharedMetric: (metric: Partial<SharedMetric>) => ({ metric }),
         createSharedMetric: true,
-        updateSharedMetric: true,
+        updateSharedMetric: (redirect?: boolean) => ({ redirect }),
         deleteSharedMetric: true,
     }),
 
@@ -102,7 +102,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 router.actions.push('/experiments?tab=shared-metrics')
             }
         },
-        updateSharedMetric: async () => {
+        updateSharedMetric: async ({ redirect = true }: { redirect?: boolean } = {}) => {
             const response = await api.update(
                 `api/projects/@current/experiment_saved_metrics/${values.sharedMetricId}`,
                 values.sharedMetric
@@ -110,7 +110,9 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             if (response.id) {
                 lemonToast.success('Shared metric updated successfully')
                 actions.loadSharedMetrics()
-                router.actions.push('/experiments?tab=shared-metrics')
+                if (redirect) {
+                    router.actions.push('/experiments?tab=shared-metrics')
+                }
             }
         },
         deleteSharedMetric: async () => {

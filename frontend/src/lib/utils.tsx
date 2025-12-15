@@ -701,12 +701,18 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
-    formatTime = 'h:mm:ss A'
+    formatTime = 'h:mm:ss A',
+    options: { timestampStyle?: 'relative' | 'absolute' } = { timestampStyle: 'relative' }
 ): string {
     if (!date) {
         return 'Never'
     }
     const parsedDate = dayjs(date)
+
+    if (options.timestampStyle === 'absolute') {
+        return parsedDate.format(`${formatDate} ${formatTime}`)
+    }
+
     const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
     if (parsedDate.isSame(dayjs(), 'm')) {
@@ -714,9 +720,9 @@ export function humanFriendlyDetailedTime(
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = `[Today] ${formatTime}`
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = `[Yesterday] ${formatTime}`
+        formatString = `[Yesterday] ${formatTime}`
     } else {
         formatString = `${formatDate} ${formatTime}`
     }
@@ -840,13 +846,14 @@ export function isExternalLink(input: any): boolean {
     return !!input.trim().match(regexp)
 }
 
-export function isEmail(string: string): boolean {
+export function isEmail(string: string, options?: { requireTLD?: boolean }): boolean {
     if (!string) {
         return false
     }
     // https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
-    const regexp =
-        /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+    const regexp = options?.requireTLD
+        ? /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/
+        : /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
 }
 
@@ -1067,9 +1074,8 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'month',
     },
     {
-        key: 'This month',
-        values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
+        key: 'Last week',
+        values: ['-1wStart', '-1wEnd'],
         defaultInterval: 'day',
     },
     {
@@ -1077,6 +1083,12 @@ export const dateMapping: DateMappingOption[] = [
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'This month',
+        values: ['mStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
         defaultInterval: 'day',
     },
     {

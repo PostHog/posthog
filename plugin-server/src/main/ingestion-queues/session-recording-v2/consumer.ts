@@ -280,7 +280,7 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
 
         // Track message size per session_id
-        const trackingKey = `session_id:${parsedMessage.session_id}`
+        const trackingKey = `token:${parsedMessage.token ?? 'unknown'}:session_id:${parsedMessage.session_id}`
         this.topTracker.increment('message_size_by_session_id', trackingKey, parsedMessage.metadata.rawSize)
 
         await batch.record(message)

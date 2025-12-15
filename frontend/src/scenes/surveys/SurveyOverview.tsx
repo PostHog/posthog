@@ -3,9 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconComment } from '@posthog/icons'
 import { LemonDivider, Link } from '@posthog/lemon-ui'
 
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
@@ -13,11 +11,7 @@ import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
 import { SurveyFormAppearance } from 'scenes/surveys/SurveyFormAppearance'
 import { FirstSurveyHelper } from 'scenes/surveys/components/empty-state/FirstSurveyHelper'
-import {
-    SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT,
-    SURVEY_TYPE_LABEL_MAP,
-    SurveyQuestionLabel,
-} from 'scenes/surveys/constants'
+import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { SurveyQuestionType, SurveySchedule as SurveyScheduleEnum, SurveyType } from '~/types'
@@ -69,12 +63,8 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
 
     return (
         <div className="flex flex-col gap-8">
-            <FlaggedFeature
-                flag={FEATURE_FLAGS.SURVEY_EMPTY_STATE_V2}
-                match={SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT.TEST}
-            >
-                <FirstSurveyHelper onTabChange={onTabChange} />
-            </FlaggedFeature>
+            <FirstSurveyHelper onTabChange={onTabChange} />
+
             <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4">
                 <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
                     <SurveyOption label="Display mode">

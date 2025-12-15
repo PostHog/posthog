@@ -47,12 +47,14 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
         dualUuid: string = TEST_UUIDS.dual
     ) {
         const [singleResult, dualResult] = await Promise.all([
-            singleWriteRepository.createPerson(createdAt, properties, {}, {}, team.id, null, false, singleUuid, [
-                { distinctId: singleDistinctId, version: 0 },
-            ]),
-            dualWriteRepository.createPerson(createdAt, properties, {}, {}, team.id, null, false, dualUuid, [
-                { distinctId: dualDistinctId, version: 0 },
-            ]),
+            singleWriteRepository.createPerson(createdAt, properties, {}, {}, team.id, null, false, singleUuid, {
+                distinctId: singleDistinctId,
+                version: 0,
+            }),
+            dualWriteRepository.createPerson(createdAt, properties, {}, {}, team.id, null, false, dualUuid, {
+                distinctId: dualDistinctId,
+                version: 0,
+            }),
         ])
 
         if (!singleResult.success || !dualResult.success) {
@@ -99,7 +101,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 true,
                 TEST_UUIDS.single,
-                [{ distinctId: 'single-a', version: 0 }]
+                { distinctId: 'single-a', version: 0 }
             )
 
             const dualResult = await dualWriteRepository.createPerson(
@@ -111,7 +113,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 true,
                 TEST_UUIDS.dual,
-                [{ distinctId: 'dual-a', version: 0 }]
+                { distinctId: 'dual-a', version: 0 }
             )
 
             assertCreatePersonContractParity(singleResult, dualResult)
@@ -145,7 +147,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                     null,
                     false,
                     TEST_UUIDS.single,
-                    [{ distinctId: 'single-a', version: 0 }]
+                    { distinctId: 'single-a', version: 0 }
                 )
             } catch (e) {
                 singleError = e
@@ -168,7 +170,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                     null,
                     false,
                     TEST_UUIDS.dual,
-                    [{ distinctId: 'dual-a', version: 0 }]
+                    { distinctId: 'dual-a', version: 0 }
                 )
             } catch (e) {
                 dualError = e
@@ -219,7 +221,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 uuidFromDistinctId(team.id, distinctId),
-                [{ distinctId, version: 0 }]
+                { distinctId, version: 0 }
             )
             const dualResult = await dualWriteRepository.createPerson(
                 TEST_TIMESTAMP,
@@ -230,7 +232,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 uuidFromDistinctId(team.id, distinctId),
-                [{ distinctId, version: 0 }]
+                { distinctId, version: 0 }
             )
 
             assertCreatePersonConflictContractParity(singleResult, dualResult)
@@ -261,7 +263,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                         null,
                         false,
                         TEST_UUIDS.single,
-                        [{ distinctId: 'single-a', version: 0 }]
+                        { distinctId: 'single-a', version: 0 }
                     ),
                 () =>
                     dualWriteRepository.createPerson(
@@ -273,7 +275,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                         null,
                         false,
                         TEST_UUIDS.single,
-                        [{ distinctId: 'dual-a', version: 0 }]
+                        { distinctId: 'dual-a', version: 0 }
                     ),
                 'unhandled database error'
             )
@@ -474,7 +476,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                     null,
                     false,
                     TEST_UUIDS.single,
-                    []
+                    { distinctId: 'test-single-1' }
                 ),
                 dualWriteRepository.createPerson(
                     TEST_TIMESTAMP,
@@ -485,13 +487,33 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                     null,
                     false,
                     TEST_UUIDS.dual,
-                    []
+                    { distinctId: 'test-dual-1' }
                 ),
             ])
 
             if (!singleCreatePersonResult.success || !dualCreatePersonResult.success) {
                 throw new Error('Failed to create test persons')
             }
+
+            // Delete distinct IDs first to avoid FK constraint violation
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
+                [singleCreatePersonResult.person.id],
+                'deleteDistinctIds'
+            )
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
+                [dualCreatePersonResult.person.id],
+                'deleteDistinctIds'
+            )
+            await migrationPostgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
+                [dualCreatePersonResult.person.id],
+                'deleteDistinctIds'
+            )
 
             const singleDeleteResult = await singleWriteRepository.deletePerson(singleCreatePersonResult.person)
             const dualDeleteResult = await dualWriteRepository.deletePerson(dualCreatePersonResult.person)
@@ -519,7 +541,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                     null,
                     false,
                     '33333333-3333-3333-3333-333333333333',
-                    []
+                    { distinctId: 'test-single-2' }
                 ),
                 dualWriteRepository.createPerson(
                     TEST_TIMESTAMP,
@@ -530,7 +552,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                     null,
                     false,
                     '44444444-4444-4444-4444-444444444444',
-                    []
+                    { distinctId: 'test-dual-2' }
                 ),
             ])
 
@@ -567,7 +589,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                     null,
                     false,
                     '55555555-5555-5555-5555-555555555555',
-                    []
+                    { distinctId: 'test-single-3' }
                 ),
                 dualWriteRepository.createPerson(
                     TEST_TIMESTAMP,
@@ -578,7 +600,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                     null,
                     false,
                     '66666666-6666-6666-6666-666666666666',
-                    []
+                    { distinctId: 'test-dual-3' }
                 ),
             ])
 
@@ -771,7 +793,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 '33333333-3333-3333-3333-333333333333',
-                [{ distinctId: 'single-source', version: 0 }]
+                { distinctId: 'single-source', version: 0 }
             )
             const sourceDualResult = await dualWriteRepository.createPerson(
                 TEST_TIMESTAMP,
@@ -782,7 +804,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 '44444444-4444-4444-4444-444444444444',
-                [{ distinctId: 'dual-source', version: 0 }]
+                { distinctId: 'dual-source', version: 0 }
             )
 
             // Create target persons
@@ -795,7 +817,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 '55555555-5555-5555-5555-555555555555',
-                [{ distinctId: 'single-target', version: 0 }]
+                { distinctId: 'single-target', version: 0 }
             )
             const targetDualResult = await dualWriteRepository.createPerson(
                 TEST_TIMESTAMP,
@@ -806,7 +828,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 '66666666-6666-6666-6666-666666666666',
-                [{ distinctId: 'dual-target', version: 0 }]
+                { distinctId: 'dual-target', version: 0 }
             )
 
             // Ensure all persons were created successfully
@@ -853,7 +875,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 '77777777-7777-7777-7777-777777777777',
-                [{ distinctId: 'single-source-fk', version: 0 }]
+                { distinctId: 'single-source-fk', version: 0 }
             )
             const sourceDualResult = await dualWriteRepository.createPerson(
                 TEST_TIMESTAMP,
@@ -864,7 +886,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 '88888888-8888-8888-8888-888888888888',
-                [{ distinctId: 'dual-source-fk', version: 0 }]
+                { distinctId: 'dual-source-fk', version: 0 }
             )
 
             // Ensure all persons were created successfully
@@ -929,7 +951,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 '77777777-7777-7777-7777-777777777777',
-                [{ distinctId: 'single-source-limit', version: 0 }]
+                { distinctId: 'single-source-limit', version: 0 }
             )
             const sourceDualResult = await dualWriteRepository.createPerson(
                 TEST_TIMESTAMP,
@@ -940,7 +962,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 '88888888-8888-8888-8888-888888888888',
-                [{ distinctId: 'dual-source-limit', version: 0 }]
+                { distinctId: 'dual-source-limit', version: 0 }
             )
 
             const targetSingleResult = await singleWriteRepository.createPerson(
@@ -952,7 +974,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 '99999999-9999-9999-9999-999999999999',
-                [{ distinctId: 'single-target-limit', version: 0 }]
+                { distinctId: 'single-target-limit', version: 0 }
             )
             const targetDualResult = await dualWriteRepository.createPerson(
                 TEST_TIMESTAMP,
@@ -963,7 +985,7 @@ describe('Postgres Single Write - Postgres Dual Write Compatibility', () => {
                 null,
                 false,
                 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-                [{ distinctId: 'dual-target-limit', version: 0 }]
+                { distinctId: 'dual-target-limit', version: 0 }
             )
 
             // Ensure all persons were created successfully

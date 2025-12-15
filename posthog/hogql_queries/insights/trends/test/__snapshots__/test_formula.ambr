@@ -14,7 +14,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_aggregated_one_without_events.1
@@ -32,7 +33,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown
@@ -75,7 +77,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown.1
@@ -118,7 +121,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated
@@ -155,7 +159,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated.1
@@ -192,7 +197,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort
@@ -245,7 +251,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.2
@@ -288,7 +295,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.3
@@ -341,7 +349,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.4
@@ -394,7 +403,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.5
@@ -560,7 +570,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql.1
@@ -620,7 +631,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
@@ -663,7 +675,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
@@ -706,7 +719,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions
@@ -735,7 +749,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions.1
@@ -771,7 +786,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative
@@ -800,7 +816,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative.1
@@ -829,7 +846,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative
@@ -858,7 +876,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative.1
@@ -887,7 +906,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation
@@ -929,7 +949,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation.1
@@ -958,7 +979,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter
@@ -994,7 +1016,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter.1
@@ -1023,7 +1046,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x
@@ -1059,7 +1083,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x.1
@@ -1095,6 +1120,7 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---

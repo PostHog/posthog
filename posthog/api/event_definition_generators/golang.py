@@ -196,7 +196,7 @@ func {func_name_extra}(props posthog.Properties) {option_type_name} {{
         used_function_names: set[str],
     ) -> str:
         """Generate a With* option function for an optional property"""
-        param_type = self.map_property_type(prop.property_type)
+        param_type = self._map_property_type(prop.property_type)
         prop_name = self._escape_go_string(prop.name)
         param_name = self._to_go_param_name(prop_name)
         suffix = self._to_pascal_name(prop_name)
@@ -228,7 +228,7 @@ func {func_name}({param_name} {param_type}) {option_type_name} {{
             param_name = self._get_unique_name(self._to_go_param_name(prop_name), used_param_names)
             props_init_lines.append(f"\t\t{prop_name}: {param_name},")
 
-            param_type = self.map_property_type(prop.property_type)
+            param_type = self._map_property_type(prop.property_type)
             params.append(f"{param_name} {param_type}")
 
         params_str = ",\n\t".join(params)
@@ -275,7 +275,7 @@ func {func_name}(
             param_name = self._get_unique_name(self._to_go_param_name(prop_name), used_param_names)
             props_init_lines.append(f"\t\t{prop_name}: {param_name},")
 
-            param_type = self.map_property_type(prop.property_type)
+            param_type = self._map_property_type(prop.property_type)
             params.append(f"{param_name} {param_type}")
 
         params_str = ",\n\t".join(params)
@@ -306,7 +306,7 @@ func {func_name}(
 }}
 """
 
-    def map_property_type(self, property_type: str) -> str:
+    def _map_property_type(self, property_type: str) -> str:
         type_map = {
             "String": "string",
             "Numeric": "float64",

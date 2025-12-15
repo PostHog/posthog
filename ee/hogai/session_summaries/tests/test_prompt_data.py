@@ -69,7 +69,7 @@ def test_simplify_window_id() -> None:
 
 def test_prepare_metadata(mock_raw_metadata: dict[str, Any]) -> None:
     prompt_data = SessionSummaryPromptData()
-    metadata = prompt_data._prepare_metadata(mock_raw_metadata)
+    metadata = prompt_data._prepare_metadata(raw_session_metadata=mock_raw_metadata, session_id="test_session_id")
     assert isinstance(metadata, SessionSummaryMetadata)
     # Check all fields are preserved correctly
     assert metadata.start_time == prepare_datetime("2025-03-31T18:40:32.302000Z")
@@ -188,15 +188,23 @@ def test_prepare_metadata_missing_required_fields() -> None:
 
     # Test missing start_time
     with pytest.raises(ValueError, match="start_time is required"):
-        prompt_data._prepare_metadata({"console_error_count": 1, "duration": 100})
+        prompt_data._prepare_metadata(
+            raw_session_metadata={"console_error_count": 1, "duration": 100}, session_id="test_session_id"
+        )
 
     # Test missing console_error_count
     with pytest.raises(ValueError, match="console_error_count is required"):
-        prompt_data._prepare_metadata({"start_time": "2025-03-31T18:40:32.302000Z", "duration": 100})
+        prompt_data._prepare_metadata(
+            raw_session_metadata={"start_time": "2025-03-31T18:40:32.302000Z", "duration": 100},
+            session_id="test_session_id",
+        )
 
     # Test missing duration and recording_duration
     with pytest.raises(ValueError, match="duration/recording_duration is required"):
-        prompt_data._prepare_metadata({"start_time": "2025-03-31T18:40:32.302000Z", "console_error_count": 1})
+        prompt_data._prepare_metadata(
+            raw_session_metadata={"start_time": "2025-03-31T18:40:32.302000Z", "console_error_count": 1},
+            session_id="test_session_id",
+        )
 
 
 def test_load_session_data_empty_events(mock_raw_metadata: dict[str, Any], mock_session_id: str) -> None:
