@@ -10,10 +10,8 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cdp.validation import HogFunctionFiltersSerializer
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
-
-from .hog_flow import HogFlowSerializer
 
 logger = structlog.get_logger(__name__)
 
@@ -93,19 +91,52 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
         return data
 
 
-class HogFlowTemplateSerializer(HogFlowSerializer):
+class HogFlowTemplateSerializer(serializers.ModelSerializer):
     """
     Serializer for creating hog flow templates.
     Validates and sanitizes the workflow before creating it as a template.
     """
 
-    # Override actions field to use our custom serializer that skips input validation
+    created_by = serializers.SerializerMethodField()
     actions = serializers.ListField(child=HogFlowTemplateActionSerializer(), required=True)
+    trigger_masking = serializers.DictField(required=False, allow_null=True)
+    variables = serializers.ListField(
+        child=serializers.DictField(child=serializers.CharField(allow_blank=True)),
+        required=False,
+        allow_empty=True,
+    )
+
+    class Meta:
+        model = HogFlowTemplate
+        fields = [
+            "id",
+            "name",
+            "description",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "trigger",
+            "trigger_masking",
+            "conversion",
+            "exit_condition",
+            "edges",
+            "actions",
+            "abort_action",
+            "variables",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+
+    def get_created_by(self, obj):
+        if obj.created_by:
+            from posthog.api.shared import UserBasicSerializer
+
+            return UserBasicSerializer(obj.created_by).data
+        return None
 
     def validate(self, data):
         # Don't call super().validate() - we'll do our own validation
         # Copy the parent validation logic but skip input validation
-        instance = cast(Optional[HogFlow], self.instance)
+        instance = cast(Optional[HogFlowTemplate], self.instance)
         actions = data.get("actions", instance.actions if instance else [])
 
         # Validate actions using our custom serializer (which skips input validation)
@@ -119,19 +150,12 @@ class HogFlowTemplateSerializer(HogFlowSerializer):
             raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
         data["trigger"] = trigger_actions[0]["config"]
 
-        # Enforce that status must be "template"
-        status = data.get("status")
-        if status != HogFlow.State.TEMPLATE:
-            raise serializers.ValidationError(
-                {"status": f"Status must be '{HogFlow.State.TEMPLATE}' for templates, got '{status}'"}
-            )
-        data["status"] = HogFlow.State.TEMPLATE
-
         # Remove metadata fields that shouldn't be in templates
         data.pop("id", None)
         data.pop("team_id", None)
         data.pop("created_at", None)
         data.pop("updated_at", None)
+        data.pop("status", None)
 
         # Validate and reset function action inputs to defaults from templates
         for action in actions:
@@ -173,7 +197,7 @@ class HogFlowTemplateSerializer(HogFlowSerializer):
 
         return data
 
-    def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
+    def create(self, validated_data: dict, *args, **kwargs) -> HogFlowTemplate:
         request = self.context["request"]
         team_id = self.context["team_id"]
         validated_data["created_by"] = request.user
@@ -185,19 +209,16 @@ class HogFlowTemplateSerializer(HogFlowSerializer):
 class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     """
     ViewSet for hog flow templates.
-    Templates are sanitized workflows stored as hog flows with metadata removed and inputs reset to defaults.
+    Templates can be used to create new hog flows.
     """
 
     scope_object = "INTERNAL"
-    queryset = HogFlow.objects.all()
+    queryset = HogFlowTemplate.objects.all()
     serializer_class = HogFlowTemplateSerializer
     log_source = "hog_flow_template"
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        # Only return templates - workflows with status == "template"
-        queryset = queryset.filter(status=HogFlow.State.TEMPLATE)
-
         if self.action == "list":
             queryset = queryset.order_by("-updated_at")
 

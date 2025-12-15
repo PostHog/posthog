@@ -36,7 +36,6 @@ class HogFlow(UUIDTModel):
         DRAFT = "draft"
         ACTIVE = "active"
         ARCHIVED = "archived"
-        TEMPLATE = "template"
 
     class ExitCondition(models.TextChoices):
         CONVERSION = "exit_on_conversion"
