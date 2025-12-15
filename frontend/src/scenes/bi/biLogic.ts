@@ -907,6 +907,7 @@ function buildFieldTreeNodes(
 ): FieldTreeNode[] {
     const foreignKeyColumnsToHide = getForeignKeyColumnsToHide(table)
     const existingFieldNames = new Set(Object.keys(table.fields || {}))
+    const primaryKeyFields = new Set(getPrimaryKeyFieldNames(table))
 
     const foreignKeyFields: DatabaseSchemaField[] = (table.schema_metadata?.foreign_keys || [])
         .map((foreignKey) => ({
@@ -925,7 +926,16 @@ function buildFieldTreeNodes(
 
     const fields = [...getOrderedFields(table), ...foreignKeyFields]
         .filter((field) => !foreignKeyColumnsToHide.has(field.name))
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .sort((a, b) => {
+            const aIsPrimaryKey = primaryKeyFields.has(a.name)
+            const bIsPrimaryKey = primaryKeyFields.has(b.name)
+
+            if (aIsPrimaryKey !== bIsPrimaryKey) {
+                return aIsPrimaryKey ? -1 : 1
+            }
+
+            return a.name.localeCompare(b.name)
+        })
 
     return fields.map((field) => {
         const path = parentPath ? `${parentPath}.${field.name}` : field.name
