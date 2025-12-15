@@ -316,6 +316,7 @@ class AssistantTool(StrEnum):
     LIST_TASKS = "list_tasks"
     LIST_TASK_RUNS = "list_task_runs"
     LIST_REPOSITORIES = "list_repositories"
+    WEB_SEARCH = "web_search"
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"

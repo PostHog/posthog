@@ -381,7 +381,7 @@ export type AssistantTool =
     | 'list_tasks'
     | 'list_task_runs'
     | 'list_repositories'
-    // Below are modes-only
+    | 'web_search'
     | 'execute_sql'
     | 'switch_mode'
     | 'summarize_sessions'

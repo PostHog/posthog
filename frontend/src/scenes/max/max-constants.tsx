@@ -730,7 +730,7 @@ export function getDefaultTools({ webSearchEnabled }: { webSearchEnabled: boolea
     const defaultTools = DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
     if (webSearchEnabled) {
         // Add web search after `search`
-        defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, SERVER_TOOL_DEFINITIONS.web_search)
+        defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
     }
     return defaultTools
 }
