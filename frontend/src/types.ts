@@ -14,6 +14,7 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { UrlTriggerConfig } from 'lib/components/Triggers/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
@@ -326,6 +327,7 @@ export interface UserType extends UserBaseType {
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
+    allow_impersonation: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
     id: number
@@ -611,8 +613,8 @@ export interface TeamType extends TeamBasicType {
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
-    session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
-    session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
+    session_recording_url_trigger_config?: UrlTriggerConfig[]
+    session_recording_url_blocklist_config?: UrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
     session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
@@ -4558,6 +4560,7 @@ export enum ExporterFormat {
     WEBM = 'video/webm',
     MP4 = 'video/mp4',
     GIF = 'image/gif',
+    HCL = 'text/hcl',
 }
 
 /** Exporting directly from the browser to a file */
@@ -4684,6 +4687,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'llm_prompt'
     | 'llm_provider_key'
     | 'logs'
     | 'notebook'
@@ -5562,6 +5566,15 @@ export interface CyclotronJobFilterEvents extends CyclotronJobFilterBase {
     type: 'events'
 }
 
+export interface CyclotronJobFilterDataWarehouse extends CyclotronJobFilterBase {
+    type: 'data_warehouse'
+    uuid: string
+    table_name: string
+    id_field: string
+    timestamp_field: string
+    distinct_id_field: string
+}
+
 export interface CyclotronJobFilterActions extends CyclotronJobFilterBase {
     type: 'actions'
 }
@@ -5576,8 +5589,9 @@ export type CyclotronJobFilterPropertyFilter =
     | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
-    source?: 'events' | 'person-updates'
+    source?: 'events' | 'person-updates' | 'data-warehouse-table'
     events?: CyclotronJobFilterEvents[]
+    data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
@@ -5781,11 +5795,6 @@ export type AppMetricsV2RequestParams = {
     breakdown_by?: 'name' | 'kind'
 }
 
-export type SessionReplayUrlTriggerConfig = {
-    url: string
-    matching: 'regex'
-}
-
 export type ReplayTemplateType = {
     key: string
     name: string
@@ -5889,6 +5898,9 @@ export interface Conversation {
     type: ConversationType
     has_unsupported_content?: boolean
     agent_mode?: string | null
+    slack_thread_key?: string | null
+    slack_workspace_domain?: string | null
+    is_internal?: boolean
 }
 
 export interface ConversationDetail extends Conversation {
@@ -6150,6 +6162,17 @@ export interface DatasetItem {
     created_by: UserBasicType
     updated_at: string
     created_at: string
+    deleted: boolean
+}
+
+export interface LLMPrompt {
+    id: string
+    name: string
+    prompt: string
+    version: number
+    created_by: UserBasicType
+    created_at: string
+    updated_at: string
     deleted: boolean
 }
 

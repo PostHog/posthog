@@ -181,6 +181,9 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                 .reduce(
                     (tools, tool) => {
                         const toolDef = tool.identifier ? TOOL_DEFINITIONS[tool.identifier] : undefined
+                        if (toolDef?.flag && !featureFlags[toolDef.flag]) {
+                            return tools // Skip flagged tools that are not enabled
+                        }
                         if (toolDef?.subtools) {
                             tools.push(...Object.values(toolDef.subtools))
                         } else {

@@ -1613,6 +1613,7 @@
                     "$ref": "#/definitions/AssistantForm"
                 },
                 "thinking": {
+                    "description": "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks.",
                     "items": {
                         "additionalProperties": {},
                         "type": "object"
@@ -1941,12 +1942,14 @@
                 "list_tasks",
                 "list_task_runs",
                 "list_repositories",
+                "web_search",
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",
                 "filter_session_recordings",
                 "create_insight",
-                "create_form"
+                "create_form",
+                "task"
             ],
             "type": "string"
         },
@@ -11419,6 +11422,10 @@
                 "variables": {
                     "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",
                     "type": "object"
+                },
+                "version": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Specific endpoint version to execute. If not provided, the latest version is used."
                 }
             },
             "type": "object"
@@ -17481,6 +17488,9 @@
                 "inputState": {},
                 "inputTokens": {
                     "type": "number"
+                },
+                "isSupportTrace": {
+                    "type": "boolean"
                 },
                 "outputCost": {
                     "type": "number"
@@ -28310,7 +28320,7 @@
             "type": "string"
         },
         "SlashCommandName": {
-            "enum": ["/init", "/remember", "/usage", "/feedback"],
+            "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
         },
         "SourceConfig": {
@@ -28919,6 +28929,22 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "SubagentUpdateEvent": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/AssistantToolCall"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "tool_call_id", "content"],
             "type": "object"
         },
         "SubscriptionDropoffMode": {
@@ -29861,6 +29887,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterSupportTraces": {
+                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
