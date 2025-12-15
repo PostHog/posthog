@@ -516,8 +516,8 @@ utilities:
               cmd: say -v 'Samantha' 'Nuclear launch detected' 2>/dev/null || true
             - name: node_modules
               cmd: rm -rf **/node_modules
-            - name: python packages
-              cmd: uv pip freeze -q | cut -d'=' -f1 | cut -d'@' -f1 | xargs uv pip uninstall 2>/dev/null || true
+            - name: python venvs
+              cmd: rm -rf .venv .flox/cache/venv && uv sync --active
             - name: rust builds
               cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
             - dev:reset
