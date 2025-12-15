@@ -6,6 +6,7 @@ Automated workflow for clustering LLM traces based on their semantic embeddings,
 
 ```text
 posthog/temporal/llm_analytics/trace_clustering/
+├── __init__.py              # Module exports
 ├── workflow.py              # Temporal workflow definition (orchestrates 3 activities)
 ├── activities.py            # Temporal activity definitions (3 activities)
 ├── data.py                  # Data access layer (HogQL queries for team-scoped data)
@@ -101,16 +102,26 @@ graph TB
 - `team_id` (required): Team ID to cluster traces for
 - `lookback_days` (optional): Days of trace history to analyze (default: 7)
 - `max_samples` (optional): Maximum traces to sample (default: 1000)
+- `min_k` (optional): Minimum clusters for k-means (default: 2)
+- `max_k` (optional): Maximum clusters for k-means (default: 10)
+- `embedding_normalization` (optional): L2 normalize embeddings - "none" or "l2" (default: "l2")
+- `dimensionality_reduction_method` (optional): Reduction method - "none", "umap", or "pca" (default: "umap")
+- `dimensionality_reduction_ndims` (optional): Target dimensions for reduction (default: 100)
+- `run_label` (optional): Label/tag for clustering run tracking (default: "")
+- `clustering_method` (optional): Clustering algorithm - "hdbscan" or "kmeans" (default: "hdbscan")
+- `clustering_method_params` (optional): Method-specific parameters (dict)
+- `visualization_method` (optional): 2D projection method - "umap", "pca", or "tsne" (default: "umap")
+- `trace_filters` (optional): Property filters to scope which traces to include (default: [])
 
 ### Three Activity Architecture
 
 The workflow uses **three separate activities** with independent timeouts and retry policies:
 
-| Activity                              | Purpose                              | Timeout | Retries | Data Size      |
-| ------------------------------------- | ------------------------------------ | ------- | ------- | -------------- |
-| `perform_clustering_compute_activity` | Fetch embeddings, k-means, distances | 120s    | 3       | ~250 KB output |
-| `generate_cluster_labels_activity`    | LLM-based cluster labeling           | 300s    | 2       | ~4 KB output   |
-| `emit_cluster_events_activity`        | Write results to ClickHouse          | 60s     | 3       | ~100 KB output |
+| Activity                              | Purpose                               | Timeout | Retries | Data Size      |
+| ------------------------------------- | ------------------------------------- | ------- | ------- | -------------- |
+| `perform_clustering_compute_activity` | Fetch embeddings, HDBSCAN, distances  | 120s    | 3       | ~250 KB output |
+| `generate_cluster_labels_activity`    | LLM-based cluster labeling            | 600s    | 2       | ~4 KB output   |
+| `emit_cluster_events_activity`        | Write results to ClickHouse           | 60s     | 3       | ~100 KB output |
 
 **Benefits:**
 
@@ -129,10 +140,11 @@ The workflow uses **three separate activities** with independent timeouts and re
 
 **Activity 2 (Label)** - LangGraph agent:
 
-- Runs a multi-turn LangGraph agent powered by Claude Sonnet 4
+- Runs a multi-turn LangGraph agent powered by Claude Sonnet 4 (`claude-sonnet-4-20250514`)
 - Agent explores clusters using tools (overview, trace titles, trace details)
 - Iteratively generates distinctive labels for each cluster
 - Ensures labels differentiate clusters from each other
+- 600 second timeout for full agent run
 - See `labeling_agent/README.md` for detailed agent architecture
 
 **Activity 3 (Emit)** - Database write:
@@ -311,23 +323,26 @@ To add new teams, simply add their IDs to this list.
 
 Key constants in `constants.py`:
 
-| Constant                           | Default              | Description                                 |
-| ---------------------------------- | -------------------- | ------------------------------------------- |
-| `DEFAULT_LOOKBACK_DAYS`            | 7                    | Days of trace history to analyze            |
-| `DEFAULT_MAX_SAMPLES`              | 1000                 | Maximum traces to sample                    |
-| `MIN_TRACES_FOR_CLUSTERING`        | 20                   | Minimum traces required for workflow        |
-| `COMPUTE_ACTIVITY_TIMEOUT`         | 120s                 | Clustering compute timeout                  |
-| `LLM_ACTIVITY_TIMEOUT`             | 300s                 | LLM labeling timeout                        |
-| `EMIT_ACTIVITY_TIMEOUT`            | 60s                  | Event emission timeout                      |
-| `LABELING_AGENT_MODEL`             | claude-sonnet-4      | Claude model for labeling agent             |
-| `LABELING_AGENT_MAX_ITERATIONS`    | 50                   | Max agent iterations before finalization    |
-| `LABELING_AGENT_RECURSION_LIMIT`   | 150                  | LangGraph recursion limit                   |
-| `LABELING_AGENT_TIMEOUT`           | 600.0                | Full agent run timeout (seconds)            |
-| `DEFAULT_HDBSCAN_MIN_SAMPLES`      | 5                    | Min samples for HDBSCAN core points         |
-| `DEFAULT_UMAP_N_COMPONENTS`        | 100                  | UMAP dimensions for clustering              |
-| `NOISE_CLUSTER_ID`                 | -1                   | HDBSCAN noise/outlier cluster ID            |
-| `LLMA_TRACE_DOCUMENT_TYPE`         | llm-trace-summary    | Document type filter for embeddings         |
-| `ALLOWED_TEAM_IDS`                 | [1, 2, 112495]       | Teams to process (allowlist approach)       |
+| Constant                              | Default                    | Description                                      |
+| ------------------------------------- | -------------------------- | ------------------------------------------------ |
+| `DEFAULT_LOOKBACK_DAYS`               | 7                          | Days of trace history to analyze                 |
+| `DEFAULT_MAX_SAMPLES`                 | 1000                       | Maximum traces to sample                         |
+| `MIN_TRACES_FOR_CLUSTERING`           | 20                         | Minimum traces required for workflow             |
+| `COMPUTE_ACTIVITY_TIMEOUT`            | 120s                       | Clustering compute timeout                       |
+| `LLM_ACTIVITY_TIMEOUT`                | 300s                       | LLM labeling timeout (constant)                  |
+| `EMIT_ACTIVITY_TIMEOUT`               | 60s                        | Event emission timeout                           |
+| `LABELING_AGENT_MODEL`                | claude-sonnet-4-20250514   | Claude model for labeling agent                  |
+| `LABELING_AGENT_MAX_ITERATIONS`       | 50                         | Max agent iterations before finalization         |
+| `LABELING_AGENT_RECURSION_LIMIT`      | 150                        | LangGraph recursion limit                        |
+| `LABELING_AGENT_TIMEOUT`              | 600.0                      | Full agent run timeout (seconds)                 |
+| `DEFAULT_HDBSCAN_MIN_SAMPLES`         | 5                          | Min samples for HDBSCAN core points              |
+| `DEFAULT_MIN_CLUSTER_SIZE_FRACTION`   | 0.01                       | Min cluster size as fraction of total samples    |
+| `DEFAULT_UMAP_N_COMPONENTS`           | 100                        | UMAP dimensions for clustering                   |
+| `DEFAULT_UMAP_N_NEIGHBORS`            | 15                         | UMAP neighborhood size                           |
+| `DEFAULT_UMAP_MIN_DIST`               | 0.0                        | UMAP min distance (tighter for clustering)       |
+| `NOISE_CLUSTER_ID`                    | -1                         | HDBSCAN noise/outlier cluster ID                 |
+| `LLMA_TRACE_DOCUMENT_TYPE`            | llm-trace-summary-detailed | Document type filter for embeddings              |
+| `ALLOWED_TEAM_IDS`                    | [1, 2, 112495]             | Teams to process (allowlist approach)            |
 
 ## Processing Flow
 
@@ -377,10 +392,12 @@ pytest posthog/temporal/llm_analytics/trace_clustering/test_workflow.py -v
 
 Test coverage:
 
-- `perform_kmeans_with_optimal_k()` - Optimal k selection and clustering
-- `KMeansResult` structure validation
-- Distance calculations with `calculate_trace_distances()`
-- Representative selection with `select_representatives_from_distances()`
+- `perform_hdbscan_clustering()` - HDBSCAN clustering with auto-k detection
+- `perform_kmeans_with_optimal_k()` - K-means with silhouette score optimization
+- `HDBSCANResult` and `KMeansResult` structure validation
+- Distance calculations with `calculate_trace_distances()` and `calculate_distances_to_cluster_means()`
+- UMAP dimensionality reduction with `reduce_dimensions_for_clustering()`
+- 2D visualization coordinates with `compute_2d_coordinates()`
 - `ClusteringWorkflowInputs` and `ClusteringActivityInputs` model validation
 - Activity input/output models (`ClusteringComputeResult`, `GenerateLabelsActivityInputs`, etc.)
 

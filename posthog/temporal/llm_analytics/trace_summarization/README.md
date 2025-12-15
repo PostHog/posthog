@@ -6,6 +6,7 @@ Automated workflow for generating summaries and embeddings of recent LLM traces 
 
 ```text
 posthog/temporal/llm_analytics/trace_summarization/
+├── __init__.py              # Module exports
 ├── workflow.py              # Per-team batch summarization workflow (main orchestrator)
 ├── coordinator.py           # Multi-team coordinator workflow (spawns child workflows)
 ├── schedule.py              # Temporal schedule configuration (hourly automatic runs)
@@ -98,7 +99,7 @@ graph TB
 - `batch_size` (optional): Concurrent traces to process (default: 5)
 - `mode` (optional): Summary detail level - `minimal` or `detailed` (default: `detailed`)
 - `window_minutes` (optional): Time window to query in minutes (default: 60)
-- `model` (optional): LLM model to use (default: gpt-5-mini)
+- `model` (optional): LLM model to use (default: gpt-4.1-mini)
 
 **Flow**:
 
@@ -126,7 +127,7 @@ graph TB
 - `batch_size` (optional): Concurrent traces to process (default: 5)
 - `mode` (optional): Summary detail level - `minimal` or `detailed` (default: `detailed`)
 - `window_minutes` (optional): Time window to query in minutes (default: 60)
-- `model` (optional): LLM model to use (default: gpt-5-mini)
+- `model` (optional): LLM model to use (default: gpt-4.1-mini)
 - `window_start` (optional): Explicit window start in RFC3339 format (overrides window_minutes)
 - `window_end` (optional): Explicit window end in RFC3339 format (overrides window_minutes)
 
@@ -417,7 +418,7 @@ Check logs for:
 For `DEFAULT_MAX_TRACES_PER_WINDOW = 100` traces per hour (2,400/day):
 
 - **LLM Calls**: 100 traces/hour × 24 hours = 2,400 calls/day
-- **Model**: `gpt-4.1-mini` (from `DEFAULT_WORKFLOW_MODEL`)
+- **Model**: `gpt-4.1-mini` (from `SUMMARIZATION_MODEL`)
 - **Token Usage** (estimated):
   - Input: ~2000 tokens/trace (text repr + prompt)
   - Output: ~500 tokens/trace (summary)

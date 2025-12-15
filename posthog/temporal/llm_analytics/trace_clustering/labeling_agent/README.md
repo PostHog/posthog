@@ -51,14 +51,22 @@ labeling_agent/
 ## State Schema
 
 ```python
+class ClusterTraceData(TypedDict):
+    """All trace data for a cluster."""
+    cluster_id: int
+    size: int
+    centroid_x: float
+    centroid_y: float
+    traces: dict[str, TraceMetadata]  # trace_id -> metadata
+
 class ClusterLabelingState(TypedDict):
     # Input data (immutable during run)
     team_id: int
-    cluster_data: dict[int, ClusterTraceData]      # cluster_id -> {size, trace_ids}
+    cluster_data: dict[int, ClusterTraceData]      # cluster_id -> cluster info with traces
     all_trace_summaries: dict[str, TraceSummary]   # trace_id -> full summary
 
     # Working state (mutated by agent)
-    current_labels: dict[int, ClusterLabel]        # cluster_id -> {title, description}
+    current_labels: dict[int, ClusterLabel | None] # cluster_id -> label or None
     messages: Annotated[list, add_messages]        # LangGraph message history
 
     # Control flow
@@ -68,20 +76,20 @@ class ClusterLabelingState(TypedDict):
 
 ## Tools
 
-| Tool | Purpose | Input | Output |
-|------|---------|-------|--------|
-| `get_clusters_overview` | High-level view of all clusters | None | List of {cluster_id, size, centroid_x, centroid_y} |
-| `get_cluster_trace_titles` | Scan trace titles in a cluster | `cluster_id`, `limit` (default 30) | List of {trace_id, title, rank, distance, x, y} |
-| `get_trace_details` | Full trace summaries | `trace_ids` (list) | List of {trace_id, title, flow_diagram, bullets, notes} |
-| `get_current_labels` | Review all labels set so far | None | Dict of {cluster_id: {title, description} or null} |
-| `set_cluster_label` | Set/update a cluster's label | `cluster_id`, `title`, `description` | Confirmation message |
-| `finalize_labels` | Signal completion | None | Triggers transition to finalize node |
+| Tool                       | Purpose                          | Input                                  | Output                                              |
+| -------------------------- | -------------------------------- | -------------------------------------- | --------------------------------------------------- |
+| `get_clusters_overview`    | High-level view of all clusters  | None                                   | List of {cluster_id, size, centroid_x, centroid_y}  |
+| `get_cluster_trace_titles` | Scan trace titles in a cluster   | `cluster_id`, `limit` (default 30)     | List of {trace_id, title, rank, distance, x, y}     |
+| `get_trace_details`        | Full trace summaries             | `trace_ids` (list)                     | List of {trace_id, title, flow_diagram, bullets, notes} |
+| `get_current_labels`       | Review all labels set so far     | None                                   | Dict of {cluster_id: {title, description} or null}  |
+| `set_cluster_label`        | Set/update a cluster's label     | `cluster_id`, `title`, `description`   | Confirmation message                                |
+| `finalize_labels`          | Signal completion                | None                                   | Triggers transition to finalize node                |
 
 ### Tool Details
 
 **`get_cluster_trace_titles`** returns lightweight data for quick scanning:
 
-- `rank`: Distance rank (0 = closest to centroid, higher = further)
+- `rank`: Distance rank (1 = closest to centroid, higher = further)
 - `distance_to_centroid`: Euclidean distance for understanding cluster tightness
 - `x, y`: 2D UMAP coordinates for spatial awareness
 
@@ -123,12 +131,12 @@ The system prompt guides the agent to:
 
 From `constants.py`:
 
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `LABELING_AGENT_MODEL` | `claude-sonnet-4-20250514` | Claude model for reasoning |
-| `LABELING_AGENT_MAX_ITERATIONS` | 50 | Max iterations before forced finalization |
-| `LABELING_AGENT_RECURSION_LIMIT` | 150 | LangGraph recursion limit (> 2 * max_iterations) |
-| `LABELING_AGENT_TIMEOUT` | 600.0 | Full agent run timeout (seconds) |
+| Constant                       | Value                    | Description                                   |
+| ------------------------------ | ------------------------ | --------------------------------------------- |
+| `LABELING_AGENT_MODEL`         | `claude-sonnet-4-20250514` | Claude Sonnet 4 model for reasoning         |
+| `LABELING_AGENT_MAX_ITERATIONS`| 50                       | Max iterations before forced finalization     |
+| `LABELING_AGENT_RECURSION_LIMIT`| 150                     | LangGraph recursion limit (> 2 * max_iterations) |
+| `LABELING_AGENT_TIMEOUT`       | 600.0                    | Full agent run timeout (seconds)              |
 
 ## Usage
 
@@ -138,18 +146,32 @@ from posthog.temporal.llm_analytics.trace_clustering.labeling_agent import run_l
 labels = run_labeling_agent(
     team_id=1,
     cluster_data={
-        0: {"size": 50, "trace_ids": ["trace_1", "trace_2", ...]},
-        1: {"size": 30, "trace_ids": ["trace_3", "trace_4", ...]},
-        -1: {"size": 10, "trace_ids": ["trace_5", ...]},  # Outliers
+        0: {
+            "cluster_id": 0,
+            "size": 50,
+            "centroid_x": -2.2,
+            "centroid_y": 0.8,
+            "traces": {
+                "trace_1": {"trace_id": "trace_1", "rank": 1, "distance_to_centroid": 0.08, "x": -2.3, "y": 0.9},
+                "trace_2": {"trace_id": "trace_2", "rank": 2, "distance_to_centroid": 0.12, "x": -2.1, "y": 0.7},
+            },
+        },
+        -1: {  # Outliers cluster
+            "cluster_id": -1,
+            "size": 10,
+            "centroid_x": 1.5,
+            "centroid_y": -0.5,
+            "traces": {...},
+        },
     },
     all_trace_summaries={
-        "trace_1": TraceSummary(title="...", flow_diagram="...", ...),
+        "trace_1": {"title": "...", "flow_diagram": "...", "bullets": "...", "interesting_notes": "...", "trace_timestamp": "..."},
         # ...
     },
     max_iterations=50,
 )
 
-# Returns: {0: ClusterLabel(...), 1: ClusterLabel(...), -1: ClusterLabel(...)}
+# Returns: {0: ClusterLabel(title="...", description="..."), -1: ClusterLabel(...)}
 ```
 
 ## Error Handling
