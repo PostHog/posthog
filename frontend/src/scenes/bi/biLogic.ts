@@ -876,27 +876,6 @@ function getForeignKeyColumnsToHide(table: DatabaseSchemaTable): Set<string> {
     )
 }
 
-function buildFieldTrees(
-    table: DatabaseSchemaTable | null,
-    database: DatabaseSchemaQueryResponse | null,
-    searchTerm: string,
-    expandedFields: string[]
-): FieldTreeNode[] {
-    if (!table) {
-        return []
-    }
-
-    const visitedTables = new Set<string>([table.name])
-    const nodes = buildFieldTreeNodes(table, database, '', visitedTables, new Set(expandedFields), !!searchTerm)
-
-    if (!searchTerm) {
-        return nodes
-    }
-
-    const term = searchTerm.toLowerCase()
-    return filterFieldTreeNodes(nodes, term)
-}
-
 function buildFieldTreeNodes(
     table: DatabaseSchemaTable,
     database: DatabaseSchemaQueryResponse | null,
@@ -1084,9 +1063,7 @@ function filterFieldTreeNodes(nodes: FieldTreeNode[], term: string): FieldTreeNo
         .map((node) => {
             const filteredChildren = filterFieldTreeNodes(node.children, term)
             const matches =
-                node.path.toLowerCase().includes(term) ||
-                node.field.name.toLowerCase().includes(term) ||
-                filteredChildren.length > 0
+                fuzzyMatch(node.path, term) || fuzzyMatch(node.field.name, term) || filteredChildren.length > 0
 
             if (!matches) {
                 return null
@@ -1095,6 +1072,55 @@ function filterFieldTreeNodes(nodes: FieldTreeNode[], term: string): FieldTreeNo
             return { ...node, children: filteredChildren }
         })
         .filter(Boolean) as FieldTreeNode[]
+}
+
+function fuzzyMatch(value: string, term: string): boolean {
+    const normalizedValue = value.toLowerCase()
+    const tokens = term
+        .toLowerCase()
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+
+    if (!tokens.length) {
+        return true
+    }
+
+    return tokens.every((token) => isSubsequence(normalizedValue, token))
+}
+
+function isSubsequence(target: string, query: string): boolean {
+    let searchFromIndex = 0
+
+    for (const character of query) {
+        const foundIndex = target.indexOf(character, searchFromIndex)
+        if (foundIndex === -1) {
+            return false
+        }
+        searchFromIndex = foundIndex + 1
+    }
+
+    return true
+}
+
+function buildFieldTrees(
+    table: DatabaseSchemaTable | null,
+    database: DatabaseSchemaQueryResponse | null,
+    searchTerm: string,
+    expandedFields: string[]
+): FieldTreeNode[] {
+    if (!table) {
+        return []
+    }
+
+    const visitedTables = new Set<string>([table.name])
+    const nodes = buildFieldTreeNodes(table, database, '', visitedTables, new Set(expandedFields), !!searchTerm)
+
+    if (!searchTerm) {
+        return nodes
+    }
+
+    return filterFieldTreeNodes(nodes, searchTerm)
 }
 
 function getTableFromDatabase(
