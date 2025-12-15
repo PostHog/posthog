@@ -38,6 +38,7 @@ export enum QueryFeature {
     displayResponseError,
     hideLoadNextButton,
     testAccountFilters,
+    supportTracesFilters,
     highlightExceptionEventRows,
     /** Enables cell and row actions for non-integrated conversions mapping */
     nonIntegratedConversionsActions,
@@ -140,6 +141,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.testAccountFilters)
+        features.add(QueryFeature.supportTracesFilters)
         features.add(QueryFeature.columnConfigurator)
     }
 

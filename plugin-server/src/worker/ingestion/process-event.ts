@@ -3,7 +3,7 @@ import { Summary } from 'prom-client'
 
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
-import { Hub, ISOTimestamp, PreIngestionEvent, ProjectId, Team, TeamId } from '../../types'
+import { ISOTimestamp, PreIngestionEvent, ProjectId, Team, TeamId } from '../../types'
 import { sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -28,13 +28,11 @@ const updateEventNamesAndPropertiesMsSummary = new Summary({
 })
 
 export class EventsProcessor {
-    private teamManager: TeamManager
-    private groupTypeManager: GroupTypeManager
-
-    constructor(private hub: Hub) {
-        this.teamManager = hub.teamManager
-        this.groupTypeManager = hub.groupTypeManager
-    }
+    constructor(
+        private teamManager: TeamManager,
+        private groupTypeManager: GroupTypeManager,
+        private skipUpdateEventAndPropertiesStep: boolean
+    ) {}
 
     public async processEvent(
         distinctId: string,
@@ -96,7 +94,7 @@ export class EventsProcessor {
             delete properties['$ip']
         }
 
-        if (this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
+        if (this.skipUpdateEventAndPropertiesStep === false) {
             try {
                 await this.updateGroupsAndFirstEvent(team, event, properties)
             } catch (err) {
