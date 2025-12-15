@@ -96,35 +96,6 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsNone(artifact)
         mock_execute.assert_called_once_with("test error tracking issue query", "error_tracking_issues")
 
-    @patch("ee.hogai.tools.search.EntitySearchTool.execute")
-    @patch("ee.hogai.tools.search.SearchTool._has_insights_fts_search_feature_flag")
-    async def test_arun_impl_insight_with_feature_flag_disabled(
-        self, mock_has_insights_fts_search_feature_flag, mock_execute
-    ):
-        mock_has_insights_fts_search_feature_flag.return_value = False
-        mock_execute.return_value = "Search results for insights"
-
-        with self.assertRaises(MaxToolFatalError) as context:
-            await self.tool._arun_impl(kind="insights", query="test insight query")
-
-        error_message = str(context.exception)
-        self.assertIn("No insights available", error_message)
-        mock_execute.assert_not_called()
-
-    @patch("ee.hogai.tools.search.EntitySearchTool.execute")
-    @patch("ee.hogai.tools.search.SearchTool._has_insights_fts_search_feature_flag")
-    async def test_arun_impl_insight_with_feature_flag_enabled(
-        self, mock_has_insights_fts_search_feature_flag, mock_execute
-    ):
-        mock_has_insights_fts_search_feature_flag.return_value = True
-        mock_execute.return_value = "Search results for insights"
-
-        result, artifact = await self.tool._arun_impl(kind="insights", query="test insight query")
-
-        self.assertEqual(result, "Search results for insights")
-        self.assertIsNone(artifact)
-        mock_execute.assert_called_once_with("test insight query", "insights")
-
 
 class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False

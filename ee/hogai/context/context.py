@@ -306,9 +306,9 @@ class AssistantContextManager(AssistantContextMixin):
                     variables_overrides = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
                     query_dict = apply_dashboard_variables_to_dict(query_dict, variables_overrides, self._team)
 
-                query_obj = validate_assistant_query(query_dict)
+                serialized_query = validate_assistant_query(query_dict)
 
-            raw_results, _ = await query_runner.arun_and_format_query(query_obj)
+            raw_results, _ = await query_runner.arun_and_format_query(serialized_query)
 
             result = (
                 PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
