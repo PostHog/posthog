@@ -10,6 +10,7 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
+import { loadTraceSummaries } from './traceSummaryLoader'
 import { Cluster, ClusterTraceInfo, NOISE_CLUSTER_ID, TraceSummary } from './types'
 
 const TRACES_PER_PAGE = 50
@@ -19,7 +20,7 @@ export interface ClusterDetailLogicProps {
     clusterId: number
 }
 
-interface TraceWithSummary {
+export interface TraceWithSummary {
     traceId: string
     traceInfo: ClusterTraceInfo
     summary?: TraceSummary
@@ -216,44 +217,11 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         setPage: async () => {
             // Load trace summaries for the current page
             const traceIds = values.paginatedTraceIds
-            const missingTraceIds = traceIds.filter((id: string) => !values.traceSummaries[id])
-
-            if (missingTraceIds.length === 0) {
-                return
-            }
 
             actions.setTraceSummariesLoading(true)
 
             try {
-                const traceIdsList = missingTraceIds.map((id: string) => `'${id}'`).join(',')
-                const response = await api.queryHogQL(hogql`
-                    SELECT
-                        JSONExtractString(properties, '$ai_trace_id') as trace_id,
-                        argMax(JSONExtractString(properties, '$ai_summary_title'), timestamp) as title,
-                        argMax(JSONExtractString(properties, '$ai_summary_flow_diagram'), timestamp) as flow_diagram,
-                        argMax(JSONExtractString(properties, '$ai_summary_bullets'), timestamp) as bullets,
-                        argMax(JSONExtractString(properties, '$ai_summary_interesting_notes'), timestamp) as interesting_notes,
-                        max(timestamp) as timestamp
-                    FROM events
-                    WHERE event = '$ai_trace_summary'
-                        AND JSONExtractString(properties, '$ai_trace_id') IN (${hogql.raw(traceIdsList)})
-                    GROUP BY trace_id
-                    LIMIT 10000
-                `)
-
-                const summaries: Record<string, TraceSummary> = {}
-                for (const row of response.results || []) {
-                    const r = row as string[]
-                    summaries[r[0]] = {
-                        traceId: r[0],
-                        title: r[1] || 'Untitled Trace',
-                        flowDiagram: r[2] || '',
-                        bullets: r[3] || '',
-                        interestingNotes: r[4] || '',
-                        timestamp: r[5],
-                    }
-                }
-
+                const summaries = await loadTraceSummaries(traceIds, values.traceSummaries)
                 actions.setTraceSummaries(summaries)
             } catch (error) {
                 console.error('Failed to load trace summaries:', error)

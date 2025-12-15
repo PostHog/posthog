@@ -1,85 +1,20 @@
-import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
-import { hogql } from '~/queries/utils'
-
 import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
-
-interface ClusterInfo {
-    runId: string
-    runTimestamp: string
-    clusterId: number
-    clusterTitle: string
-    clusterSize: number
-    isOutlier: boolean
-}
+import { clustersTabContentLogic } from './clustersTabContentLogic'
 
 export function ClustersTabContent(): JSX.Element {
     const { traceId } = useValues(llmAnalyticsTraceLogic)
-    const [clusters, setClusters] = useState<ClusterInfo[]>([])
-    const [loading, setLoading] = useState(true)
+    const { clusters, clustersLoading } = useValues(clustersTabContentLogic({ traceId }))
+    const { loadClusters } = useActions(clustersTabContentLogic({ traceId }))
 
-    const loadClusters = async (): Promise<void> => {
-        setLoading(true)
-        try {
-            const response = await api.queryHogQL(
-                hogql`
-                    SELECT
-                        JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                        JSONExtractRaw(properties, '$ai_clusters') as clusters_json,
-                        timestamp
-                    FROM events
-                    WHERE event = '$ai_trace_clusters'
-                        AND timestamp >= now() - INTERVAL 7 DAY
-                    ORDER BY timestamp DESC
-                    LIMIT 20
-                `,
-                { refresh: 'force_blocking' }
-            )
-
-            const foundClusters: ClusterInfo[] = []
-
-            for (const row of response.results || []) {
-                const [runId, clustersJson, timestamp] = row as [string, string, string]
-                try {
-                    const clustersData = JSON.parse(clustersJson || '[]')
-                    for (const cluster of clustersData) {
-                        if (cluster.traces && traceId in cluster.traces) {
-                            foundClusters.push({
-                                runId,
-                                runTimestamp: timestamp,
-                                clusterId: cluster.cluster_id,
-                                clusterTitle: cluster.title || `Cluster ${cluster.cluster_id}`,
-                                clusterSize: cluster.size,
-                                isOutlier: cluster.cluster_id === -1,
-                            })
-                        }
-                    }
-                } catch {
-                    // Skip malformed JSON
-                }
-            }
-
-            setClusters(foundClusters)
-        } catch (error) {
-            console.error('Failed to load clusters:', error)
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    useEffect(() => {
-        void loadClusters()
-    }, [traceId, loadClusters])
-
-    if (loading) {
+    if (clustersLoading) {
         return (
             <div className="py-4 space-y-3">
                 <LemonSkeleton className="h-8 w-full" />
@@ -110,8 +45,8 @@ export function ClustersTabContent(): JSX.Element {
                     type="secondary"
                     size="small"
                     icon={<IconRefresh />}
-                    onClick={() => void loadClusters()}
-                    loading={loading}
+                    onClick={() => loadClusters()}
+                    loading={clustersLoading}
                 >
                     Refresh
                 </LemonButton>
