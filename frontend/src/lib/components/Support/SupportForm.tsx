@@ -2,12 +2,13 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useRef } from 'react'
 
-import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
+import { IconBug, IconInfo, IconQuestion, IconRecord } from '@posthog/icons'
 import {
     LemonBanner,
     LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
+    LemonTag,
     Link,
     Tooltip,
     lemonToast,
@@ -54,7 +55,17 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
     support: 'What can we help you with?',
 }
 
-export function SupportForm(): JSX.Element | null {
+interface SupportFormProps {
+    /** Show a fake attachment representing PostHog AI conversation history */
+    attachPostHogAIConversation?: boolean
+    /** Show a fake attachment representing a screen recording */
+    attachScreenRecording?: boolean
+}
+
+export function SupportForm({
+    attachPostHogAIConversation = false,
+    attachScreenRecording = false,
+}: SupportFormProps = {}): JSX.Element | null {
     const { sendSupportRequest } = useValues(supportLogic)
     const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
@@ -159,6 +170,15 @@ export function SupportForm(): JSX.Element | null {
                                 loading={uploading}
                                 value={filesToUpload}
                             />
+                        )}
+                        {attachScreenRecording && (
+                            <div className="flex flex-row gap-2">
+                                <Tooltip title="Screen recording has been attached to help our support team understand your issue.">
+                                    <LemonTag icon={<IconRecord />} type="success" size="medium">
+                                        screen_recording.mp4
+                                    </LemonTag>
+                                </Tooltip>
+                            </div>
                         )}
                     </div>
                 )}

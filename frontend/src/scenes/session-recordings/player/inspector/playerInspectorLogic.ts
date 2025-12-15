@@ -96,7 +96,7 @@ export type InspectorListItemBase = {
     timestamp: Dayjs
     timeInRecording: number
     search: string
-    highlightColor?: 'danger' | 'warning' | 'primary'
+    highlightColor?: 'danger' | 'warning' | 'primary' | 'info'
     windowId?: number
     windowNumber?: number | '?' | undefined
     type: InspectorListItemType
@@ -951,7 +951,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             ? 'primary'
                             : event.event === '$exception'
                               ? 'danger'
-                              : undefined,
+                              : event.event === '$user_feedback_recording_started' ||
+                                  event.event === '$user_feedback_recording_stopped'
+                                ? 'info'
+                                : undefined,
                         windowId,
                         windowNumber: windowNumberForID(windowId),
                         key: `event-${event.id}`,
@@ -1089,9 +1092,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             continue
                         }
 
-                        // Apply mini-filters for events
-                        const eventKey = `events-${item.data.event}` as keyof typeof miniFiltersByKey
-                        const eventFilter = miniFiltersByKey[eventKey] || miniFiltersByKey['events-custom']
+                        // Apply mini-filters for events using proper categorization
+                        const eventFilter = itemToMiniFilter(item, miniFiltersByKey)
                         if (eventFilter && !eventFilter.enabled) {
                             continue
                         }
@@ -1110,10 +1112,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 if (eventAndCommentItems.length > MAX_SEEKBAR_ITEMS) {
                     // First pass: keep only high-priority items
                     let priorityItems = eventAndCommentItems.filter((item) => {
-                        const isPrimary = item.highlightColor === 'primary'
+                        const hasHighlightColor = !!item.highlightColor
                         const isPageView = item.type === 'events' && item.data.event === '$pageview'
+                        const isFeedbackEvent =
+                            item.type === 'events' &&
+                            (item.data.event === '$user_feedback_recording_started' ||
+                                item.data.event === '$user_feedback_recording_stopped')
                         const isComment = item.type === 'comment'
-                        return isPrimary || isPageView || isComment
+                        return hasHighlightColor || isPageView || isFeedbackEvent || isComment
                     })
 
                     // If still too many, sample them
