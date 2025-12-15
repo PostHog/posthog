@@ -1,3 +1,5 @@
+import json
+import base64
 import datetime as dt
 
 from rest_framework import status, viewsets
@@ -27,7 +29,32 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         live_logs_checkpoint = query_data.get("liveLogsCheckpoint", None)
+        after_cursor = query_data.get("after", None)
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
+
+        # When using cursor pagination, narrow the date range based on the cursor timestamp.
+        # This allows time-slicing optimization to work on progressively smaller ranges
+        # as the user pages through results.
+        order_by = query_data.get("orderBy")
+        if after_cursor:
+            try:
+                cursor = json.loads(base64.b64decode(after_cursor).decode("utf-8"))
+                cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
+                if order_by == OrderBy3.EARLIEST or order_by == "earliest":
+                    # For "earliest" ordering, we're looking for logs AFTER the cursor
+                    date_range = DateRange(
+                        date_from=cursor_ts.isoformat(),
+                        date_to=date_range.date_to,
+                    )
+                else:
+                    # For "latest" ordering (default), we're looking for logs BEFORE the cursor
+                    date_range = DateRange(
+                        date_from=date_range.date_from,
+                        date_to=cursor_ts.isoformat(),
+                    )
+            except (KeyError, ValueError, json.JSONDecodeError):
+                pass  # Invalid cursor format, continue with original date range
+
         requested_limit = min(query_data.get("limit", 1000), 2000)
         logs_query_params = {
             "dateRange": date_range,
@@ -40,6 +67,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         }
         if live_logs_checkpoint:
             logs_query_params["liveLogsCheckpoint"] = live_logs_checkpoint
+        if after_cursor:
+            logs_query_params["after"] = after_cursor
         query = LogsQuery(**logs_query_params)
 
         def results_generator(query: LogsQuery, logs_query_params: dict):
@@ -109,13 +138,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
                 return LogsQueryRunner(slice_query, self.team), LogsQueryRunner(remainder_query, self.team)
 
-            # if we're live tailing don't do the runner slicing optimisations
-            # we're always only looking at the most recent 1 or 2 minutes of observed data
-            # which should cut things down more than the slicing anyway
+            # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
+            # Note: cursor pagination no longer skips time-slicing because we narrow the date range
+            # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
             if live_logs_checkpoint:
                 response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 yield from response.results
                 return
+
             # if we're searching more than 20 minutes, first fetch the first 3 minutes of logs and see if that hits the limit
             if date_range_length > dt.timedelta(minutes=20):
                 recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3), query.orderBy)
@@ -152,7 +182,20 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         results = list(results_generator(query, logs_query_params))
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
-        return Response({"query": query, "results": results, "hasMore": has_more}, status=200)
+
+        # Generate cursor for next page
+        next_cursor = None
+        if has_more and results:
+            last_result = results[-1]
+            cursor_data = {
+                "timestamp": last_result["timestamp"].isoformat(),
+                "uuid": last_result["uuid"],
+            }
+            next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
+
+        return Response(
+            {"query": query, "results": results, "hasMore": has_more, "nextCursor": next_cursor}, status=200
+        )
 
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
@@ -174,24 +217,67 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("search", "")
+        limit = request.GET.get("limit", 100)
+        offset = request.GET.get("offset", 0)
+
+        attribute_type = request.GET.get("attribute_type", "log")
+        # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
+        # like the property type, but annoyingly it's hard to update this in clickhouse so we're stuck with it for now
+        if attribute_type not in ["log", "resource"]:
+            attribute_type = "log"
+
+        try:
+            limit = int(limit)
+        except ValueError:
+            limit = 100
+
+        try:
+            offset = int(offset)
+        except ValueError:
+            offset = 0
+
+        # temporarily exclude resource_attributes from the log attributes results
+        # this is because we are currently merging resource attributes into log attributes but will stop soon
+        # once we stop merging the attributes here: https://github.com/PostHog/posthog/blob/d55f534193220eee1cd50df2c4465229925a572d/rust/capture-logs/src/log_record.rs#L91
+        # and the 7 day retention period has passed, we can remove this code
+        # If you see this message after 2026-01-01 tell @frank to do it already
+        exclude_expression = "1"
+        if attribute_type == "log":
+            exclude_expression = """(attribute_key NOT IN (
+            SELECT attribute_key FROM log_attributes
+            WHERE time_bucket >= toStartOfInterval(now() - interval 10 minutes, interval 10 minute)
+            AND team_id = %(team_id)s
+            AND attribute_type = 'resource'
+            AND attribute_key LIKE %(search)s
+            ))"""
 
         results = sync_execute(
-            """
+            f"""
 SELECT
-    groupArray(attribute_key) as keys
+    groupArray(%(limit)d)(attribute_key) as keys,
+    count() as total_count
 FROM (
     SELECT
         attribute_key,
         sum(attribute_count)
     FROM log_attributes
-    WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
+    WHERE time_bucket >= toStartOfInterval(now() - interval 10 minutes, interval 10 minute)
     AND team_id = %(team_id)s
+    AND attribute_type = %(attribute_type)s
     AND attribute_key LIKE %(search)s
+    AND {exclude_expression}
     GROUP BY team_id, attribute_key
     ORDER BY sum(attribute_count) desc, attribute_key asc
+    OFFSET %(offset)d
 )
 """,
-            args={"search": f"%{search}%", "team_id": self.team.id},
+            args={
+                "search": f"%{search}%",
+                "team_id": self.team.id,
+                "limit": limit,
+                "offset": offset,
+                "attribute_type": attribute_type,
+            },
             workload=Workload.LOGS,
             team_id=self.team.id,
         )
@@ -203,15 +289,19 @@ FROM (
             for result in results[0][0]:
                 entry = {
                     "name": result,
-                    "propertyFilterType": "log",
+                    "propertyFilterType": "log_resource_attribute" if attribute_type == "resource" else "log_attribute",
                 }
                 r.append(entry)
-        return Response(r, status=status.HTTP_200_OK)
+        return Response({"results": r, "count": results[0][1] + offset}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("value", "")
         key = request.GET.get("key", "")
+
+        attribute_type = request.GET.get("attribute_type", "log")
+        if attribute_type not in ["log", "resource"]:
+            attribute_type = "log"
 
         results = sync_execute(
             """
@@ -224,13 +314,15 @@ FROM (
     FROM log_attributes
     WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
     AND team_id = %(team_id)s
+    AND attribute_type = %(attribute_type)s
     AND attribute_key = %(key)s
     AND attribute_value LIKE %(search)s
     GROUP BY team_id, attribute_value
     ORDER BY sum(attribute_count) desc, attribute_value asc
+    LIMIT 50
 )
 """,
-            args={"key": key, "search": f"%{search}%", "team_id": self.team.id},
+            args={"key": key, "search": f"%{search}%", "team_id": self.team.id, "attribute_type": attribute_type},
             workload=Workload.LOGS,
             team_id=self.team.id,
         )

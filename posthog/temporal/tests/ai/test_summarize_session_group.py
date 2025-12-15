@@ -45,6 +45,7 @@ from posthog.temporal.ai.session_summary.state import (
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionGroupSummaryInputs,
     SummarizeSessionGroupWorkflow,
+    _start_session_group_summary_workflow,
     execute_summarize_session_group,
     fetch_session_batch_events_activity,
     get_llm_single_session_summary_activity,
@@ -67,7 +68,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternStats,
     RawSessionGroupSummaryPatternsList,
 )
-from ee.models.session_summaries import SingleSessionSummary
+from ee.models.session_summaries import SessionGroupSummary, SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
 
@@ -410,10 +411,17 @@ async def test_assign_events_to_patterns_activity_standalone(
             ],
         )
         mock_call_llm.return_value = mock_llm_response
-        result, _ = await assign_events_to_patterns_activity(activity_input)
-        # Verify the activity completed successfully
-        assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
-        assert len(result.patterns) >= 1  # Should have at least one pattern
+        result = await assign_events_to_patterns_activity(activity_input)
+        # Verify the activity completed successfully - now returns just the summary id
+        assert isinstance(result, str)
+        # Verify the summary was stored in DB
+        from ee.models.session_summaries import SessionGroupSummary
+
+        session_group_summary = await SessionGroupSummary.objects.aget(id=result)
+        assert session_group_summary is not None
+        # Verify the summary content
+        patterns = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
+        assert len(patterns.patterns) >= 1  # Should have at least one pattern
         # Verify LLM was called (for pattern assignment)
         mock_call_llm.assert_called()  # May be called multiple times for chunks
         # Verify Redis operations:
@@ -582,8 +590,12 @@ async def test_assign_events_to_patterns_threshold_check(
         )
         mock_call_llm.return_value = mock_llm_response
 
-        # Should succeed
-        result, _ = await assign_events_to_patterns_activity(activity_input)
+        # Should succeed - now returns just the summary id
+        summary_id = await assign_events_to_patterns_activity(activity_input)
+        assert isinstance(summary_id, str)
+        # Fetch the result from DB
+        session_group_summary = await SessionGroupSummary.objects.aget(id=summary_id)
+        result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
         assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
         assert len(result.patterns) == 3  # Should have 3 patterns with events
 
@@ -705,9 +717,13 @@ async def test_assign_events_to_patterns_filters_non_blocking_exceptions(
         mock_async_connect.return_value = mock_temporal_client
         # Mock LLM call for pattern assignment
         mock_call_llm.return_value = mock_llm_response
-        # Execute activity
-        result, _ = await assign_events_to_patterns_activity(activity_input)
+        # Execute activity - now returns just the summary id
+        summary_id = await assign_events_to_patterns_activity(activity_input)
     # Assertions
+    assert isinstance(summary_id, str)
+    # Fetch the result from DB
+    session_group_summary = await SessionGroupSummary.objects.aget(id=summary_id)
+    result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
     assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
     # Pattern 1 should only have mnop3456 (blocking, should be included), not xyz98765 (non-blocking, should be skipped)
     pattern_1 = next((p for p in result.patterns if p.pattern_id == 1), None)
@@ -887,8 +903,13 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
         # Mock LLM call
         mock_call_llm.return_value = mock_llm_response
         # We provide 3 patterns. With deduplication, all 3 should have exactly 1 event each
-        result, _ = await assign_events_to_patterns_activity(activity_input)
+        # Now returns just the summary id
+        summary_id = await assign_events_to_patterns_activity(activity_input)
     # Assertions
+    assert isinstance(summary_id, str)
+    # Fetch the result from DB
+    session_group_summary = await SessionGroupSummary.objects.aget(id=summary_id)
+    result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
     assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
     # All 3 patterns should exist (deduplication keeps first event from each assignment)
     assert len(result.patterns) == 3, "Should have 3 patterns with valid events"
@@ -1093,6 +1114,82 @@ class TestSummarizeSessionGroupWorkflow:
             )
 
     @pytest.mark.asyncio
+    async def test_start_session_group_summary_workflow_fetches_from_db(
+        self,
+        mock_session_id: str,
+        mock_session_group_summary_inputs: Callable,
+        auser: User,
+        ateam: Team,
+    ):
+        """Test that _start_session_group_summary_workflow fetches the summary from DB after workflow completes"""
+        session_ids, workflow_id, workflow_input = self.setup_workflow_test(
+            mock_session_id, mock_session_group_summary_inputs, "db_fetch", auser.id, ateam.id
+        )
+        # Create expected patterns and store in DB
+        mock_stats = EnrichedSessionGroupSummaryPatternStats(
+            occurences=1,
+            sessions_affected=1,
+            sessions_affected_ratio=0.5,
+            segments_success_ratio=1.0,
+        )
+        mock_pattern = EnrichedSessionGroupSummaryPattern(
+            pattern_id=1,
+            pattern_name="Mock Pattern from DB",
+            pattern_description="A test pattern stored in DB",
+            severity="low",
+            indicators=["test indicator"],
+            events=[],
+            stats=mock_stats,
+        )
+        expected_patterns = EnrichedSessionGroupSummaryPatternsList(patterns=[mock_pattern])
+        # Create the summary in DB
+        session_group_summary = await SessionGroupSummary.objects.acreate(
+            team_id=ateam.id,
+            title="Test summary",
+            session_ids=session_ids,
+            summary=expected_patterns.model_dump_json(exclude_none=True),
+            created_by=auser,
+        )
+        summary_id = str(session_group_summary.id)
+
+        # Mock the Temporal client and workflow handle
+        mock_handle = MagicMock()
+        mock_handle.describe = AsyncMock()
+        mock_handle.query = AsyncMock(return_value=[])
+        mock_handle.result = AsyncMock(return_value=summary_id)
+
+        # Mock workflow as completed
+        mock_description = MagicMock()
+        mock_description.status = WorkflowExecutionStatus.COMPLETED
+        mock_handle.describe.return_value = mock_description
+
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(return_value=mock_handle)
+
+        with patch(
+            "posthog.temporal.ai.session_summary.summarize_session_group.async_connect",
+            return_value=mock_client,
+        ):
+            # Collect results from the async generator
+            results = []
+            async for update in _start_session_group_summary_workflow(
+                inputs=workflow_input,
+                workflow_id=workflow_id,
+            ):
+                results.append(update)
+
+            # Verify we got the expected result fetched from DB
+            assert len(results) == 1
+            update_type, data = results[0]
+            assert update_type == SessionSummaryStreamUpdate.FINAL_RESULT
+            assert isinstance(data, tuple)
+            patterns, returned_summary_id = data
+            assert returned_summary_id == summary_id
+            assert isinstance(patterns, EnrichedSessionGroupSummaryPatternsList)
+            assert len(patterns.patterns) == 1
+            assert patterns.patterns[0].pattern_name == "Mock Pattern from DB"
+
+    @pytest.mark.asyncio
     async def test_summarize_session_group_workflow(
         self,
         mocker: MockerFixture,
@@ -1157,11 +1254,14 @@ class TestSummarizeSessionGroupWorkflow:
                 id=workflow_id,
                 task_queue=worker.task_queue,
             )
-            # Verify the result is of the correct type (now returns tuple of patterns and summary_id)
-            assert isinstance(result, tuple)
-            patterns_result, summary_id = result
+            # Verify the result is of the correct type (now returns just summary_id)
+            assert isinstance(result, str)
+            # Verify the summary was stored in DB and can be fetched
+            from ee.models.session_summaries import SessionGroupSummary
+
+            session_group_summary = await SessionGroupSummary.objects.aget(id=result)
+            patterns_result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
             assert isinstance(patterns_result, EnrichedSessionGroupSummaryPatternsList)
-            assert isinstance(summary_id, str)
             # Verify Redis operations
             # Since summaries are pre-stored in DB, only pattern-related Redis operations occur:
             # setex operations: pattern extraction (1) (pattern assignment now stores to DB)
@@ -1267,11 +1367,9 @@ class TestSummarizeSessionGroupWorkflow:
                     # Workflow might not be ready yet
                     await asyncio.sleep(0.05)
                     poll_count += 1
-            # Get the final result
+            # Get the final result (now returns just summary_id)
             result = await workflow_handle.result()
-            assert isinstance(result, tuple)
-            patterns_result, _ = result
-            assert isinstance(patterns_result, EnrichedSessionGroupSummaryPatternsList)
+            assert isinstance(result, str)
             # Verify we captured some status updates
             assert len(status_updates) > 0
             # Verify the types of status messages we received
@@ -2015,3 +2113,174 @@ def test_combine_patterns_assignments_deduplicates_events_per_session_per_patter
     # Pattern 2: should have event-4 (first from session-B), event-8 (first from session-C)
     # event-7 is skipped because session-B already contributed event-4
     assert set(result[2]) == {"event-4", "event-8"}
+
+
+class TestSessionBatchFetchExpectedSkips:
+    """Tests for expected skip handling in fetch_session_batch_events_activity."""
+
+    @pytest.mark.asyncio
+    async def test_short_sessions_are_expected_skips(self, ateam: Team, auser: User):
+        """Sessions shorter than MIN_SESSION_DURATION_FOR_SUMMARY_MS should be expected skips."""
+        from posthog.temporal.ai.session_summary.types.group import SessionBatchFetchOutput
+
+        # Only short sessions - we're testing that duration check works
+        session_ids = ["short-session-1", "short-session-2"]
+        inputs = SessionGroupSummaryInputs(
+            session_ids=session_ids,
+            user_id=auser.id,
+            team_id=ateam.id,
+            redis_key_base="test_key_base",
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use="gpt-4.1",
+            summary_title="Test summary",
+        )
+
+        now = datetime.now()
+        # Short sessions: 3s and 5s (both < 10s minimum)
+        mock_metadata = {
+            "short-session-1": {"start_time": now, "end_time": now + timedelta(seconds=3)},
+            "short-session-2": {"start_time": now, "end_time": now + timedelta(seconds=5)},
+        }
+
+        with (
+            patch.object(SingleSessionSummary.objects, "summaries_exist", return_value={s: False for s in session_ids}),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch(
+                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
+                return_value=mock_metadata,
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_async_client"),
+        ):
+            result = await fetch_session_batch_events_activity(inputs)
+
+            assert isinstance(result, SessionBatchFetchOutput)
+            # Short sessions should be in expected_skip_session_ids
+            assert "short-session-1" in result.expected_skip_session_ids
+            assert "short-session-2" in result.expected_skip_session_ids
+            # No sessions should be fetched
+            assert len(result.fetched_session_ids) == 0
+
+    @pytest.mark.asyncio
+    async def test_sessions_without_metadata_are_expected_skips(self, ateam: Team, auser: User):
+        """Sessions without metadata should be expected skips."""
+        from posthog.temporal.ai.session_summary.types.group import SessionBatchFetchOutput
+
+        session_ids = ["no-metadata-session", "has-metadata-session"]
+        inputs = SessionGroupSummaryInputs(
+            session_ids=session_ids,
+            user_id=auser.id,
+            team_id=ateam.id,
+            redis_key_base="test_key_base",
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use="gpt-4.1",
+            summary_title="Test summary",
+        )
+
+        now = datetime.now()
+        # Only one session has metadata
+        mock_metadata = {
+            "has-metadata-session": {"start_time": now, "end_time": now + timedelta(seconds=30)},
+            # no-metadata-session is missing
+        }
+
+        with (
+            patch.object(SingleSessionSummary.objects, "summaries_exist", return_value={s: False for s in session_ids}),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch(
+                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
+                return_value=mock_metadata,
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_async_client"),
+        ):
+            result = await fetch_session_batch_events_activity(inputs)
+
+            assert isinstance(result, SessionBatchFetchOutput)
+            # Session without metadata should be in expected_skip_session_ids
+            assert "no-metadata-session" in result.expected_skip_session_ids
+
+    @pytest.mark.asyncio
+    async def test_only_short_sessions_are_skipped_early(self, ateam: Team, auser: User):
+        """Only short sessions should be skipped during early filtering; longer ones proceed."""
+        from posthog.temporal.ai.session_summary.types.group import SessionBatchFetchOutput
+
+        short_sessions = [f"short-{i}" for i in range(5)]
+        normal_sessions = [f"normal-{i}" for i in range(4)]
+        session_ids = short_sessions + normal_sessions
+
+        inputs = SessionGroupSummaryInputs(
+            session_ids=session_ids,
+            user_id=auser.id,
+            team_id=ateam.id,
+            redis_key_base="test_key_base",
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use="gpt-4.1",
+            summary_title="Test summary",
+        )
+
+        now = datetime.now()
+        mock_metadata = {}
+        # Short sessions: all < 10s
+        for s in short_sessions:
+            mock_metadata[s] = {"start_time": now, "end_time": now + timedelta(seconds=3)}
+        # Normal sessions: all > 10s
+        for s in normal_sessions:
+            mock_metadata[s] = {"start_time": now, "end_time": now + timedelta(seconds=30)}
+
+        with (
+            patch.object(SingleSessionSummary.objects, "summaries_exist", return_value={s: False for s in session_ids}),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch(
+                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
+                return_value=mock_metadata,
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_async_client"),
+        ):
+            result = await fetch_session_batch_events_activity(inputs)
+
+            assert isinstance(result, SessionBatchFetchOutput)
+            # All 5 short sessions should be expected skips
+            for s in short_sessions:
+                assert s in result.expected_skip_session_ids
+            # Normal sessions will also be skipped (no events) but that's expected in this test
+            # The key point is short sessions are identified early
+            assert len([s for s in result.expected_skip_session_ids if s.startswith("short-")]) == 5
+
+    @pytest.mark.asyncio
+    async def test_all_sessions_can_be_expected_skips_without_error(self, ateam: Team, auser: User):
+        """If all sessions are expected skips, the activity should complete without error."""
+        from posthog.temporal.ai.session_summary.types.group import SessionBatchFetchOutput
+
+        # All sessions are too short
+        session_ids = ["short-1", "short-2", "short-3"]
+        inputs = SessionGroupSummaryInputs(
+            session_ids=session_ids,
+            user_id=auser.id,
+            team_id=ateam.id,
+            redis_key_base="test_key_base",
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use="gpt-4.1",
+            summary_title="Test summary",
+        )
+
+        now = datetime.now()
+        mock_metadata = {s: {"start_time": now, "end_time": now + timedelta(seconds=3)} for s in session_ids}
+
+        with (
+            patch.object(SingleSessionSummary.objects, "summaries_exist", return_value={s: False for s in session_ids}),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch(
+                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
+                return_value=mock_metadata,
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_async_client"),
+        ):
+            # Should NOT raise an error
+            result = await fetch_session_batch_events_activity(inputs)
+
+            assert isinstance(result, SessionBatchFetchOutput)
+            assert len(result.fetched_session_ids) == 0
+            assert len(result.expected_skip_session_ids) == 3

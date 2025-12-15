@@ -14,6 +14,7 @@ import {
     selectors,
 } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
@@ -26,11 +27,14 @@ import { uuid } from 'lib/utils'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
 import {
+    AgentMode,
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
@@ -41,17 +45,28 @@ import {
     FailureMessage,
     HumanMessage,
     RootAssistantMessage,
+    SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { ToolRegistration } from './max-constants'
 import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { RENDERABLE_UI_PAYLOAD_TOOLS } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isNotebookUpdateMessage } from './utils'
+import {
+    getAgentModeForScene,
+    isAssistantMessage,
+    isAssistantToolCallMessage,
+    isHumanMessage,
+    isNotebookUpdateMessage,
+    isSubagentUpdateEvent,
+    threadEndsWithMultiQuestionForm,
+} from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
@@ -73,14 +88,14 @@ export interface MaxThreadLogicProps {
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
-    path(['scenes', 'max', 'maxThreadLogic']),
-
     key((props) => {
         if (!props.tabId) {
             throw new Error('Max thread logic must have a tabId prop')
         }
         return `${props.conversationId}-${props.tabId}`
     }),
+
+    path((key) => ['scenes', 'max', 'maxThreadLogic', key]),
 
     props({} as MaxThreadLogicProps),
 
@@ -105,15 +120,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     connect(({ tabId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'toolMap', 'tools'],
+            ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
             maxLogic({ tabId }),
-            ['question', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
+            ['question', 'autoRun', 'threadLogicKey as activeThreadKey', 'activeStreamingThreads'],
             maxContextLogic,
             ['compiledContext'],
             maxBillingContextLogic,
             ['billingContext'],
             featureFlagLogic,
             ['featureFlags'],
+            sceneLogic,
+            ['sceneId'],
         ],
         actions: [
             maxLogic({ tabId }),
@@ -138,13 +155,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         reconnectToStream: true,
         streamConversation: (
             streamData: {
+                agent_mode: AgentMode | null
                 content: string | null
                 conversation?: string
                 contextual_tools?: Record<string, any>
                 ui_context?: any
             },
-            generationAttempt: number
-        ) => ({ streamData, generationAttempt }),
+            generationAttempt: number,
+            addToThread: boolean = true
+        ) => ({ streamData, generationAttempt, addToThread }),
         stopGeneration: true,
         completeThreadGeneration: true,
         addMessage: (message: ThreadMessage) => ({ message }),
@@ -152,15 +171,26 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setThread: (thread: ThreadMessage[]) => ({ thread }),
         setMessageStatus: (index: number, status: MessageStatus) => ({ index, status }),
         retryLastMessage: true,
+        resetRetryCount: true,
+        resetCancelCount: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
+        setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
+        syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
+        setSupportOverrideEnabled: (enabled: boolean) => ({ enabled }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
-        setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
+        setToolCallUpdate: (
+            update: AssistantUpdateEvent | SubagentUpdateEvent,
+            toolMap: Record<string, ToolRegistration>
+        ) => ({
+            update,
+            toolMap,
+        }),
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
     }),
 
@@ -223,6 +253,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        agentMode: [
+            null as AgentMode | null,
+            {
+                setAgentMode: (_, { agentMode }) => agentMode,
+                syncAgentModeFromConversation: (_, { agentMode }) => agentMode,
+            },
+        ],
+
+        // Tracks if user manually selected agent mode after submission - if true, don't sync from conversation
+        agentModeLockedByUser: [
+            false,
+            {
+                setAgentMode: () => true,
+                askMax: () => false,
+            },
+        ],
+
         // Edge case, storing the prompt when askMax is called but AIConsent hasn't been given (yet)
         pendingPrompt: [
             null as string | null,
@@ -246,14 +293,29 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         toolCallUpdateMap: [
             new Map<string, string[]>(),
             {
-                setToolCallUpdate: (value, { update }: { update: AssistantUpdateEvent }) => {
+                setToolCallUpdate: (
+                    value,
+                    {
+                        update,
+                        toolMap,
+                    }: { update: AssistantUpdateEvent | SubagentUpdateEvent; toolMap: Record<string, ToolRegistration> }
+                ) => {
                     const currentValue = value.get(update.tool_call_id) || []
-                    if (currentValue.includes(update.content) || update.content === '') {
+                    const newMap = new Map(value)
+                    let newValue: string
+                    if (isSubagentUpdateEvent(update)) {
+                        const [description, _] = getToolCallDescriptionAndWidget(
+                            update.content as unknown as EnhancedToolCall,
+                            toolMap
+                        )
+                        newValue = description
+                    } else {
+                        newValue = update.content
+                    }
+                    if (currentValue.includes(newValue) || newValue === '') {
                         return value
                     }
-
-                    const newMap = new Map(value)
-                    newMap.set(update.tool_call_id, [...currentValue, update.content])
+                    newMap.set(update.tool_call_id, [...currentValue, newValue])
                     return newMap
                 },
             },
@@ -266,16 +328,47 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 setCancelLoading: (_, { cancelLoading }) => cancelLoading,
             },
         ],
+
+        retryCount: [
+            0,
+            {
+                retryLastMessage: (state) => state + 1,
+                resetThread: () => 0,
+                resetRetryCount: () => 0,
+            },
+        ],
+
+        cancelCount: [
+            0,
+            {
+                stopGeneration: (state) => state + 1,
+                resetThread: () => 0,
+                resetCancelCount: () => 0,
+            },
+        ],
+
+        // Whether support agents have explicitly acknowledged they want to use an existing conversation
+        supportOverrideEnabled: [
+            false,
+            {
+                setSupportOverrideEnabled: (_, { enabled }) => enabled,
+                // Reset when changing conversations
+                setConversation: () => false,
+            },
+        ],
     })),
 
     listeners((logic) => ({
-        streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
+        streamConversation: async (
+            { streamData: { agent_mode: agentMode, ...streamData }, generationAttempt, addToThread = true },
+            breakpoint
+        ) => {
             const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
             // Set active streaming threads, so we know streaming is active
             const releaseStreamingLock = mount() // lock the logic - don't unmount before we're done streaming
             actions.incrActiveStreamingThreads()
 
-            if (generationAttempt === 0 && streamData.content) {
+            if (generationAttempt === 0 && streamData.content && addToThread) {
                 const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
                     content: streamData.content,
@@ -303,6 +396,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.deep_research_mode = true
                 }
 
+                if (agentMode) {
+                    apiData.agent_mode = agentMode
+                }
+
                 const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
                 })
@@ -317,7 +414,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const parser = createParser({
                     onEvent: async ({ data, event }) => {
                         pendingEventHandlers.push(
-                            onEventImplementation(event as string, data, { actions, values, props })
+                            onEventImplementation(event as string, data, { actions, values, props, agentMode })
                         )
                     },
                 })
@@ -345,6 +442,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             conversation: streamData.conversation,
                             contextual_tools: streamData.contextual_tools,
                             ui_context: streamData.ui_context,
+                            agent_mode: agentMode,
                         },
                         generationAttempt + 1
                     )
@@ -439,10 +537,22 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
     })),
     listeners(({ actions, values, cache }) => ({
-        askMax: async ({ prompt }) => {
+        setConversation: ({ conversation }) => {
+            // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
+            if (!values.agentModeLockedByUser && conversation?.agent_mode) {
+                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
+            }
+        },
+        askMax: async ({ prompt, addToThread = true, uiContext }) => {
+            // Only process if this thread is the currently active one
+            if (values.conversationId !== values.activeThreadKey) {
+                return
+            }
             if (!values.dataProcessingAccepted) {
                 return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
             }
+            const agentMode = values.agentMode
+
             // Clear the question
             actions.setQuestion('')
             // For a new conversations, set the frontend conversation ID
@@ -451,6 +561,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } else {
                 const updatedConversation = {
                     ...values.conversation,
+                    agent_mode: agentMode || values.conversation?.agent_mode,
                     status: ConversationStatus.InProgress,
                     updated_at: dayjs().toISOString(),
                 }
@@ -460,14 +571,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.updateGlobalConversationCache(updatedConversation)
             }
 
+            // Merge the compiled context with any additional ui_context (e.g., form_answers)
+            const mergedUiContext = uiContext
+                ? { ...values.compiledContext, ...uiContext }
+                : values.compiledContext || undefined
+
             actions.streamConversation(
                 {
+                    agent_mode: agentMode,
                     content: prompt,
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
-                    ui_context: values.compiledContext || undefined,
+                    ui_context: mergedUiContext,
                     conversation: values.conversation?.id || values.conversationId,
                 },
-                0
+                0,
+                addToThread
             )
         },
         stopGeneration: async () => {
@@ -500,7 +618,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (cache.generationController) {
                 return
             }
-            actions.streamConversation({ conversation: id, content: null }, 0)
+            actions.streamConversation({ conversation: id, content: null, agent_mode: values.agentMode }, 0)
         },
 
         retryLastMessage: () => {
@@ -527,7 +645,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.updateGlobalConversationCache(newConversation)
 
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
-            if (values.selectedConversationId !== values.conversationId && cache.unmount) {
+            if (values.activeThreadKey !== values.conversationId && cache.unmount) {
                 cache.unmount()
             }
         },
@@ -589,6 +707,30 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         isSharedThread: [
             (s) => [s.conversation, userLogic.selectors.user],
             (conversation, user): boolean => !!conversation?.user && !!user && conversation.user.uuid !== user.uuid,
+        ],
+
+        // Whether the current user is impersonating and viewing an existing conversation
+        isImpersonatingExistingConversation: [
+            (s) => [s.conversation, s.supportOverrideEnabled, userLogic.selectors.user],
+            (conversation, supportOverrideEnabled, user): boolean => {
+                // Only when user is impersonating
+                if (!user?.is_impersonated) {
+                    return false
+                }
+                // If conversation was created during impersonation (is_internal), allow typing
+                if (conversation?.is_internal) {
+                    return false
+                }
+                // Only applies to existing conversations
+                if (!conversation?.title) {
+                    return false
+                }
+                // Support agent has explicitly acknowledged they want to continue
+                if (supportOverrideEnabled) {
+                    return false
+                }
+                return true
+            },
         ],
 
         threadLoading: [
@@ -692,34 +834,84 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        multiQuestionFormPending: [
+            (s) => [s.threadRaw],
+            (threadRaw) => {
+                return threadEndsWithMultiQuestionForm(threadRaw)
+            },
+        ],
+
         inputDisabled: [
-            (s) => [s.formPending, s.threadLoading, s.dataProcessingAccepted, s.isSharedThread],
-            (formPending, threadLoading, dataProcessingAccepted, isSharedThread) =>
+            (s) => [
+                s.formPending,
+                s.multiQuestionFormPending,
+                s.threadLoading,
+                s.dataProcessingAccepted,
+                s.isSharedThread,
+                s.isImpersonatingExistingConversation,
+            ],
+            (
+                formPending,
+                multiQuestionFormPending,
+                threadLoading,
+                dataProcessingAccepted,
+                isSharedThread,
+                isImpersonatingExistingConversation
+            ) =>
                 // Input unavailable when:
                 // - Answer must be provided using a form returned by Max only
+                // - Answer must be provided using a multi-question form
                 // - We are awaiting user to approve or reject external AI processing data
-                isSharedThread || formPending || (threadLoading && !dataProcessingAccepted),
+                // - Support agent is viewing an existing conversation without override
+                isSharedThread ||
+                formPending ||
+                multiQuestionFormPending ||
+                (threadLoading && !dataProcessingAccepted) ||
+                isImpersonatingExistingConversation,
         ],
 
         submissionDisabledReason: [
-            (s) => [s.formPending, s.question, s.threadLoading, s.activeStreamingThreads],
-            (formPending, question, threadLoading, activeStreamingThreads): string | undefined => {
+            (s) => [
+                s.formPending,
+                s.multiQuestionFormPending,
+                s.question,
+                s.threadLoading,
+                s.activeStreamingThreads,
+                s.isImpersonatingExistingConversation,
+            ],
+            (
+                formPending,
+                multiQuestionFormPending,
+                question,
+                threadLoading,
+                activeStreamingThreads,
+                isImpersonatingExistingConversation
+            ): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
+                }
+
+                // Support agents should create new conversations instead of using existing ones
+                if (isImpersonatingExistingConversation) {
+                    return 'You should create new conversations during impersonation. Use the checkbox to override.'
                 }
 
                 if (formPending) {
                     return 'Please choose one of the options above'
                 }
 
+                if (multiQuestionFormPending) {
+                    return 'Please answer the questions above'
+                }
+
                 if (!question) {
                     return 'I need some input first'
                 }
 
-                // Prevent submission if there are active streaming threads
-                if (activeStreamingThreads > 0) {
-                    return 'Please wait for one of the chats to finish'
+                // Prevent submission if too many active streaming threads (limit: 10)
+                if (activeStreamingThreads >= 10) {
+                    return 'You have too many chats running. Please wait for one to finish.'
                 }
 
                 return undefined
@@ -750,8 +942,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (s) => [s.conversation, s.featureFlags],
             (conversation, featureFlags) =>
                 featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH]
-                    ? conversation?.type !== ConversationType.DeepResearch &&
-                      conversation?.status !== ConversationStatus.InProgress
+                    ? conversation?.type !== ConversationType.DeepResearch
                     : true,
         ],
     }),
@@ -785,6 +976,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }, 0)
         }
     }),
+
+    subscriptions(({ actions, values }) => ({
+        sceneId: (sceneId: Scene | null) => {
+            // Only auto-set mode when the agent modes feature is enabled and no conversation is active
+            if (values.featureFlags[FEATURE_FLAGS.AGENT_MODES] && !values.conversation) {
+                const suggestedMode = getAgentModeForScene(sceneId)
+                if (suggestedMode !== values.agentMode) {
+                    // Use sync action to not lock - allows conversation to still update mode if agent changes it
+                    actions.syncAgentModeFromConversation(suggestedMode)
+                }
+            }
+        },
+    })),
 ])
 
 /**
@@ -867,7 +1071,14 @@ function enhanceThreadToolCalls(
 async function onEventImplementation(
     event: string,
     data: string,
-    { actions, values, props }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'>
+    {
+        actions,
+        values,
+        props,
+        agentMode,
+    }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'> & {
+        agentMode: AgentMode | null
+    }
 ): Promise<void> {
     // A Conversation object is only received when the conversation is new
     if (event === AssistantEventType.Conversation) {
@@ -878,16 +1089,17 @@ async function onEventImplementation(
         const conversationWithTitle = {
             ...parsedResponse,
             title: parsedResponse.title || 'New chat',
+            agent_mode: agentMode,
         }
 
         actions.setConversation(conversationWithTitle)
         actions.updateGlobalConversationCache(conversationWithTitle)
     } else if (event === AssistantEventType.Update) {
-        const parsedResponse = parseResponse<AssistantUpdateEvent>(data)
+        const parsedResponse = parseResponse<AssistantUpdateEvent | SubagentUpdateEvent>(data)
         if (!parsedResponse) {
             return
         }
-        actions.setToolCallUpdate(parsedResponse)
+        actions.setToolCallUpdate(parsedResponse, values.toolMap)
         return
     } else if (event === AssistantEventType.Message) {
         const parsedResponse = parseResponse<RootAssistantMessage>(data)
@@ -909,6 +1121,9 @@ async function onEventImplementation(
             }
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
+                    continue // Static tools (mode-level) don't operate via ui_payload
+                }
                 await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
             }
             actions.addMessage({
@@ -921,6 +1136,15 @@ async function onEventImplementation(
                 if (!parsedResponse.id) {
                     // we do not want to show partial notebook update messages
                     return
+                }
+            }
+
+            if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {
+                for (const { name: toolName, args: toolResult } of parsedResponse.tool_calls) {
+                    if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
+                        continue // Non-static tools (contextual) operate via ui_payload instead
+                    }
+                    await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
                 }
             }
             // Check if a message with the same ID already exists

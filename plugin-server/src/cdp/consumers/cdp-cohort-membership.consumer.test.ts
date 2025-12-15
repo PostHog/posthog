@@ -46,22 +46,22 @@ describe('CdpCohortMembershipConsumer', () => {
             // Test data using helper functions
             const testEvents = createCohortMembershipEvents([
                 {
-                    personId: personId1,
-                    cohortId: 456,
-                    teamId: 1,
-                    cohort_membership_changed: 'entered',
+                    person_id: personId1,
+                    cohort_id: 456,
+                    team_id: 1,
+                    status: 'entered',
                 },
                 {
-                    personId: personId2,
-                    cohortId: 456,
-                    teamId: 1,
-                    cohort_membership_changed: 'entered',
+                    person_id: personId2,
+                    cohort_id: 456,
+                    team_id: 1,
+                    status: 'entered',
                 },
                 {
-                    personId: personId3,
-                    cohortId: 457,
-                    teamId: 1,
-                    cohort_membership_changed: 'left',
+                    person_id: personId3,
+                    cohort_id: 457,
+                    team_id: 1,
+                    status: 'left',
                 },
             ])
 
@@ -128,10 +128,10 @@ describe('CdpCohortMembershipConsumer', () => {
         it('should handle complete person lifecycle: enter -> leave -> re-enter cohort', async () => {
             // Step 1: Person enters the cohort for the first time
             const enterEvent = createCohortMembershipEvent({
-                personId: personId1,
-                cohortId: 456,
-                teamId: 1,
-                cohort_membership_changed: 'entered',
+                person_id: personId1,
+                cohort_id: 456,
+                team_id: 1,
+                status: 'entered',
             })
 
             const enterMessages = [
@@ -164,10 +164,10 @@ describe('CdpCohortMembershipConsumer', () => {
             // Step 2: Person leaves the cohort
             mockProducerObserver.resetKafkaProducer()
             const leaveEvent = createCohortMembershipEvent({
-                personId: personId1,
-                cohortId: 456,
-                teamId: 1,
-                cohort_membership_changed: 'left',
+                person_id: personId1,
+                cohort_id: 456,
+                team_id: 1,
+                status: 'left',
             })
 
             const leaveMessages = [
@@ -202,10 +202,10 @@ describe('CdpCohortMembershipConsumer', () => {
             // Step 3: Person re-enters the cohort
             mockProducerObserver.resetKafkaProducer()
             const reEnterEvent = createCohortMembershipEvent({
-                personId: personId1,
-                cohortId: 456,
-                teamId: 1,
-                cohort_membership_changed: 'entered',
+                person_id: personId1,
+                cohort_id: 456,
+                team_id: 1,
+                status: 'entered',
             })
 
             const reEnterMessages = [
@@ -237,10 +237,10 @@ describe('CdpCohortMembershipConsumer', () => {
 
         it('should reject entire batch when invalid messages are present', async () => {
             const validEvent = {
-                personId: personId1,
-                cohortId: 456,
-                teamId: 1,
-                cohort_membership_changed: 'entered',
+                person_id: personId1,
+                cohort_id: 456,
+                team_id: 1,
+                status: 'entered',
             }
 
             const messages: Message[] = [
@@ -257,7 +257,7 @@ describe('CdpCohortMembershipConsumer', () => {
                     size: 0,
                 },
                 // Missing required fields
-                createKafkaMessage({ personId: 124 }, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 2 }),
+                createKafkaMessage({ person_id: 124 }, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 2 }),
                 // Empty message (manually create this one since it has null value)
                 {
                     value: null,
@@ -287,16 +287,16 @@ describe('CdpCohortMembershipConsumer', () => {
         it('should not publish to Kafka when database insertion fails', async () => {
             const testEvents = createCohortMembershipEvents([
                 {
-                    personId: personId1,
-                    cohortId: 456,
-                    teamId: 1,
-                    cohort_membership_changed: 'entered',
+                    person_id: personId1,
+                    cohort_id: 456,
+                    team_id: 1,
+                    status: 'entered',
                 },
                 {
-                    personId: personId2,
-                    cohortId: 456,
-                    teamId: 1,
-                    cohort_membership_changed: 'entered',
+                    person_id: personId2,
+                    cohort_id: 456,
+                    team_id: 1,
+                    status: 'entered',
                 },
             ])
 

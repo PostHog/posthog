@@ -1,15 +1,24 @@
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
-from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
+from posthog.schema import (
+    ArtifactMessage,
+    AssistantEventType,
+    AssistantMessage,
+    HumanMessage,
+    MaxBillingContext,
+    VisualizationArtifactContent,
+    VisualizationMessage,
+)
 
 from posthog.models import Team, User
 
+from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.core.runner import BaseAgentRunner
-from ee.hogai.utils.types import AssistantMode, AssistantOutput, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantOutput, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.models import Conversation
 
@@ -51,10 +60,9 @@ class InsightsAssistant(BaseAgentRunner):
             conversation,
             new_message=new_message,
             user=user,
-            graph=InsightsGraph(team, user).compile_full_graph(),
+            graph_class=InsightsGraph,
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
-            mode=AssistantMode.INSIGHTS_TOOL,
             session_id=session_id,
             contextual_tools=contextual_tools,
             is_new_conversation=is_new_conversation,
@@ -62,7 +70,11 @@ class InsightsAssistant(BaseAgentRunner):
             billing_context=billing_context,
             initial_state=initial_state,
             stream_processor=ChatAgentStreamProcessor(
-                verbose_nodes=VERBOSE_NODES, streaming_nodes=set(), state_type=AssistantState
+                team=team,
+                user=user,
+                verbose_nodes=VERBOSE_NODES,
+                streaming_nodes=set(),
+                state_type=AssistantState,
             ),
         )
 
@@ -84,22 +96,33 @@ class InsightsAssistant(BaseAgentRunner):
         stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
         last_ai_message: AssistantMessage | None = None
-        last_viz_message: VisualizationMessage | None = None
+        last_artifact_content: VisualizationArtifactContent | None = None
 
         # stream_first_message is always False for this mode
         async for stream_event in super().astream(
             stream_message_chunks, stream_subgraphs, False, stream_only_assistant_messages
         ):
-            _, message = stream_event
-            if isinstance(message, VisualizationMessage):
-                last_viz_message = message
+            path, message = stream_event
+            if isinstance(message, ArtifactMessage) and (
+                last_artifact_content := unwrap_visualization_artifact_content(message)
+            ):
+                # for backwards compatibility with the MCP
+                legacy_visualization_message = VisualizationMessage(
+                    id=message.id,
+                    answer=last_artifact_content.query,
+                    plan=last_artifact_content.description,
+                )
+                path = cast(Literal[AssistantEventType.MESSAGE], path)
+                yield (path, legacy_visualization_message)
             if isinstance(message, AssistantMessage):
                 last_ai_message = message
             yield stream_event
 
         if not self._initial_state:
             return
-        visualization_response = last_viz_message.model_dump_json(exclude_none=True) if last_viz_message else None
+        visualization_response = (
+            last_artifact_content.model_dump_json(exclude_none=True) if last_artifact_content else None
+        )
         await self._report_conversation_state(
             "standalone ai tool call",
             {

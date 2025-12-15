@@ -438,6 +438,7 @@ export class CdpApi {
                 event: globals.event,
                 person: globals.person,
                 groups: globals.groups,
+                variables: globals.variables || {},
             })
 
             const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration, filterGlobals)

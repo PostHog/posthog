@@ -40,6 +40,8 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
+from products.product_tours.backend.models import ProductTour
+
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -788,6 +790,7 @@ class EnterpriseExperimentsViewSet(
         - created_by_id: Filter by creator user ID
         - order: Sort order field
         - evaluation_runtime: Filter by evaluation runtime
+        - has_evaluation_tags: Filter by presence of evaluation tags ("true" or "false")
         """
         # validate limit and offset
         try:
@@ -815,7 +818,14 @@ class EnterpriseExperimentsViewSet(
         survey_internal_targeting_flags = Survey.objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
-        excluded_flag_ids = set(survey_targeting_flags) | set(survey_internal_targeting_flags)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+        excluded_flag_ids = (
+            set(survey_targeting_flags)
+            | set(survey_internal_targeting_flags)
+            | set(product_tour_internal_targeting_flags)
+        )
         queryset = queryset.exclude(id__in=excluded_flag_ids)
 
         # Apply search filter
@@ -837,6 +847,18 @@ class EnterpriseExperimentsViewSet(
         evaluation_runtime = request.query_params.get("evaluation_runtime")
         if evaluation_runtime:
             queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+
+        # Apply has_evaluation_tags filter
+        has_evaluation_tags = request.query_params.get("has_evaluation_tags")
+        if has_evaluation_tags is not None:
+            from django.db.models import Count
+
+            filter_value = has_evaluation_tags.lower() in ("true", "1", "yes")
+            queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
+            if filter_value:
+                queryset = queryset.filter(eval_tag_count__gt=0)
+            else:
+                queryset = queryset.filter(eval_tag_count=0)
 
         # Ordering
         order = request.query_params.get("order")

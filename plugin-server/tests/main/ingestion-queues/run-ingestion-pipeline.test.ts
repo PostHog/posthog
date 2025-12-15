@@ -1,7 +1,7 @@
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
@@ -64,17 +64,33 @@ describe('workerTasks.runEventPipeline()', () => {
             now: new Date().toISOString(),
             uuid: new UUIDT().toString(),
         }
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(personRepository, hub.kafkaProducer)
+        const personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
             hub.db,
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
         await expect(
-            new EventPipelineRunner(hub, event, null, personsStoreForBatch, groupStoreForBatch).runEventPipeline(
+            new EventPipelineRunner(
+                {
+                    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+                    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
+                    PIPELINE_STEP_STALLED_LOG_TIMEOUT: hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
+                    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+                    PERSON_MERGE_ASYNC_ENABLED: hub.PERSON_MERGE_ASYNC_ENABLED,
+                    PERSON_MERGE_ASYNC_TOPIC: hub.PERSON_MERGE_ASYNC_TOPIC,
+                    PERSON_MERGE_SYNC_BATCH_SIZE: hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+                    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                    PERSON_PROPERTIES_UPDATE_ALL: hub.PERSON_PROPERTIES_UPDATE_ALL,
+                },
+                hub.kafkaProducer,
+                hub.teamManager,
+                hub.groupTypeManager,
                 event,
-                team
-            )
+                null,
+                personsStore,
+                groupStoreForBatch
+            ).runEventPipeline(event, team)
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
         pgQueryMock.mockRestore()
     })

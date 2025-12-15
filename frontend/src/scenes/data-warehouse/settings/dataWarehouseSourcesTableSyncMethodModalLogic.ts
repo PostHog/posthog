@@ -1,6 +1,8 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { ExternalDataSourceSchema, SchemaIncrementalFieldsResponse } from '~/types'
@@ -31,7 +33,12 @@ export const dataWarehouseSourcesTableSyncMethodModalLogic = kea<dataWarehouseSo
             null as SchemaIncrementalFieldsResponse | null,
             {
                 loadSchemaIncrementalFields: async (schemaId: string) => {
-                    return await api.externalDataSchemas.incremental_fields(schemaId)
+                    try {
+                        return await api.externalDataSchemas.incremental_fields(schemaId)
+                    } catch (e: any) {
+                        lemonToast.error(e?.message ?? e)
+                        throw e
+                    }
                 },
                 resetSchemaIncrementalFields: () => null,
             },

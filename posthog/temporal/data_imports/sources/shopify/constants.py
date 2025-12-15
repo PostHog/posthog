@@ -5,8 +5,12 @@ from .queries.catalogs import CATALOGS_QUERY
 from .queries.collections import COLLECTIONS_QUERY
 from .queries.customers import CUSTOMERS_QUERY
 from .queries.discount_nodes import DISCOUNT_NODES_QUERY
+from .queries.orders import ORDERS_QUERY
+from .queries.products import PRODUCTS_QUERY
 from .utils import ShopifyGraphQLObject
 
+SHOPIFY_ACCESS_TOKEN_URL = "https://{}.myshopify.com/admin/oauth/access_token"
+SHOPIFY_ACCESS_TOKEN_GRANT = "client_credentials"
 SHOPIFY_API_VERSION = "2025-10"
 SHOPIFY_API_URL = "https://{}.myshopify.com/admin/api/{}/graphql.json"
 SHOPIFY_DEFAULT_PAGE_SIZE = 100
@@ -35,6 +39,9 @@ PAGES = "pages"
 PRODUCTS = "products"
 SHOP = "shop"
 SUBSCRIPTION_CONTRACTS = "subscriptionContracts"
+
+# graphql will reject the orders endpoint query for "complexity cost" if the page size is above ~35
+SHOPIFY_PAGE_SIZE_OVERRIDES = {ORDERS: 20}
 
 
 # NOTE: some of the permissions queries may seem random. not every field on a given graphql object
@@ -75,6 +82,16 @@ SHOPIFY_GRAPHQL_OBJECTS = {
         query=DISCOUNT_NODES_QUERY,
         display_name="discountCodes",
         permissions_query="{ discountNodes(first: 1) { nodes { id } } }",
+    ),
+    ORDERS: ShopifyGraphQLObject(
+        name=ORDERS,
+        query=ORDERS_QUERY,
+        permissions_query="{ orders(first: 1) { nodes { id } } }",
+    ),
+    PRODUCTS: ShopifyGraphQLObject(
+        name=PRODUCTS,
+        query=PRODUCTS_QUERY,
+        permissions_query="{ products(first: 1) { nodes { id } } }",
     ),
 }
 

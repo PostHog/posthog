@@ -109,10 +109,25 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                         properties: firstSerie?.properties || [], // if we clear the filter we need the properties to be set to an empty array
                     }
 
-                    // Remove the event field from ActionsNode to prevent validation errors
-                    if (newFilter.kind === NodeKind.ActionsNode && 'event' in newFilter) {
-                        const { event, ...rest } = newFilter as any
-                        Object.assign(newFilter, rest)
+                    // Clean up ActionsNode: remove event field and ensure id is a number
+                    if (newFilter.kind === NodeKind.ActionsNode) {
+                        if ('event' in newFilter) {
+                            delete (newFilter as any).event
+                        }
+                        // Ensure id is a number for ActionsNode (actions always have numeric IDs)
+                        if ('id' in newFilter) {
+                            const numId = parseInt(String((newFilter as any).id), 10)
+                            if (!isNaN(numId)) {
+                                ;(newFilter as any).id = numId
+                            }
+                        }
+                    }
+
+                    // Clean up EventsNode: remove id field (EventsNode uses event, not id)
+                    if (newFilter.kind === NodeKind.EventsNode) {
+                        if ('id' in newFilter) {
+                            delete (newFilter as any).id
+                        }
                     }
 
                     // Override the schema with the schema from the data warehouse

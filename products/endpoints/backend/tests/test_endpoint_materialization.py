@@ -283,6 +283,164 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("sync_frequency", response_data["materialization"])
         self.assertEqual(response_data["materialization"]["sync_frequency"], "12hour")
 
+    def test_materialization_status_endpoint(self):
+        """Test the dedicated materialization_status endpoint returns only materialization data."""
+        endpoint = Endpoint.objects.create(
+            name="test_status_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+
+        # Before materialization - should show can_materialize
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/materialization_status/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue(response_data["can_materialize"])
+        self.assertNotIn("name", response_data)
+        self.assertNotIn("query", response_data)
+        self.assertNotIn("created_by", response_data)
+
+        # Enable materialization
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_6HOUR,
+            },
+            format="json",
+        )
+
+        # After materialization - should show full status
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/materialization_status/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue(response_data["can_materialize"])
+        self.assertIn("status", response_data)
+        self.assertIn("sync_frequency", response_data)
+        self.assertEqual(response_data["sync_frequency"], "6hour")
+        self.assertIn("last_materialized_at", response_data)
+        self.assertIn("error", response_data)
+        # Verify no other endpoint fields are included
+        self.assertNotIn("name", response_data)
+        self.assertNotIn("query", response_data)
+        self.assertNotIn("created_by", response_data)
+        self.assertNotIn("description", response_data)
+
+    def test_cache_invalidated_after_query_update(self):
+        """Test that updating endpoint query invalidates cache for materialized endpoints."""
+        initial_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT 1 as value",
+        }
+        updated_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT 2 as value",
+        }
+
+        endpoint = Endpoint.objects.create(
+            name="query_update_endpoint",
+            team=self.team,
+            query=initial_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+            },
+            format="json",
+        )
+
+        endpoint.refresh_from_db()
+        self.assertEqual(endpoint.current_version, 1)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        saved_query.last_run_at = timezone.now() - timedelta(minutes=20)
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="query_update_endpoint",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+
+        with mock.patch("products.endpoints.backend.api.EndpointViewSet._execute_query_and_respond") as mock_execute:
+            old_cache_time = timezone.now() - timedelta(minutes=30)
+            old_cached_response = Response(
+                {
+                    "results": [[1]],
+                    "is_cached": True,
+                    "last_refresh": old_cache_time,
+                }
+            )
+            mock_execute.return_value = old_cached_response
+
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {},
+                format="json",
+            )
+
+            self.assertEqual(mock_execute.call_count, 2, "Old cache should be detected as stale and refreshed")
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"query": updated_query},
+            format="json",
+        )
+
+        endpoint.refresh_from_db()
+        self.assertEqual(endpoint.current_version, 2, "Version should be incremented after query update")
+
+        new_saved_query = endpoint.saved_query
+        assert new_saved_query is not None, "Materialization should be re-enabled after query update"
+        new_saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        new_saved_query.last_run_at = timezone.now()
+        new_saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=f"query_update_endpoint_v2",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path-v2",
+        )
+        new_saved_query.save()
+
+        with mock.patch("products.endpoints.backend.api.EndpointViewSet._execute_query_and_respond") as mock_execute:
+            new_cache_time = timezone.now() - timedelta(minutes=5)
+            new_cached_response = Response(
+                {
+                    "results": [[1]],
+                    "is_cached": True,
+                    "last_refresh": new_cache_time,
+                }
+            )
+            fresh_response = Response({"results": [[2]], "is_cached": False})
+
+            mock_execute.side_effect = [new_cached_response, fresh_response]
+
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {},
+                format="json",
+            )
+
+            self.assertEqual(
+                mock_execute.call_count,
+                2,
+                "Cache from before query update should be stale (older than new materialization)",
+            )
+            self.assertEqual(
+                response.json()["results"], [[2]], "Should return fresh results after query update, not old cache"
+            )
+
     def test_materialized_endpoint_applies_filters_override(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,

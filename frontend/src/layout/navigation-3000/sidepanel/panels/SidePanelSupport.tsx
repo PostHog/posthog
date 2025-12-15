@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
+import { IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
@@ -20,6 +20,8 @@ import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, SidePan
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
+import { sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
+import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
@@ -29,6 +31,59 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
                 {children}
             </>
         </section>
+    )
+}
+
+const StatusPageAlert = (): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useIncidentIo = !!featureFlags[FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE]
+    const { openSidePanel } = useActions(sidePanelLogic)
+
+    const { status: atlassianStatus, statusPage } = useValues(sidePanelStatusLogic)
+    const { status: incidentIoStatus, statusDescription: incidentIoDescription } =
+        useValues(sidePanelStatusIncidentIoLogic)
+
+    const status = useIncidentIo ? incidentIoStatus : atlassianStatus
+
+    if (status === 'operational') {
+        return null
+    }
+
+    const description = useIncidentIo ? incidentIoDescription : statusPage?.status.description || 'Active incident'
+
+    const severityClass = status.includes('outage')
+        ? 'bg-danger-highlight border-danger'
+        : 'bg-warning-highlight border-warning'
+
+    return (
+        <div className={`border rounded p-3 mb-3 ${severityClass}`}>
+            <div className="flex items-start gap-2">
+                <IconWarning className="text-warning w-5 h-5 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                    <p className="font-semibold mb-1">
+                        <span
+                            className="cursor-pointer text-link hover:underline"
+                            onClick={() => openSidePanel(SidePanelTab.Status)}
+                        >
+                            {description}
+                        </span>
+                    </p>
+                    <div className="text-sm">
+                        <p className="mb-1">We're aware of an issue that may be affecting your PostHog experience.</p>
+                        <p className="mb-0">
+                            You may wish to check our{' '}
+                            <span
+                                className="cursor-pointer text-link hover:underline"
+                                onClick={() => openSidePanel(SidePanelTab.Status)}
+                            >
+                                current status
+                            </span>{' '}
+                            before contacting support.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
     )
 }
 
@@ -323,6 +378,7 @@ export function SidePanelSupport(): JSX.Element {
 
                             {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
+                                    <StatusPageAlert />
                                     <p>Can't find what you need and PostHog AI unable to help?</p>
                                     <LemonButton
                                         type="secondary"

@@ -48,10 +48,29 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     MultiVisualization = 'ai/multi_viz',
+    Artifact = 'ai/artifact',
     Failure = 'ai/failure',
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
     TaskExecution = 'ai/task_execution',
+}
+
+/** Source of artifact - determines which model to fetch from */
+export enum ArtifactSource {
+    /** Artifact created by the agent (stored in AgentArtifact) */
+    Artifact = 'artifact',
+    /** Reference to a saved insight (stored in Insight model) */
+    Insight = 'insight',
+    /** Legacy visualization message converted to artifact (content stored inline in state) */
+    State = 'state',
+}
+
+/** Type of artifact content */
+export enum ArtifactContentType {
+    /** Visualization artifact (chart, graph, etc.) */
+    Visualization = 'visualization',
+    /** Notebook */
+    Notebook = 'notebook',
 }
 
 export interface BaseAssistantMessage {
@@ -76,6 +95,27 @@ export interface AssistantFormOption {
 
 export interface AssistantForm {
     options: AssistantFormOption[]
+}
+
+export interface MultiQuestionFormQuestionOption {
+    /** The value to use when this option is selected */
+    value: string
+}
+
+export interface MultiQuestionFormQuestion {
+    /** Unique identifier for this question */
+    id: string
+    /** The question text to display */
+    question: string
+    /** Available answer options */
+    options: MultiQuestionFormQuestionOption[]
+    /** Whether to show a "Type your answer" option (default: true) */
+    allow_custom_answer?: boolean
+}
+
+export interface MultiQuestionForm {
+    /** The questions to ask */
+    questions: MultiQuestionFormQuestion[]
 }
 
 export interface AssistantMessageMetadata {
@@ -110,9 +150,17 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     substeps?: string[]
 }
 
+export interface ModeContext {
+    type: 'mode'
+    mode: AgentMode
+}
+
+export type ContextMessageMetadata = ModeContext | null
+
 export interface ContextMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Context
     content: string
+    meta?: ContextMessageMetadata
 }
 
 /**
@@ -221,9 +269,34 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
     commentary?: string
 }
 
+export interface VisualizationArtifactContent {
+    content_type: ArtifactContentType.Visualization
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    name?: string | null
+    description?: string | null
+}
+
+export interface NotebookArtifactContent {
+    content_type: ArtifactContentType.Notebook
+}
+
+export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
+
+/** Frontend artifact message containing enriched content field. Do not use in the backend. */
+export interface ArtifactMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Artifact
+    /** The ID of the artifact (short_id for both drafts and saved insights) */
+    artifact_id: string
+    /** Source of artifact - determines which model to fetch from */
+    source: ArtifactSource
+    /** Content of artifact */
+    content: ArtifactContent
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
     | MultiVisualizationMessage
+    | ArtifactMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
@@ -245,6 +318,12 @@ export interface AssistantUpdateEvent {
     id: string
     tool_call_id: string
     content: string
+}
+
+export interface SubagentUpdateEvent {
+    id: string
+    tool_call_id: string
+    content: AssistantToolCall
 }
 
 export enum AssistantGenerationStatusType {
@@ -294,15 +373,33 @@ export type AssistantTool =
     | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
+    | 'create_task'
+    | 'run_task'
+    | 'get_task_run'
+    | 'get_task_run_logs'
+    | 'list_tasks'
+    | 'list_task_runs'
+    | 'list_repositories'
+    // Below are modes-only
     | 'execute_sql'
     | 'switch_mode'
     | 'summarize_sessions'
+    | 'filter_session_recordings'
     | 'create_insight'
+    | 'create_form'
+    | 'task'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
+}
+
+export enum SlashCommandName {
+    SlashInit = '/init',
+    SlashRemember = '/remember',
+    SlashUsage = '/usage',
+    SlashFeedback = '/feedback',
 }
 
 /** Exact possible `urls` keys for the `navigate` tool. */
@@ -349,6 +446,7 @@ export enum AssistantNavigateUrl {
     ToolbarLaunch = 'toolbarLaunch',
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
+    WebAnalyticsHealth = 'webAnalyticsHealth',
     Persons = 'persons',
 }
 

@@ -58,7 +58,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         super().__init__(*args, **kwargs)
 
     def _calculate(self):
-        with self.timings.measure("trace_query_hogql_execute"), tags_context(product=Product.MAX_AI):
+        with self.timings.measure("trace_query_hogql_execute"), tags_context(product=Product.LLM_ANALYTICS):
             query_result = execute_hogql_query(
                 query=self.to_query(),
                 placeholders={

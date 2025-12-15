@@ -973,6 +973,36 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert patch_query_with_columns.call_count == 3
 
     @patch("posthog.models.event.query_event_list.insight_query_with_columns", wraps=insight_query_with_columns)
+    @override_settings(PATCH_EVENT_LIST_MAX_OFFSET=2)
+    def test_default_after(self, patch_query_with_columns):
+        [
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="2",
+                timestamp=datetime(2024, 1, _, _, _, 0, 12345, tzinfo=self.team.timezone_info),
+                properties={"key": "test_val"},
+            )
+            for _ in range(1, 10)
+        ]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2024-01-01T00:02:02Z").json()
+        assert len(response["results"]) == 0
+        assert patch_query_with_columns.call_count == 2
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2024-01-05T05:06:02Z&limit=1").json()
+        assert len(response["results"]) == 1
+        assert patch_query_with_columns.call_count == 3
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2024-01-10T09:01:02Z&limit=1").json()
+        assert len(response["results"]) == 1
+        assert patch_query_with_columns.call_count == 5
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2024-01-10T10:20:02Z&limit=1").json()
+        assert len(response["results"]) == 0
+        assert patch_query_with_columns.call_count == 7
+
+    @patch("posthog.models.event.query_event_list.insight_query_with_columns", wraps=insight_query_with_columns)
     def test_optimize_query_with_bounded_dates(self, patch_query_with_columns):
         # For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
@@ -1012,7 +1042,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/events/?after=2024-01-01T01:02:00Z&before=2024-01-01T01:04:01Z"
         ).json()
         assert len(response["results"]) == 99
-        assert patch_query_with_columns.call_count == 5
+        assert patch_query_with_columns.call_count == 4
         assert response["next"] is None
 
     def test_filter_events_by_being_after_properties_with_date_type(self):

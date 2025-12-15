@@ -9,6 +9,7 @@ import pydantic
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
+from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -17,7 +18,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import HumanMessage, MaxBillingContext
+from posthog.schema import AgentMode, HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict, QuotaLimitExceeded
@@ -27,17 +28,17 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.ai.chat_agent import (
     CHAT_AGENT_STREAM_MAX_LENGTH,
     CHAT_AGENT_WORKFLOW_TIMEOUT,
-    AssistantConversationRunnerWorkflow,
-    AssistantConversationRunnerWorkflowInputs,
+    ChatAgentWorkflow,
+    ChatAgentWorkflowInputs,
 )
 from posthog.utils import get_instance_region
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.core.executor import AgentExecutor
+from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
-from ee.hogai.utils.types.base import AssistantMode
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -85,6 +86,7 @@ class MessageSerializer(serializers.Serializer):
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
     deep_research_mode = serializers.BooleanField(required=False, default=False)
+    agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
 
     def validate(self, data):
         if data["content"] is not None:
@@ -110,6 +112,11 @@ class MessageSerializer(serializers.Serializer):
                 capture_exception(e)
                 # billing data relies on a lot of legacy code, this might break and we don't want to block the conversation
                 data["billing_context"] = None
+        if agent_mode := data.get("agent_mode"):
+            try:
+                data["agent_mode"] = AgentMode(agent_mode)
+            except ValueError:
+                raise serializers.ValidationError("Invalid agent mode.")
         return data
 
 
@@ -126,8 +133,13 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         # For listing or single retrieval, conversations must be from the assistant and have a title
         if self.action in ("list", "retrieve"):
             queryset = queryset.filter(
-                title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
-            ).order_by("-updated_at")
+                title__isnull=False,
+                type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT, Conversation.Type.SLACK],
+            )
+            # Hide internal conversations from customers, but show them to support agents during impersonation
+            if not is_impersonated_session(self.request):
+                queryset = queryset.filter(is_internal=False)
+            queryset = queryset.order_by("-updated_at")
         return queryset
 
     def get_throttles(self):
@@ -193,9 +205,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                     {"error": "Cannot stream from non-existent conversation"}, status=status.HTTP_400_BAD_REQUEST
                 )
             # Use frontend-provided conversation ID
+            # Mark conversation as internal if created during an impersonated session (support agents)
+            is_impersonated = is_impersonated_session(request)
             conversation_type = Conversation.Type.DEEP_RESEARCH if is_deep_research else Conversation.Type.ASSISTANT
             conversation = Conversation.objects.create(
-                user=cast(User, request.user), team=self.team, id=conversation_id, type=conversation_type
+                user=cast(User, request.user),
+                team=self.team,
+                id=conversation_id,
+                type=conversation_type,
+                is_internal=is_impersonated,
             )
             is_new_conversation = True
 
@@ -208,22 +226,28 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if not has_message and conversation.status == Conversation.Status.IDLE:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
-        workflow_inputs = AssistantConversationRunnerWorkflowInputs(
+        # Skip billing for impersonated sessions (support agents) and mark conversations as internal
+        is_impersonated = is_impersonated_session(request)
+        is_agent_billable = not is_impersonated
+        workflow_inputs = ChatAgentWorkflowInputs(
             team_id=self.team_id,
             user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
             conversation_id=conversation.id,
+            stream_key=get_conversation_stream_key(conversation.id),
             message=serializer.validated_data["message"].model_dump() if has_message else None,
             contextual_tools=serializer.validated_data.get("contextual_tools"),
             is_new_conversation=is_new_conversation,
             trace_id=serializer.validated_data["trace_id"],
             session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
             billing_context=serializer.validated_data.get("billing_context"),
-            mode=AssistantMode.ASSISTANT,
+            agent_mode=serializer.validated_data.get("agent_mode"),
+            use_checkpointer=True,
+            is_agent_billable=is_agent_billable,
         )
-        workflow_class = AssistantConversationRunnerWorkflow
+        workflow_class = ChatAgentWorkflow
 
         async def async_stream(
-            workflow_inputs: AssistantConversationRunnerWorkflowInputs,
+            workflow_inputs: ChatAgentWorkflowInputs,
         ) -> AsyncGenerator[bytes, None]:
             serializer = AssistantSSESerializer()
             stream_manager = AgentExecutor(
