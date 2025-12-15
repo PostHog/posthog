@@ -85,6 +85,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
     request_timeout_seconds: Some(10),
+    http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     continuous_profiling: ContinuousProfilingConfig {
         continuous_profiling_enabled: false,
         pyroscope_server_address: String::new(),

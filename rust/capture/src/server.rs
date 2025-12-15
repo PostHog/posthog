@@ -8,7 +8,7 @@ use axum::extract::ConnectInfo;
 use axum::Router;
 use common_redis::RedisClient;
 use health::{ComponentStatus, HealthRegistry};
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use hyper_util::server::graceful::GracefulShutdown;
 use limiters::redis::ServiceName;
@@ -38,6 +38,7 @@ const MAX_DRAINABLE_CONNECTIONS: u64 = 1000;
 
 const METRIC_CAPTURE_HYPER_ACCEPTED_CONNECTIONS: &str = "capture_hyper_accepted_connections";
 const METRIC_CAPTURE_HYPER_ACCEPT_ERROR: &str = "capture_hyper_accept_error";
+const METRIC_CAPTURE_HYPER_HEADER_READ_TIMEOUT: &str = "capture_hyper_header_read_timeout";
 
 /// Returns true for errors that commonly occur during accept and don't indicate
 /// a problem with the listener itself. These are silently retried without logging.
@@ -87,13 +88,25 @@ fn spawn_connection_handler(
 
     tokio::spawn(async move {
         if let Err(e) = conn.await {
-            metrics::counter!(
-                METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
-                "err_type" => "conn_closed",
-                "stage" => stage,
-            )
-            .increment(1);
-            debug!("Hyper accept loop ({}): connection closed: {}", stage, e);
+            let err_str = e.to_string();
+            let is_header_timeout = err_str.contains("timeout") && err_str.contains("header");
+
+            if is_header_timeout {
+                metrics::counter!(
+                    METRIC_CAPTURE_HYPER_HEADER_READ_TIMEOUT,
+                    "stage" => stage,
+                )
+                .increment(1);
+                debug!("Hyper accept loop ({}): header read timeout: {}", stage, e);
+            } else {
+                metrics::counter!(
+                    METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
+                    "err_type" => "conn_closed",
+                    "stage" => stage,
+                )
+                .increment(1);
+                debug!("Hyper accept loop ({}): connection closed: {}", stage, e);
+            }
         }
     });
 }
@@ -283,7 +296,17 @@ where
     );
 
     // Set up hyper server with manual connection handling and graceful shutdown
-    let builder = AutoBuilder::new(TokioExecutor::new());
+    let mut builder = AutoBuilder::new(TokioExecutor::new());
+
+    // Configure HTTP/1 header read timeout for slow loris protection
+    if let Some(timeout_ms) = config.http1_header_read_timeout_ms {
+        builder
+            .http1()
+            .timer(TokioTimer::new())
+            .header_read_timeout(Duration::from_millis(timeout_ms));
+        info!("HTTP/1 header read timeout configured: {timeout_ms}ms");
+    }
+
     let graceful = GracefulShutdown::new();
 
     // Pin the shutdown future so we can poll it in the select loop
