@@ -73,7 +73,8 @@ def compute_next_run(current: datetime, interval: str) -> datetime:
 
     Args:
         current: The current scheduled_at datetime
-        interval: One of 'daily', 'weekly', 'monthly'
+        interval: One of 'daily', 'weekly', 'monthly' (validated at API layer
+            via ScheduledChange.RecurrenceInterval.choices)
 
     Returns:
         The next scheduled datetime
