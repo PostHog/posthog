@@ -19,6 +19,7 @@ from temporalio import common
 
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
+from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import cache_key_for_team_token
@@ -392,6 +393,10 @@ class TeamAdmin(admin.ModelAdmin):
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def import_replay_view(self, request, object_id):
+        if is_cloud():
+            messages.error(request, "Importing session replays is not allowed on cloud")
+            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
         team = Team.objects.get(pk=object_id)
 
         if request.method == "GET":
