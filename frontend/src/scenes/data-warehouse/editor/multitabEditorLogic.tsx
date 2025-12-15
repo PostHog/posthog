@@ -615,7 +615,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: async () => {
             actions.setFinishedLoading(false)
         },
-        setQueryInput: ({ queryInput }) => {
+        setQueryInput: async ({ queryInput }, breakpoint) => {
             // Keep suggestion payload active - let user make edits and then decide to approve/reject
             // if editing a view, track latest history id changes are based on
             if (values.activeTab?.view && values.activeTab?.view.query?.query) {
@@ -629,10 +629,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
             }
 
-            clearTimeout(cache.urlSyncTimeout)
-            cache.urlSyncTimeout = setTimeout(() => {
-                actions.syncUrlWithQuery()
-            }, 500)
+            await breakpoint(500)
+
+            actions.syncUrlWithQuery()
         },
         saveDraft: async ({ queryInput, viewId }) => {
             if (values.activeTab) {
@@ -1283,7 +1282,5 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } catch {}
         })
         cache.timeouts = []
-
-        clearTimeout(cache.urlSyncTimeout)
     }),
 ])
