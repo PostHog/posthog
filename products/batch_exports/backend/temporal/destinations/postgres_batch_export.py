@@ -182,6 +182,18 @@ async def run_in_retryable_transaction(
             await asyncio.sleep(sleep_seconds)
 
 
+def _get_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:
+    """Get the timeout to use for long running queries."""
+    min_timeout_seconds = 20 * 60  # 20 minutes
+    max_timeout_seconds = 6 * 60 * 60  # 6 hours
+    if data_interval_start is None:
+        return max_timeout_seconds
+
+    interval_seconds = (data_interval_end - data_interval_start).total_seconds()
+    timeout_seconds = max(min_timeout_seconds, interval_seconds * 0.8)
+    return min(timeout_seconds, max_timeout_seconds)
+
+
 class _PostgreSQLClientInputsProtocol(typing.Protocol):
     user: str
     password: str
@@ -916,6 +928,13 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                     )
                 finally:
                     if merge_settings.requires_merge:
+                        merge_query_timeout = _get_query_timeout(
+                            dt.datetime.fromisoformat(inputs.data_interval_start)
+                            if inputs.data_interval_start
+                            else None,
+                            dt.datetime.fromisoformat(inputs.data_interval_end),
+                        )
+
                         await pg_client.amerge_mutable_tables(
                             final_table_name=pg_table,
                             stage_table_name=pg_stage_table,
@@ -923,7 +942,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                             update_when_matched=table_fields,
                             merge_key=merge_settings.merge_key,
                             update_key=merge_settings.update_key,
-                            timeout=settings.BATCH_EXPORT_POSTGRES_QUERY_TIMEOUT_SECONDS,
+                            timeout=merge_query_timeout,
                         )
 
                 return result
