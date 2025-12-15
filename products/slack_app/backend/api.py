@@ -121,6 +121,31 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
         team_id=integration.team_id, slack_thread_key=slack_thread_key
     ).first()
 
+    # Check if conversation is already in progress
+    if existing_conversation and existing_conversation.status in [
+        Conversation.Status.IN_PROGRESS,
+        Conversation.Status.CANCELING,
+    ]:
+        try:
+            slack = SlackIntegration(integration)
+            user_id = event.get("user")
+            if user_id:
+                slack.client.chat_postEphemeral(
+                    channel=channel,
+                    user=user_id,
+                    thread_ts=thread_ts,
+                    text="Looks like this PostHog AI conversation is currently in flight already. Please wait for it to complete before sending another message.",
+                )
+            logger.info(
+                "slack_app_mention_conversation_in_progress",
+                channel=channel,
+                thread_ts=thread_ts,
+                status=existing_conversation.status,
+            )
+        except Exception as e:
+            logger.exception("slack_app_ephemeral_message_failed", error=str(e))
+        return
+
     try:
         slack = SlackIntegration(integration)
 
