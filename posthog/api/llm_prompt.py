@@ -48,7 +48,6 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     def validate(self, data):
         team = self.context["get_team"]()
         name = data.get("name")
-        existing_prompt = self.instance
 
         # On CREATE: check if name already exists
         if self.instance is None:
@@ -57,14 +56,14 @@ class LLMPromptSerializer(serializers.ModelSerializer):
 
         # On UPDATE: check if name changed OR if restoring a deleted prompt
         else:
-            name_to_check = name if name else existing_prompt.name
-            is_being_restored = existing_prompt.deleted and data.get("deleted") is False
-            name_changed = name and existing_prompt.name != name
+            name_to_check = name if name else self.instance.name
+            is_being_restored = self.instance.deleted and data.get("deleted") is False
+            name_changed = name and self.instance.name != name
 
             if name_changed or is_being_restored:
                 if (
                     LLMPrompt.objects.filter(name=name_to_check, team=team, deleted=False)
-                    .exclude(id=existing_prompt.id)
+                    .exclude(id=self.instance.id)
                     .exists()
                 ):
                     raise serializers.ValidationError(
@@ -105,9 +104,11 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
         required_scopes=["llm_prompt:read"],
     )
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        if not posthoganalytics.feature_enabled(
+        distinct_id = getattr(request.user, "distinct_id", None)
+
+        if not distinct_id or not posthoganalytics.feature_enabled(
             "llm-analytics-prompts",
-            request.user.distinct_id,
+            distinct_id,
             groups={"organization": str(self.organization.id)},
             group_properties={"organization": {"id": str(self.organization.id)}},
         ):
