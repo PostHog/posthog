@@ -295,7 +295,7 @@ impl HyperCacheReader {
         .await
         {
             Ok(Ok(data)) => {
-                info!(
+                debug!(
                     cache_key = %redis_cache_key,
                     namespace = %self.config.namespace,
                     "HyperCache hit: Redis"
@@ -318,14 +318,14 @@ impl HyperCacheReader {
                 return Ok((data, CacheSource::Redis));
             }
             Ok(Err(e)) => {
-                debug!(
+                info!(
                     cache_key = %redis_cache_key,
                     error = %e,
                     "HyperCache Redis miss, trying S3"
                 );
             }
             Err(_) => {
-                debug!(
+                info!(
                     cache_key = %redis_cache_key,
                     "HyperCache Redis timeout, trying S3"
                 );
@@ -336,7 +336,7 @@ impl HyperCacheReader {
         let s3_cache_key = self.config.get_s3_cache_key(key);
         match timeout(self.config.s3_timeout, self.try_get_from_s3(&s3_cache_key)).await {
             Ok(Ok(data)) => {
-                info!(
+                debug!(
                     cache_key = %s3_cache_key,
                     namespace = %self.config.namespace,
                     "HyperCache hit: S3"
@@ -353,14 +353,14 @@ impl HyperCacheReader {
                 return Ok((data, CacheSource::S3));
             }
             Ok(Err(e)) => {
-                debug!(
+                info!(
                     cache_key = %s3_cache_key,
                     error = %e,
                     "HyperCache S3 miss"
                 );
             }
             Err(_) => {
-                debug!(
+                info!(
                     cache_key = %s3_cache_key,
                     "HyperCache S3 timeout"
                 );
