@@ -199,9 +199,16 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             // TODO: Check how to pass the preflight region here
             values.currentTeam?.revenue_analytics_config || createEmptyConfig(),
             {
-                updateCurrentTeam: (_, { revenue_analytics_config }) => {
+                updateCurrentTeam: (state, { revenue_analytics_config }) => {
+                    // Only update if revenue_analytics_config is explicitly provided
+                    if (revenue_analytics_config === undefined) {
+                        return state
+                    }
                     // TODO: Check how to pass the preflight region here
                     return revenue_analytics_config || createEmptyConfig()
+                },
+                loadRevenueAnalyticsConfigSuccess: (_, { revenueAnalyticsConfig }) => {
+                    return revenueAnalyticsConfig || createEmptyConfig()
                 },
             },
         ],

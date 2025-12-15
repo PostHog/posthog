@@ -74,6 +74,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     person,
                     // TODO: Load groups as well
                     groups: {},
+                    variables: hogFlowInvocationState.variables || {},
                 })
 
                 loadedInvocations.push({

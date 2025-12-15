@@ -131,6 +131,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         startElementObservation: true,
         stopElementObservation: true,
         processElements: true,
+        refreshClickmap: true,
+        setIsRefreshing: (isRefreshing: boolean) => ({ isRefreshing }),
         setProcessedElements: (elements: CountedHTMLElement[]) => ({ elements }),
         setElementsLoading: (loading: boolean) => ({ loading }),
         setProcessingProgress: (processed: number, total: number) => ({ processed, total }),
@@ -210,6 +212,12 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 setProcessingProgress: (_, { processed, total }) => (processed >= total ? null : { processed, total }),
                 setProcessedElements: () => null,
                 toggleClickmapsEnabled: () => null,
+            },
+        ],
+        isRefreshing: [
+            false,
+            {
+                setIsRefreshing: (_, { isRefreshing }) => isRefreshing,
             },
         ],
     }),
@@ -360,6 +368,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
             if (!clickmapsEnabled || !elementStats?.results?.length) {
                 actions.setProcessedElements([])
+                actions.setIsRefreshing(false)
                 return
             }
 
@@ -406,6 +415,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 breakpoint()
                 await yieldToMain()
             }
+
+            actions.setIsRefreshing(false)
         },
 
         enableHeatmap: () => {
@@ -518,6 +529,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         setMatchLinksByHref: () => {
+            actions.processElements()
+        },
+
+        refreshClickmap: () => {
+            if (!values.clickmapsEnabled) {
+                return
+            }
+            actions.setIsRefreshing(true)
+            invalidatePageElementsCache(cache as ElementProcessingCache)
             actions.processElements()
         },
 

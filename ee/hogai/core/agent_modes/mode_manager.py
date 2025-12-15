@@ -9,9 +9,8 @@ from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
 from ee.hogai.core.mixins import AssistantContextMixin
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.types.base import NodePath
-
-from .feature_flags import has_agent_modes_feature_flag
 
 if TYPE_CHECKING:
     from .executables import AgentExecutable, AgentToolsExecutable

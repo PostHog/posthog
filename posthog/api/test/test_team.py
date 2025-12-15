@@ -1447,6 +1447,43 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
+        def test_modifiers_are_merged_on_patch(self) -> None:
+            # Set initial modifiers with personsOnEventsMode
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"personsOnEventsMode": "person_id_override_properties_on_events"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"] == {"personsOnEventsMode": "person_id_override_properties_on_events"}
+
+            # Patch with customChannelTypeRules - should preserve personsOnEventsMode
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "modifiers": {
+                        "customChannelTypeRules": [
+                            {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+                        ]
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"]["personsOnEventsMode"] == "person_id_override_properties_on_events"
+            assert response.json()["modifiers"]["customChannelTypeRules"] == [
+                {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+            ]
+
+            # Patch with a different personsOnEventsMode - should update it while keeping customChannelTypeRules
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["modifiers"]["personsOnEventsMode"] == "person_id_override_properties_joined"
+            assert response.json()["modifiers"]["customChannelTypeRules"] == [
+                {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
+            ]
+
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
         def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:

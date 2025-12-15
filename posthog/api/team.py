@@ -179,6 +179,7 @@ TEAM_CONFIG_FIELDS = (
     "feature_flag_confirmation_enabled",
     "feature_flag_confirmation_message",
     "default_evaluation_environments_enabled",
+    "require_evaluation_environment_tags",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -764,6 +765,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             elif is_disabling:
                 # Clear token when disabling
                 validated_data["conversations_public_token"] = None
+        # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
+            validated_data["modifiers"] = {
+                **(instance.modifiers or {}),
+                **validated_data["modifiers"],
+            }
 
         updated_team = super().update(instance, validated_data)
         changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)

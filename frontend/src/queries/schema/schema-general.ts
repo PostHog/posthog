@@ -141,6 +141,7 @@ export enum NodeKind {
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
+    NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -190,6 +191,7 @@ export type AnyDataNode =
     | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -270,6 +272,7 @@ export type QuerySchema =
     // Marketing analytics
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | NonIntegratedConversionsTableQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -371,6 +374,7 @@ export interface HogQLQueryModifiers {
     bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2' | 'v3'
     sessionsV2JoinMode?: 'string' | 'uuid'
+    materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
@@ -890,6 +894,7 @@ export interface DataTableNode
                     | RevenueExampleDataWarehouseTablesQuery
                     | MarketingAnalyticsTableQuery
                     | MarketingAnalyticsAggregatedQuery
+                    | NonIntegratedConversionsTableQuery
                     | ErrorTrackingQuery
                     | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
@@ -925,6 +930,7 @@ export interface DataTableNode
         | RevenueExampleDataWarehouseTablesQuery
         | MarketingAnalyticsTableQuery
         | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
         | ErrorTrackingQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
@@ -1629,6 +1635,7 @@ export type LifecycleFilter = {
     stacked?: boolean
 }
 
+// See posthog/hogql_queries/query_runner.py `ExecutionMode` for details on what the types mean
 export type RefreshType =
     | 'async'
     | 'async_except_on_cache_miss'
@@ -1682,6 +1689,8 @@ export interface EndpointRunRequest {
      *   The query executed will return the count of $identify events, instead of $pageview's
      */
     query_override?: Record<string, any>
+    /** Specific endpoint version to execute. If not provided, the latest version is used. */
+    version?: integer
 }
 
 export interface EndpointLastExecutionTimesRequest {
@@ -1957,6 +1966,7 @@ export type WebAnalyticsOrderByDirection = 'ASC' | 'DESC'
 export enum WebAnalyticsOrderByFields {
     Visitors = 'Visitors',
     Views = 'Views',
+    AvgTimeOnPage = 'AvgTimeOnPage',
     Clicks = 'Clicks',
     BounceRate = 'BounceRate',
     AverageScrollPercentage = 'AverageScrollPercentage',
@@ -1985,6 +1995,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     /** Sampling rate */
     samplingFactor?: number | null
     filterTestAccounts?: boolean
+    /** @deprecated ignored, always treated as disabled */
     includeRevenue?: boolean
     /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
     interval?: IntervalType
@@ -2060,6 +2071,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    includeAvgTimeOnPage?: boolean
     limit?: integer
     offset?: integer
 }
@@ -2599,6 +2611,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     filterGroup: PropertyGroupFilter
     serviceNames: string[]
     liveLogsCheckpoint?: string
+    /** Cursor for fetching the next page of results */
+    after?: string
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2607,6 +2621,8 @@ export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     columns?: string[]
+    /** Cursor for fetching the next page of results */
+    nextCursor?: string
 }
 
 export interface SessionEventsItem {
@@ -2693,6 +2709,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'marketing_analytics'
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
@@ -2701,6 +2718,7 @@ export type FileSystemIconType =
     | 'heatmap'
     | 'session_replay'
     | 'survey'
+    | 'product_tour'
     | 'user_interview'
     | 'early_access_feature'
     | 'experiment'
@@ -2740,6 +2758,8 @@ export type FileSystemIconType =
     | 'live'
     | 'chat'
     | 'search'
+    | 'folder'
+    | 'folder_open'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3427,6 +3447,12 @@ export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
+export enum DataWarehouseSavedQueryOrigin {
+    DATA_WAREHOUSE = 'data_warehouse',
+    ENDPOINT = 'endpoint',
+    MANAGED_VIEWSET = 'managed_viewset',
+}
+
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
     query: HogQLQuery
     type: 'managed_view'
@@ -3777,6 +3803,7 @@ export type AIEventType =
     | '$ai_metric'
     | '$ai_feedback'
     | '$ai_evaluation'
+    | '$ai_trace_summary'
 
 export interface LLMTraceEvent {
     id: string
@@ -3809,6 +3836,7 @@ export interface LLMTrace {
     traceName?: string
     errorCount?: number
     events: LLMTraceEvent[]
+    isSupportTrace?: boolean
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -3825,6 +3853,7 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     limit?: integer
     offset?: integer
     filterTestAccounts?: boolean
+    filterSupportTraces?: boolean
     showColumnConfigurator?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
@@ -3832,6 +3861,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
+    /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
+    randomOrder?: boolean
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -4108,7 +4139,6 @@ export interface RevenueAnalyticsConfig {
 
 export interface PageURL {
     url: string
-    count: number
 }
 
 export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLSearchQueryResponse> {
@@ -4190,8 +4220,6 @@ export interface MarketingAnalyticsTableQuery
     draftConversionGoal?: ConversionGoalFilter | null
     /** Compare to date range */
     compareFilter?: CompareFilter
-    /** Include conversion goal rows even when they don't match campaign costs table */
-    includeAllConversions?: boolean
     /** Filter by integration type */
     integrationFilter?: IntegrationFilter
 }
@@ -4232,6 +4260,45 @@ export interface MarketingAnalyticsAggregatedQuery
     /** Filter by integration IDs */
     integrationFilter?: IntegrationFilter
 }
+
+/** Columns for non-integrated conversions table */
+export enum NonIntegratedConversionsColumnsSchemaNames {
+    Source = 'Source',
+    Campaign = 'Campaign',
+}
+
+export interface NonIntegratedConversionsTableQuery
+    extends Omit<WebAnalyticsQueryBase<NonIntegratedConversionsTableQueryResponse>, 'orderBy'> {
+    kind: NodeKind.NonIntegratedConversionsTableQuery
+    /** Return a limited set of data. Will use default columns if empty. */
+    select?: HogQLExpression[]
+    /** Columns to order by */
+    orderBy?: MarketingAnalyticsOrderBy[]
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+    /** Compare to date range */
+    compareFilter?: CompareFilter
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter | null
+}
+
+export interface NonIntegratedConversionsTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsItem[][]
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    samplingRate?: SamplingRate
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedNonIntegratedConversionsTableQueryResponse =
+    CachedQueryResponse<NonIntegratedConversionsTableQueryResponse>
 
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
@@ -4315,6 +4382,7 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Impressions = 'impressions',
     Source = 'source',
     ReportedConversion = 'reported_conversion',
+    ReportedConversionValue = 'reported_conversion_value',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -4342,6 +4410,11 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
         type: ['integer', 'number', 'float'],
         required: false,
         isCurrency: false,
+    },
+    [MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+        isCurrency: true,
     },
 }
 
@@ -4389,6 +4462,8 @@ export enum MarketingAnalyticsBaseColumns {
     CPC = 'CPC',
     CTR = 'CTR',
     ReportedConversion = 'Reported Conversion',
+    ReportedConversionValue = 'Reported Conversion Value',
+    ReportedROAS = 'Reported ROAS',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
@@ -4480,6 +4555,7 @@ export interface SourceConfig {
     label?: string
     docsUrl?: string
     caption?: string | any
+    permissionsCaption?: string
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     existingSource?: boolean
@@ -4494,9 +4570,16 @@ export interface SourceConfig {
      * @default []
      */
     suggestedTables?: SuggestedTable[]
+
+    /**
+     * Whether this source should be prominently displayed in onboarding flows
+     * @default false
+     */
+    featured?: boolean
 }
 
 export const externalDataSources = [
+    'Ashby',
     'Supabase',
     'CustomerIO',
     'Github',
@@ -4912,7 +4995,7 @@ export enum ProductIntentContext {
     DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = 'data_warehouse_stripe_source_created',
 
     // Surveys
-    SURVEYS_VIEWED = 'surveys_viewed', // accessed surveys page
+    SURVEYS_VIEWED = 'surveys_viewed', // deprecated, not used anymore
     SURVEY_CREATED = 'survey_created',
     SURVEY_LAUNCHED = 'survey_launched',
     SURVEY_VIEWED = 'survey_viewed',

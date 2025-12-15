@@ -9,6 +9,7 @@ packages:
     - playwright
     - plugin-server
     - products/*
+    - docs/onboarding
     - products/mcp/typescript
     - rust/cyclotron-node
 
@@ -17,4 +18,6 @@ packages:
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
     - posthog-js
-    - node-forge
+    - posthog-js-lite
+    - node-forge@1.3.2
+    - '@posthog/*'

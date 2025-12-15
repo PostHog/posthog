@@ -973,7 +973,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     // simple defaults - payload validation isn't the focus of these tests
     let enable_historical_rerouting = false;
     let historical_rerouting_threshold_days = 1_i64;
-    let is_mirror_deploy = false;
+    let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
     let verbose_sample_percent = 0.0_f32;
 
     (
@@ -986,6 +986,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             TokenDropper::default(),
             false,
             unit.mode.clone(),
+            String::from("capture"),
             None,
             25 * 1024 * 1024,
             enable_historical_rerouting,

@@ -30,7 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import query_with_columns
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person, PropertyDefinition
+from posthog.models import Element, Filter, Person, PersonDistinctId, PropertyDefinition
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
@@ -203,16 +203,18 @@ class EventViewSet(
             except ValueError:
                 offset = 0
 
-            if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
+            team = self.team
+
+            deprecate_offset = (
+                settings.PATCH_EVENT_LIST_MAX_OFFSET > 1 or team.id in settings.PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM
+            )
+            if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0 or deprecate_offset:
                 if offset > 0:
                     time.sleep(1)
-                if offset > 50000 and (
-                    settings.PATCH_EVENT_LIST_MAX_OFFSET > 1 or random.random() < 0.01
-                ):  # 1% of queries fail
-                    raise serializers.ValidationError("Max supported offset value is 50000")
+                if offset > 50000 and (deprecate_offset or random.random() < 0.01):  # 1% of queries fail
+                    raise serializers.ValidationError("Offset is deprecated. Max supported offset value is 50000")
 
-            team = self.team
-            filter = Filter(request=request, team=self.team)
+            filter = Filter(request=request, team=team)
             order_by: list[str] = (
                 list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else ["-timestamp"]
             )
@@ -251,7 +253,14 @@ class EventViewSet(
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
             headers = None
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
-                headers = {"X-PostHog-Notif": "https://posthog.com/docs/events_list-upcoming-changes"}
+                headers = {"X-PostHog-Warn": "https://posthog.com/docs/events_list-upcoming-changes"}
+            elif deprecate_offset and offset:
+                headers = {
+                    "X-PostHog-Warn": (
+                        "offset is deprecated. "
+                        "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
+                    )
+                }
             return response.Response({"next": next_url, "results": result}, headers=headers)
 
         except Exception as ex:
@@ -261,7 +270,13 @@ class EventViewSet(
     def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
         distinct_ids = [event["distinct_id"] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-        persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        persons = persons.prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=team.pk).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
         distinct_to_person: dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:

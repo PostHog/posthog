@@ -5,11 +5,13 @@ import pytest
 
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Integration, Organization, OrganizationMembership, Team, User
+from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
 
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
+from products.tasks.backend.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
@@ -17,6 +19,22 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
     return ActivityEnvironment()
+
+
+@pytest.fixture(autouse=True)
+def array_oauth_app():
+    """Create the Array OAuth application for tests."""
+    app, _ = OAuthApplication.objects.get_or_create(
+        client_id=ARRAY_APP_CLIENT_ID_DEV,
+        defaults={
+            "name": "Array Test App",
+            "client_type": OAuthApplication.CLIENT_PUBLIC,
+            "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            "redirect_uris": "https://app.posthog.com/callback",
+            "algorithm": "RS256",
+        },
+    )
+    yield app
 
 
 @pytest.fixture
@@ -41,6 +59,12 @@ def team(organization):
     yield team
 
     team.delete()
+
+
+@pytest.fixture
+def test_team(team):
+    """Alias for team fixture."""
+    return team
 
 
 @pytest.fixture
@@ -117,6 +141,16 @@ def task_context(test_task, test_task_run) -> TaskProcessingContext:
         github_integration_id=test_task.github_integration_id,
         repository=test_task.repository,
         distinct_id=test_task.created_by.distinct_id or "test-distinct-id",
+    )
+
+
+@pytest.fixture
+def snapshot_context(github_integration, team) -> SnapshotContext:
+    """Create a SnapshotContext for testing."""
+    return SnapshotContext(
+        github_integration_id=github_integration.id,
+        repository="posthog/posthog-js",
+        team_id=team.id,
     )
 
 

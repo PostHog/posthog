@@ -6,6 +6,7 @@ from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
+from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 
@@ -48,18 +49,23 @@ from products.error_tracking.backend.api import (
 from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
+    EvaluationConfigViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
+    LLMAnalyticsTranslateViewSet,
+    LLMProviderKeyValidationViewSet,
+    LLMProviderKeyViewSet,
     LLMProxyViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
+from products.product_tours.backend.api import ProductTourViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
-from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
+from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
 from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -89,6 +95,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    materialized_column_slot,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -247,6 +254,7 @@ project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs"
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
+projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
@@ -282,6 +290,13 @@ projects_router.register(
     DataManagementViewSet,
     "project_data_management",
     ["project_id"],
+)
+
+environments_router.register(
+    r"materialized_column_slots",
+    materialized_column_slot.MaterializedColumnSlotViewSet,
+    "environment_materialized_column_slots",
+    ["team_id"],
 )
 
 projects_router.register(
@@ -647,6 +662,11 @@ if EE_AVAILABLE:
         vercel_product.VercelProductViewSet,
         "vercel_products",
     )
+    router.register(
+        r"vercel/proxy",
+        vercel_proxy.VercelProxyViewSet,
+        "vercel_proxy",
+    )
 
 else:
     environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
@@ -909,6 +929,20 @@ projects_router.register(r"search", search.SearchViewSet, "project_search", ["pr
 
 projects_router.register(r"feed", feed.FeedViewSet, "project_feed", ["project_id"])
 
+projects_router.register(
+    r"change_requests",
+    approval_api.ChangeRequestViewSet,
+    "project_change_requests",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"approval_policies",
+    approval_api.ApprovalPolicyViewSet,
+    "project_approval_policies",
+    ["team_id"],
+)
+
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
 )
@@ -1033,5 +1067,33 @@ environments_router.register(
     r"llm_analytics/summarization",
     LLMAnalyticsSummarizationViewSet,
     "environment_llm_analytics_summarization",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/translate",
+    LLMAnalyticsTranslateViewSet,
+    "environment_llm_analytics_translate",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/provider_keys",
+    LLMProviderKeyViewSet,
+    "environment_llm_analytics_provider_keys",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/provider_key_validations",
+    LLMProviderKeyValidationViewSet,
+    "environment_llm_analytics_provider_key_validations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/evaluation_config",
+    EvaluationConfigViewSet,
+    "environment_llm_analytics_evaluation_config",
     ["team_id"],
 )

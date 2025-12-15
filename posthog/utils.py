@@ -14,7 +14,7 @@ import datetime
 import datetime as dt
 import dataclasses
 from collections.abc import Callable, Generator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
@@ -171,6 +171,7 @@ def relative_date_parse_with_delta_mapping(
     human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
+    team_week_start_day: Optional[int] = 0,
 ) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
     """
     Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string.
@@ -203,10 +204,20 @@ def relative_date_parse_with_delta_mapping(
     if not match:
         return parsed_dt, delta_mapping, None
 
+    match_group_dict = match.groupdict()
+
     delta_mapping = get_delta_mapping_for(
-        **match.groupdict(),
+        **match_group_dict,
         human_friendly_comparison_periods=human_friendly_comparison_periods,
     )
+
+    if match_group_dict["kind"] == "w":
+        weekday_index = get_weekday_index(team_week_start_day, timezone_info, now)
+        if match_group_dict["position"] == "Start":
+            parsed_dt -= datetime.timedelta(days=weekday_index)
+        elif match_group_dict["position"] == "End":
+            days_to_add = 6 - weekday_index
+            parsed_dt += datetime.timedelta(days=days_to_add)
 
     if increase:
         parsed_dt += relativedelta(**delta_mapping)  # type: ignore
@@ -221,6 +232,24 @@ def relative_date_parse_with_delta_mapping(
         else:
             parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
     return parsed_dt, delta_mapping, match.group("position") or None
+
+
+def get_weekday_index(
+    team_week_start_day: Optional[int], timezone_info: ZoneInfo, now: Optional[datetime.datetime]
+) -> int:
+    # We default to 0 for None cases
+    start_day = team_week_start_day or 0
+    current_dt = (now or dt.datetime.now()).astimezone(timezone_info)
+    if start_day == 1:
+        return current_dt.weekday()
+    # Start day should either be 0 or 1, but in the case where its more than 1 we will default to 0
+    # Get the weekday index using iso date (Monday=1, Sunday=7)
+    weekday_index = current_dt.isoweekday()
+    # Should return 0 if week start day is sunday, we also default to sunday
+    if weekday_index == 7:
+        return 0
+    else:
+        return weekday_index
 
 
 def get_delta_mapping_for(
@@ -301,6 +330,7 @@ def relative_date_parse(
     human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
+    team_week_start_day: Optional[int] = None,
 ) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(
         input,
@@ -309,6 +339,7 @@ def relative_date_parse(
         human_friendly_comparison_periods=human_friendly_comparison_periods,
         now=now,
         increase=increase,
+        team_week_start_day=team_week_start_day,
     )[0]
 
 
@@ -376,8 +407,6 @@ def get_context_for_template(
         <script type="module" src="http://localhost:8234/@vite/client"></script>
         <script type="module" src="http://localhost:8234/{source_path}"></script>"""
 
-    context["js_posthog_ui_host"] = ""
-
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
@@ -388,6 +417,11 @@ def get_context_for_template(
         if posthoganalytics.api_key:
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
+        # In development (not test mode), point ui_host to the Vite dev server so the toolbar loads from there with hot reload
+        if settings.DEBUG and not settings.TEST and settings.JS_URL == "http://localhost:8234":
+            context["js_posthog_ui_host"] = settings.JS_URL
+        else:
+            context["js_posthog_ui_host"] = ""
     else:
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
         context["js_posthog_host"] = "https://internal-j.posthog.com"
@@ -1285,6 +1319,16 @@ def _request_has_key_set(key: str, request: Request, allowed_values: Optional[li
         assert isinstance(value, str)
         return value
     return False
+
+
+def str_to_int_set(value: Any) -> set[int]:
+    """Return a set of integers"""
+    if not value:
+        return set[int]([])
+    with suppress(Exception):
+        as_json = json.loads(str(value))
+        return {int(v) for v in as_json}
+    return set[int]([])
 
 
 def str_to_bool(value: Any) -> bool:

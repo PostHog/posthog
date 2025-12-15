@@ -9,6 +9,11 @@ use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
+/// Trait for types that have an event name, used by quota limiting
+pub trait HasEventName {
+    fn event_name(&self) -> &str;
+}
+
 /// Information about the library/SDK that sent an event
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibraryInfo {
@@ -71,6 +76,7 @@ pub struct RawEngageEvent {
 pub struct CapturedEventHeaders {
     pub token: Option<String>,
     pub distinct_id: Option<String>,
+    pub session_id: Option<String>,
     pub timestamp: Option<String>,
     pub event: Option<String>,
     pub uuid: Option<String>,
@@ -99,6 +105,10 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
             .insert(Header {
                 key: "distinct_id",
                 value: headers.distinct_id.as_deref(),
+            })
+            .insert(Header {
+                key: "session_id",
+                value: headers.session_id.as_deref(),
             })
             .insert(Header {
                 key: "timestamp",
@@ -141,6 +151,7 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
         Self {
             token: headers_map.get("token").cloned(),
             distinct_id: headers_map.get("distinct_id").cloned(),
+            session_id: headers_map.get("session_id").cloned(),
             timestamp: headers_map.get("timestamp").cloned(),
             event: headers_map.get("event").cloned(),
             uuid: headers_map.get("uuid").cloned(),
@@ -160,6 +171,8 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
 pub struct CapturedEvent {
     pub uuid: Uuid,
     pub distinct_id: String,
+    #[serde(skip_serializing, default)]
+    pub session_id: Option<String>,
     pub ip: String,
     pub data: String, // This should be a `RawEvent`, but we serialise twice.
     pub now: String,
@@ -193,6 +206,7 @@ impl CapturedEvent {
         CapturedEventHeaders {
             token: Some(self.token.clone()),
             distinct_id: Some(self.distinct_id.clone()),
+            session_id: self.session_id.clone(),
             timestamp: Some(self.timestamp.timestamp_millis().to_string()),
             event: Some(self.event.clone()),
             uuid: Some(self.uuid.to_string()),
@@ -296,6 +310,12 @@ impl ClickHouseEvent {
     }
 }
 
+impl HasEventName for RawEvent {
+    fn event_name(&self) -> &str {
+        &self.event
+    }
+}
+
 impl RawEvent {
     pub fn extract_token(&self) -> Option<String> {
         match &self.token {
@@ -392,6 +412,7 @@ mod tests {
         let event = CapturedEvent {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
+            session_id: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T10:00:00Z".to_string(), // Ingestion time
@@ -419,6 +440,7 @@ mod tests {
         let event = CapturedEvent {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
+            session_id: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T15:30:00Z".to_string(), // Ingestion time
@@ -460,5 +482,48 @@ mod tests {
             serde_json::from_str(json).expect("Failed to deserialize");
         // Should default to false when not present
         assert!(!deserialized.historical_migration);
+    }
+
+    #[test]
+    fn test_to_headers_session_id_from_event() {
+        let event_with_session = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: Some("session123".to_string()),
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event","properties":{"$session_id":"session123"}}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers = event_with_session.to_headers();
+        assert_eq!(headers.session_id, Some("session123".to_string()));
+
+        let event_without_session = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers = event_without_session.to_headers();
+        assert_eq!(headers.session_id, None);
     }
 }

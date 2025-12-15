@@ -196,6 +196,95 @@ class TestSurvey(APIBaseTest):
         survey = Survey.objects.get(id=response_data["id"])
         assert survey.internal_targeting_flag.active is True
 
+    def test_adding_iterations_to_existing_survey_updates_internal_targeting_flag(self):
+        # Step 1: Create a survey WITHOUT iterations
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey without iterations initially",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        survey = Survey.objects.get(id=response_data["id"])
+        survey_id = str(survey.id)
+
+        # Verify the internal_targeting_flag has properties WITHOUT iteration suffix
+        expected_filters_without_iteration = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                }
+            ]
+        }
+        assert survey.internal_targeting_flag is not None
+        assert survey.internal_targeting_flag.filters == expected_filters_without_iteration
+
+        # Step 2: Update the survey to ADD iterations
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 3,
+                "iteration_frequency_days": 30,
+            },
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+
+        survey.refresh_from_db()
+
+        # Verify current_iteration is set
+        assert survey.current_iteration == 1
+
+        # Step 3: Verify the internal_targeting_flag NOW has properties WITH iteration suffix
+        expected_filters_with_iteration = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}/1",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}/1",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                }
+            ]
+        }
+
+        survey.internal_targeting_flag.refresh_from_db()
+        assert (
+            survey.internal_targeting_flag.filters == expected_filters_with_iteration
+        ), f"Expected iteration-aware filters but got: {survey.internal_targeting_flag.filters}"
+
     def test_can_create_survey_with_linked_flag_and_targeting(self):
         notebooks_flag = FeatureFlag.objects.create(team=self.team, key="notebooks", created_by=self.user)
 
@@ -1141,6 +1230,7 @@ class TestSurvey(APIBaseTest):
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
                         "evaluation_tags": [],
+                        "bucketing_identifier": "distinct_id",
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -3100,6 +3190,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                                 "event": "$pageview",
                                                 "properties": None,
                                                 "selector": None,
+                                                "selector_regex": None,
                                                 "tag_name": None,
                                                 "text": None,
                                                 "text_matching": None,
