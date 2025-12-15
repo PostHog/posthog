@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -6,6 +7,7 @@ import { CollapsibleExceptionHeader } from '../Exception/CollapsibleExceptionHea
 import { ExceptionRenderer } from '../Exception/ExceptionRenderer'
 import { CollapsibleFrame } from '../Frame/CollapsibleFrame'
 import { EmptyStackTrace } from '../StackTrace/EmptyStackTrace'
+import { FilteredStackTrace } from '../StackTrace/FilteredStackTrace'
 import { StackTraceRenderer } from '../StackTrace/StackTraceRenderer'
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { ErrorTrackingStackFrame } from '../types'
@@ -23,14 +25,27 @@ export function CollapsibleExceptionList({
     onFrameOpenChange?: (open: boolean) => void
     className?: string
 }): JSX.Element {
-    const { exceptionList, getExceptionFingerprint, exceptionAttributes, stackFrameRecords, stackFrameRecordsLoading } =
-        useValues(errorPropertiesLogic)
+    const {
+        exceptionList,
+        getExceptionFingerprint,
+        exceptionAttributes,
+        stackFrameRecords,
+        stackFrameRecordsLoading,
+        hasInAppFrames,
+    } = useValues(errorPropertiesLogic)
+
+    useEffect(() => {
+        if (!hasInAppFrames) {
+            setShowAllFrames(true)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasInAppFrames])
 
     return (
         <div className={cn('flex flex-col gap-y-2', className)}>
             <ExceptionListRenderer
                 exceptionList={exceptionList}
-                renderException={(exception, index) => {
+                renderException={(exception) => {
                     const part = getExceptionFingerprint(exception.id)
                     return (
                         <ExceptionRenderer
@@ -44,13 +59,13 @@ export function CollapsibleExceptionList({
                                     runtime={exceptionAttributes?.runtime}
                                 />
                             )}
-                            renderFilteredTrace={() => {
-                                if (!showAllFrames && index == 0) {
-                                    // Always show frames on the first exception
-                                    setShowAllFrames(true)
-                                }
-                                return null
-                            }}
+                            renderFilteredTrace={(frames) => (
+                                <FilteredStackTrace
+                                    framesCount={frames.length}
+                                    exceptionCount={exceptionList.length}
+                                    onShowAllFrames={() => setShowAllFrames(true)}
+                                />
+                            )}
                             renderResolvedTrace={(frames: ErrorTrackingStackFrame[]) => (
                                 <StackTraceRenderer
                                     frames={frames}

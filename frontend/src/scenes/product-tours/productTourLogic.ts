@@ -107,6 +107,7 @@ export interface ProductTourForm {
     name: string
     description: string
     content: ProductTourContent
+    auto_launch: boolean
     targeting_flag_filters: FeatureFlagFilters | null
 }
 
@@ -114,6 +115,7 @@ const NEW_PRODUCT_TOUR: ProductTourForm = {
     name: '',
     description: '',
     content: { steps: [] },
+    auto_launch: false,
     targeting_flag_filters: null,
 }
 
@@ -126,8 +128,6 @@ export const productTourLogic = kea<productTourLogicType>([
     })),
     actions({
         editingProductTour: (editing: boolean) => ({ editing }),
-        setProductTourValue: (key: keyof ProductTourForm, value: any) => ({ key, value }),
-        setFlagPropertyErrors: (errors: any) => ({ errors }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         launchProductTour: true,
         stopProductTour: true,
@@ -269,6 +269,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     name: formValues.name,
                     description: formValues.description,
                     content: formValues.content,
+                    auto_launch: formValues.auto_launch,
                     targeting_flag_filters: formValues.targeting_flag_filters,
                 }
 
@@ -294,12 +295,6 @@ export const productTourLogic = kea<productTourLogicType>([
             false,
             {
                 editingProductTour: (_, { editing }) => editing,
-            },
-        ],
-        flagPropertyErrors: [
-            null as any,
-            {
-                setFlagPropertyErrors: (_, { errors }) => errors,
             },
         ],
         dateRange: [
@@ -359,6 +354,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     name: productTour.name,
                     description: productTour.description,
                     content: productTour.content,
+                    auto_launch: productTour.auto_launch,
                     targeting_flag_filters: productTour.targeting_flag_filters,
                 })
             }
@@ -371,6 +367,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     name: values.productTour.name,
                     description: values.productTour.description,
                     content: values.productTour.content,
+                    auto_launch: values.productTour.auto_launch,
                     targeting_flag_filters: values.productTour.targeting_flag_filters,
                 })
             }
@@ -394,24 +391,6 @@ export const productTourLogic = kea<productTourLogicType>([
                     path: productTour ? urls.productTour(productTour.id) : undefined,
                 },
             ],
-        ],
-        completionRate: [
-            (s) => [s.tourStats],
-            (tourStats: ProductTourStats | null): number | null => {
-                if (!tourStats || tourStats.uniqueShown === 0) {
-                    return null
-                }
-                return Math.round((tourStats.uniqueCompleted / tourStats.uniqueShown) * 100)
-            },
-        ],
-        dismissalRate: [
-            (s) => [s.tourStats],
-            (tourStats: ProductTourStats | null): number | null => {
-                if (!tourStats || tourStats.uniqueShown === 0) {
-                    return null
-                }
-                return Math.round((tourStats.uniqueDismissed / tourStats.uniqueShown) * 100)
-            },
         ],
         targetingFlagFilters: [
             (s) => [s.productTourForm],

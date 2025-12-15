@@ -2,20 +2,19 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api, { ApiConfig } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
-import { getOnboardingEntryUrl } from './onboarding/utils'
 import type { organizationLogicType } from './organizationLogicType'
+import { urls } from './urls'
 import { userLogic } from './userLogic'
 
 export type OrganizationUpdatePayload = Partial<
@@ -43,10 +42,7 @@ export const organizationLogic = kea<organizationLogicType>([
             redirectPath,
         }),
         deleteOrganizationSuccess: ({ redirectPath }: { redirectPath?: string }) => ({ redirectPath }),
-        deleteOrganizationFailure: true,
-    }),
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        deleteOrganizationFailure: (error: string) => ({ error }),
     }),
     connect([userLogic]),
     reducers({
@@ -141,7 +137,7 @@ export const organizationLogic = kea<organizationLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
             if (currentOrganization) {
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
@@ -149,7 +145,7 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
-            window.location.href = getOnboardingEntryUrl(values.featureFlags)
+            window.location.href = urls.useCaseSelection()
         },
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')
@@ -158,8 +154,9 @@ export const organizationLogic = kea<organizationLogicType>([
             try {
                 await api.delete(`api/organizations/${organizationId}`)
                 actions.deleteOrganizationSuccess({ redirectPath })
-            } catch {
-                actions.deleteOrganizationFailure()
+            } catch (e) {
+                const apiError = e as ApiError
+                actions.deleteOrganizationFailure(apiError.detail || 'Error deleting organization')
             }
         },
         deleteOrganizationSuccess: ({ redirectPath }) => {
@@ -173,8 +170,8 @@ export const organizationLogic = kea<organizationLogicType>([
             })
             location.reload()
         },
-        deleteOrganizationFailure: () => {
-            lemonToast.error('Error deleting organization', {
+        deleteOrganizationFailure: ({ error }) => {
+            lemonToast.error(error, {
                 toastId: 'deleteOrganization',
             })
         },
