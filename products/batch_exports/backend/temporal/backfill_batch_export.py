@@ -243,16 +243,12 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
                 ),
             ]
 
-            is_last_backfill_run = False
-            if end_at is not None:
-                is_last_backfill_run = backfill_end_at + frequency > end_at
             args = await client.data_converter.decode(schedule_action.args)
             args[0]["backfill_details"] = BackfillDetails(
                 backfill_id=inputs.backfill_id,
                 is_earliest_backfill=start_at is None,
                 start_at=inputs.start_at,
                 end_at=inputs.end_at,
-                is_last_backfill_run=is_last_backfill_run,
             )
 
             await asyncio.sleep(inputs.start_delay)
