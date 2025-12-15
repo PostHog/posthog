@@ -510,6 +510,19 @@ tools:
         description: 'TODO: add description for start-llm-gateway'
         hidden: true
 utilities:
+    nuke:
+        steps:
+            - name: announce
+              cmd: say -v 'Samantha' 'Nuclear launch detected' 2>/dev/null || true
+            - name: node_modules
+              cmd: rm -rf **/node_modules
+            - name: python packages
+              cmd: uv pip freeze -q | cut -d'=' -f1 | cut -d'@' -f1 | xargs uv pip uninstall 2>/dev/null || true
+            - name: rust builds
+              cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
+            - dev:reset
+        description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
+        destructive: true
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
