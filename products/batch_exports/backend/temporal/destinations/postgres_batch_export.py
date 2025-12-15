@@ -109,6 +109,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "PostgreSQLIncompatibleSchemaError",
     # Raised when a transaction fails to complete after a certain number of retries.
     "PostgreSQLTransactionError",
+    # Raised when a query takes too long.
+    "TimeoutError",
 )
 
 
@@ -431,6 +433,7 @@ class PostgreSQLClient:
         merge_key: Fields,
         update_key: Fields,
         update_when_matched: Fields,
+        timeout: float | int | None = None,
     ) -> None:
         """Merge two identical person model tables in PostgreSQL.
 
@@ -505,9 +508,17 @@ class PostgreSQLClient:
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
                 try:
-                    await cursor.execute(merge_query)
+                    async with asyncio.timeout(timeout):
+                        await cursor.execute(merge_query)
                 except psycopg.errors.InvalidColumnReference:
                     raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
+                except TimeoutError:
+                    self.external_logger.exception(
+                        "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
+                        schema,
+                        final_table_name,
+                    )
+                    raise
 
     async def copy_tsv_to_postgres(
         self,
@@ -912,6 +923,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                             update_when_matched=table_fields,
                             merge_key=merge_settings.merge_key,
                             update_key=merge_settings.update_key,
+                            timeout=settings.BATCH_EXPORT_POSTGRES_QUERY_TIMEOUT_SECONDS,
                         )
 
                 return result
