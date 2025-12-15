@@ -95,7 +95,7 @@ function flattenFieldNodes(
     includeNestedChildren = true
 ): Array<{ path: string; field: DatabaseSchemaField }> {
     return nodes.flatMap((node) => {
-        if (node.children.length === 0 || isJsonField(node.field)) {
+        if (!node.hasChildren || isJsonField(node.field)) {
             return { path: node.path, field: node.field }
         }
 
@@ -143,6 +143,7 @@ function FieldTree({
         const buildTree = (treeNodes: FieldTreeNode[]): TreeDataItem[] =>
             treeNodes.map((node) => {
                 const isJson = isJsonField(node.field)
+                const hasChildren = node.hasChildren && !isJson
 
                 const selectedAggregations = selectionsByField.get(node.path)
                 const aggregationBadges = Array.from(
@@ -175,9 +176,9 @@ function FieldTree({
                     id: node.path,
                     name: node.field.name,
                     displayName: label,
-                    record: { ...node, isJson },
-                    icon: fieldTypeIcon(node.field),
-                    children: isJson ? [] : buildTree(node.children),
+                    record: { ...node, isJson, hasChildren, type: hasChildren ? 'folder' : 'node' },
+                    icon: hasChildren ? undefined : fieldTypeIcon(node.field),
+                    children: hasChildren ? buildTree(node.children) : undefined,
                 }
             })
 
@@ -220,7 +221,7 @@ function FieldTree({
             expandedItemIds={expandedFields}
             onSetExpandedItemIds={onSetExpandedFields}
             onItemClick={(item, event) => {
-                const record = item?.record as (FieldTreeNode & { isJson?: boolean }) | undefined
+                const record = item?.record as (FieldTreeNode & { isJson?: boolean; hasChildren?: boolean }) | undefined
 
                 if (!record) {
                     return
@@ -230,6 +231,16 @@ function FieldTree({
                     event.stopPropagation()
                     setOpenJsonPopover(record.path)
                     setJsonPathDraft(record.path)
+                    return
+                }
+
+                if (record.hasChildren) {
+                    const currentlyExpanded = expandedFields.includes(record.path)
+                    const updatedExpansion = currentlyExpanded
+                        ? expandedFields.filter((id) => id !== record.path)
+                        : [...expandedFields, record.path]
+
+                    onSetExpandedFields(updatedExpansion)
                     return
                 }
 
@@ -314,6 +325,7 @@ export function BIScene(): JSX.Element {
         searchTerm,
         databaseLoading,
         sort,
+        expandedFields,
     } = useValues(biLogic)
     const {
         addColumn,
@@ -331,11 +343,11 @@ export function BIScene(): JSX.Element {
         setSort,
         refreshQuery,
         resetSelection,
+        setExpandedFields,
     } = useActions(biLogic)
 
     const [openColumnPopover, setOpenColumnPopover] = useState<string | null>(null)
     const [openFilterPopover, setOpenFilterPopover] = useState<number | null>(null)
-    const [expandedFields, setExpandedFields] = useState<string[]>([])
     const [showGeneratedQuery, setShowGeneratedQuery] = useState(false)
     const [chartType, setChartType] = useState<'pie' | 'line' | 'bar' | 'area'>('pie')
     const [expandedTableGroups, setExpandedTableGroups] = useState<string[]>(['folder-posthog'])
@@ -443,10 +455,6 @@ export function BIScene(): JSX.Element {
             return [...preserved, ...missing]
         })
     }, [tableTreeData])
-
-    useEffect(() => {
-        setExpandedFields([])
-    }, [selectedTableObject?.name])
 
     useEffect(() => {
         if (!_queryString) {

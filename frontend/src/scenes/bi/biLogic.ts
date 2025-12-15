@@ -50,6 +50,7 @@ export interface FieldTreeNode {
     field: DatabaseSchemaField
     path: string
     children: FieldTreeNode[]
+    hasChildren: boolean
 }
 
 export const biLogic = kea<biLogicType>([
@@ -92,6 +93,7 @@ export const biLogic = kea<biLogicType>([
         setColumnSearchTerm: (term: string) => ({ term }),
         refreshQuery: true,
         resetSelection: true,
+        setExpandedFields: (paths: string[]) => ({ paths }),
     }),
     reducers({
         selectedTable: [
@@ -172,6 +174,14 @@ export const biLogic = kea<biLogicType>([
                 selectTable: () => '',
             },
         ],
+        expandedFields: [
+            [] as string[],
+            {
+                setExpandedFields: (_, { paths }) => paths,
+                selectTable: () => [],
+                resetSelection: () => [],
+            },
+        ],
     }),
     selectors({
         allTables: [
@@ -225,8 +235,9 @@ export const biLogic = kea<biLogicType>([
             },
         ],
         selectedFieldTrees: [
-            (s) => [s.selectedTableObject, s.database, s.columnSearchTerm],
-            (table, database, columnSearchTerm) => buildFieldTrees(table, database, columnSearchTerm),
+            (s) => [s.selectedTableObject, s.database, s.columnSearchTerm, s.expandedFields],
+            (table, database, columnSearchTerm, expandedFields) =>
+                buildFieldTrees(table, database, columnSearchTerm, expandedFields),
         ],
         searchTerm: [
             (s) => [s.selectedTableObject, s.tableSearchTerm, s.columnSearchTerm],
@@ -741,18 +752,34 @@ function resolveFieldAndExpression(
 
     for (let index = 0; index < parts.length; index++) {
         const part = parts[index]
-        const candidateField = currentTable?.fields?.[part]
         const foreignKey = getForeignKeyForField(currentTable, part)
         const nextPart = parts[index + 1]
 
-        if (foreignKey && nextPart === foreignKey.target_column && currentTable?.fields?.[foreignKey.column]) {
+        if (foreignKey && currentTable?.fields?.[foreignKey.column]) {
             const foreignKeyField = currentTable.fields[foreignKey.column]
+            const relationFieldName = foreignKeyFieldName(foreignKey.column)
             const foreignKeyExpression = expression
                 ? `${expression}.${foreignKeyField.hogql_value}`
                 : foreignKeyField.hogql_value
+            const qualifiedTargetTableName = qualifyTableName(currentTable.name, foreignKey.target_table)
+            const targetTable = getTableFromDatabase(database, qualifiedTargetTableName)
+            const relationExpression = expression ? `${expression}.${relationFieldName}` : relationFieldName
 
-            return { field: foreignKeyField, expression: foreignKeyExpression, table: currentTable }
+            if (!nextPart || nextPart === foreignKey.target_column || !targetTable) {
+                return {
+                    field: foreignKeyField,
+                    expression: targetTable ? relationExpression : foreignKeyExpression,
+                    table: targetTable || currentTable,
+                }
+            }
+
+            field = foreignKeyField
+            expression = relationExpression
+            currentTable = targetTable
+            continue
         }
+
+        const candidateField = currentTable?.fields?.[part]
 
         if (candidateField) {
             const { field: resolvedField, table: resolvedTable } = resolveFieldReference(
@@ -826,6 +853,15 @@ function getForeignKeyForField(table: DatabaseSchemaTable | null, fieldName: str
     )
 }
 
+function qualifyTableName(currentTableName: string, targetTableName: string): string {
+    if (targetTableName.includes('.')) {
+        return targetTableName
+    }
+
+    const [prefix] = currentTableName.split('.')
+    return prefix ? `${prefix}.${targetTableName}` : targetTableName
+}
+
 function getForeignKeyColumnsToHide(table: DatabaseSchemaTable): Set<string> {
     const foreignKeys = table.schema_metadata?.foreign_keys || []
 
@@ -835,10 +871,7 @@ function getForeignKeyColumnsToHide(table: DatabaseSchemaTable): Set<string> {
                 column: foreignKey.column,
                 relationFieldName: foreignKeyFieldName(foreignKey.column),
             }))
-            .filter(
-                ({ column, relationFieldName }) =>
-                    column !== relationFieldName && Boolean(table.fields?.[relationFieldName])
-            )
+            .filter(({ column, relationFieldName }) => column !== relationFieldName)
             .map(({ column }) => column)
     )
 }
@@ -846,14 +879,15 @@ function getForeignKeyColumnsToHide(table: DatabaseSchemaTable): Set<string> {
 function buildFieldTrees(
     table: DatabaseSchemaTable | null,
     database: DatabaseSchemaQueryResponse | null,
-    searchTerm: string
+    searchTerm: string,
+    expandedFields: string[]
 ): FieldTreeNode[] {
     if (!table) {
         return []
     }
 
     const visitedTables = new Set<string>([table.name])
-    const nodes = buildFieldTreeNodes(table, database, '', visitedTables)
+    const nodes = buildFieldTreeNodes(table, database, '', visitedTables, new Set(expandedFields), !!searchTerm)
 
     if (!searchTerm) {
         return nodes
@@ -867,60 +901,94 @@ function buildFieldTreeNodes(
     table: DatabaseSchemaTable,
     database: DatabaseSchemaQueryResponse | null,
     parentPath: string,
-    visitedTables: Set<string>
+    visitedTables: Set<string>,
+    expandedPaths: Set<string>,
+    forceExpandAll: boolean
 ): FieldTreeNode[] {
     const foreignKeyColumnsToHide = getForeignKeyColumnsToHide(table)
+    const existingFieldNames = new Set(Object.keys(table.fields || {}))
 
-    return getOrderedFields(table)
+    const foreignKeyFields: DatabaseSchemaField[] = (table.schema_metadata?.foreign_keys || [])
+        .map((foreignKey) => ({
+            foreignKey,
+            relationFieldName: foreignKeyFieldName(foreignKey.column),
+            baseField: table.fields?.[foreignKey.column],
+        }))
+        .filter(({ relationFieldName, baseField }) => relationFieldName && baseField)
+        .filter(({ relationFieldName }) => !existingFieldNames.has(relationFieldName))
+        .map(({ foreignKey, relationFieldName, baseField }) => ({
+            ...baseField!,
+            name: relationFieldName,
+            table: qualifyTableName(table.name, foreignKey.target_table),
+            hogql_value: baseField?.hogql_value || foreignKey.column,
+        }))
+
+    const fields = [...getOrderedFields(table), ...foreignKeyFields]
         .filter((field) => !foreignKeyColumnsToHide.has(field.name))
-        .map((field) => {
-            const path = parentPath ? `${parentPath}.${field.name}` : field.name
-            const { field: resolvedField, table: resolvedTable } = resolveFieldReference(field, table, database)
-            const targetTable = resolvedField.table ? getTableFromDatabase(database, resolvedField.table) : null
-            const baseTableForChildren = targetTable || resolvedTable || table
+        .sort((a, b) => a.name.localeCompare(b.name))
 
-            let limitedTableFields: DatabaseSchemaTable | null = null
+    return fields.map((field) => {
+        const path = parentPath ? `${parentPath}.${field.name}` : field.name
+        const { field: resolvedField, table: resolvedTable } = resolveFieldReference(field, table, database)
+        const targetTableName = resolvedField.table ? qualifyTableName(table.name, resolvedField.table) : null
+        const targetTable = targetTableName ? getTableFromDatabase(database, targetTableName) : null
+        const baseTableForChildren = targetTable || resolvedTable || table
 
-            if (resolvedField.fields?.length) {
-                const filteredFields = Object.fromEntries(
-                    resolvedField.fields.map((name) => {
-                        const childField = baseTableForChildren.fields?.[name]
-                        return [
+        const hasExpandedDescendant = Array.from(expandedPaths).some((expandedPath) =>
+            expandedPath.startsWith(`${path}.`)
+        )
+        const shouldExpandChildren = forceExpandAll || expandedPaths.has(path) || hasExpandedDescendant
+
+        let limitedTableFields: DatabaseSchemaTable | null = null
+
+        if (resolvedField.fields?.length) {
+            const filteredFields = Object.fromEntries(
+                resolvedField.fields.map((name) => {
+                    const childField = baseTableForChildren.fields?.[name]
+                    return [
+                        name,
+                        childField || {
                             name,
-                            childField || {
-                                name,
-                                hogql_value: name,
-                                type: 'string' as DatabaseSerializedFieldType,
-                                schema_valid: true,
-                            },
-                        ]
-                    })
-                )
+                            hogql_value: name,
+                            type: 'string' as DatabaseSerializedFieldType,
+                            schema_valid: true,
+                        },
+                    ]
+                })
+            )
 
-                const tableNamePrefix = baseTableForChildren.name === table.name ? `${baseTableForChildren.name}.` : ''
+            const tableNamePrefix = baseTableForChildren.name === table.name ? `${baseTableForChildren.name}.` : ''
 
-                limitedTableFields = {
-                    ...baseTableForChildren,
-                    name: `${tableNamePrefix}${resolvedField.name}`,
-                    id: `${baseTableForChildren.id}.${resolvedField.name}`,
-                    fields: filteredFields,
-                }
-            } else if (baseTableForChildren.name !== table.name) {
-                limitedTableFields = baseTableForChildren
+            limitedTableFields = {
+                ...baseTableForChildren,
+                name: `${tableNamePrefix}${resolvedField.name}`,
+                id: `${baseTableForChildren.id}.${resolvedField.name}`,
+                fields: filteredFields,
             }
+        } else if (baseTableForChildren.name !== table.name) {
+            limitedTableFields = baseTableForChildren
+        }
 
-            const children =
-                limitedTableFields && !visitedTables.has(limitedTableFields.name)
-                    ? buildFieldTreeNodes(
-                          limitedTableFields,
-                          database,
-                          path,
-                          new Set<string>([...visitedTables, limitedTableFields.name])
-                      )
-                    : []
+        const hasChildren = Boolean(
+            limitedTableFields &&
+                Object.keys(limitedTableFields.fields || {}).length > 0 &&
+                !visitedTables.has(limitedTableFields.name)
+        )
 
-            return { field, path, children }
-        })
+        const children =
+            hasChildren && shouldExpandChildren
+                ? buildFieldTreeNodes(
+                      limitedTableFields!,
+                      database,
+                      path,
+                      new Set<string>([...visitedTables, limitedTableFields!.name]),
+                      expandedPaths,
+                      forceExpandAll
+                  )
+                : []
+
+        return { field, path, children, hasChildren }
+    })
 }
 
 function getOrderedFields(table: DatabaseSchemaTable): DatabaseSchemaField[] {
