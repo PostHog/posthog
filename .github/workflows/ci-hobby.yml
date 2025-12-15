@@ -282,11 +282,12 @@ jobs:
                           if (urlMatch) instanceUrl = urlMatch[1];
                       }
 
-                      // Create deployment
+                      // Use PR branch name - GitHub resolves to SHA and links to PR
+                      const ref = context.payload.pull_request?.head?.ref || context.ref;
                       const { data: deployment } = await github.rest.repos.createDeployment({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
-                          ref: context.sha,
+                          ref: ref,
                           environment: environment,
                           auto_merge: false,
                           required_contexts: [],
