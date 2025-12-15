@@ -1,10 +1,11 @@
 import { Message } from 'node-rdkafka'
 
-import { EventHeaders, Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
+import { TeamManager } from '~/utils/team-manager'
+
+import { EventHeaders, IncomingEvent, IncomingEventWithTeam } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import {
-    createApplyDropRestrictionsStep,
-    createApplyForceOverflowRestrictionsStep,
+    createApplyEventRestrictionsStep,
     createDropExceptionEventsStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -25,7 +26,7 @@ export interface PreTeamPreprocessingSubpipelineOutput {
 }
 
 export interface PreTeamPreprocessingSubpipelineConfig {
-    hub: Hub
+    teamManager: TeamManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
     overflowTopic: string
@@ -36,13 +37,13 @@ export function createPreTeamPreprocessingSubpipeline<TInput extends PreTeamPrep
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PreTeamPreprocessingSubpipelineConfig
 ): PipelineBuilder<TInput, TInput & PreTeamPreprocessingSubpipelineOutput, TContext> {
-    const { hub, eventIngestionRestrictionManager, overflowEnabled, overflowTopic, preservePartitionLocality } = config
+    const { teamManager, eventIngestionRestrictionManager, overflowEnabled, overflowTopic, preservePartitionLocality } =
+        config
 
     return builder
         .pipe(createParseHeadersStep())
-        .pipe(createApplyDropRestrictionsStep(eventIngestionRestrictionManager))
         .pipe(
-            createApplyForceOverflowRestrictionsStep(eventIngestionRestrictionManager, {
+            createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                 overflowEnabled,
                 overflowTopic,
                 preservePartitionLocality,
@@ -50,6 +51,6 @@ export function createPreTeamPreprocessingSubpipeline<TInput extends PreTeamPrep
         )
         .pipe(createParseKafkaMessageStep())
         .pipe(createDropExceptionEventsStep())
-        .pipe(createResolveTeamStep(hub))
+        .pipe(createResolveTeamStep(teamManager))
         .pipe(createValidateHistoricalMigrationStep())
 }

@@ -24,6 +24,7 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { SupportTracesFilters } from '~/queries/nodes/DataNode/SupportTracesFilters'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
@@ -744,6 +745,9 @@ export function DataTable({
         showTestAccountFilters && sourceFeatures.has(QueryFeature.testAccountFilters) ? (
             <TestAccountFilters key="test-account-filters" query={query.source} setQuery={setQuerySource} />
         ) : null,
+        sourceFeatures.has(QueryFeature.supportTracesFilters) ? (
+            <SupportTracesFilters key="support-traces-filters" query={query.source} setQuery={setQuerySource} />
+        ) : null,
         showSavedQueries && sourceFeatures.has(QueryFeature.savedEventsQueries) ? (
             <SavedQueries key="saved-queries" query={query} setQuery={setQuery} />
         ) : null,
@@ -814,8 +818,8 @@ export function DataTable({
                         <DataTableSavedFilters uniqueKey={String(uniqueKey)} query={query} setQuery={setQuery} />
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
-                    {showSecondRow && (
-                        <div className="flex gap-2 justify-between flex-wrap DataTable__second-row">
+                    {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
+                        <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
                             <div className="flex gap-2 items-center">{secondRowLeft}</div>
                             <div className="flex gap-2 items-center">{secondRowRight}</div>
                         </div>

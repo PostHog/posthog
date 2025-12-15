@@ -200,6 +200,19 @@ wheels = [
 ]
 
 [[package]]
+name = "asyncpg-stubs"
+version = "0.31.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "asyncpg" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e0/e1/a51adefd76533eeff03d442bb4acbc96c2e27e04c85ce4be410b2ea92f33/asyncpg_stubs-0.31.1.tar.gz", hash = "sha256:6d7342417f867365c98b67d5ae40cb57ce6b2a9eb921fff39d9296961fca18be", size = 20591, upload-time = "2025-12-10T16:59:00.99Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/ab/2301aace8c32be52832f3af75aadfd3c8516b8e7764ba8fa82c6008a99aa/asyncpg_stubs-0.31.1-py3-none-any.whl", hash = "sha256:96c0cf3786948f313207b990d26bf3430daf385ca2913ba65d9dd0ede6bf8bf4", size = 27651, upload-time = "2025-12-10T16:58:59.896Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "25.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -963,6 +976,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "anthropic" },
+    { name = "asyncpg-stubs" },
     { name = "fakeredis" },
     { name = "mypy" },
     { name = "openai" },
@@ -994,6 +1008,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "anthropic", specifier = ">=0.40.0" },
+    { name = "asyncpg-stubs", specifier = ">=0.30.0" },
     { name = "fakeredis", specifier = "==2.23.3" },
     { name = "mypy", specifier = ">=1.13.0" },
     { name = "openai", specifier = ">=1.50.0" },

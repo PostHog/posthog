@@ -22,7 +22,7 @@ import {
     PluginsServerConfig,
     Team,
 } from '../types'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager, Restriction } from '../utils/event-ingestion-restriction-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
@@ -163,6 +163,7 @@ export class IngestionConsumer {
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+            updateAllProperties: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
         })
 
         this.groupStore = new BatchWritingGroupStore(this.hub, {
@@ -215,7 +216,21 @@ export class IngestionConsumer {
         this.perDistinctIdPipeline = createPerDistinctIdPipeline(
             newBatchPipelineBuilder<PerDistinctIdPipelineInput, { message: Message; team: Team }>(),
             {
-                hub: this.hub,
+                options: {
+                    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+                    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
+                    PIPELINE_STEP_STALLED_LOG_TIMEOUT: this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
+                    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+                    PERSON_MERGE_ASYNC_ENABLED: this.hub.PERSON_MERGE_ASYNC_ENABLED,
+                    PERSON_MERGE_ASYNC_TOPIC: this.hub.PERSON_MERGE_ASYNC_TOPIC,
+                    PERSON_MERGE_SYNC_BATCH_SIZE: this.hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+                    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                    PERSON_PROPERTIES_UPDATE_ALL: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
+                },
+                teamManager: this.hub.teamManager,
+                groupTypeManager: this.hub.groupTypeManager,
                 hogTransformer: this.hogTransformer,
                 personsStore: this.personsStore,
                 kafkaProducer: this.kafkaProducer!,
@@ -408,7 +423,8 @@ export class IngestionConsumer {
         const eventKey = `${token}:${distinctId}`
 
         // Check if this token is in the force overflow static/dynamic config list
-        const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
+        const restrictions = this.getAppliedRestrictions(token, distinctId)
+        const shouldForceOverflow = restrictions.has(Restriction.FORCE_OVERFLOW)
 
         // Check the rate limiter and emit to overflow if necessary
         const isBelowRateLimit = this.overflowRateLimiter.consume(
@@ -429,7 +445,8 @@ export class IngestionConsumer {
             // NOTE: If we are forcing to overflow we typically want to keep the partition key
             // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
             // of random partitioning.
-            const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
+            const preserveLocality =
+                shouldForceOverflow && !restrictions.has(Restriction.SKIP_PERSON_PROCESSING) ? true : undefined
 
             void this.promiseScheduler.schedule(
                 this.emitToOverflow(
@@ -551,18 +568,8 @@ export class IngestionConsumer {
         return groupedEvents
     }
 
-    private shouldSkipPerson(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
-    }
-
-    private shouldForceOverflow(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
+    private getAppliedRestrictions(token?: string, distinctId?: string): ReadonlySet<Restriction> {
+        return this.eventIngestionRestrictionManager.getAppliedRestrictions(token, { distinct_id: distinctId })
     }
 
     private overflowEnabled(): boolean {

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Annotated
 
 import asyncpg
@@ -9,12 +11,14 @@ from llm_gateway.rate_limiting.middleware import check_rate_limit
 from llm_gateway.rate_limiting.redis_limiter import RateLimiter
 
 
-async def get_db_pool(request: Request) -> asyncpg.Pool:
-    return request.app.state.db_pool
+async def get_db_pool(request: Request) -> "asyncpg.Pool[asyncpg.Record]":  # noqa: UP037
+    pool: asyncpg.Pool[asyncpg.Record] = request.app.state.db_pool
+    return pool
 
 
 async def get_rate_limiter(request: Request) -> RateLimiter:
-    return request.app.state.rate_limiter
+    limiter: RateLimiter = request.app.state.rate_limiter
+    return limiter
 
 
 async def get_authenticated_user(

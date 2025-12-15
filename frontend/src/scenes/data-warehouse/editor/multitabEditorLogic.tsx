@@ -234,6 +234,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             queryInput,
             viewId,
         }),
+        syncUrlWithQuery: true,
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -614,7 +615,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: async () => {
             actions.setFinishedLoading(false)
         },
-        setQueryInput: ({ queryInput }) => {
+        setQueryInput: async ({ queryInput }, breakpoint) => {
             // Keep suggestion payload active - let user make edits and then decide to approve/reject
             // if editing a view, track latest history id changes are based on
             if (values.activeTab?.view && values.activeTab?.view.query?.query) {
@@ -627,6 +628,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setInProgressViewEdit(values.activeTab.view.id, values.activeTab.view.latest_history_id)
                 }
             }
+
+            await breakpoint(500)
+
+            actions.syncUrlWithQuery()
         },
         saveDraft: async ({ queryInput, viewId }) => {
             if (values.activeTab) {
@@ -1088,7 +1093,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     }),
     tabAwareActionToUrl(({ values }) => ({
-        setQueryInput: () => {
+        syncUrlWithQuery: () => {
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
         createTab: () => {
