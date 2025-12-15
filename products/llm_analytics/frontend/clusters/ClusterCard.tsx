@@ -62,17 +62,14 @@ export function ClusterCard({
             {isExpanded && (
                 <div className="border-t">
                     <ClusterTraceList cluster={cluster} traceSummaries={traceSummaries} loading={loadingTraces} />
-                    {/* View all link for clusters with more than 20 traces */}
-                    {Object.keys(cluster.traces).length > 20 && (
-                        <div className="p-3 border-t bg-surface-secondary">
-                            <Link
-                                to={urls.llmAnalyticsCluster(runId, cluster.cluster_id)}
-                                className="text-link hover:underline text-sm font-medium"
-                            >
-                                View all {Object.keys(cluster.traces).length} traces →
-                            </Link>
-                        </div>
-                    )}
+                    <div className="p-3 border-t bg-surface-secondary">
+                        <Link
+                            to={urls.llmAnalyticsCluster(runId, cluster.cluster_id)}
+                            className="text-link hover:underline text-sm font-medium"
+                        >
+                            View all {Object.keys(cluster.traces).length} traces →
+                        </Link>
+                    </div>
                 </div>
             )}
         </div>
