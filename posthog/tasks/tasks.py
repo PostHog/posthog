@@ -730,10 +730,10 @@ def verify_persons_data_in_sync() -> None:
 
 
 @shared_task(ignore_result=True)
-def stop_surveys_reached_target() -> None:
+def stop_surveys_reached_target(survey_id: str | None = None) -> None:
     from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
-    stop_surveys_reached_target()
+    stop_surveys_reached_target(survey_id=survey_id)
 
 
 @shared_task(ignore_result=True)

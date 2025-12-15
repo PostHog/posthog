@@ -1145,6 +1145,179 @@ class TestSurvey(APIBaseTest):
         )
         assert FeatureFlag.objects.filter(id=survey.internal_targeting_flag.id).get().active is True
 
+    def test_survey_with_wait_period_creates_targeting_flag_with_last_seen_date_check(self):
+        """Test that surveys with seenSurveyWaitPeriodInDays include $last_seen_survey_date check in targeting flag."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with wait period",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {
+                    "seenSurveyWaitPeriodInDays": 7,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        survey = Survey.objects.get(id=response_data["id"])
+        survey_id = str(survey.id)
+
+        assert survey.internal_targeting_flag is not None
+
+        # With wait period, the flag should have two groups (OR condition):
+        # Group 1: User has never seen any survey ($last_seen_survey_date is_not_set)
+        # Group 2: User's last survey was more than N days ago ($last_seen_survey_date is_date_before -7d)
+        expected_filters = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": "$last_seen_survey_date",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                },
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": "$last_seen_survey_date",
+                            "type": "person",
+                            "value": "-7d",
+                            "operator": "is_date_before",
+                        },
+                    ],
+                },
+            ]
+        }
+
+        assert survey.internal_targeting_flag.filters == expected_filters
+
+    def test_survey_without_wait_period_has_single_group_targeting_flag(self):
+        """Test that surveys without wait period have a single group in targeting flag."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey without wait period",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {
+                    "url": "https://example.com",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        survey = Survey.objects.get(id=response_data["id"])
+        survey_id = str(survey.id)
+
+        assert survey.internal_targeting_flag is not None
+
+        # Without wait period, the flag should have a single group
+        expected_filters = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                }
+            ]
+        }
+
+        assert survey.internal_targeting_flag.filters == expected_filters
+
+    def test_updating_survey_wait_period_updates_targeting_flag(self):
+        """Test that updating a survey's wait period updates the targeting flag accordingly."""
+        # Create survey without wait period
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey to update",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        survey = Survey.objects.get(id=response_data["id"])
+
+        # Verify single group initially
+        assert len(survey.internal_targeting_flag.filters["groups"]) == 1
+
+        # Update to add wait period
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "conditions": {
+                    "seenSurveyWaitPeriodInDays": 14,
+                },
+            },
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+
+        survey.refresh_from_db()
+        survey.internal_targeting_flag.refresh_from_db()
+
+        # Verify two groups after adding wait period
+        assert len(survey.internal_targeting_flag.filters["groups"]) == 2
+
+        # Check the second group has the correct date filter
+        second_group = survey.internal_targeting_flag.filters["groups"][1]
+        last_seen_property = next((p for p in second_group["properties"] if p["key"] == "$last_seen_survey_date"), None)
+        assert last_seen_property is not None
+        assert last_seen_property["value"] == "14d"
+        assert last_seen_property["operator"] == "is_date_before"
+
     def test_options_unauthenticated(self):
         unauthenticated_client = Client(enforce_csrf_checks=True)
         unauthenticated_client.logout()

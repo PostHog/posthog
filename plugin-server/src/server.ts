@@ -41,6 +41,7 @@ import { NodeInstrumentation } from './utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
+import { internalEventHandlerRegistry } from './worker/ingestion/internal-handlers'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins } from './worker/tasks'
 
@@ -103,6 +104,8 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
+
+        internalEventHandlerRegistry.setCelery(hub.celery)
 
         let _initPluginsPromise: Promise<void> | undefined
 

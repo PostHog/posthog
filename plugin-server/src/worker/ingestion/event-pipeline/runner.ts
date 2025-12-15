@@ -19,6 +19,7 @@ import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStore } from '../persons/persons-store'
 import { EventsProcessor } from '../process-event'
 import { dropOldEventsStep } from './dropOldEventsStep'
+import { internalHandlersStep } from './internalHandlersStep'
 import {
     pipelineLastStepCounter,
     pipelineStepErrorCounter,
@@ -253,6 +254,8 @@ export class EventPipelineRunner {
             return normalizeResult
         }
         const [normalizedEvent, timestamp] = normalizeResult.value
+
+        await internalHandlersStep(normalizedEvent)
 
         const personProcessingResult = await this.processPersonForEvent(
             normalizedEvent,
