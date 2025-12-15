@@ -276,7 +276,7 @@ All blobs for an event are stored as a single multipart file in S3:
 
 #### Format
 
-**Multipart/mixed format** - Similar to email MIME, with boundaries separating each blob part
+**multipart/form-data format** - Similar to email MIME, with boundaries separating each blob part
 
 #### Bucket Structure
 
@@ -309,7 +309,7 @@ s3://<bucket>/
   - `team_id`
   - `event_id`
   - `upload_timestamp`
-  - `content_type` (multipart/mixed or similar)
+  - `content_type` (multipart/form-data or similar)
   - Index of blob positions within the file
 
 #### Event Property Format

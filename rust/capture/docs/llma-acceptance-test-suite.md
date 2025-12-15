@@ -76,7 +76,7 @@ This document describes the Python acceptance test suite for the LLM Analytics p
 
 #### Scenario 4.1: Multipart File Creation
 
-- **Test**: Upload events with multiple blobs, verify multipart/mixed format
+- **Test**: Upload events with multiple blobs, verify multipart/form-data format
 - **Validation**: Use S3 client to verify single S3 file contains all blobs, proper MIME boundaries, metadata preserved
 - **Variations**: 2-10 blobs per event, mixed content types, different blob sizes
 

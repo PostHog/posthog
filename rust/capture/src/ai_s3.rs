@@ -34,7 +34,7 @@ pub struct BlobPartRange {
 /// Allows mocking in tests via dynamic dispatch.
 #[async_trait]
 pub trait BlobStorage: Send + Sync {
-    /// Upload multiple blobs as a multipart/mixed document.
+    /// Upload multiple blobs as a multipart/form-data document.
     /// Returns metadata for generating S3 URLs with byte ranges.
     /// Each range extracts a complete single-part multipart document.
     async fn upload_blobs(
@@ -45,7 +45,7 @@ pub trait BlobStorage: Send + Sync {
     ) -> Result<UploadedBlobs, S3Error>;
 }
 
-/// AI-specific blob storage that handles multipart/mixed format and URL generation.
+/// AI-specific blob storage that handles multipart/form-data format and URL generation.
 pub struct AiBlobStorage {
     s3_client: S3Client,
     prefix: String,
@@ -194,7 +194,7 @@ fn build_multipart_document(event_uuid: &str, blobs: Vec<BlobData>) -> BuiltDocu
 
 #[async_trait]
 impl BlobStorage for AiBlobStorage {
-    /// Upload multiple blobs as a multipart/mixed document.
+    /// Upload multiple blobs as a multipart/form-data document.
     /// Each blob becomes a standalone part that can be extracted via byte range.
     ///
     /// `token` is used as the partition key in the S3 path.
@@ -215,9 +215,9 @@ impl BlobStorage for AiBlobStorage {
 
         let doc = build_multipart_document(event_uuid, blobs);
 
-        // Upload with multipart/mixed content type
+        // Upload with multipart/form-data content type
         let key = format!("{}{}/{}", self.prefix, token, event_uuid);
-        let content_type = format!("multipart/mixed; boundary={}", doc.boundary);
+        let content_type = format!("multipart/form-data; boundary={}", doc.boundary);
         self.s3_client
             .put_object(&key, doc.data, &content_type)
             .await?;

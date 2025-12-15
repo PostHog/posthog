@@ -863,7 +863,7 @@ class TestLLMAnalytics:
         logger.info(f"Event 3 $ai_embedding_vector S3 URL verified: {ai_embedding_url}")
 
     def test_ai_blob_data_stored_correctly_in_s3(self, shared_org_project):
-        """Test that blob data is correctly stored in S3 as multipart/mixed format.
+        """Test that blob data is correctly stored in S3 as multipart/form-data format.
 
         Verifies:
         1. Each property's byte range can be fetched and parsed as a standalone multipart document
@@ -973,8 +973,8 @@ class TestLLMAnalytics:
         logger.info(f"Full S3 object size: {len(full_data)} bytes")
         logger.info(f"Content-Type header: {content_type}")
 
-        # Extract boundary from Content-Type header (format: multipart/mixed; boundary=...)
-        assert "multipart/mixed" in content_type, f"Expected multipart/mixed content type, got: {content_type}"
+        # Extract boundary from Content-Type header (format: multipart/form-data; boundary=...)
+        assert "multipart/form-data" in content_type, f"Expected multipart/form-data content type, got: {content_type}"
         boundary_match = re.search(r"boundary=([^\s;]+)", content_type)
         assert boundary_match, f"Could not extract boundary from Content-Type: {content_type}"
         boundary = boundary_match.group(1)
