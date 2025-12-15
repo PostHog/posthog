@@ -40,7 +40,7 @@ for model_tables in EMBEDDING_TABLES_1:
                 index_sql,
                 node_roles=[NodeRole.DATA],
                 sharded=True,
-                is_alter_on_replicated_table=False,
+                is_alter_on_replicated_table=True,
             )
         )
 
