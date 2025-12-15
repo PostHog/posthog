@@ -22,6 +22,10 @@ from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourc
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
+# Schema inference settings
+SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
+SCHEMA_INFERENCE_TIMEOUT_MS = 30_000  # 30 seconds
+
 
 def _process_nested_value(value: Any) -> Any:
     """Process a nested value, converting ObjectIds to strings."""
@@ -185,10 +189,12 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
 
 
 def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
-    """Infer schema from MongoDB collection using aggregation to get all document keys and types."""
+    """Infer schema from MongoDB collection using aggregation to get document keys and types."""
     try:
-        # Use aggregation pipeline to get all unique keys and their types
+        # Use aggregation pipeline with limit to avoid full collection scan
         pipeline: list[dict[str, Any]] = [
+            # Limit documents to avoid scanning entire collection (uses _id index)
+            {"$limit": SCHEMA_INFERENCE_LIMIT},
             # Convert each document to an array of key-value pairs
             {"$project": {"arrayofkeyvalue": {"$objectToArray": "$$ROOT"}}},
             # Unwind the array to get individual key-value pairs
@@ -202,7 +208,7 @@ def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
             },
         ]
 
-        result = list(collection.aggregate(pipeline))
+        result = list(collection.aggregate(pipeline, maxTimeMS=SCHEMA_INFERENCE_TIMEOUT_MS))
 
         if not result:
             return [("_id", "string")]
