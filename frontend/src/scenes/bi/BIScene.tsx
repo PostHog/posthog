@@ -834,7 +834,7 @@ export function BIScene(): JSX.Element {
                     </div>
                 </ResizableElement>
 
-                <div className="flex-1 flex flex-col gap-2 min-h-0">
+                <div className="flex-1 flex flex-col gap-2 min-h-0 min-w-0">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <LemonButton type="secondary" onClick={() => refreshQuery()} icon={<IconPlay />}>
@@ -944,7 +944,10 @@ export function BIScene(): JSX.Element {
 
                     <LemonCard className="flex-1 min-h-0 flex flex-col min-w-full max-w-full" hoverEffect={false}>
                         {selectedFields.length === 0 ? (
-                            <div className="text-muted">Select a table from the left to start the analysis.</div>
+                            <div className="text-muted">
+                                <p className="font-bold">Select a table from the left.</p>
+                                <p>You will then be able to query it together with all relations within reach.</p>
+                            </div>
                         ) : (
                             <div className="flex-1 min-h-0 flex flex-col max-w-full">
                                 <div className="flex-1 min-h-0 overflow-auto">
