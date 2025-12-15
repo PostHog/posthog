@@ -5,30 +5,13 @@ import { LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { BulletList, parseBullets } from './ClusterDescriptionComponents'
 import { Cluster, ClusterTraceInfo, TraceSummary } from './types'
 
 interface ClusterTraceListProps {
     cluster: Cluster
     traceSummaries: Record<string, TraceSummary>
     loading: boolean
-}
-
-interface BulletItem {
-    text: string
-    line_refs: string
-}
-
-function parseBullets(bullets: string): BulletItem[] {
-    try {
-        const parsed = JSON.parse(bullets)
-        if (Array.isArray(parsed)) {
-            return parsed as BulletItem[]
-        }
-        return []
-    } catch {
-        // If not JSON, return as single item
-        return bullets ? [{ text: bullets, line_refs: '' }] : []
-    }
 }
 
 export function ClusterTraceList({ cluster, traceSummaries, loading }: ClusterTraceListProps): JSX.Element {
@@ -148,15 +131,5 @@ function TraceListItem({
                 <div className="text-muted text-sm">Loading summary...</div>
             )}
         </div>
-    )
-}
-
-function BulletList({ items }: { items: BulletItem[] }): JSX.Element {
-    return (
-        <ul className="p-2 bg-surface-secondary rounded text-sm space-y-1 list-disc list-inside">
-            {items.map((item, index) => (
-                <li key={index}>{item.text}</li>
-            ))}
-        </ul>
     )
 }

@@ -11,26 +11,10 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
 import { ClusterTraceInfo, TraceSummary } from './types'
-
-interface BulletItem {
-    text: string
-    line_refs: string
-}
-
-function parseBullets(bullets: string): BulletItem[] {
-    try {
-        const parsed = JSON.parse(bullets)
-        if (Array.isArray(parsed)) {
-            return parsed as BulletItem[]
-        }
-        return []
-    } catch {
-        return bullets ? [{ text: bullets, line_refs: '' }] : []
-    }
-}
 
 export const scene: SceneExport<ClusterDetailLogicProps> = {
     component: LLMAnalyticsClusterScene,
@@ -301,34 +285,3 @@ function TraceListItem({
         </div>
     )
 }
-
-function BulletList({ items }: { items: BulletItem[] }): JSX.Element {
-    return (
-        <ul className="p-3 bg-surface-tertiary rounded text-sm space-y-1 list-disc list-inside">
-            {items.map((item, index) => (
-                <li key={index}>{item.text}</li>
-            ))}
-        </ul>
-    )
-}
-
-function ClusterDescription({ description }: { description: string }): JSX.Element {
-    // Check if description contains bullet points (lines starting with "- ")
-    const lines = description.split('\n').filter((line) => line.trim())
-    const isBulletList = lines.length > 1 && lines.every((line) => line.trim().startsWith('- '))
-
-    if (isBulletList) {
-        return (
-            <ul className="text-secondary text-sm list-disc list-inside space-y-0.5 m-0">
-                {lines.map((line, index) => (
-                    <li key={index}>{line.trim().slice(2)}</li>
-                ))}
-            </ul>
-        )
-    }
-
-    // Fallback to plain text for non-bullet descriptions
-    return <p className="text-secondary m-0">{description}</p>
-}
-
-export default LLMAnalyticsClusterScene

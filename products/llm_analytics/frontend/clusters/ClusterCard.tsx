@@ -3,6 +3,7 @@ import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { ClusterDescription } from './ClusterDescriptionComponents'
 import { ClusterTraceList } from './ClusterTraceList'
 import { Cluster, NOISE_CLUSTER_ID, TraceSummary } from './types'
 
@@ -74,23 +75,4 @@ export function ClusterCard({
             )}
         </div>
     )
-}
-
-function ClusterDescription({ description }: { description: string }): JSX.Element {
-    // Check if description contains bullet points (lines starting with "- ")
-    const lines = description.split('\n').filter((line) => line.trim())
-    const isBulletList = lines.length > 1 && lines.every((line) => line.trim().startsWith('- '))
-
-    if (isBulletList) {
-        return (
-            <ul className="text-secondary text-sm list-disc list-inside space-y-0.5">
-                {lines.map((line, index) => (
-                    <li key={index}>{line.trim().slice(2)}</li>
-                ))}
-            </ul>
-        )
-    }
-
-    // Fallback to plain text for non-bullet descriptions
-    return <p className="text-secondary text-sm">{description}</p>
 }
