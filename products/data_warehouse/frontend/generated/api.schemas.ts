@@ -121,6 +121,20 @@ export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 export const NullEnumApi = {} as const
 
 /**
+ * * `data_warehouse` - Data Warehouse
+ * `endpoint` - Endpoint
+ * `managed_viewset` - Managed Viewset
+ */
+export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const OriginEnumApi = {
+    data_warehouse: 'data_warehouse',
+    endpoint: 'endpoint',
+    managed_viewset: 'managed_viewset',
+} as const
+
+/**
  * * `engineering` - Engineering
  * `data` - Data
  * `product` - Product Management
@@ -268,6 +282,20 @@ export type DataWarehouseSavedQueryApiStatus =
     | (typeof DataWarehouseSavedQueryApiStatus)[keyof typeof DataWarehouseSavedQueryApiStatus]
     | null
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const DataWarehouseSavedQueryApiOrigin = { ...OriginEnumApi, ...NullEnumApi } as const
+/**
+ * Where this SavedQuery is created.
+
+* `data_warehouse` - Data Warehouse
+* `endpoint` - Endpoint
+* `managed_viewset` - Managed Viewset
+ * @nullable
+ */
+export type DataWarehouseSavedQueryApiOrigin =
+    | (typeof DataWarehouseSavedQueryApiOrigin)[keyof typeof DataWarehouseSavedQueryApiOrigin]
+    | null
+
 export interface DataWarehouseSavedQueryApi {
     readonly id: string
     /** @nullable */
@@ -306,6 +334,15 @@ export interface DataWarehouseSavedQueryApi {
     soft_update?: boolean | null
     /** @nullable */
     readonly is_materialized: boolean | null
+    /**
+   * Where this SavedQuery is created.
+
+* `data_warehouse` - Data Warehouse
+* `endpoint` - Endpoint
+* `managed_viewset` - Managed Viewset
+   * @nullable
+   */
+    readonly origin: DataWarehouseSavedQueryApiOrigin
 }
 
 /**
@@ -331,6 +368,20 @@ export const PatchedDataWarehouseSavedQueryApiStatus = {
  */
 export type PatchedDataWarehouseSavedQueryApiStatus =
     | (typeof PatchedDataWarehouseSavedQueryApiStatus)[keyof typeof PatchedDataWarehouseSavedQueryApiStatus]
+    | null
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PatchedDataWarehouseSavedQueryApiOrigin = { ...OriginEnumApi, ...NullEnumApi } as const
+/**
+ * Where this SavedQuery is created.
+
+* `data_warehouse` - Data Warehouse
+* `endpoint` - Endpoint
+* `managed_viewset` - Managed Viewset
+ * @nullable
+ */
+export type PatchedDataWarehouseSavedQueryApiOrigin =
+    | (typeof PatchedDataWarehouseSavedQueryApiOrigin)[keyof typeof PatchedDataWarehouseSavedQueryApiOrigin]
     | null
 
 export interface PatchedDataWarehouseSavedQueryApi {
@@ -371,6 +422,15 @@ export interface PatchedDataWarehouseSavedQueryApi {
     soft_update?: boolean | null
     /** @nullable */
     readonly is_materialized?: boolean | null
+    /**
+   * Where this SavedQuery is created.
+
+* `data_warehouse` - Data Warehouse
+* `endpoint` - Endpoint
+* `managed_viewset` - Managed Viewset
+   * @nullable
+   */
+    readonly origin?: PatchedDataWarehouseSavedQueryApiOrigin
 }
 
 export interface PaginatedDataWarehouseSavedQueryDraftListApi {

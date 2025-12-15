@@ -11,6 +11,7 @@
  * `surveys` - surveys
  * `early_access_features` - early_access_features
  * `web_experiments` - web_experiments
+ * `product_tours` - product_tours
  */
 export type CreationContextEnumApi = (typeof CreationContextEnumApi)[keyof typeof CreationContextEnumApi]
 
@@ -21,6 +22,7 @@ export const CreationContextEnumApi = {
     surveys: 'surveys',
     early_access_features: 'early_access_features',
     web_experiments: 'web_experiments',
+    product_tours: 'product_tours',
 } as const
 
 /**
@@ -178,13 +180,14 @@ export interface FeatureFlagApi {
      * @nullable
      */
     readonly user_access_level: string | null
-    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.
+    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
 
 * `feature_flags` - feature_flags
 * `experiments` - experiments
 * `surveys` - surveys
 * `early_access_features` - early_access_features
-* `web_experiments` - web_experiments */
+* `web_experiments` - web_experiments
+* `product_tours` - product_tours */
     creation_context?: CreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
@@ -305,13 +308,14 @@ export interface PatchedFeatureFlagApi {
      * @nullable
      */
     readonly user_access_level?: string | null
-    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.
+    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
 
 * `feature_flags` - feature_flags
 * `experiments` - experiments
 * `surveys` - surveys
 * `early_access_features` - early_access_features
-* `web_experiments` - web_experiments */
+* `web_experiments` - web_experiments
+* `product_tours` - product_tours */
     creation_context?: CreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
@@ -342,6 +346,37 @@ export interface PatchedFeatureFlagApi {
     last_called_at?: string | null
     _create_in_folder?: string
     _should_create_usage_dashboard?: boolean
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
+}
+
+export type LocalEvaluationResponseApiGroupTypeMapping = { [key: string]: string }
+
+/**
+ * Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).
+ */
+export type LocalEvaluationResponseApiCohorts = { [key: string]: unknown }
+
+export interface LocalEvaluationResponseApi {
+    flags: MinimalFeatureFlagApi[]
+    group_type_mapping: LocalEvaluationResponseApiGroupTypeMapping
+    /** Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters). */
+    cohorts: LocalEvaluationResponseApiCohorts
+}
+
+export interface MyFlagsResponseApi {
+    feature_flag: MinimalFeatureFlagApi
+    value: unknown
 }
 
 /**
@@ -378,6 +413,121 @@ export interface UserBasicApi {
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     /** @nullable */
     role_at_organization?: UserBasicApiRoleAtOrganization
+}
+
+export interface ActivityLogEntryApi {
+    readonly user: string
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+}
+
+export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const MinimalFeatureFlagApiEvaluationRuntime = {
+    ...EvaluationRuntimeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
+/**
+ * Specifies where this feature flag should be evaluated
+
+* `server` - Server
+* `client` - Client
+* `all` - All
+ * @nullable
+ */
+export type MinimalFeatureFlagApiEvaluationRuntime =
+    | (typeof MinimalFeatureFlagApiEvaluationRuntime)[keyof typeof MinimalFeatureFlagApiEvaluationRuntime]
+    | null
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const MinimalFeatureFlagApiBucketingIdentifier = {
+    ...BucketingIdentifierEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
+/**
+ * Identifier used for bucketing users into rollout and variants
+
+* `distinct_id` - User ID (default)
+* `device_id` - Device ID
+ * @nullable
+ */
+export type MinimalFeatureFlagApiBucketingIdentifier =
+    | (typeof MinimalFeatureFlagApiBucketingIdentifier)[keyof typeof MinimalFeatureFlagApiBucketingIdentifier]
+    | null
+
+export interface MinimalFeatureFlagApi {
+    readonly id: number
+    readonly team_id: number
+    name?: string
+    /** @maxLength 400 */
+    key: string
+    filters?: MinimalFeatureFlagApiFilters
+    deleted?: boolean
+    active?: boolean
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    /** @nullable */
+    has_encrypted_payloads?: boolean | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    version?: number | null
+    /**
+   * Specifies where this feature flag should be evaluated
+
+* `server` - Server
+* `client` - Client
+* `all` - All
+   * @nullable
+   */
+    evaluation_runtime?: MinimalFeatureFlagApiEvaluationRuntime
+    /**
+   * Identifier used for bucketing users into rollout and variants
+
+* `distinct_id` - User ID (default)
+* `device_id` - Device ID
+   * @nullable
+   */
+    bucketing_identifier?: MinimalFeatureFlagApiBucketingIdentifier
+    readonly evaluation_tags: readonly string[]
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
 }
 
 export type FeatureFlagsListParams = {
@@ -453,3 +603,66 @@ export const FeatureFlagsListType = {
     experiment: 'experiment',
     multivariant: 'multivariant',
 } as const
+
+export type FeatureFlagsActivityRetrieve2Params = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
+}
+
+export type FeatureFlagsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
+}
+
+export type FeatureFlagsEvaluationReasonsRetrieveParams = {
+    /**
+     * User distinct ID
+     * @minLength 1
+     */
+    distinct_id: string
+    /**
+     * Groups for feature flag evaluation (JSON object string)
+     */
+    groups?: string
+}
+
+export type FeatureFlagsLocalEvaluationRetrieveParams = {
+    /**
+     * Include cohorts in response
+     * @nullable
+     */
+    send_cohorts?: boolean | null
+}
+
+/**
+ * Unspecified response body
+ */
+export type FeatureFlagsLocalEvaluationRetrieve402 = { [key: string]: unknown }
+
+/**
+ * Unspecified response body
+ */
+export type FeatureFlagsLocalEvaluationRetrieve500 = { [key: string]: unknown }
+
+export type FeatureFlagsMyFlagsRetrieveParams = {
+    /**
+     * Groups for feature flag evaluation (JSON object string)
+     */
+    groups?: string
+}

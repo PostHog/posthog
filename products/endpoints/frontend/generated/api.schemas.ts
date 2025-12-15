@@ -85,6 +85,7 @@ export type WebAnalyticsOrderByFieldsApi =
 export const WebAnalyticsOrderByFieldsApi = {
     Visitors: 'Visitors',
     Views: 'Views',
+    AvgTimeOnPage: 'AvgTimeOnPage',
     Clicks: 'Clicks',
     BounceRate: 'BounceRate',
     AverageScrollPercentage: 'AverageScrollPercentage',
@@ -134,6 +135,15 @@ export const MaterializationModeApi = {
     legacy_null_as_string: 'legacy_null_as_string',
     legacy_null_as_null: 'legacy_null_as_null',
     disabled: 'disabled',
+} as const
+
+export type MaterializedColumnsOptimizationModeApi =
+    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const MaterializedColumnsOptimizationModeApi = {
+    disabled: 'disabled',
+    optimized: 'optimized',
 } as const
 
 export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
@@ -252,6 +262,15 @@ export const DurationTypeApi = {
     duration: 'duration',
     active_seconds: 'active_seconds',
     inactive_seconds: 'inactive_seconds',
+} as const
+
+export type LogPropertyFilterTypeApi = (typeof LogPropertyFilterTypeApi)[keyof typeof LogPropertyFilterTypeApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const LogPropertyFilterTypeApi = {
+    log: 'log',
+    log_attribute: 'log_attribute',
+    log_resource_attribute: 'log_resource_attribute',
 } as const
 
 export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
@@ -906,6 +925,11 @@ Tip: Use to get data for a specific customer or user.
      * @nullable
      */
     variables?: EndpointRunRequestApiVariables
+    /**
+     * Specific endpoint version to execute. If not provided, the latest version is used.
+     * @nullable
+     */
+    version?: number | null
 }
 
 export interface EndpointLastExecutionTimesRequestApi {
@@ -1623,6 +1647,8 @@ export interface WebStatsTableQueryApi {
     /** @nullable */
     filterTestAccounts?: boolean | null
     /** @nullable */
+    includeAvgTimeOnPage?: boolean | null
+    /** @nullable */
     includeBounceRate?: boolean | null
     /** @nullable */
     includeRevenue?: boolean | null
@@ -1879,6 +1905,8 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi
     /** @nullable */
     materializationMode?: MaterializationModeApi
+    /** @nullable */
+    materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi
     /** @nullable */
     optimizeJoinedFilters?: boolean | null
     /** @nullable */
@@ -2413,8 +2441,15 @@ export interface HogQLPropertyFilterApi {
     value?: HogQLPropertyFilterApiValue
 }
 
+export type EmptyPropertyFilterApiType = (typeof EmptyPropertyFilterApiType)[keyof typeof EmptyPropertyFilterApiType]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const EmptyPropertyFilterApiType = {
+    empty: 'empty',
+} as const
+
 export interface EmptyPropertyFilterApi {
-    [key: string]: unknown
+    type?: EmptyPropertyFilterApiType
 }
 
 export type DataWarehousePropertyFilterApiType =
@@ -2507,13 +2542,6 @@ export interface ErrorTrackingIssueFilterApi {
     value?: ErrorTrackingIssueFilterApiValue
 }
 
-export type LogPropertyFilterApiType = (typeof LogPropertyFilterApiType)[keyof typeof LogPropertyFilterApiType]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const LogPropertyFilterApiType = {
-    log: 'log',
-} as const
-
 export type LogPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
@@ -2526,7 +2554,7 @@ export interface LogPropertyFilterApi {
     /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: LogPropertyFilterApiType
+    type: LogPropertyFilterTypeApi
     /** @nullable */
     value?: LogPropertyFilterApiValue
 }

@@ -1514,16 +1514,32 @@ export const DashboardTemplateScopeEnumApi = {
  * `Boolean` - Boolean
  * `Duration` - Duration
  */
-export type PropertyDefinitionPropertyTypeEnumApi =
-    (typeof PropertyDefinitionPropertyTypeEnumApi)[keyof typeof PropertyDefinitionPropertyTypeEnumApi]
+export type PropertyType549EnumApi = (typeof PropertyType549EnumApi)[keyof typeof PropertyType549EnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyDefinitionPropertyTypeEnumApi = {
+export const PropertyType549EnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
     Boolean: 'Boolean',
     Duration: 'Duration',
+} as const
+
+/**
+ * * `1` - event
+ * `2` - person
+ * `3` - group
+ * `4` - session
+ */
+export type PropertyDefinitionTypeEnumApi =
+    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PropertyDefinitionTypeEnumApi = {
+    NUMBER_1: 1,
+    NUMBER_2: 2,
+    NUMBER_3: 3,
+    NUMBER_4: 4,
 } as const
 
 /**
@@ -1560,6 +1576,20 @@ export const ThemeModeEnumApi = {
     light: 'light',
     dark: 'dark',
     system: 'system',
+} as const
+
+/**
+ * * `above` - Above
+ * `below` - Below
+ * `hidden` - Hidden
+ */
+export type ShortcutPositionEnumApi = (typeof ShortcutPositionEnumApi)[keyof typeof ShortcutPositionEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ShortcutPositionEnumApi = {
+    above: 'above',
+    below: 'below',
+    hidden: 'hidden',
 } as const
 
 /**
@@ -2957,6 +2987,8 @@ export interface CohortApi {
     readonly last_calculation: string | null
     readonly errors_calculating: number
     /** @nullable */
+    readonly last_error_message: string | null
+    /** @nullable */
     readonly count: number | null
     is_static?: boolean
     /**
@@ -3131,6 +3163,8 @@ export interface PatchedCohortApi {
     /** @nullable */
     readonly last_calculation?: string | null
     readonly errors_calculating?: number
+    /** @nullable */
+    readonly last_error_message?: string | null
     /** @nullable */
     readonly count?: number | null
     is_static?: boolean
@@ -3389,11 +3423,7 @@ export interface PaginatedPropertyDefinitionListApi {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyDefinitionApiPropertyType = {
-    ...PropertyDefinitionPropertyTypeEnumApi,
-    ...BlankEnumApi,
-    ...NullEnumApi,
-} as const
+export const PropertyDefinitionApiPropertyType = { ...PropertyType549EnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
@@ -3401,23 +3431,17 @@ export type PropertyDefinitionApiPropertyType =
     | (typeof PropertyDefinitionApiPropertyType)[keyof typeof PropertyDefinitionApiPropertyType]
     | null
 
-/**
- * Serializer mixin that resolves appropriate response for tags depending on license.
- */
 export interface PropertyDefinitionApi {
     readonly id: string
-    /** @maxLength 400 */
-    name: string
-    is_numerical?: boolean
+    readonly name: string
     /** @nullable */
-    property_type?: PropertyDefinitionApiPropertyType
-    tags?: unknown[]
-    readonly is_seen_on_filtered_events: string
+    readonly property_type: PropertyDefinitionApiPropertyType
+    readonly type: PropertyDefinitionTypeEnumApi
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PatchedPropertyDefinitionApiPropertyType = {
-    ...PropertyDefinitionPropertyTypeEnumApi,
+    ...PropertyType549EnumApi,
     ...BlankEnumApi,
     ...NullEnumApi,
 } as const
@@ -3526,6 +3550,13 @@ export type UserApiThemeMode = (typeof UserApiThemeMode)[keyof typeof UserApiThe
  */
 export type UserApiHedgehogConfig = unknown | null
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const UserApiShortcutPosition = { ...ShortcutPositionEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
+/**
+ * @nullable
+ */
+export type UserApiShortcutPosition = (typeof UserApiShortcutPosition)[keyof typeof UserApiShortcutPosition] | null
+
 export interface UserApi {
     readonly date_joined: string
     readonly uuid: string
@@ -3544,6 +3575,8 @@ export interface UserApi {
     notification_settings?: UserApiNotificationSettings
     /** @nullable */
     anonymize_data?: boolean | null
+    /** @nullable */
+    allow_impersonation?: boolean | null
     /** @nullable */
     toolbar_mode?: UserApiToolbarMode
     readonly has_password: boolean
@@ -3577,6 +3610,8 @@ export interface UserApi {
     hedgehog_config?: UserApiHedgehogConfig
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
+    /** @nullable */
+    shortcut_position?: UserApiShortcutPosition
     role_at_organization?: RoleAtOrganizationEnumApi
 }
 
@@ -3608,6 +3643,15 @@ export type PatchedUserApiThemeMode = (typeof PatchedUserApiThemeMode)[keyof typ
  */
 export type PatchedUserApiHedgehogConfig = unknown | null
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PatchedUserApiShortcutPosition = { ...ShortcutPositionEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
+/**
+ * @nullable
+ */
+export type PatchedUserApiShortcutPosition =
+    | (typeof PatchedUserApiShortcutPosition)[keyof typeof PatchedUserApiShortcutPosition]
+    | null
+
 export interface PatchedUserApi {
     readonly date_joined?: string
     readonly uuid?: string
@@ -3626,6 +3670,8 @@ export interface PatchedUserApi {
     notification_settings?: PatchedUserApiNotificationSettings
     /** @nullable */
     anonymize_data?: boolean | null
+    /** @nullable */
+    allow_impersonation?: boolean | null
     /** @nullable */
     toolbar_mode?: PatchedUserApiToolbarMode
     readonly has_password?: boolean
@@ -3659,6 +3705,8 @@ export interface PatchedUserApi {
     hedgehog_config?: PatchedUserApiHedgehogConfig
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
+    /** @nullable */
+    shortcut_position?: PatchedUserApiShortcutPosition
     role_at_organization?: RoleAtOrganizationEnumApi
 }
 

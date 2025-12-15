@@ -91,8 +91,11 @@ export const NullEnumApi = {} as const
  * `data_warehouse_person_property` - data_warehouse_person_property
  * `error_tracking_issue` - error_tracking_issue
  * `log` - log
+ * `log_attribute` - log_attribute
+ * `log_resource_attribute` - log_resource_attribute
  * `revenue_analytics` - revenue_analytics
  * `flag` - flag
+ * `workflow_variable` - workflow_variable
  */
 export type PropertyItemTypeEnumApi = (typeof PropertyItemTypeEnumApi)[keyof typeof PropertyItemTypeEnumApi]
 
@@ -117,8 +120,11 @@ export const PropertyItemTypeEnumApi = {
     data_warehouse_person_property: 'data_warehouse_person_property',
     error_tracking_issue: 'error_tracking_issue',
     log: 'log',
+    log_attribute: 'log_attribute',
+    log_resource_attribute: 'log_resource_attribute',
     revenue_analytics: 'revenue_analytics',
     flag: 'flag',
+    workflow_variable: 'workflow_variable',
 } as const
 
 export interface PropertyApi {

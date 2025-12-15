@@ -185,6 +185,71 @@ export const environmentsEndpointsDestroy = async (
 }
 
 /**
+ * Get materialization status for an endpoint.
+ */
+export type environmentsEndpointsMaterializationStatusRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsEndpointsMaterializationStatusRetrieveResponseSuccess =
+    environmentsEndpointsMaterializationStatusRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsEndpointsMaterializationStatusRetrieveResponse =
+    environmentsEndpointsMaterializationStatusRetrieveResponseSuccess
+
+export const getEnvironmentsEndpointsMaterializationStatusRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/environments/${projectId}/endpoints/${name}/materialization_status/`
+}
+
+export const environmentsEndpointsMaterializationStatusRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<environmentsEndpointsMaterializationStatusRetrieveResponse> => {
+    return apiMutator<environmentsEndpointsMaterializationStatusRetrieveResponse>(
+        getEnvironmentsEndpointsMaterializationStatusRetrieveUrl(projectId, name),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
+ */
+export type environmentsEndpointsOpenapiJsonRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsEndpointsOpenapiJsonRetrieveResponseSuccess =
+    environmentsEndpointsOpenapiJsonRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsEndpointsOpenapiJsonRetrieveResponse = environmentsEndpointsOpenapiJsonRetrieveResponseSuccess
+
+export const getEnvironmentsEndpointsOpenapiJsonRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/environments/${projectId}/endpoints/${name}/openapi.json/`
+}
+
+export const environmentsEndpointsOpenapiJsonRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<environmentsEndpointsOpenapiJsonRetrieveResponse> => {
+    return apiMutator<environmentsEndpointsOpenapiJsonRetrieveResponse>(
+        getEnvironmentsEndpointsOpenapiJsonRetrieveUrl(projectId, name),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
  * Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.
  */
 export type environmentsEndpointsRunRetrieveResponse200 = {
@@ -515,6 +580,66 @@ export const endpointsDestroy = async (
     return apiMutator<endpointsDestroyResponse>(getEndpointsDestroyUrl(projectId, name), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Get materialization status for an endpoint.
+ */
+export type endpointsMaterializationStatusRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type endpointsMaterializationStatusRetrieveResponseSuccess =
+    endpointsMaterializationStatusRetrieveResponse200 & {
+        headers: Headers
+    }
+export type endpointsMaterializationStatusRetrieveResponse = endpointsMaterializationStatusRetrieveResponseSuccess
+
+export const getEndpointsMaterializationStatusRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/endpoints/${name}/materialization_status/`
+}
+
+export const endpointsMaterializationStatusRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<endpointsMaterializationStatusRetrieveResponse> => {
+    return apiMutator<endpointsMaterializationStatusRetrieveResponse>(
+        getEndpointsMaterializationStatusRetrieveUrl(projectId, name),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
+ */
+export type endpointsOpenapiJsonRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type endpointsOpenapiJsonRetrieveResponseSuccess = endpointsOpenapiJsonRetrieveResponse200 & {
+    headers: Headers
+}
+export type endpointsOpenapiJsonRetrieveResponse = endpointsOpenapiJsonRetrieveResponseSuccess
+
+export const getEndpointsOpenapiJsonRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/endpoints/${name}/openapi.json/`
+}
+
+export const endpointsOpenapiJsonRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<endpointsOpenapiJsonRetrieveResponse> => {
+    return apiMutator<endpointsOpenapiJsonRetrieveResponse>(getEndpointsOpenapiJsonRetrieveUrl(projectId, name), {
+        ...options,
+        method: 'GET',
     })
 }
 

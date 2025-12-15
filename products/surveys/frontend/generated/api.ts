@@ -427,6 +427,34 @@ export const surveysSummarizeResponsesCreate = async (
     })
 }
 
+export type surveysSummaryHeadlineCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type surveysSummaryHeadlineCreateResponseSuccess = surveysSummaryHeadlineCreateResponse200 & {
+    headers: Headers
+}
+export type surveysSummaryHeadlineCreateResponse = surveysSummaryHeadlineCreateResponseSuccess
+
+export const getSurveysSummaryHeadlineCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/summary_headline/`
+}
+
+export const surveysSummaryHeadlineCreate = async (
+    projectId: string,
+    id: string,
+    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
+    options?: RequestInit
+): Promise<surveysSummaryHeadlineCreateResponse> => {
+    return apiMutator<surveysSummaryHeadlineCreateResponse>(getSurveysSummaryHeadlineCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
+    })
+}
+
 export type surveysActivityRetrieveResponse200 = {
     data: void
     status: 200
