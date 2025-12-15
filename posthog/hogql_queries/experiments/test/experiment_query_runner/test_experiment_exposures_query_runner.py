@@ -17,11 +17,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureQuery
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureQuery
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import create_standard_group_test_events
+from posthog.models.action.action import Action
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
@@ -1048,10 +1049,6 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_exposure_query_with_action_as_exposure_criteria(self):
-        from posthog.schema import ActionsNode
-
-        from posthog.models.action.action import Action
-
         # Create an action for purchase events with specific properties
         action = Action.objects.create(
             name="Qualified Purchase",
@@ -1283,3 +1280,157 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Expected counts should be 50/50 of total (100)
         self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_srm_returns_none_when_insufficient_samples(self):
+        """SRM should return None when total exposures < 100"""
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        journeys = {}
+        for i in range(40):
+            journeys[f"user_control_{i}"] = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02",
+                    "properties": {
+                        "$feature_flag_response": "control",
+                        ff_property: "control",
+                        "$feature_flag": self.feature_flag.key,
+                    },
+                },
+            ]
+            journeys[f"user_test_{i}"] = [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02",
+                    "properties": {
+                        "$feature_flag_response": "test",
+                        ff_property: "test",
+                        "$feature_flag": self.feature_flag.key,
+                    },
+                },
+            ]
+
+        journeys_for(journeys, self.team)
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat(),
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        # 80 total exposures < 100 minimum
+        self.assertEqual(response.total_exposures["control"], 40)
+        self.assertEqual(response.total_exposures["test"], 40)
+        self.assertIsNone(response.sample_ratio_mismatch)
+
+    def test_srm_calculation_adjusts_for_holdout(self):
+        """SRM calculation should adjust expected percentages when holdout is present"""
+        holdout_dict = {
+            "id": 123,
+            "name": "Test Holdout",
+            "filters": [{"properties": [], "rollout_percentage": 20}],
+        }
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=holdout_dict,
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat(),
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        # Note: holdout.id is a float in schema, so key becomes "holdout-123.0"
+        holdout_key = f"holdout-{query.holdout.id}"
+
+        # Directly test _calculate_srm with holdout-adjusted data
+        # 20% holdout means control/test share remaining 80% → 40% each
+        total_exposures = {holdout_key: 20, "control": 40, "test": 40}
+
+        result = runner._calculate_srm(total_exposures)
+
+        self.assertIsNotNone(result)
+        # With 20% holdout, expected is: holdout=20, control=40, test=40 of 100
+        self.assertEqual(result.expected[holdout_key], 20.0)
+        self.assertEqual(result.expected["control"], 40.0)
+        self.assertEqual(result.expected["test"], 40.0)
+        # Perfectly balanced should have p-value = 1.0
+        self.assertEqual(result.p_value, 1.0)
+
+    def test_srm_excludes_variant_with_zero_rollout_percentage(self):
+        """SRM should exclude variants with 0% rollout from calculation"""
+        # Create feature flag with 3 variants: control 50%, test 50%, disabled 0%
+        feature_flag_with_disabled = FeatureFlag.objects.create(
+            name="Test flag with disabled variant",
+            key="test-flag-disabled",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                        {"key": "disabled", "rollout_percentage": 0},
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(feature_flag_with_disabled),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat(),
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
+        # disabled variant has 0% rollout, so in practice would have 0 samples
+        total_exposures = {"control": 50, "test": 50}
+
+        result = runner._calculate_srm(total_exposures)
+
+        self.assertIsNotNone(result)
+        # Only control and test should be in expected
+        self.assertEqual(len(result.expected), 2)
+        self.assertIn("control", result.expected)
+        self.assertIn("test", result.expected)
+        # Balanced 50/50 should have p-value = 1.0
+        self.assertEqual(result.p_value, 1.0)
+
+    def test_srm_with_zero_observed_samples(self):
+        """SRM should handle variant with 0 observed samples but >0 expected"""
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat(),
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
+        # test variant has 0 samples but 50% expected rollout
+        total_exposures = {"control": 100, "test": 0}
+
+        result = runner._calculate_srm(total_exposures)
+
+        self.assertIsNotNone(result)
+        # Should detect severe mismatch (100/0 vs expected 50/50)
+        self.assertLess(result.p_value, 0.001)

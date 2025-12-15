@@ -22,6 +22,9 @@ import { modalsLogic } from '../modalsLogic'
 import { getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
 
+const srmFailureTooltipText =
+    "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
+
 interface MicroChartProps {
     exposures: ExperimentExposureQueryResponse
 }
@@ -292,8 +295,8 @@ export function Exposures(): JSX.Element {
                                         ))}
                                     </div>
                                 )}
-                                {hasSRM && (
-                                    <Tooltip title="The observed distribution differs significantly from expected (p < 0.001). This may indicate issues with randomization or data collection.">
+                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SAMPLE_RATIO_MISMATCH] && hasSRM && (
+                                    <Tooltip title={srmFailureTooltipText}>
                                         <IconWarning className="text-warning text-lg" />
                                     </Tooltip>
                                 )}
@@ -459,7 +462,7 @@ export function Exposures(): JSX.Element {
                                             <div className="flex items-center gap-1 text-xs mt-2">
                                                 {hasSRM ? (
                                                     <>
-                                                        <Tooltip title="The observed distribution differs significantly from expected (p < 0.001). This may indicate issues with randomization or data collection.">
+                                                        <Tooltip title={srmFailureTooltipText}>
                                                             <span className="flex items-center gap-1 text-warning cursor-pointer">
                                                                 <IconWarning className="text-sm" />
                                                                 <span className="font-semibold">
@@ -474,10 +477,12 @@ export function Exposures(): JSX.Element {
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <Tooltip title="No sample ratio mismatch detected. The distribution of users across variants matches the expected rollout percentages.">
+                                                        <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
                                                             <span className="flex items-center gap-1 text-success cursor-pointer">
                                                                 <IconCheckCircle className="text-sm" />
-                                                                <span>Exposure distribution is balanced</span>
+                                                                <span>
+                                                                    Exposure distribution matches rollout percentages
+                                                                </span>
                                                             </span>
                                                         </Tooltip>
                                                         <span className="text-muted">
