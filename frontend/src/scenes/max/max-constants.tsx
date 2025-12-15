@@ -2,6 +2,7 @@ import {
     IconAtSign,
     IconBook,
     IconBrain,
+    IconCheckbox,
     IconCreditCard,
     IconDocument,
     IconGlobe,
@@ -11,7 +12,7 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconQuestionAnswer } from 'lib/lemon-ui/icons'
+import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -115,27 +116,30 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'switch_mode',
 ]
 
-export const SERVER_TOOL_DEFINITIONS = {
-    web_search: {
-        name: 'Search the web', // Web search is a special case of a tool, as it's a built-in LLM provider one
-        description: 'Search the web for up-to-date information',
-        icon: <IconGlobe />,
+export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
+    todo_write: {
+        name: 'Write a todo',
+        description: 'Write a todo to remember a task',
+        icon: <IconCheckbox />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                // The args won't be fully streamed initially, so we need to check if `query` is present
-                return toolCall.args.query ? `Searched the web for **${toolCall.args.query}**` : 'Searched the web'
+                return `Update the to-do list`
             }
-            return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
+            return `Updating the to-do list...`
         },
-        flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
-} satisfies Record<string, ToolDefinition>
-
-export const TOOL_DEFINITIONS: Record<
-    Exclude<AssistantTool, 'todo_write'> | keyof typeof SERVER_TOOL_DEFINITIONS,
-    ToolDefinition
-> = {
-    ...SERVER_TOOL_DEFINITIONS,
+    task: {
+        name: 'Run an agent to perform a task',
+        description: 'Run an agent to perform a task',
+        icon: <IconRobot />,
+        displayFormatter: (toolCall) => {
+            const title = toolCall.args.title
+            if (toolCall.status === 'completed') {
+                return `Task (${title})`
+            }
+            return `Running a task (${title})...`
+        },
+    },
     create_form: {
         name: 'Create a form',
         description: 'Create a form to collect information from the user',
@@ -658,6 +662,19 @@ export const TOOL_DEFINITIONS: Record<
             }
             return 'Summarizing sessions...'
         },
+    },
+    web_search: {
+        name: 'Search the web', // Web search is a special case of a tool, as it's a built-in LLM provider one
+        description: 'Search the web for up-to-date information',
+        icon: <IconGlobe />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                // The args won't be fully streamed initially, so we need to check if `query` is present
+                return toolCall.args.query ? `Searched the web for **${toolCall.args.query}**` : 'Searched the web'
+            }
+            return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
+        },
+        flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
 }
 

@@ -5,7 +5,7 @@ import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { cn } from 'lib/utils/css-classes'
 
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
@@ -27,7 +27,7 @@ export interface LogsViewerProps {
     onChangeOrderBy: (orderBy: LogsOrderBy) => void
     onRefresh?: () => void
     onLoadMore?: () => void
-    onAddFilter?: (key: string, value: string, operator?: PropertyOperator) => void
+    onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
 }
 
 export function LogsViewer({
@@ -76,13 +76,14 @@ function LogsViewerContent({
     onRefresh,
     onLoadMore,
 }: LogsViewerContentProps): JSX.Element {
-    const { wrapBody, prettifyJson, pinnedLogsArray, isFocused, cursorLogId, linkToLogId, logs, logsCount } =
+    const { tabId, wrapBody, prettifyJson, pinnedLogsArray, isFocused, cursorLogId, linkToLogId, logs, logsCount } =
         useValues(logsViewerLogic)
     const { setFocused, moveCursorDown, moveCursorUp, toggleExpandLog, resetCursor, setCursorToLogId } =
         useActions(logsViewerLogic)
-    const { messageScrollLeft } = useValues(virtualizedLogsListLogic)
-    const { setMessageScrollLeft } = useActions(virtualizedLogsListLogic)
+    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
+    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ tabId }))
     const containerRef = useRef<HTMLDivElement>(null)
+    const messageScrollLeft = cellScrollLefts['message'] ?? 0
     const scrollLeftRef = useRef(messageScrollLeft)
     scrollLeftRef.current = messageScrollLeft
 
@@ -95,9 +96,9 @@ function LogsViewerContent({
                     ? Math.max(0, scrollLeftRef.current - SCROLL_AMOUNT_PX)
                     : scrollLeftRef.current + SCROLL_AMOUNT_PX
             scrollLeftRef.current = newScrollLeft
-            setMessageScrollLeft(newScrollLeft)
+            setCellScrollLeft('message', newScrollLeft)
         },
-        [setMessageScrollLeft]
+        [setCellScrollLeft]
     )
 
     const startScrolling = useCallback(

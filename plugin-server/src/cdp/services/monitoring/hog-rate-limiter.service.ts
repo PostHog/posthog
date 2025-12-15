@@ -33,7 +33,7 @@ export class HogRateLimiterService {
     public async rateLimitMany(idCosts: [string, number][]): Promise<[string, HogRateLimit][]> {
         const res = await this.redis.usePipeline({ name: 'hog-rate-limiter', failOpen: true }, (pipeline) => {
             idCosts.forEach(([id, cost]) => {
-                pipeline.checkRateLimit(...this.rateLimitArgs(id, cost))
+                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost))
             })
         })
 
@@ -43,12 +43,13 @@ export class HogRateLimiterService {
 
         return idCosts.map(([id], index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const token = tokenRes[1] ?? this.hub.CDP_RATE_LIMITER_BUCKET_SIZE
+            // V2 returns [tokensBefore, tokensAfter], we use tokensAfter for backward compatibility
+            const tokensAfter = tokenRes[1]?.[1] ?? this.hub.CDP_RATE_LIMITER_BUCKET_SIZE
             return [
                 id,
                 {
-                    tokens: Number(token),
-                    isRateLimited: Number(token) <= 0,
+                    tokens: Number(tokensAfter),
+                    isRateLimited: Number(tokensAfter) <= 0,
                 },
             ]
         })

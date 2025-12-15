@@ -321,6 +321,12 @@ export interface AssistantUpdateEvent {
     content: string
 }
 
+export interface SubagentUpdateEvent {
+    id: string
+    tool_call_id: string
+    content: AssistantToolCall
+}
+
 export enum AssistantGenerationStatusType {
     Acknowledged = 'ack',
     GenerationError = 'generation_error',
@@ -382,6 +388,7 @@ export type AssistantTool =
     | 'filter_session_recordings'
     | 'create_insight'
     | 'create_form'
+    | 'task'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -394,6 +401,7 @@ export enum SlashCommandName {
     SlashRemember = '/remember',
     SlashUsage = '/usage',
     SlashFeedback = '/feedback',
+    SlashTicket = '/ticket',
 }
 
 /** Exact possible `urls` keys for the `navigate` tool. */

@@ -2,42 +2,107 @@ import re
 import json
 import random
 import asyncio
+from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+import requests
 import structlog
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError
+from posthog.temporal.ai.slack_conversation import (
+    THINKING_MESSAGES,
+    SlackConversationRunnerWorkflow,
+    SlackConversationRunnerWorkflowInputs,
+)
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import get_instance_region
+
+from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
-
-def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: str) -> str:
-    """Build the unique key for a Slack thread."""
-    return f"{slack_workspace_id}:{channel}:{thread_ts}"
+HANDLED_EVENT_TYPES = ["app_mention"]
 
 
-def handle_app_mention(event: dict, slack_team_id: str) -> None:
+# To support Slack in both Cloud regions, one region acts as the primary, or "master".
+# The primary receives all the events from Slack, and decides what to do about each event:
+# 1. If the workspace is connected to any project in the primary region (via Integration), primary handles the event itself;
+# 2. If the workspace is NOT connected to any project in the primary region, primary proxies the event to the secondary.
+# The secondary region does the same Integration lookup, but if it doesn't find a match either, it stops processing.
+# We use EU as the primary region, as it's more important to EU customers that their requests don't leave the EU,
+# than to US users that their requests don't leave the US.
+SLACK_PRIMARY_REGION_DOMAIN = "eu.posthog.com"
+SLACK_SECONDARY_REGION_DOMAIN = "us.posthog.com"
+
+if settings.DEBUG:
+    # In local dev, we implicitly test the regional routing by ALWAYS proxying once. When the request first arrives via
+    # SITE_URL (e.g. slackhog.ngrok.dev) we treat that as the primary region with no relevant integration, and proxy
+    # to localhost:8000, where the actual event handler runs. This way we ensure routing works, and works well.
+    SLACK_PRIMARY_REGION_DOMAIN = urlparse(settings.SITE_URL).netloc
+    SLACK_SECONDARY_REGION_DOMAIN = "localhost:8000"
+
+
+def route_slack_event_to_relevant_region(request: HttpRequest, event: dict, slack_team_id: str) -> None:
     """Handle app_mention events - when the bot is @mentioned."""
-    from posthog.temporal.ai.slack_conversation import (
-        THINKING_MESSAGES,
-        SlackConversationRunnerWorkflow,
-        SlackConversationRunnerWorkflowInputs,
-    )
+    # Find a Slack integration for this workspace
+    integration = Integration.objects.filter(kind="slack", integration_id=slack_team_id).first()
+    if integration and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
+        # We're in the right region
+        if event.get("type") == "app_mention":
+            handle_app_mention(event, integration)
+    elif request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
+        # We aren't in the right region OR the Slack workspace is not connected to any PostHog project in ANY region
+        # OR we're in dev and the request hasn't been proxied once yet
+        proxy_slack_event_to_secondary_region(request)
+    else:
+        # The Slack workspace definitively is not connected to any PostHog project in ANY region
+        logger.warning("slack_app_no_integration_found", slack_team_id=slack_team_id)
+        return
 
-    from ee.models.assistant import Conversation
 
+def proxy_slack_event_to_secondary_region(request: HttpRequest) -> None:
+    parsed_url = urlparse(request.build_absolute_uri())
+    target_url = urlunparse(parsed_url._replace(netloc=SLACK_SECONDARY_REGION_DOMAIN))
+    headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
+
+    try:
+        response = requests.request(
+            method=request.method or "POST",
+            url=target_url,
+            headers=headers,
+            params=dict(request.GET.lists()) if request.GET else None,
+            data=request.body or None,
+            timeout=3,
+        )
+        logger.warning("slack_app_proxy_to_secondary_region", target_url=target_url, status_code=response.status_code)
+    except requests.RequestException as exc:
+        logger.exception("slack_app_proxy_to_secondary_region_failed", error=str(exc), target_url=target_url)
+
+
+def handle_app_mention(event: dict, integration: Integration) -> None:
     channel = event.get("channel")
-    if not channel:
+    slack_team_id = integration.integration_id
+    if not channel or not slack_team_id:
         return
 
     thread_ts = event.get("thread_ts") or event.get("ts")
     if not thread_ts:
+        return
+
+    # Security: In Slack Connect channels, users from external workspaces can mention our bot.
+    # We must reject these to prevent data leakage to unauthorized users.
+    # `user_team` is only present when the user is from a different workspace than where the app is installed.
+    user_team = event.get("user_team")
+    if user_team and user_team != slack_team_id:
+        logger.warning(
+            "slack_app_mention_from_external_workspace",
+            user_team=user_team,
+            app_workspace=slack_team_id,
+            user=event.get("user"),
+        )
         return
 
     logger.info(
@@ -48,17 +113,6 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
         thread_ts=thread_ts,
         slack_team_id=slack_team_id,
     )
-
-    # Find a Slack integration for this workspace
-    integration = Integration.objects.filter(kind="slack", integration_id=slack_team_id).first()
-    if not integration:
-        logger.warning("slack_app_no_integration_found", slack_team_id=slack_team_id)
-        return
-
-    # Temporary: Only allow team_id=2 in US region during development
-    if not settings.DEBUG and not (get_instance_region() == "US" and integration.team_id == 2):
-        logger.info("slack_app_mention_skipped", team_id=integration.team_id, region=get_instance_region())
-        return
 
     slack_thread_key = _build_slack_thread_key(slack_team_id, channel, thread_ts)
 
@@ -214,7 +268,7 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
             )
         )
 
-        logger.info(
+        logger.warning(
             "slack_conversation_workflow_started",
             workflow_id=workflow_id,
             team_id=integration.team_id,
@@ -255,7 +309,7 @@ def slack_event_handler(request: HttpRequest) -> HttpResponse:
     # Check for retry to avoid duplicate processing
     retry_num = request.headers.get("X-Slack-Retry-Num")
     if retry_num:
-        logger.info("slack_event_retry", retry_num=retry_num)
+        logger.warning("slack_event_retry", retry_num=retry_num)
         return HttpResponse(status=200)
 
     try:
@@ -275,11 +329,16 @@ def slack_event_handler(request: HttpRequest) -> HttpResponse:
         event = data.get("event", {})
         slack_team_id = data.get("team_id", "")
 
-        if event.get("type") == "app_mention":
-            handle_app_mention(event, slack_team_id)
+        if event.get("type") in HANDLED_EVENT_TYPES:
+            route_slack_event_to_relevant_region(request, event, slack_team_id)
 
         # Return 202 Accepted for event callbacks - processing continues asynchronously
         return HttpResponse(status=202)
 
     # Return 200 for other event types
     return HttpResponse(status=200)
+
+
+def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: str) -> str:
+    """Build the unique key for a Slack thread."""
+    return f"{slack_workspace_id}:{channel}:{thread_ts}"
