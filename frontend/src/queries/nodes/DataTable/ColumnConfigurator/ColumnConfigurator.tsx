@@ -25,11 +25,13 @@ import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import {
+    isActorsQuery,
     isEventsQuery,
     isGroupsQuery,
     isSessionsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
+    taxonomicPersonFilterToHogQL,
     trimQuotes,
 } from '~/queries/utils'
 import { GroupTypeIndex, PropertyFilterType } from '~/types'
@@ -69,6 +71,14 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                     source: {
                         ...query.source,
                         orderBy,
+                        select: columns,
+                    },
+                })
+            } else if (isActorsQuery(query.source)) {
+                setQuery?.({
+                    ...query,
+                    source: {
+                        ...query.source,
                         select: columns,
                     },
                 })
@@ -131,19 +141,24 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
               `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
               TaxonomicFilterGroupType.HogQLExpression,
           ]
-        : isSessionsQuery(query.source)
-          ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
-          : [
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.EventFeatureFlags,
-                TaxonomicFilterGroupType.PersonProperties,
-                ...(isEventsQuery(query.source)
-                    ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
-                    : []),
-            ]
+        : isActorsQuery(query.source)
+          ? [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.HogQLExpression]
+          : isSessionsQuery(query.source)
+            ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+            : [
+                  TaxonomicFilterGroupType.EventProperties,
+                  TaxonomicFilterGroupType.EventFeatureFlags,
+                  TaxonomicFilterGroupType.PersonProperties,
+                  ...(isEventsQuery(query.source)
+                      ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+                      : []),
+              ]
 
     const showPersistedColumnReorder =
-        isEventsQuery(query.source) || isGroupsQuery(query.source) || isSessionsQuery(query.source)
+        isEventsQuery(query.source) ||
+        isGroupsQuery(query.source) ||
+        isSessionsQuery(query.source) ||
+        isActorsQuery(query.source)
 
     return (
         <LemonModal
@@ -214,7 +229,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                         onChange={(group, value) => {
                                             const column = isGroupsQuery(query.source)
                                                 ? taxonomicGroupFilterToHogQL(group.type, value)
-                                                : taxonomicEventFilterToHogQL(group.type, value)
+                                                : isActorsQuery(query.source)
+                                                  ? taxonomicPersonFilterToHogQL(group.type, value)
+                                                  : taxonomicEventFilterToHogQL(group.type, value)
                                             if (column !== null) {
                                                 selectColumn(column)
                                             }
