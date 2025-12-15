@@ -5,8 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0940_llm_prompt"),
-        ("posthog", "0941_add_exported_recording_model"),
+        ("posthog", "0942_llm_prompt"),
     ]
 
     operations = [
