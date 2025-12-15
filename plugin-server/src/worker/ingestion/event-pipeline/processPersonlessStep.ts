@@ -1,31 +1,20 @@
-import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { ONE_HOUR } from '../../../config/constants'
 import { PipelineResult, ok } from '../../../ingestion/pipelines/results'
 import { Person, Team } from '../../../types'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonsStore } from '../persons/persons-store'
 
-// Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
-// (team_id, distinct_id) pair. If we have, then we can skip the INSERT attempt.
-const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRUCache<string, boolean>({
-    max: 10_000,
-    ttl: ONE_HOUR * 24, // cache up to 24h
-    updateAgeOnGet: true,
-})
-
 /**
  * Pipeline step that handles personless event processing checks.
  *
  * This step runs when processPerson=false, and performs:
- * 1. Database fetch for existing person
- * 2. Insert into posthog_personlessdistinctid tracking table
- * 3. Merge detection via race condition handling
- * 4. force_upgrade flag calculation
- * 5. Returns person (real or fake) with potential force_upgrade flag
+ * 1. Database fetch for existing person (from cache, populated by prefetchPersonsStep)
+ * 2. Check batch results for is_merged flag (populated by processPersonlessDistinctIdsBatchStep)
+ * 3. force_upgrade flag calculation
+ * 4. Returns person (real or fake) with potential force_upgrade flag
  *
  * The caller should check person.force_upgrade to decide if full person processing is needed.
  */
@@ -36,37 +25,27 @@ export async function processPersonlessStep(
     personsStore: PersonsStore,
     forceDisablePersonProcessing: boolean = false
 ): Promise<PipelineResult<Person>> {
-    const distinctId = String(event.distinct_id)
+    const distinctId = event.distinct_id
 
     // If forceDisablePersonProcessing is true, skip all personless processing and just create a fake person
     if (forceDisablePersonProcessing) {
         return ok(createFakePerson(team.id, distinctId))
     }
 
-    // Check if a real person exists for this distinct_id
+    // Check if a real person exists for this distinct_id (from prefetch cache)
     let existingPerson = await personsStore.fetchForChecking(team.id, distinctId)
 
     if (!existingPerson) {
-        // See the comment in `mergeDistinctIds`. We are inserting a row into `posthog_personlessdistinctid`
-        // to note that this Distinct ID has been used in "personless" mode. This is necessary
-        // so that later, during a merge, we can decide whether we need to write out an override
-        // or not.
+        // Check if batch insert found this distinct_id was merged
+        // The batch step (processPersonlessDistinctIdsBatchStep) already did the INSERT
+        // and stored is_merged=true results in the personsStore cache
+        const personIsMerged = personsStore.getPersonlessBatchResult(team.id, distinctId)
 
-        const personlessDistinctIdCacheKey = `${team.id}|${distinctId}`
-        if (!PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(personlessDistinctIdCacheKey)) {
-            const personIsMerged = await personsStore.addPersonlessDistinctId(team.id, distinctId)
-
-            // We know the row is in PG now, and so future events for this Distinct ID can
-            // skip the PG I/O.
-            PERSONLESS_DISTINCT_ID_INSERTED_CACHE.set(personlessDistinctIdCacheKey, true)
-
-            if (personIsMerged) {
-                // If `personIsMerged` comes back `true`, it means the `posthog_personlessdistinctid`
-                // has been updated by a merge (either since we called `fetchPerson` above, plus
-                // replication lag). We need to check `fetchPerson` again (this time using the leader)
-                // so that we properly associate this event with the Person we got merged into.
-                existingPerson = await personsStore.fetchForUpdate(team.id, distinctId)
-            }
+        if (personIsMerged) {
+            // If is_merged came back true, it means the posthog_personlessdistinctid
+            // was updated by a merge. We need to fetch the person again (using the leader)
+            // so that we properly associate this event with the Person we got merged into.
+            existingPerson = await personsStore.fetchForUpdate(team.id, distinctId)
         }
     }
 

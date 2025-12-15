@@ -45,7 +45,7 @@ export type HogFunctionMasking = {
 }
 
 export interface HogFunctionFilters {
-    source?: 'events' | 'person-updates' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'person-updates' | 'data-warehouse-table' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     properties?: Record<string, any>[] // Global property filters that apply to all events
@@ -86,6 +86,7 @@ export type HogFunctionInvocationGlobals = {
         properties: Record<string, unknown>
         elements_chain: string
         timestamp: string
+        captured_at?: string | null
 
         /* Special fields in Hog */
         url: string
@@ -252,6 +253,7 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
     'delay10m',
     'delay60m',
     'delay24h',
+    'datawarehouse_table',
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 

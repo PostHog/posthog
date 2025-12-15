@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconShare, IconX } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -15,7 +15,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconLink, IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -111,7 +111,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 Open as new insight
             </LemonButton>
         ) : null,
-        tile.canOpenModal ? (
+        tile.canOpenModal !== false ? (
             <LemonButton
                 key="open-modal-button"
                 onClick={() => openModal(tile.tileId)}
@@ -286,7 +286,7 @@ export const WebTabs = ({
                 Open as new Insight
             </LemonButton>
         ) : null,
-        activeTab?.canOpenModal ? (
+        activeTab?.canOpenModal !== false ? (
             <LemonButton
                 key="open-modal-button"
                 onClick={() => openModal(tileId, activeTabId)}
@@ -506,15 +506,17 @@ const WebAnalyticsTabs = (): JSX.Element => {
             sceneInset
             className="-mt-4"
             rightSlot={
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconShare fontSize="16" />}
-                    tooltip="Share"
-                    tooltipPlacement="top"
-                    onClick={handleShare}
-                    data-attr="web-analytics-share-button"
-                />
+                !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconLink fontSize="16" />}
+                        tooltip="Share"
+                        tooltipPlacement="top"
+                        onClick={handleShare}
+                        data-attr="web-analytics-share-button"
+                    />
+                )
             }
         />
     )

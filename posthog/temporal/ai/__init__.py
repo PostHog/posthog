@@ -1,4 +1,9 @@
-from posthog.temporal.ai.chat_agent import AssistantConversationRunnerWorkflow, process_conversation_activity
+from posthog.temporal.ai.chat_agent import (
+    AssistantConversationRunnerWorkflow,
+    ChatAgentWorkflow,
+    process_chat_agent_activity,
+    process_conversation_activity,
+)
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
@@ -9,6 +14,11 @@ from posthog.temporal.ai.session_summary.activities.video_validation import (
     validate_llm_single_session_summary_with_videos_activity,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.ai.slack_conversation import (
+    SlackConversationRunnerWorkflow,
+    SlackConversationRunnerWorkflowInputs,
+    process_slack_conversation_activity,
+)
 
 from .llm_traces_summaries.summarize_traces import (
     SummarizeLLMTracesInputs,
@@ -42,7 +52,9 @@ WORKFLOWS = [
     SummarizeSingleSessionWorkflow,
     SummarizeSessionGroupWorkflow,
     AssistantConversationRunnerWorkflow,
+    ChatAgentWorkflow,
     SummarizeLLMTracesWorkflow,
+    SlackConversationRunnerWorkflow,
 ]
 
 ACTIVITIES = [
@@ -58,8 +70,10 @@ ACTIVITIES = [
     combine_patterns_from_chunks_activity,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
     process_conversation_activity,
+    process_chat_agent_activity,
     validate_llm_single_session_summary_with_videos_activity,
     summarize_llm_traces_activity,
+    process_slack_conversation_activity,
 ]
 
 __all__ = [
@@ -68,4 +82,5 @@ __all__ = [
     "SessionGroupSummaryInputs",
     "SessionGroupSummaryOfSummariesInputs",
     "SummarizeLLMTracesInputs",
+    "SlackConversationRunnerWorkflowInputs",
 ]

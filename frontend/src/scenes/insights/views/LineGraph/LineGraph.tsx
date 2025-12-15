@@ -5,7 +5,7 @@ import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
@@ -288,7 +288,10 @@ export function LineGraph_({
     const { timezone, isTrends, isFunnels, breakdownFilter, query, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor, getTrendsHidden } = useValues(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex, isShiftPressed } = useValues(
+        trendsDataLogic(insightProps)
+    )
+    const { setHoveredDatasetIndex, setIsShiftPressed } = useActions(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
@@ -306,6 +309,35 @@ export function LineGraph_({
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
+    const isHighlightBarMode = isBar && isStacked && isShiftPressed
+
+    const handleKeyDown = (e: KeyboardEvent): void => {
+        if (e.key === 'Shift') {
+            setIsShiftPressed(true)
+        }
+    }
+    const handleKeyUp = (e: KeyboardEvent): void => {
+        if (e.key === 'Shift') {
+            setIsShiftPressed(false)
+            setHoveredDatasetIndex(null)
+        }
+    }
+
+    // Track shift key for single-bar hover mode in stacked charts
+    useEffect(() => {
+        if (!isBar || !isStacked) {
+            return
+        }
+
+        window.addEventListener('keydown', handleKeyDown)
+        window.addEventListener('keyup', handleKeyUp)
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown)
+            window.removeEventListener('keyup', handleKeyUp)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isBar, isStacked])
 
     // Add scrollend event on main element to hide tooltips when scrolling
     useEffect(() => {
@@ -378,7 +410,12 @@ export function LineGraph_({
 
         let backgroundColor: string | undefined = undefined
         if (isBackgroundBasedGraphType) {
-            backgroundColor = mainColor
+            // Dim non-hovered bars in stacked bar charts when shift is pressed
+            if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
+                backgroundColor = hexToRGBA(mainColor, 0.2)
+            } else {
+                backgroundColor = mainColor
+            }
         } else if (isArea) {
             const alpha = isPercentStackView ? 1 : 0.5
             backgroundColor = hexToRGBA(mainColor, alpha)
@@ -595,9 +632,9 @@ export function LineGraph_({
 
             const tooltipOptions: Partial<TooltipOptions> = {
                 enabled: false,
-                mode: 'nearest',
+                mode: isHighlightBarMode ? 'point' : 'nearest',
                 axis: isHorizontal ? 'y' : 'x',
-                intersect: false,
+                intersect: isHighlightBarMode,
                 itemSort: (a, b) => a.label.localeCompare(b.label),
             }
 
@@ -635,7 +672,11 @@ export function LineGraph_({
                         formatter: (value: number, context) => {
                             if (value !== 0 && inSurveyView && showValuesOnSeries) {
                                 const dataset = context.dataset as any
-                                const total = dataset.data?.reduce((sum: number, val: number) => sum + val, 0) || 1
+                                // Use totalResponses if provided (for per-respondent %), otherwise sum of values
+                                const total =
+                                    dataset.totalResponses ??
+                                    dataset.data?.reduce((sum: number, val: number) => sum + val, 0) ??
+                                    1
                                 const percentage = ((value / total) * 100).toFixed(1)
                                 return `${value} (${percentage}%)`
                             }
@@ -699,6 +740,11 @@ export function LineGraph_({
                                 const dataset = processedDatasets[referenceDataPoint.datasetIndex]
                                 const date = dataset?.days?.[referenceDataPoint.dataIndex]
                                 const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
+                                    // For stacked bar charts when shift is pressed, show only the hovered bar
+                                    if (isHighlightBarMode) {
+                                        return dp.datasetIndex === referenceDataPoint.datasetIndex
+                                    }
+
                                     if (tooltipConfig?.filter) {
                                         return tooltipConfig.filter(dp)
                                     }
@@ -726,6 +772,7 @@ export function LineGraph_({
                                         breakdownFilter={breakdownFilter}
                                         interval={interval}
                                         dateRange={insightData?.resolved_date_range}
+                                        showShiftKeyHint={isBar && isStacked && !isHighlightBarMode}
                                         renderSeries={(value, datum) => {
                                             const hasBreakdown =
                                                 datum.breakdown_value !== undefined && !!datum.breakdown_value
@@ -799,10 +846,13 @@ export function LineGraph_({
                             }
 
                             const bounds = canvas.getBoundingClientRect()
+                            const verticalBarTopOffset =
+                                isHighlightBarMode && !isHorizontal ? tooltip.caretY - tooltipEl.clientHeight / 2 : 0
                             const horizontalBarTopOffset = isHorizontal
                                 ? tooltip.caretY - tooltipEl.clientHeight / 2
                                 : 0
-                            const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
+                            const tooltipClientTop =
+                                bounds.top + window.pageYOffset + horizontalBarTopOffset + verticalBarTopOffset
 
                             const chartClientLeft = bounds.left + window.pageXOffset
                             const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
@@ -843,8 +893,16 @@ export function LineGraph_({
                     axis: isHorizontal ? 'y' : 'x',
                     intersect: false,
                 },
-                onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
+                onHover(event: ChartEvent, elements: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
+
+                    // For stacked bar charts when shift is pressed, track hovered dataset to highlight only that bar
+                    if (isHighlightBarMode) {
+                        const newHoveredIdx = elements.length > 0 ? elements[0].datasetIndex : null
+                        if (hoveredDatasetIndex !== newHoveredIdx) {
+                            setHoveredDatasetIndex(newHoveredIdx)
+                        }
+                    }
                 },
                 onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
                     onChartClick(event, chart, processedDatasets, onClick)
@@ -1034,6 +1092,9 @@ export function LineGraph_({
             labels,
             hideTooltip,
             getTooltip,
+            hoveredDatasetIndex,
+            setHoveredDatasetIndex,
+            isHighlightBarMode,
         ],
     })
 
