@@ -164,7 +164,7 @@ export function LogRow({
     }, [])
 
     // Cleanup interval on unmount
-    useEffect(() => () => stopScrolling(), [])
+    useEffect(() => () => stopScrolling(), [stopScrolling])
 
     const renderCell = (column: LogColumnConfig): JSX.Element => {
         const cellStyle = getCellStyle(column, flexWidth)

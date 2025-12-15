@@ -38,7 +38,7 @@ export function CollapsibleExceptionList({
         if (!hasInAppFrames) {
             setShowAllFrames(true)
         }
-    }, [hasInAppFrames])
+    }, [hasInAppFrames, setShowAllFrames])
 
     return (
         <div className={cn('flex flex-col gap-y-2', className)}>

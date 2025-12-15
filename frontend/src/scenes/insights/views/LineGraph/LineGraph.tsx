@@ -336,7 +336,7 @@ export function LineGraph_({
             window.removeEventListener('keydown', handleKeyDown)
             window.removeEventListener('keyup', handleKeyUp)
         }
-    }, [isBar, isStacked])
+    }, [isBar, isStacked, handleKeyDown, handleKeyUp])
 
     // Add scrollend event on main element to hide tooltips when scrolling
     useEffect(() => {
