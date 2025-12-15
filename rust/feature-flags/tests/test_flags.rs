@@ -3023,7 +3023,10 @@ async fn test_config_conversations_enabled() -> Result<()> {
     let conversations = &json_data["conversations"];
 
     assert_eq!(conversations["enabled"], true);
-    assert_eq!(conversations["greetingText"], "Hey, how can I help you today?");
+    assert_eq!(
+        conversations["greetingText"],
+        "Hey, how can I help you today?"
+    );
     assert_eq!(conversations["color"], "#1d4aff");
     assert_eq!(conversations["token"], "test_public_token_123");
 
