@@ -696,8 +696,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as RecurrenceInterval | null,
             {
                 setRecurrenceInterval: (_, { interval }) => interval,
-                // Reset when recurring is disabled or operation changes
-                setIsRecurring: (state, { isRecurring }) => (isRecurring ? state : null),
+                // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
                 setScheduledChangeOperation: (state, { changeType }) =>
                     changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
             },
@@ -706,8 +705,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as Dayjs | null,
             {
                 setEndDate: (_, { endDate }) => endDate,
-                // Reset when recurring is disabled or operation changes
-                setIsRecurring: (state, { isRecurring }) => (isRecurring ? state : null),
+                // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
                 setScheduledChangeOperation: (state, { changeType }) =>
                     changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
             },
@@ -1344,6 +1342,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.setIsRecurring(false)
                 actions.setRecurrenceInterval(null)
+                actions.setEndDate(null)
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
             }
