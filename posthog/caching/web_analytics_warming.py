@@ -19,6 +19,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
+from posthog.models.instance_setting import get_instance_setting
 from posthog.ph_client import ph_scoped_capture
 from posthog.tasks.utils import CeleryQueue
 
@@ -130,9 +131,16 @@ def schedule_web_analytics_warming_for_teams_task():
 
     expire_after = datetime.now(UTC) + timedelta(minutes=50)
 
+    days = get_instance_setting("WEB_ANALYTICS_WARMING_DAYS")
+    minimum_query_count = get_instance_setting("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT")
+
     with ph_scoped_capture() as capture_ph_event:
         for team in enabled_teams:
-            queries = queries_to_keep_fresh(team.id, days=7)
+            queries = queries_to_keep_fresh(
+                team.id,
+                days=days,
+                minimum_query_count=minimum_query_count,
+            )
 
             STALE_WEB_QUERIES_GAUGE.labels(team_id=team.id).set(len(queries))
 

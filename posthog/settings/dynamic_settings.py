@@ -175,6 +175,16 @@ CONSTANCE_CONFIG = {
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
         bool,
     ),
+    "WEB_ANALYTICS_WARMING_DAYS": (
+        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=7),
+        "Number of days to look back for frequently-run web analytics queries",
+        int,
+    ),
+    "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
+        get_from_env("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT", default=10),
+        "Minimum query count threshold for web analytics cache warming",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -209,6 +219,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "REDIRECT_APP_TO_US",
+    "WEB_ANALYTICS_WARMING_DAYS",
+    "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
