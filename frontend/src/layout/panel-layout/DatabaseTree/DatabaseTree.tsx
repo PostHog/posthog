@@ -7,21 +7,23 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
-import { editorSizingLogic } from 'scenes/data-warehouse/editor/editorSizingLogic'
+import { DATABASE_TREE_COLLAPSE_THRESHOLD, editorSizingLogic } from 'scenes/data-warehouse/editor/editorSizingLogic'
 import { DatabaseSearchField } from 'scenes/data-warehouse/editor/sidebar/DatabaseSearchField'
 import { QueryDatabase } from 'scenes/data-warehouse/editor/sidebar/QueryDatabase'
 
 import { SyncMoreNotice } from './SyncMoreNotice'
 
 export function DatabaseTree({ databaseTreeRef }: { databaseTreeRef: React.RefObject<HTMLDivElement> }): JSX.Element {
-    const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
-    const { toggleDatabaseTreeCollapsed } = useActions(editorSizingLogic)
+    const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
+        useValues(editorSizingLogic)
+    const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
 
     return (
         <div
             className={cn(
-                'relative bg-primary border-r border-primary',
-                isDatabaseTreeCollapsed ? 'w-11' : `w-[var(--database-tree-width)]`
+                'relative bg-primary border-r border-primary transition-opacity duration-100',
+                isDatabaseTreeCollapsed ? 'w-11' : `w-[var(--database-tree-width)]`,
+                databaseTreeWillCollapse && 'opacity-50'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={
@@ -62,7 +64,11 @@ export function DatabaseTree({ databaseTreeRef }: { databaseTreeRef: React.RefOb
                     </>
                 )}
             </ScrollableShadows>
-            <Resizer {...databaseTreeResizerProps} />
+            <Resizer
+                {...databaseTreeResizerProps}
+                closeThreshold={DATABASE_TREE_COLLAPSE_THRESHOLD}
+                onToggleClosed={(closed) => setDatabaseTreeCollapsed(closed)}
+            />
         </div>
     )
 }

@@ -23,6 +23,7 @@ const MINIMUM_SIDEBAR_WIDTH = 150
 export const SIDEBAR_DEFAULT_WIDTH = 300
 const MAXIMUM_SIDEBAR_WIDTH = 550
 const MINIMUM_DATABASE_TREE_WIDTH = 200
+export const DATABASE_TREE_COLLAPSE_THRESHOLD = 60
 const DATABASE_TREE_DEFAULT_WIDTH = 300
 const MAXIMUM_DATABASE_TREE_WIDTH = 600
 const DATABASE_TREE_COLLAPSED_WIDTH = 48
@@ -39,19 +40,20 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
             resizerLogic(props.queryPaneResizerProps),
             ['desiredSize as queryPaneDesiredSize'],
             resizerLogic(props.databaseTreeResizerProps),
-            ['desiredSize as databaseTreeDesiredSize'],
+            ['desiredSize as databaseTreeDesiredSize', 'isResizeInProgress as databaseTreeIsResizing'],
         ],
         actions: [
             resizerLogic(props.sidebarResizerProps),
             ['setDesiredSize as sidebarSetDesiredSize'],
             resizerLogic(props.databaseTreeResizerProps),
-            ['setDesiredSize as databaseTreeSetDesiredSize'],
+            ['setDesiredSize as databaseTreeSetDesiredSize', 'endResize as databaseTreeEndResize'],
         ],
     })),
     actions({
         resetDefaultSidebarWidth: true,
         toggleDatabaseTreeCollapsed: true,
         setDatabaseTreeCollapsed: (collapsed: boolean) => ({ collapsed }),
+        setDatabaseTreeWillCollapse: (willCollapse: boolean) => ({ willCollapse }),
     }),
     reducers({
         isDatabaseTreeCollapsed: [
@@ -62,10 +64,32 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
                 setDatabaseTreeCollapsed: (_, { collapsed }) => collapsed,
             },
         ],
+        databaseTreeWillCollapse: [
+            false,
+            {
+                setDatabaseTreeCollapsed: (state, { collapsed }) => (collapsed ? state : false),
+                setDatabaseTreeWillCollapse: (_, { willCollapse }) => willCollapse,
+            },
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         resetDefaultSidebarWidth: () => {
             actions.sidebarSetDesiredSize(SIDEBAR_DEFAULT_WIDTH)
+        },
+        databaseTreeDesiredSize: (desiredSize) => {
+            // Update willCollapse state based on desired size
+            if (desiredSize !== null) {
+                actions.setDatabaseTreeWillCollapse(desiredSize <= DATABASE_TREE_COLLAPSE_THRESHOLD)
+            }
+        },
+        databaseTreeIsResizing: ({ isResizeInProgress }) => {
+            // When resizing stops and the tree is at or below the collapse threshold, collapse it
+            if (!isResizeInProgress && values.databaseTreeDesiredSize !== null) {
+                if (values.databaseTreeDesiredSize <= DATABASE_TREE_COLLAPSE_THRESHOLD) {
+                    actions.setDatabaseTreeCollapsed(true)
+                    actions.databaseTreeSetDesiredSize(DATABASE_TREE_DEFAULT_WIDTH)
+                }
+            }
         },
     })),
     selectors({
