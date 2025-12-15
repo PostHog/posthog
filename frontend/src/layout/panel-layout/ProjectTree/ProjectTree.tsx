@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import {
     IconCheckbox,
@@ -29,6 +29,7 @@ import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -69,6 +70,38 @@ const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: stri
         'You use this product on another project so we think you might like it here.',
     [UserProductListReason.NEW_PRODUCT]: 'This is a brand new product. Give it a try!',
     [UserProductListReason.SALES_LED]: 'This product is recommended for you by our team.',
+}
+
+// Show active state for items that are active in the URL
+const isItemActive = (item: TreeDataItem): boolean => {
+    if (!item.record?.href) {
+        return false
+    }
+
+    const currentPath = removeProjectIdIfPresent(window.location.pathname)
+    const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+
+    if (currentPath === itemHref) {
+        return true
+    }
+
+    // Current path is a sub-path of item (e.g., /insights/new under /insights)
+    if (currentPath.startsWith(itemHref + '/')) {
+        return true
+    }
+
+    // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
+    if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
+        return true
+    }
+    if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
+        return true
+    }
+    if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
+        return true
+    }
+
+    return false
 }
 
 export function ProjectTree({
@@ -121,6 +154,7 @@ export function ProjectTree({
 
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -140,7 +174,7 @@ export function ProjectTree({
         false
     )
     const [seenCustomProducts, setSeenCustomProducts] = useLocalStorage<string[]>(
-        SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY,
+        `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
         []
     )
 
@@ -239,37 +273,14 @@ export function ProjectTree({
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
-    // Show active state for items that are active in the URL
-    function isItemActive(item: TreeDataItem): boolean {
-        if (!item.record?.href) {
-            return false
-        }
-
-        const currentPath = removeProjectIdIfPresent(window.location.pathname)
-        const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
-
-        if (currentPath === itemHref) {
-            return true
-        }
-
-        // Current path is a sub-path of item (e.g., /insights/new under /insights)
-        if (currentPath.startsWith(itemHref + '/')) {
-            return true
-        }
-
-        // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
-        if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
-            return true
-        }
-        if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
-            return true
-        }
-        if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
-            return true
-        }
-
-        return false
-    }
+    const handleMouseEnterIndicator = useCallback(
+        (itemId: string): void => {
+            if (!seenCustomProducts.includes(itemId)) {
+                setTimeout(() => setSeenCustomProducts((state) => [...state, itemId]), 500)
+            }
+        },
+        [seenCustomProducts, setSeenCustomProducts]
+    )
 
     const tree = (
         <LemonTree
@@ -654,15 +665,10 @@ export function ProjectTree({
                     root === 'custom-products://' &&
                     createdAt &&
                     dayjs().diff(dayjs(createdAt), 'days') < 7 &&
+                    reason &&
                     reason !== UserProductListReason.USED_ON_SEPARATE_TEAM &&
-                    (reasonText || (reason && USER_PRODUCT_LIST_REASON_DEFAULTS[reason])) &&
+                    (reasonText || USER_PRODUCT_LIST_REASON_DEFAULTS[reason]) &&
                     !seenCustomProducts.includes(itemId)
-
-                const handleMouseEnter = (): void => {
-                    if (showIndicator && !seenCustomProducts.includes(itemId)) {
-                        setTimeout(() => setSeenCustomProducts(state => [...state, itemId]), 1000)
-                    }
-                }
 
                 return (
                     <>
@@ -673,7 +679,7 @@ export function ProjectTree({
                                 className="ml-[4px]"
                             />
                         )}
-                        <div className="relative" onMouseEnter={handleMouseEnter}>
+                        <div className="relative" onMouseEnter={() => handleMouseEnterIndicator(itemId)}>
                             <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
                             {showIndicator && (
                                 <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
