@@ -218,7 +218,8 @@ export async function registerResources(server: McpServer, context: Context): Pr
         const manifest = loadManifest(archive)
         registerManifestResources(server, manifest, archive)
     } catch (error) {
-        console.error('Failed to fetch and register manifest resources:', error)
-        throw error
+        // Don't throw - make resources loading optional for self-hosted environments
+        // where fetching from GitHub might fail
+        console.error('Failed to fetch and register manifest resources (continuing without them):', error)
     }
 }

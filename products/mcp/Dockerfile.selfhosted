@@ -1,0 +1,53 @@
+# Dockerfile for running PostHog MCP Server for self-hosted PostHog instances
+# This runs the MCP server locally (via wrangler dev) and connects to your
+# self-hosted PostHog instance.
+#
+# Build from the PostHog monorepo root:
+#   docker build -f products/mcp/Dockerfile.selfhosted -t posthog-mcp-selfhosted .
+#
+# Run:
+#   docker run -d -p 8787:8787 -e POSTHOG_BASE_URL=https://your-posthog-instance.com posthog-mcp-selfhosted
+#
+# Then configure your MCP client to connect to http://localhost:8787/mcp
+
+FROM node:22-slim
+
+WORKDIR /app
+
+# Install pnpm (same version as monorepo)
+RUN npm install -g pnpm@9.15.0
+
+# Copy monorepo package files and lockfile first for better caching
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches/ ./patches/
+
+# Copy the MCP product package files
+COPY products/mcp/package.json ./products/mcp/
+COPY products/mcp/typescript/package.json ./products/mcp/typescript/
+
+# Install dependencies
+RUN pnpm install --filter @posthog/agent-toolkit...
+
+# Install CA certificates (needed for workerd to trust various CAs)
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# Update wrangler to latest version for updated CA bundle
+WORKDIR /app/products/mcp/typescript
+RUN pnpm add -D wrangler@latest
+
+# Copy MCP source code
+WORKDIR /app
+COPY products/mcp/ ./products/mcp/
+
+# Set working directory to the MCP typescript folder
+WORKDIR /app/products/mcp/typescript
+
+# Expose port 8787 (wrangler dev default port)
+EXPOSE 8787
+
+# POSTHOG_BASE_URL must be set when running the container
+# Example: -e POSTHOG_BASE_URL=https://your-posthog-instance.com
+
+# Create a .dev.vars file at runtime to pass env vars to wrangler
+# Then run wrangler dev bound to all interfaces
+CMD ["sh", "-c", "echo \"POSTHOG_BASE_URL=${POSTHOG_BASE_URL}\" > .dev.vars && pnpm exec wrangler dev --ip 0.0.0.0 --port 8787"]

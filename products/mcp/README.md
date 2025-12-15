@@ -187,7 +187,77 @@ The MCP server is hosted on a Cloudflare worker which can be located outside of 
 
 ### Using self-hosted instances
 
-If you're using a self-hosted instance of PostHog, you can specify a custom base URL by adding the `POSTHOG_BASE_URL` [environment variable](https://developers.cloudflare.com/workers/configuration/environment-variables) when running the MCP server locally or on your own infrastructure, e.g. `POSTHOG_BASE_URL=https://posthog.example.com`
+If you're using a self-hosted instance of PostHog, you need to run the MCP server yourself since the cloud-hosted MCP server at `mcp.posthog.com` only connects to PostHog Cloud (US/EU).
+
+#### How it works
+
+```
+MCP Client (Claude/Cursor/VS Code)
+     │
+     │ (connects via mcp-remote)
+     ▼
+MCP Server (running locally via Docker)
+     │
+     │ (makes API calls)
+     ▼
+Your Self-hosted PostHog Instance
+```
+
+#### Docker setup for self-hosted
+
+1. **Build the Docker image** (from the PostHog monorepo root):
+
+```bash
+docker build -f products/mcp/Dockerfile.selfhosted -t posthog-mcp-selfhosted .
+```
+
+2. **Run the MCP server**:
+
+```bash
+docker run -d -p 8787:8787 \
+  -e POSTHOG_BASE_URL=https://your-posthog-instance.com \
+  --name posthog-mcp \
+  --restart unless-stopped \
+  posthog-mcp-selfhosted
+```
+
+3. **Configure your MCP client** (Claude Desktop, Cursor, VS Code, etc.):
+
+```json
+{
+  "mcpServers": {
+    "posthog": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote@latest",
+        "http://localhost:8787/mcp",
+        "--header",
+        "Authorization:${POSTHOG_AUTH_HEADER}"
+      ],
+      "env": {
+        "POSTHOG_AUTH_HEADER": "Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}"
+      }
+    }
+  }
+}
+```
+
+4. **Get your API key** from your self-hosted PostHog instance at `https://your-posthog-instance.com/settings/user-api-keys`
+
+#### Local development for self-hosted
+
+Alternatively, you can run the MCP server directly without Docker:
+
+```bash
+# Create .dev.vars file with your PostHog instance URL
+echo "POSTHOG_BASE_URL=https://your-posthog-instance.com" > typescript/.dev.vars
+
+# Start the development server
+pnpm run dev
+```
+
+Then configure your MCP client to connect to `http://localhost:8787/mcp`
 
 # Development
 
