@@ -82,8 +82,11 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
         const value = properties[key]
 
         if ($set === undefined) {
-            $set = (properties.$set as Record<string, any>) ?? {}
-            $set_once = (properties.$set_once as Record<string, any>) ?? {}
+            // Handle malformed $set/$set_once (e.g. string instead of object)
+            const existingSet = properties.$set
+            const existingSetOnce = properties.$set_once
+            $set = typeof existingSet === 'object' && existingSet !== null ? existingSet : {}
+            $set_once = typeof existingSetOnce === 'object' && existingSetOnce !== null ? existingSetOnce : {}
         }
 
         if (!(key in $set!)) {
