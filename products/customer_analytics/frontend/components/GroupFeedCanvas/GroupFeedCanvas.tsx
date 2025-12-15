@@ -80,10 +80,6 @@ export const GroupFeedCanvas = ({ group, tabId }: GroupFeedCanvasProps): JSX.Ele
                                 },
                             },
                             {
-                                type: 'ph-issues',
-                                attrs: { groupKey, groupTypeIndex, tabId, nodeId: uuid() },
-                            },
-                            {
                                 type: 'ph-llm-trace',
                                 attrs: {
                                     groupKey,
@@ -91,6 +87,14 @@ export const GroupFeedCanvas = ({ group, tabId }: GroupFeedCanvasProps): JSX.Ele
                                     tabId,
                                     nodeId: uuid(),
                                 },
+                            },
+                            {
+                                type: 'ph-zendesk-tickets',
+                                attrs: { groupKey, nodeId: uuid() },
+                            },
+                            {
+                                type: 'ph-issues',
+                                attrs: { groupKey, groupTypeIndex, tabId, nodeId: uuid() },
                             },
                         ],
                     }}

@@ -13,6 +13,7 @@ from django.http import StreamingHttpResponse
 import litellm
 import posthoganalytics
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -39,6 +40,17 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 _litellm_configured = False
+
+
+def _serialize_response(obj: Any) -> Any:
+    """Recursively serialize LiteLLM responses, converting Pydantic models to dicts."""
+    if isinstance(obj, BaseModel):
+        return obj.model_dump()
+    if isinstance(obj, dict):
+        return {k: _serialize_response(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_serialize_response(item) for item in obj]
+    return obj
 
 
 # TRICKY: We only want to register the callback on the first request, once the PostHog api key and host are defined.
@@ -83,7 +95,6 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             properties: dict[str, Any] = {
                 "$ai_model": response.get("model", model) if response else model,
-                "$ai_provider": "anthropic",
                 "$ai_input": input_messages,
                 "$ai_latency": latency_ms / 1000.0,
                 "$ai_trace_id": trace_id or str(uuid.uuid4()),
@@ -91,6 +102,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "$ai_http_status": 200 if not error else getattr(error, "status_code", 500),
                 "team_id": self.team.id,
                 "organization_id": str(self.organization.id),
+                "ai_product": "llm_gateway",
             }
 
             if response:
@@ -227,6 +239,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             try:
                 response = asyncio.run(litellm.anthropic_messages(**data))
                 response_data = response.model_dump() if hasattr(response, "model_dump") else response
+                response_data = _serialize_response(response_data)
                 return Response(response_data)
             except Exception as e:
                 error = e
@@ -319,6 +332,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             try:
                 response = litellm.completion(**data)
                 response_dict = response.model_dump() if hasattr(response, "model_dump") else response
+                response_dict = _serialize_response(response_dict)
                 return Response(response_dict)
             except Exception as e:
                 logger.exception(f"Error in chat completions endpoint: {e}")

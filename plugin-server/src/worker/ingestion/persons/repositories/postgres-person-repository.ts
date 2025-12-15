@@ -328,13 +328,13 @@ export class PostgresPersonRepository
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[],
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds: { distinctId: string; version?: number }[] = [],
         tx?: TransactionClient,
         // Used to support dual-write; we want to force the id a person is created with to prevent drift
         forcedId?: number
     ): Promise<CreatePersonResult> {
-        distinctIds = distinctIds || []
-
+        const distinctIds = [primaryDistinctId, ...extraDistinctIds]
         for (const distinctId of distinctIds) {
             distinctId.version ||= 0
         }
@@ -708,35 +708,25 @@ export class PostgresPersonRepository
     }
 
     async addPersonlessDistinctId(teamId: number, distinctId: string, tx?: TransactionClient): Promise<boolean> {
+        // Use ON CONFLICT DO UPDATE with a no-op to always get the RETURNING clause.
+        // This eliminates the need for a fallback SELECT query on conflict (~10k queries/min saved).
+        // The no-op update on is_merged (not indexed) results in a HOT update, which is very cheap:
+        // - No index maintenance required
+        // - Creates a dead tuple that gets cleaned up by autovacuum
         const result = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, false, now())
-                ON CONFLICT (team_id, distinct_id) DO NOTHING
+                ON CONFLICT (team_id, distinct_id) DO UPDATE
+                SET is_merged = posthog_personlessdistinctid.is_merged
                 RETURNING is_merged
             `,
             [teamId, distinctId],
             'addPersonlessDistinctId'
         )
 
-        if (result.rows.length === 1) {
-            return result.rows[0]['is_merged']
-        }
-
-        // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
-        const existingResult = await this.postgres.query(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            `
-                SELECT is_merged
-                FROM posthog_personlessdistinctid
-                WHERE team_id = $1 AND distinct_id = $2
-            `,
-            [teamId, distinctId],
-            'addPersonlessDistinctId'
-        )
-
-        return existingResult.rows[0]['is_merged']
+        return result.rows[0]['is_merged']
     }
 
     async addPersonlessDistinctIdForMerge(
@@ -758,6 +748,48 @@ export class PostgresPersonRepository
         )
 
         return result.rows[0].inserted
+    }
+
+    async addPersonlessDistinctIdsBatch(
+        entries: { teamId: number; distinctId: string }[]
+    ): Promise<Map<string, boolean>> {
+        if (entries.length === 0) {
+            return new Map()
+        }
+
+        // Deduplicate entries to avoid PostgreSQL "ON CONFLICT DO UPDATE command cannot affect row a second time" error
+        const seen = new Set<string>()
+        const uniqueEntries: { teamId: number; distinctId: string }[] = []
+        for (const entry of entries) {
+            const key = `${entry.teamId}|${entry.distinctId}`
+            if (!seen.has(key)) {
+                seen.add(key)
+                uniqueEntries.push(entry)
+            }
+        }
+
+        const teamIds = uniqueEntries.map((e) => e.teamId)
+        const distinctIds = uniqueEntries.map((e) => e.distinctId)
+
+        const result = await this.postgres.query(
+            PostgresUse.PERSONS_WRITE,
+            `
+                INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
+                SELECT team_id, distinct_id, false, now()
+                FROM UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
+                ON CONFLICT (team_id, distinct_id) DO UPDATE
+                SET is_merged = posthog_personlessdistinctid.is_merged
+                RETURNING team_id, distinct_id, is_merged
+            `,
+            [teamIds, distinctIds],
+            'addPersonlessDistinctIdsBatch'
+        )
+
+        const resultMap = new Map<string, boolean>()
+        for (const row of result.rows) {
+            resultMap.set(`${row.team_id}|${row.distinct_id}`, row.is_merged)
+        }
+        return resultMap
     }
 
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {

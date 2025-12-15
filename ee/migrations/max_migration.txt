@@ -1,1 +1,1 @@
-0033_conversation_type_slack
+0036_add_is_internal_to_conversation

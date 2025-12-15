@@ -199,6 +199,57 @@ describe('LLM Analytics utils', () => {
         ])
     })
 
+    it('normalizeOutputMessage: prefers top-level tool_calls over content tool_use blocks', () => {
+        // This is the format produced by LangChain's Anthropic callback
+        // content has raw Anthropic format with empty input (streaming artifact)
+        // tool_calls has the normalized OpenAI format with correct arguments
+        const message = {
+            role: 'assistant',
+            content: [
+                { type: 'text', text: 'Let me check that.' },
+                {
+                    type: 'tool_use',
+                    id: 'toolu_123',
+                    name: 'get_weather',
+                    input: {}, // Empty - streaming artifact
+                },
+            ],
+            tool_calls: [
+                {
+                    type: 'function',
+                    id: 'toolu_123',
+                    function: {
+                        name: 'get_weather',
+                        arguments: '{"location": "San Francisco"}', // Correct arguments
+                    },
+                },
+            ],
+        }
+
+        const result = normalizeMessage(message, 'assistant')
+
+        // Should use the tool_calls array, not extract from content
+        expect(result).toHaveLength(2)
+        expect(result[0]).toEqual({
+            role: 'assistant',
+            content: 'Let me check that.',
+        })
+        expect(result[1]).toEqual({
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+                {
+                    type: 'function',
+                    id: 'toolu_123',
+                    function: {
+                        name: 'get_weather',
+                        arguments: { location: 'San Francisco' },
+                    },
+                },
+            ],
+        })
+    })
+
     it('normalizeOutputMessage: parses an Anthropic tool result message', () => {
         let message: AnthropicInputMessage = {
             role: 'user',

@@ -1,9 +1,12 @@
+import re
 import json
 import random
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
+
+from django.conf import settings
 
 import structlog
 from markdown_to_mrkdwn import SlackMarkdownConverter
@@ -125,7 +128,8 @@ class SlackConversationRunnerWorkflowInputs:
     initial_message_ts: str
     user_message_ts: str | None
     messages: list[dict[str, Any]]
-    conversation_id: str
+    slack_thread_key: str
+    conversation_id: str | None = None  # Provided if continuing an existing conversation
 
 
 @workflow.defn(name="slack-conversation-processing")
@@ -205,22 +209,48 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
 
     user: User = membership.user
 
+    # Get or create conversation for this Slack thread, keyed by slack_thread_key
+    # First, fetch workspace domain from Slack API if we don't have it yet
+    slack_workspace_domain = await _get_slack_workspace_domain(integration)
+
+    if inputs.conversation_id:
+        # Continuing an existing conversation
+        conversation, created = await Conversation.objects.aget_or_create(
+            id=inputs.conversation_id,
+            defaults={
+                "team": team,
+                "user": user,
+                "type": "slack",
+                "slack_thread_key": inputs.slack_thread_key,
+                "slack_workspace_domain": slack_workspace_domain,
+            },
+        )
+    else:
+        # New conversation - use slack_thread_key as the unique identifier
+        conversation, created = await Conversation.objects.aget_or_create(
+            team=team,
+            slack_thread_key=inputs.slack_thread_key,
+            defaults={"user": user, "type": "slack", "slack_workspace_domain": slack_workspace_domain},
+        )
+
+    # Update domain if it was missing (for existing conversations)
+    if not created and not conversation.slack_workspace_domain and slack_workspace_domain:
+        conversation.slack_workspace_domain = slack_workspace_domain
+        await conversation.asave(update_fields=["slack_workspace_domain"])
+
+    is_new_conversation = created
+
     # Join all Slack messages into a single HumanMessage
-    message_texts = []
+    message_texts = (
+        ["_This conversation is in a Slack thread, using Slack's native Markdown._"] if is_new_conversation else []
+    )
     for msg in inputs.messages:
         username = msg.get("user", "Unknown")
         text = msg.get("text", "")
         message_texts.append(f"{username}: {text}")
 
-    combined_message = "\n".join(message_texts)
+    combined_message = "\n\n".join(message_texts)
     human_message = HumanMessage(content=combined_message)
-
-    # Create a new conversation for this Slack thread with the pre-generated ID
-    # Use aget_or_create in case the activity retries
-    conversation, _ = await Conversation.objects.aget_or_create(
-        id=inputs.conversation_id,
-        defaults={"team": team, "user": user, "type": "slack"},
-    )
 
     # Create Slack thread context for task workflows to post updates
     slack_thread_context = SlackThreadContext(
@@ -234,18 +264,23 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         conversation,
         new_message=human_message,
         user=user,
-        is_new_conversation=True,
+        is_new_conversation=is_new_conversation,
         slack_thread_context=slack_thread_context,
     )
 
-    # Build conversation URL for the "View in PostHog" button
-    conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={inputs.conversation_id}"
+    # Build conversation URL for the "View chat in PostHog" button
+    conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={conversation.id}"
 
     # Start background task to update the "working on it" message with thinking messages
     async def update_thinking_message():
+        start_time = datetime.now()
         while True:
             await asyncio.sleep(3)
-            thinking_message = f"{random.choice(THINKING_MESSAGES)}..."
+            thinking_message = f"I'm {random.choice(THINKING_MESSAGES).lower()}..."
+            # After a longer period, add a note to the thinking message, so that the user doesn't feel like we're stuck
+            elapsed_seconds = (datetime.now() - start_time).total_seconds()
+            if elapsed_seconds >= 120:
+                thinking_message += " (This is taking a little longer, hang tight.)"
             await _update_slack_message(
                 integration, inputs.channel, inputs.initial_message_ts, thinking_message, conversation_url
             )
@@ -289,13 +324,16 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
 
     # Append queries section if any were generated
     if final_response and generated_queries:
-        queries_section = "\n\nQueries:\n" + "\n".join(f"- <{url}|{title}>" for title, url in generated_queries)
+        queries_section = "\n\nSources:\n" + "\n".join(f"- <{url}|{title}>" for title, url in generated_queries)
         final_response += queries_section
 
     # Replace loading reaction with checkmark on user's message
     if inputs.user_message_ts:
         await _remove_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hourglass_flowing_sand")
         await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "white_check_mark")
+
+    # Build conversation URL for the "View chat in PostHog" button
+    conversation_url = f"{settings.SITE_URL}/project/{team.id}/ai?chat={conversation.id}"
 
     # Post the final response as a new message, then delete the initial "working on it" message
     # (new messages trigger notifications, updates don't)
@@ -326,10 +364,23 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
     await _delete_slack_message(integration, inputs.channel, inputs.initial_message_ts)
 
 
+def _absolutize_markdown_links(text: str) -> str:
+    """Prepend SITE_URL to absolute-path Markdown links (e.g. [text](/path) -> [text](https://example.com/path))."""
+
+    def replace_link(match: re.Match) -> str:
+        link_text = match.group(1)
+        path = match.group(2)
+        return f"[{link_text}]({settings.SITE_URL}{path})"
+
+    # Match [text](/path) where path starts with / but not // (which would be protocol-relative)
+    return re.sub(r"\[([^\]]+)\]\((/(?!/)[^)]*)\)", replace_link, text)
+
+
 def _build_slack_message_blocks(text: str, conversation_url: str | None = None) -> list[dict]:
     """Build Slack message blocks from text."""
     blocks: list[dict] = []
 
+    text = _absolutize_markdown_links(text)
     mrkdwn_text = mrkdown_converter.convert(text)
     paragraphs = mrkdwn_text.split("\n\n")
     for para in paragraphs:
@@ -343,7 +394,7 @@ def _build_slack_message_blocks(text: str, conversation_url: str | None = None) 
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "View in PostHog", "emoji": True},
+                        "text": {"type": "plain_text", "text": "View chat in PostHog", "emoji": True},
                         "url": conversation_url,
                     }
                 ],
@@ -434,3 +485,19 @@ async def _remove_slack_reaction(
         slack.client.reactions_remove(channel=channel, timestamp=timestamp, name=name)
     except Exception as e:
         logger.exception("slack_reaction_remove_failed", error=str(e))
+
+
+async def _get_slack_workspace_domain(integration: "Integration") -> str | None:
+    """Fetch the Slack workspace domain (subdomain) using team.info API."""
+    from posthog.models.integration import SlackIntegration
+
+    slack = SlackIntegration(integration)
+    try:
+        response = slack.client.team_info()
+        if response.get("ok"):
+            team = response.get("team")
+            if isinstance(team, dict):
+                return team.get("domain")
+    except Exception as e:
+        logger.exception("slack_team_info_failed", error=str(e))
+    return None
