@@ -194,15 +194,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     }
                                 }}
                                 tooltip={
-                                    disabledReason || threadLoading ? (
+                                    disabledReason ? (
+                                        disabledReason
+                                    ) : threadLoading ? (
                                         <>
-                                            {disabledReason || (
-                                                <>
-                                                    Let's bail <KeyboardShortcut enter />
-                                                </>
-                                            )}
+                                            Let's bail <KeyboardShortcut enter />
                                         </>
-                                    ) : undefined
+                                    ) : (
+                                        <>
+                                            Let's go! <KeyboardShortcut enter />
+                                        </>
+                                    )
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
                                 // disabledReason={disabledReason}
