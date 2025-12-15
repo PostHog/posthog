@@ -209,12 +209,11 @@ async def test_workflows_export_workflow_when_last_run_of_backfill(
     await assert_clickhouse_records_in_kafka(
         clickhouse_client=clickhouse_client,
         topic=topic,
-        hosts=hosts,
         date_ranges=[(data_interval_start, data_interval_end)],
-        security_protocol=security_protocol,
         team_id=ateam.pk,
         batch_export_model=model,
         exclude_events=exclude_events,
         sort_key="_inserted_at",
         backfill_details=backfill_details,
+        batch_export_id=str(workflows_batch_export.id),
     )
