@@ -87,6 +87,8 @@ export interface BatchWritingPersonsStoreOptions {
     dbWriteMode: PersonBatchWritingDbWriteMode
     maxOptimisticUpdateRetries: number
     optimisticUpdateRetryInterval: number
+    /** When true, all property changes trigger person updates (disables batch-level filtering) */
+    updateAllProperties: boolean
 }
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
@@ -94,6 +96,7 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     maxConcurrentUpdates: 10,
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
+    updateAllProperties: false,
 }
 
 interface CacheMetrics {
@@ -120,6 +123,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private updateLatencyPerDistinctIdSeconds: Map<string, Map<UpdateType, number>>
     private cacheMetrics: CacheMetrics
     private options: BatchWritingPersonsStoreOptions
+    // Cache for batch personless distinct ID insert results (is_merged values)
+    private personlessBatchResults: Map<string, boolean>
 
     constructor(
         private personRepository: PersonRepository,
@@ -135,6 +140,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.methodCountsPerDistinctId = new Map()
         this.databaseOperationCountsPerDistinctId = new Map()
         this.updateLatencyPerDistinctIdSeconds = new Map()
+        this.personlessBatchResults = new Map()
         this.cacheMetrics = {
             updateCacheHits: 0,
             updateCacheMisses: 0,
@@ -165,8 +171,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             return 'no_change'
         }
 
-        // If force_update is set (from $identify, $set events), bypass filtering and always write
-        if (update.force_update) {
+        // If force_update is set (from $identify, $set events) or updateAllProperties is enabled, bypass filtering
+        if (update.force_update || this.options.updateAllProperties) {
             return 'changed'
         }
 
@@ -868,7 +874,30 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         tx?: PersonRepositoryTransaction
     ): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctIdForMerge', distinctId)
-        return await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
+        const isMerged = await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
+        // Update the batch results cache so processPersonlessStep knows this was merged
+        if (isMerged) {
+            this.personlessBatchResults.set(`${teamId}|${distinctId}`, true)
+        }
+        return isMerged
+    }
+
+    async processPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<void> {
+        if (entries.length === 0) {
+            return
+        }
+
+        const results = await this.personRepository.addPersonlessDistinctIdsBatch(entries)
+        // Only store merged distinct IDs - these need force_upgrade handling
+        for (const [key, isMerged] of results) {
+            if (isMerged) {
+                this.personlessBatchResults.set(key, true)
+            }
+        }
+    }
+
+    getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
+        return this.personlessBatchResults.get(`${teamId}|${distinctId}`)
     }
 
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {
@@ -909,6 +938,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.methodCountsPerDistinctId.clear()
         this.databaseOperationCountsPerDistinctId.clear()
         this.updateLatencyPerDistinctIdSeconds.clear()
+        this.personlessBatchResults.clear()
         this.cacheMetrics = {
             updateCacheHits: 0,
             updateCacheMisses: 0,

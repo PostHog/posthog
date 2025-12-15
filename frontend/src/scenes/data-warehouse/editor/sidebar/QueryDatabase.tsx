@@ -434,6 +434,14 @@ export const QueryDatabase = (): JSX.Element => {
                     )
                 }
             }}
+            renderItemTooltip={(item) => {
+                // Show tooltip with full name for items that could be truncated
+                const tooltipTypes = ['table', 'view', 'managed-view', 'endpoint', 'draft', 'column', 'unsaved-query']
+                if (tooltipTypes.includes(item.record?.type)) {
+                    return item.name
+                }
+                return undefined
+            }}
             renderItemIcon={(item) => {
                 if (item.record?.type === 'column') {
                     return <></>
