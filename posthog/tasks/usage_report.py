@@ -642,7 +642,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         """
         SELECT team_id, count(1) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE created_at >= %(begin)s AND created_at < %(end)s
         AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
         GROUP BY team_id
         """,
