@@ -1690,6 +1690,8 @@ export interface EndpointRunRequest {
      *   The query executed will return the count of $identify events, instead of $pageview's
      */
     query_override?: Record<string, any>
+    /** Specific endpoint version to execute. If not provided, the latest version is used. */
+    version?: integer
 }
 
 export interface EndpointLastExecutionTimesRequest {
@@ -3835,6 +3837,7 @@ export interface LLMTrace {
     traceName?: string
     errorCount?: number
     events: LLMTraceEvent[]
+    isSupportTrace?: boolean
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -3851,6 +3854,7 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     limit?: integer
     offset?: integer
     filterTestAccounts?: boolean
+    filterSupportTraces?: boolean
     showColumnConfigurator?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]

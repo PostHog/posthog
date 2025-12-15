@@ -103,6 +103,23 @@ class TestAddFieldOperations:
         assert "locks table" in risk.reason.lower()
         assert risk.level == RiskLevel.BLOCKED
 
+    def test_add_many_to_many_field(self):
+        """ManyToMany fields create junction tables, not columns - always safe."""
+        field: models.Field = models.ManyToManyField("posthog.Survey", blank=True)
+
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="testmodel",
+            name="linked_surveys",
+            field=field,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert "junction table" in risk.reason.lower()
+        assert risk.level == RiskLevel.SAFE
+
 
 class TestRemoveOperations:
     def setup_method(self):

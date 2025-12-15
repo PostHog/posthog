@@ -41,7 +41,7 @@ export function Elements(): JSX.Element {
         isEditingStep,
         tourForm,
         inspectingElement,
-        isSelectingElements,
+        editingModalStep,
     } = useValues(productToursLogic)
 
     const shiftPressed = useShiftKeyPressed(refreshClickmap)
@@ -102,34 +102,21 @@ export function Elements(): JSX.Element {
                     }
                 )}
 
-                {/* Product tours: hover highlight during selection mode with floating hint */}
+                {/* Product tours: hover highlight when inspecting */}
                 {productToursInspecting && !isEditingStep && productToursHoverRect && (
-                    <>
-                        <ElementHighlight rect={productToursHoverRect} />
-                        {isSelectingElements && (
-                            <div
-                                className="fixed pointer-events-none text-white text-xs font-medium px-2 py-1 rounded shadow-lg toolbar-animate-fade"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    top: productToursHoverRect.top - 32,
-                                    left: productToursHoverRect.left,
-                                    zIndex: 2147483017,
-                                    backgroundColor: '#1d4aff',
-                                }}
-                            >
-                                Click to add as step {(tourForm?.steps?.length ?? 0) + 1}
-                            </div>
-                        )}
-                    </>
+                    <ElementHighlight rect={productToursHoverRect} />
                 )}
 
                 {/* Product tours: selected element highlight + editor */}
-                {productToursInspecting && isEditingStep && productToursSelectedRect && !isSelectingElements && (
+                {productToursInspecting && isEditingStep && productToursSelectedRect && (
                     <>
                         <ElementHighlight rect={productToursSelectedRect} isSelected />
                         <StepEditor rect={productToursSelectedRect} />
                     </>
                 )}
+
+                {/* Product tours: modal step editor (no element) */}
+                {productToursInspecting && editingModalStep && <StepEditor />}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
                     return (

@@ -44,6 +44,7 @@ export function ExceptionCard({ issueId, event, loading, ...contentProps }: Exce
                 properties: event?.properties,
                 id: event?.uuid ?? issueId ?? 'error',
             }) as ErrorPropertiesLogicProps,
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [event?.uuid ?? issueId]
     )
 
