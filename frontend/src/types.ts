@@ -327,6 +327,7 @@ export interface UserType extends UserBaseType {
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
+    allow_impersonation: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
     id: number
@@ -5886,6 +5887,7 @@ export interface Conversation {
     agent_mode?: string | null
     slack_thread_key?: string | null
     slack_workspace_domain?: string | null
+    is_internal?: boolean
 }
 
 export interface ConversationDetail extends Conversation {

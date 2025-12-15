@@ -8,6 +8,7 @@ from .read_taxonomy import ReadTaxonomyTool
 from .search import SearchTool, SearchToolArgs
 from .session_summarization import SessionSummarizationTool, SessionSummarizationToolArgs
 from .switch_mode import SwitchModeTool
+from .task import TaskTool, TaskToolArgs
 from .todo_write import TodoWriteTool, TodoWriteToolArgs
 
 __all__ = [
@@ -24,6 +25,8 @@ __all__ = [
     "SearchToolArgs",
     "SessionSummarizationTool",
     "SessionSummarizationToolArgs",
+    "TaskTool",
+    "TaskToolArgs",
     "TodoWriteTool",
     "TodoWriteToolArgs",
     "ExecuteSQLTool",
