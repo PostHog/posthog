@@ -275,7 +275,7 @@ export function ProjectTree({
     const handleMouseEnterIndicator = useCallback(
         (itemId: string): void => {
             if (!seenCustomProducts.includes(itemId)) {
-                setTimeout(() => setSeenCustomProducts((state) => [...state, itemId]), 500)
+                setTimeout(() => setSeenCustomProducts((state) => [...state, itemId]), 250)
             }
         },
         [seenCustomProducts, setSeenCustomProducts]
