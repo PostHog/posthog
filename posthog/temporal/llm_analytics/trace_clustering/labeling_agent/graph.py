@@ -103,15 +103,18 @@ def run_labeling_agent(
         "max_iterations": max_iterations,
     }
 
-    # Run the graph with increased recursion limit for many clusters
+    # Run the graph with streaming to capture intermediate state on error
+    last_state = initial_state
     try:
-        final_state = compiled_graph.invoke(
+        for state_update in compiled_graph.stream(
             initial_state,
             {"recursion_limit": LABELING_AGENT_RECURSION_LIMIT},
-        )
+            stream_mode="values",
+        ):
+            last_state = state_update
 
         # Extract labels from final state
-        labels = final_state.get("current_labels", {})
+        labels = last_state.get("current_labels", {})
 
         # Filter out None values and ensure all are ClusterLabel instances
         result: dict[int, ClusterLabel] = {}
@@ -123,16 +126,26 @@ def run_labeling_agent(
             "cluster_labeling_agent_completed",
             team_id=team_id,
             num_labels=len(result),
-            iterations=final_state.get("iterations", 0),
+            iterations=last_state.get("iterations", 0),
         )
 
         return result
 
-    except Exception as e:
-        logger.exception(
-            "cluster_labeling_agent_error",
+    except (RecursionError, Exception) as e:
+        # On error, return whatever labels we've generated so far
+        labels = last_state.get("current_labels", {})
+        result: dict[int, ClusterLabel] = {}
+        for cluster_id, label in labels.items():
+            if label is not None:
+                result[cluster_id] = label
+
+        logger.warning(
+            "cluster_labeling_agent_error_returning_partial",
             team_id=team_id,
             error=str(e),
             error_type=type(e).__name__,
+            num_labels_recovered=len(result),
+            iterations=last_state.get("iterations", 0),
         )
-        raise
+
+        return result
