@@ -2,7 +2,8 @@
     .Columns {
         display: flex;
         column-gap: 1rem;
-        width: 700px;
+        width: 1200px;
+        max-width: 90vw;
         padding: 0.5rem;
         background-color: var(--color-bg-primary);
         border-radius: var(--radius);
@@ -14,7 +15,13 @@
     }
 
     .HalfColumn {
-        width: 50%;
+        &:first-child {
+            width: 40%;
+        }
+
+        &:last-child {
+            width: 60%;
+        }
 
         @media (max-width: 960px) {
             width: 100%;
