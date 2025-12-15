@@ -18,7 +18,6 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 - [x] Implement Rust integration tests for multipart parsing and validation
 - [x] Create Python acceptance test scenarios with multipart requests and blob data
 - [x] Test Kafka message output and S3 storage integration
-- [ ] Set up automated test suite for continuous validation
 
 ### Phase 1: HTTP Endpoint
 
@@ -40,11 +39,11 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 - [x] Validate required fields (event name, distinct_id, $ai_model)
 - [x] Implement size limits (32KB event, 960KB combined, 25MB total, 27.5MB request body)
 
-#### 1.3 Initial Deployment
+#### 1.3 Initial Deployment (Dev)
 
-- [ ] Deploy capture-ai service to production with basic `/i/v0/ai` endpoint
-- [ ] Test basic multipart parsing and Kafka output functionality
-- [ ] Verify endpoint responds correctly to AI events
+- [x] Deploy capture-ai service to dev with basic `/i/v0/ai` endpoint
+- [x] Test basic multipart parsing and Kafka output functionality
+- [x] Verify endpoint responds correctly to AI events
 
 ### Phase 2: Basic S3 Uploads
 
@@ -62,17 +61,16 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 - [x] Set up S3 buckets for local dev (MinIO: `ai-blobs` bucket via docker-compose)
 - [x] Set up bucket structure with `llma/` prefix
-- [ ] Set up S3 buckets for production environment
+- [ ] Set up S3 buckets for dev environment
 - [ ] Configure S3 lifecycle policies for retention (30d default)
 - [ ] Set up S3 access policies for capture service
 - [ ] Create service accounts with appropriate S3 permissions
 
-#### 3.2 Capture S3 Configuration
+#### 3.2 Capture S3 Configuration (Dev)
 
 - [x] Configure capture-ai service for local dev with S3 (bin/start-rust-service, mprocs.yaml)
 - [x] Test S3 connectivity and uploads (acceptance tests pass)
 - [ ] Deploy capture-ai service to dev environment with S3 configuration
-- [ ] Deploy capture-ai service to production environment with S3 configuration
 - [ ] Set up IAM roles and permissions for capture-ai service
 - [ ] Configure S3 read/write permissions
 
@@ -149,10 +147,37 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 - [x] Add quota limiting per team (via `quota_limiter.check_and_filter()`, returns `BillingLimit` error when exceeded)
 - [ ] Implement per-team payload size limits
 
-### Phase 10: Data Deletion (Optional)
+### Phase 10: Production Deployment
 
-#### 10.1 Data Deletion (Choose One Approach)
+#### 10.1 Production S3 Infrastructure
+
+- [ ] Set up S3 buckets for production environment
+- [ ] Configure S3 lifecycle policies for production
+- [ ] Set up S3 access policies for production capture service
+- [ ] Create production service accounts with appropriate S3 permissions
+
+#### 10.2 Capture Service Production Deployment
+
+- [ ] Deploy capture-ai service to production with basic `/i/v0/ai` endpoint
+- [ ] Test basic multipart parsing and Kafka output functionality in production
+- [ ] Verify endpoint responds correctly to AI events in production
+- [ ] Deploy capture-ai service to production environment with S3 configuration
+- [ ] Set up production IAM roles and permissions for capture-ai service
+- [ ] Configure production S3 read/write permissions
+
+### Phase 11: Data Deletion (Optional)
+
+#### 11.1 Data Deletion (Choose One Approach)
 
 - [ ] Option A: S3 expiry (passive) - rely on lifecycle policies
 - [ ] Option B: S3 delete by prefix functionality
 - [ ] Option C: Per-team encryption keys
+
+### Phase 12: Automated Testing
+
+#### 12.1 Continuous Validation
+
+- [ ] Set up automated test suite for continuous validation
+- [ ] Configure CI/CD pipeline integration for capture-ai tests
+- [ ] Set up automated regression testing for `/i/v0/ai` endpoint
+- [ ] Implement automated S3 integration validation tests
