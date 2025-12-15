@@ -12,6 +12,7 @@ interface ScatterPoint {
     x: number
     y: number
     traceId?: string
+    timestamp?: string
 }
 
 interface ClusterDetailScatterPlotProps {
@@ -30,6 +31,7 @@ export function ClusterDetailScatterPlot({ cluster, traceSummaries }: ClusterDet
             x: traceInfo.x,
             y: traceInfo.y,
             traceId,
+            timestamp: traceInfo.timestamp,
         }))
 
         const result: any[] = [
@@ -79,11 +81,10 @@ export function ClusterDetailScatterPlot({ cluster, traceSummaries }: ClusterDet
 
         const point = dataset.data?.[element.index] as ScatterPoint | undefined
         if (point?.traceId) {
-            const summary = traceSummaries[point.traceId]
             router.actions.push(
                 urls.llmAnalyticsTrace(point.traceId, {
                     tab: 'summary',
-                    ...(summary?.timestamp ? { timestamp: summary.timestamp } : {}),
+                    ...(point.timestamp ? { timestamp: point.timestamp } : {}),
                 })
             )
         }

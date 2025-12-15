@@ -241,7 +241,7 @@ function TraceListItem({
                 </LemonTag>
                 <span className="font-medium flex-1 min-w-0 truncate">{summary?.title || 'Loading...'}</span>
                 <Link
-                    to={urls.llmAnalyticsTrace(traceId, summary?.timestamp ? { timestamp: summary.timestamp } : {})}
+                    to={urls.llmAnalyticsTrace(traceId, traceInfo.timestamp ? { timestamp: traceInfo.timestamp } : {})}
                     className="text-sm text-link hover:underline shrink-0"
                 >
                     View trace →
