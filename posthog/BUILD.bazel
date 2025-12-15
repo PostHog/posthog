@@ -1,0 +1,36 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+# Core posthog infrastructure - permanent dependency for all products.
+# Isolated products depend on this to get access to posthog internals
+# and to trigger reruns when legacy code changes.
+py_library(
+    name = "core",
+    srcs = ["__init__.py"],
+    data = [":legacy_srcs"],
+    visibility = ["//visibility:public"],
+)
+
+exports_files(
+    ["conftest.py"],
+    visibility = ["//products:__subpackages__"],
+)
+
+# Coarse filegroup representing all legacy posthog code.
+# Used by:
+# - //ci:legacy_pytest (marker target for target-determinator)
+# - Bazelified product tests (to detect when legacy deps change)
+#
+# When legacy code changes, target-determinator sees this filegroup
+# as modified, triggering dependent tests to rerun.
+filegroup(
+    name = "legacy_srcs",
+    srcs = glob(
+        ["**/*.py"],
+        exclude = [
+            "**/test_*.py",
+            "**/*_test.py",
+            "**/tests/**",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)

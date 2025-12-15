@@ -128,3 +128,10 @@ CODE_REVIEW.md
 CODE_DEBUGGING_SESSION.md
 
 data/seaweedfs
+
+# Bazel output directories
+bazel-bin
+bazel-out
+bazel-testlogs
+bazel-*
+MODULE.bazel.lock

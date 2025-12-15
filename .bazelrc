@@ -1,0 +1,16 @@
+common --enable_bzlmod
+
+# Allow network access for uv pip compile (git dependencies)
+build --sandbox_default_allow_network=true
+
+# Django test settings
+test --test_env=DEBUG=1
+
+# CI configuration
+# Usage: bazel test --config=ci //...
+test:ci --test_output=errors
+test:ci --keep_going
+test:ci --verbose_failures
+
+# Local development (default)
+test --test_output=summary

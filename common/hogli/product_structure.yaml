@@ -1,0 +1,409 @@
+# Canonical product structure definition
+# Used by: hogli product:bootstrap, hogli product:lint
+#
+# Each file can have:
+#   required: bool - whether lint should warn if missing (in strict mode)
+#   required_lenient: bool - whether lint should warn if missing (in lenient mode)
+#   can_be_folder: bool - whether file.py can also be file/ directory
+#   template: str - content template with {product} and {Product} placeholders
+#
+# Modes:
+#   strict: product has backend/api/dtos.py (isolated architecture)
+#   lenient: legacy product without dtos.py
+
+# Root-level product files (not in backend/ or frontend/)
+root_files:
+    __init__.py:
+        required: true
+        required_lenient: true
+        template: ''
+
+    manifest.tsx:
+        required: true
+        required_lenient: false
+        template: |
+            /**
+             * Product manifest for {product}.
+             *
+             * Defines scenes, routes, URLs, and navigation for this product.
+             */
+            import {{ ProductManifest }} from '../../frontend/src/types'
+
+            export const manifest: ProductManifest = {{
+                name: '{Product}',
+                scenes: {{
+                    // Define scenes here
+                }},
+                routes: {{
+                    // Define routes here
+                }},
+                redirects: {{}},
+                urls: {{
+                    // Define URL helpers here
+                }},
+                fileSystemTypes: {{}},
+                treeItemsNew: [],
+                treeItemsProducts: [],
+            }}
+
+    package.json:
+        required: true
+        required_lenient: false
+        template: |
+            {{
+                "name": "@posthog/products-{product}",
+                "scripts": {{}},
+                "dependencies": {{}},
+                "peerDependencies": {{}}
+            }}
+
+    tsconfig.json:
+        required: true
+        required_lenient: false
+        template: |
+            {{
+                "extends": "../../tsconfig.json",
+                "compilerOptions": {{
+                    "composite": true
+                }}
+            }}
+
+# Backend files (in backend/)
+backend_files:
+    __init__.py:
+        required: true
+        template: ''
+
+    apps.py:
+        required: true
+        template: |
+            """Django app configuration for {product}."""
+            from django.apps import AppConfig
+
+
+            class {Product}Config(AppConfig):
+                name = "products.{product}.backend"
+                label = "{product}"
+
+    models.py:
+        required: true
+        can_be_folder: true
+        template: |
+            """Django models for {product}."""
+            from django.db import models
+
+            from posthog.models.utils import UUIDModel
+
+            # Define your models here
+            # Important: 
+            # - Keep models thin, no business logic, use logic.py instead
+            # - Use domain types from domain_types.py where applicable
+            # - Do not use ForeignKeys to models outside this app unless allowed, as you will make implicit dependencies.
+            # - If you make a ForeignKey to a common model, disallow reverse relations with related_name='+'
+
+    domain_types.py:
+        required: false
+        can_be_folder: true
+        template: |
+            """Domain types, enums, and constants for {product}."""
+            from enum import StrEnum
+
+            # Define enums and constants here
+            # Also dataclasses or Pydantic models if needed, but only if they are
+            # overarching domain types and not tied to API or persistence.
+
+    logic.py:
+        required: false
+        can_be_folder: true
+        template: |
+            """
+            Business logic for {product}.
+
+            Validation, calculations, business rules, ORM queries.
+            Called by api/api.py facade.
+            """
+
+    tasks/:
+        __init__.py:
+            required: false
+            template: ''
+
+        tasks.py:
+            required: false
+            template: |
+                """
+                Celery tasks for {product}.
+
+                Async entrypoints that call the facade (api/api.py).
+                Keep task functions thin - only call facade methods.
+                """
+                # from celery import shared_task
+                # from ..api import api
+
+        schedules.py:
+            required: false
+            template: |
+                """Celery beat schedules for {product}."""
+                # Define periodic task schedules here
+
+    api/:
+        __init__.py:
+            required: true
+            template: ''
+
+        api.py:
+            required: true
+            template: |
+                """
+                Facade API for {product}.
+
+                This is the ONLY module other apps are allowed to import.
+
+                Not to be confused with HTTP APIs (views/serializers).
+
+                Responsibilities:
+                - Accept DTOs as input parameters
+                - Call domain logic (logic.py)
+                - Convert Django models to DTOs before returning
+                - Enforce transactions where needed
+                - Remain thin and stable
+
+                Do NOT:
+                - Implement business logic here (use logic.py)
+                - Import DRF, serializers, or HTTP concerns
+                - Return ORM instances or QuerySets
+                """
+
+        dtos.py:
+            required: true
+            template: |
+                """
+                DTOs for {product} API.
+
+                Stable, framework-free dataclasses that serve as internal contracts.
+
+                Characteristics:
+                - No Django imports
+                - Immutable (frozen=True)
+                - Used by facade as inputs/outputs
+
+                Do NOT depend on Django models, DRF serializers, or request objects.
+                """
+                from dataclasses import dataclass
+
+    presentation/:
+        __init__.py:
+            required: true
+            template: ''
+
+        serializers.py:
+            required: true
+            template: |
+                """
+                DRF serializers for {product}.
+
+                Converts DTOs to/from JSON. Can be auto-generated from dataclasses
+                using DataclassSerializer.
+                """
+                from rest_framework_dataclasses.serializers import DataclassSerializer
+
+                # from ..api.dtos import ...
+
+        views.py:
+            required: true
+            template: |
+                """
+                DRF views for {product}.
+
+                Responsibilities:
+                - Validate incoming JSON (via serializers)
+                - Convert JSON to DTOs
+                - Call facade methods (api/api.py)
+                - Convert DTOs to JSON responses
+
+                No business logic here - that belongs in logic.py via the facade.
+                """
+                from rest_framework import viewsets
+
+                from posthog.api.routing import TeamAndOrgViewSetMixin
+
+                # from ..api import api
+
+        urls.py:
+            required: true
+            template: |
+                """URL routes for {product}."""
+                from rest_framework.routers import DefaultRouter
+
+                # from .views import ...
+
+                router = DefaultRouter()
+                urlpatterns = router.urls
+
+    tests/:
+        __init__.py:
+            required: true
+            template: ''
+
+        test_models.py:
+            required: false
+            template: ''
+
+        test_logic.py:
+            required: false
+            template: ''
+
+        test_api.py:
+            required: false
+            template: ''
+
+        test_presentation.py:
+            required: false
+            template: ''
+
+        test_tasks.py:
+            required: false
+            template: ''
+
+        BUILD.bazel:
+            required: true
+            template: |
+                load("@aspect_rules_py//py:defs.bzl", "py_test")
+
+                # Unit tests: depend on own :impl + other products' :contract only
+                # These run when own code changes, NOT when other products' impl changes
+                # Note: :impl depends on //posthog:core and //products:non_isolated,
+                # so tests automatically rerun when legacy code changes.
+                py_test(
+                    name = "tests_unit",
+                    srcs = [
+                        "test_models.py",
+                        "test_logic.py",
+                        "test_api.py",
+                    ],
+                    data = [
+                        "//products:conftest.py",
+                    ],
+                    pytest_main = True,
+                    deps = [
+                        "//products/{product}/backend:impl",
+                        "@pypi//django",
+                        "@pypi//pytest",
+                    ],
+                )
+
+                # Integration tests: depend on other products' :impl, DB, external services
+                # These run when any dependent :impl changes
+                py_test(
+                    name = "tests_integration",
+                    srcs = [
+                        "test_presentation.py",
+                        "test_tasks.py",
+                    ],
+                    data = [
+                        "//products:conftest.py",
+                    ],
+                    pytest_main = True,
+                    deps = [
+                        "//products/{product}/backend:presentation",
+                        "//products/{product}/backend:tasks",
+                        "@pypi//celery",
+                        "@pypi//django",
+                        "@pypi//djangorestframework",
+                        "@pypi//pytest",
+                    ],
+                )
+
+    BUILD.bazel:
+        required: true
+        template: |
+            load("@rules_python//python:defs.bzl", "py_library")
+
+            # Contract: stable, shared with other products
+            # Contains only DTOs and domain types - no Django
+            py_library(
+                name = "contract",
+                srcs = [
+                    "api/__init__.py",
+                    "api/dtos.py",
+                    "domain_types.py",
+                ],
+                visibility = ["//products:__subpackages__"],
+                deps = [],
+            )
+
+            # Implementation: private to this product (+ integration tests)
+            # Contains facade, logic, models - the actual implementation
+            py_library(
+                name = "impl",
+                srcs = [
+                    "__init__.py",
+                    "api/api.py",
+                    "apps.py",
+                    "logic.py",
+                    "models.py",
+                ],
+                visibility = [
+                    "//products/{product}:__subpackages__",
+                    "//products:integration_tests",
+                ],
+                deps = [
+                    ":contract",
+                    "//posthog:core",
+                    "//products:non_isolated",
+                    "@pypi//django",
+                ],
+            )
+
+            # Presentation: DRF views/serializers/urls
+            py_library(
+                name = "presentation",
+                srcs = glob(["presentation/**/*.py"]),
+                visibility = ["//products/{product}:__subpackages__"],
+                deps = [
+                    ":contract",
+                    ":impl",
+                    "@pypi//django",
+                    "@pypi//djangorestframework",
+                ],
+            )
+
+            # Tasks: Celery entrypoints
+            py_library(
+                name = "tasks",
+                srcs = glob(["tasks/**/*.py"]),
+                visibility = ["//products/{product}:__subpackages__"],
+                deps = [
+                    ":impl",
+                    "@pypi//celery",
+                ],
+            )
+
+# Frontend files (in frontend/)
+frontend_files:
+    components/:
+        __init__: false # just create the folder
+
+    scenes/:
+        __init__: false # just create the folder
+
+    hooks/:
+        __init__: false # just create the folder
+
+    logics/:
+        __init__: false # just create the folder
+
+# Files that are known but should live in specific locations
+# Used by lint to detect misplaced files in backend/
+backend_known_files:
+    api.py: api/api.py
+    dtos.py: api/dtos.py
+    serializers.py: presentation/serializers.py
+    views.py: presentation/views.py
+    urls.py: presentation/urls.py
+    tasks.py: tasks/tasks.py
+    schedules.py: tasks/schedules.py
+    test_logic.py: tests/test_logic.py
+    test_api.py: tests/test_api.py
+    test_presentation.py: tests/test_presentation.py
+    test_tasks.py: tests/test_tasks.py

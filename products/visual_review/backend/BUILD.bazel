@@ -1,0 +1,62 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+# Contract: stable, shared with other products
+# Contains only DTOs and domain types - no Django
+py_library(
+    name = "contract",
+    srcs = [
+        "api/__init__.py",
+        "api/dtos.py",
+        "domain_types.py",
+    ],
+    visibility = ["//products:__subpackages__"],
+    deps = [],
+)
+
+# Implementation: private to this product (+ integration tests)
+# Contains facade, logic, models - the actual implementation
+py_library(
+    name = "impl",
+    srcs = [
+        "__init__.py",
+        "api/api.py",
+        "apps.py",
+        "logic.py",
+        "models.py",
+        "storage.py",
+    ],
+    visibility = [
+        "//products/visual_review:__subpackages__",
+        "//products:integration_tests",  # allow integration tests from other products
+    ],
+    deps = [
+        ":contract",
+        "//posthog:core",
+        "//products:non_isolated",
+        "@pypi//django",
+    ],
+)
+
+# Presentation: DRF views/serializers/urls
+py_library(
+    name = "presentation",
+    srcs = glob(["presentation/**/*.py"]),
+    visibility = ["//products/visual_review:__subpackages__"],
+    deps = [
+        ":contract",
+        ":impl",
+        "@pypi//django",
+        "@pypi//djangorestframework",
+    ],
+)
+
+# Tasks: Celery entrypoints
+py_library(
+    name = "tasks",
+    srcs = glob(["tasks/**/*.py"]),
+    visibility = ["//products/visual_review:__subpackages__"],
+    deps = [
+        ":impl",
+        "@pypi//celery",
+    ],
+)

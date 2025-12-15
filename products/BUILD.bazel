@@ -1,0 +1,52 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+# Products that have their own BUILD.bazel and isolated tests.
+# Add your product here when you create it - if you don't, all legacy
+# tests will run on your changes (which is how you'll know to add it!)
+ISOLATED_PRODUCTS = [
+    "nas",
+    "visual_review",
+]
+
+# All non-isolated (legacy) product sources as one blob.
+# These products are still coupled with each other and core posthog.
+# As products get isolated, add them to ISOLATED_PRODUCTS above.
+filegroup(
+    name = "legacy_product_srcs",
+    srcs = glob(
+        ["*/backend/**/*.py"],
+        exclude = [p + "/**" for p in ISOLATED_PRODUCTS] + [
+            "**/test_*.py",
+            "**/*_test.py",
+            "**/tests/**",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# Dependency target for isolated products to access legacy products.
+# When legacy product code changes, target-determinator sees this and
+# triggers dependent isolated product tests to rerun.
+py_library(
+    name = "non_isolated",
+    srcs = ["__init__.py"],
+    data = [":legacy_product_srcs"],
+    visibility = ["//visibility:public"],
+)
+
+# Package group for integration tests across all products
+# Integration tests are allowed to depend on other products' :impl targets
+package_group(
+    name = "integration_tests",
+    packages = [
+        "//products/nas/backend/tests",
+        "//products/visual_review/backend/tests",
+        # Add more products as they're created
+    ],
+)
+
+# Shared conftest for product tests (imports from main posthog conftest)
+exports_files(
+    ["conftest.py"],
+    visibility = ["//products:__subpackages__"],
+)

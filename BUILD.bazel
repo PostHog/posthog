@@ -1,0 +1,41 @@
+load("@gazelle//:def.bzl", "gazelle")
+load("@rules_python//python/uv:lock.bzl", "lock")
+
+gazelle(
+    name = "gazelle",
+    gazelle = "@rules_python_gazelle_plugin//python:gazelle_binary",
+)
+
+# Generate requirements_lock.txt from pyproject.toml (including dev deps)
+# Run: bazel run //:requirements.update
+# Test: bazel test //:requirements_test
+lock(
+    name = "requirements",
+    srcs = ["pyproject.toml"],
+    out = "requirements_lock.txt",
+    args = ["--group", "dev"],
+    env = {
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+    },
+)
+
+# gazelle:python_root
+
+# Map pip packages from uv.lock
+# gazelle:resolve py django @pypi//django
+# gazelle:resolve py django.apps @pypi//django
+# gazelle:resolve py django.conf @pypi//django
+# gazelle:resolve py django.db @pypi//django
+# gazelle:resolve py django.db.models @pypi//django
+# gazelle:resolve py rest_framework @pypi//djangorestframework
+# gazelle:resolve py rest_framework.viewsets @pypi//djangorestframework
+# gazelle:resolve py rest_framework.routers @pypi//djangorestframework
+# gazelle:resolve py rest_framework_dataclasses @pypi//djangorestframework_dataclasses
+# gazelle:resolve py rest_framework_dataclasses.serializers @pypi//djangorestframework_dataclasses
+# gazelle:resolve py pytest @pypi//pytest
+# gazelle:resolve py pytest_django @pypi//pytest_django
+
+# Internal posthog imports - placeholder until posthog is in Bazel
+# gazelle:resolve py posthog //posthog
+# gazelle:resolve py posthog.api //posthog
+# gazelle:resolve py posthog.api.routing //posthog

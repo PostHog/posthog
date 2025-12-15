@@ -1,0 +1,45 @@
+load("@aspect_rules_py//py:defs.bzl", "py_test")
+
+# Unit tests: depend on own :impl + other products' :contract only
+# These run when own code changes, NOT when other products' impl changes
+# Note: :impl depends on //posthog:core and //products:non_isolated,
+# so tests automatically rerun when legacy code changes.
+py_test(
+    name = "tests_unit",
+    srcs = [
+        "test_models.py",
+        "test_logic.py",
+        "test_api.py",
+    ],
+    data = [
+        "//products:conftest.py",
+    ],
+    pytest_main = True,
+    deps = [
+        "//products/visual_review/backend:impl",
+        "@pypi//django",
+        "@pypi//pytest",
+    ],
+)
+
+# Integration tests: depend on other products' :impl, DB, external services
+# These run when any dependent :impl changes
+py_test(
+    name = "tests_integration",
+    srcs = [
+        "test_presentation.py",
+        "test_tasks.py",
+    ],
+    data = [
+        "//products:conftest.py",
+    ],
+    pytest_main = True,
+    deps = [
+        "//products/visual_review/backend:presentation",
+        "//products/visual_review/backend:tasks",
+        "@pypi//celery",
+        "@pypi//django",
+        "@pypi//djangorestframework",
+        "@pypi//pytest",
+    ],
+)
