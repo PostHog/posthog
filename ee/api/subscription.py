@@ -20,9 +20,6 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import DeliverSubscriptionReportActivityInputs
 from posthog.utils import str_to_bool
 
-from ee.tasks import subscriptions
-from ee.tasks.subscriptions import team_use_temporal_flag
-
 # comment to trigger redeploy
 
 
@@ -85,23 +82,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         instance: Subscription = super().create(validated_data)
 
-        if not team_use_temporal_flag(instance.team):
-            subscriptions.handle_subscription_value_change.delay(instance.id, "", invite_message)
-        else:
-            temporal = sync_connect()
-            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-            asyncio.run(
-                temporal.start_workflow(
-                    "handle-subscription-value-change",
-                    DeliverSubscriptionReportActivityInputs(
-                        subscription_id=instance.id,
-                        previous_value="",
-                        invite_message=invite_message,
-                    ),
-                    id=workflow_id,
-                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                )
+        temporal = sync_connect()
+        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+        asyncio.run(
+            temporal.start_workflow(
+                "handle-subscription-value-change",
+                DeliverSubscriptionReportActivityInputs(
+                    subscription_id=instance.id,
+                    previous_value="",
+                    invite_message=invite_message,
+                ),
+                id=workflow_id,
+                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
             )
+        )
 
         return instance
 
@@ -110,23 +104,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         instance = super().update(instance, validated_data)
 
-        if not team_use_temporal_flag(instance.team):
-            subscriptions.handle_subscription_value_change.delay(instance.id, previous_value, invite_message)
-        else:
-            temporal = sync_connect()
-            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-            asyncio.run(
-                temporal.start_workflow(
-                    "handle-subscription-value-change",
-                    DeliverSubscriptionReportActivityInputs(
-                        subscription_id=instance.id,
-                        previous_value=previous_value,
-                        invite_message=invite_message,
-                    ),
-                    id=workflow_id,
-                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                )
+        temporal = sync_connect()
+        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+        asyncio.run(
+            temporal.start_workflow(
+                "handle-subscription-value-change",
+                DeliverSubscriptionReportActivityInputs(
+                    subscription_id=instance.id,
+                    previous_value=previous_value,
+                    invite_message=invite_message,
+                ),
+                id=workflow_id,
+                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
             )
+        )
 
         return instance
 
