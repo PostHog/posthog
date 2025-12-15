@@ -117,6 +117,7 @@ describe('BatchWritingPersonStore', () => {
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
             addPersonlessDistinctId: jest.fn().mockResolvedValue(true),
             addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
+            addPersonlessDistinctIdsBatch: jest.fn().mockResolvedValue(new Map()),
             personPropertiesSize: jest.fn().mockResolvedValue(1024),
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
             inTransaction: jest.fn().mockImplementation(async (description, transaction) => {
@@ -2194,6 +2195,47 @@ describe('BatchWritingPersonStore', () => {
             // Should have fetched from DB again, not used stale cache
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(2)
             expect(fetchedPerson?.properties).toEqual({ name: 'Batch2Person', newProp: 'value' })
+        })
+    })
+
+    describe('createPerson caching', () => {
+        it('should cache all extra distinct IDs when creating a person with multiple distinct IDs', async () => {
+            const personStore = getPersonsStore()
+            const createdPerson = { ...person, uuid: 'new-uuid' }
+            mockRepo.createPerson.mockResolvedValue({
+                success: true,
+                person: createdPerson,
+                messages: [],
+                created: true,
+            })
+
+            await personStore.createPerson(
+                DateTime.now(),
+                { prop: 'value' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                'new-uuid',
+                { distinctId: 'primary-id' },
+                [{ distinctId: 'extra-id-1' }, { distinctId: 'extra-id-2' }, { distinctId: 'extra-id-3' }]
+            )
+
+            // All distinct IDs should be cached - verify by checking the cache directly
+            const checkCache = personStore.getCheckCache()
+            const updateCache = personStore.getUpdateCache()
+
+            // Primary distinct ID should be cached
+            expect(checkCache.get(`${teamId}:primary-id`)).toEqual(createdPerson)
+            expect(updateCache.get(`${teamId}:${createdPerson.id}`)).toBeDefined()
+
+            // All extra distinct IDs should also be cached for update lookups
+            // The distinctIdToPersonId map should contain all extra distinct IDs
+            const distinctIdToPersonId = (personStore as any).distinctIdToPersonId as Map<string, string>
+            expect(distinctIdToPersonId.get(`${teamId}:extra-id-1`)).toBe(createdPerson.id)
+            expect(distinctIdToPersonId.get(`${teamId}:extra-id-2`)).toBe(createdPerson.id)
+            expect(distinctIdToPersonId.get(`${teamId}:extra-id-3`)).toBe(createdPerson.id)
         })
     })
 

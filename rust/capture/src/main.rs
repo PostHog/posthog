@@ -29,7 +29,10 @@ async fn shutdown() {
         _ = interrupt.recv() => {},
     };
 
-    tracing::info!("Shutting down gracefully...");
+    capture::metrics_middleware::set_shutdown_status(
+        capture::metrics_middleware::ShutdownStatus::Terminating,
+    );
+    tracing::info!("Shutdown status change: TERMINATING");
 }
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
@@ -100,5 +103,10 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, shutdown()).await
+    serve(config, listener, shutdown()).await;
+
+    capture::metrics_middleware::set_shutdown_status(
+        capture::metrics_middleware::ShutdownStatus::Completed,
+    );
+    tracing::info!("Shutdown status change: COMPLETED");
 }
