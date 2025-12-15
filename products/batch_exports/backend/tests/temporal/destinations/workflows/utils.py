@@ -2,6 +2,7 @@ import json
 import asyncio
 import datetime as dt
 import operator
+from typing import Any
 
 from django.conf import settings
 
@@ -127,7 +128,7 @@ async def assert_clickhouse_records_in_kafka(
                 select = expected_fields
 
             for record in record_batch.select(select).to_pylist():
-                expected_record = {}
+                expected_record: dict[str, Any] = {}
 
                 for k, v in record.items():
                     if k == "_inserted_at":
