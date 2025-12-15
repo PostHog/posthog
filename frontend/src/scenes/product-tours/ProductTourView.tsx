@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -27,10 +27,12 @@ import {
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
     ProductTour,
+    ProductTourStep,
     ProgressStatus,
     PropertyFilterType,
     PropertyOperator,
     StepOrderValue,
+    StepOrderVersion,
 } from '~/types'
 
 import { EditInToolbarButton } from './components/EditInToolbarButton'
@@ -241,12 +243,47 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
     )
 }
 
-function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRange }): JSX.Element {
-    const steps = tour.content?.steps || []
+/** Get the steps snapshot from a specific version */
+function getStepsForVersion(allSteps: ProductTourStep[], version: StepOrderVersion | null): ProductTourStep[] {
+    if (!version) {
+        return allSteps
+    }
+    return version.steps
+}
 
-    if (steps.length === 0) {
+/** Format version date for display */
+function formatVersionDate(dateString: string): string {
+    const date = new Date(dateString)
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRange }): JSX.Element {
+    const allSteps = tour.content?.steps || []
+    const stepOrderHistory = tour.content?.step_order_history || []
+    const hasVersionHistory = stepOrderHistory.length > 1
+
+    // Default to latest version (last in array)
+    const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
+        stepOrderHistory.length > 0 ? stepOrderHistory[stepOrderHistory.length - 1].id : null
+    )
+
+    if (allSteps.length === 0) {
         return <div className="text-secondary text-sm">No steps defined for this tour.</div>
     }
+
+    // Find the selected version and determine its date range
+    const selectedVersionIndex = stepOrderHistory.findIndex((v) => v.id === selectedVersionId)
+    const selectedVersion = selectedVersionIndex >= 0 ? stepOrderHistory[selectedVersionIndex] : null
+    const nextVersion = selectedVersionIndex >= 0 ? stepOrderHistory[selectedVersionIndex + 1] : null
+
+    // Get steps in the order of the selected version
+    const steps = getStepsForVersion(allSteps, selectedVersion)
+
+    // Calculate date range for this version
+    // Start: version's created_at (or tour start_date, or user-selected date_from)
+    // End: next version's created_at (or user-selected date_to)
+    const versionDateFrom = selectedVersion?.created_at || dateRange.date_from
+    const versionDateTo = nextVersion?.created_at || dateRange.date_to
 
     const tourIdFilter = {
         type: PropertyFilterType.Event,
@@ -255,7 +292,8 @@ function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRa
         value: tour.id,
     }
 
-    // Build funnel: tour shown → step 0 shown → step 1 shown → ... → tour completed
+    // Build funnel: tour shown → step 1 shown → step 2 shown → ... → tour completed
+    // Filter by step ID (stable across reorders) rather than step order (positional)
     const series = [
         {
             kind: NodeKind.EventsNode,
@@ -263,7 +301,7 @@ function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRa
             custom_name: 'Tour started',
             properties: [tourIdFilter],
         },
-        ...steps.map((_, index) => ({
+        ...steps.map((step, index) => ({
             kind: NodeKind.EventsNode,
             event: 'product tour step shown',
             custom_name: `Step ${index + 1}`,
@@ -271,9 +309,9 @@ function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRa
                 tourIdFilter,
                 {
                     type: PropertyFilterType.Event,
-                    key: '$product_tour_step_order',
+                    key: '$product_tour_step_id',
                     operator: PropertyOperator.Exact,
-                    value: String(index),
+                    value: step.id,
                 },
             ],
         })),
@@ -295,14 +333,36 @@ function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRa
             funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
         },
         dateRange: {
-            date_from: dateRange.date_from,
-            date_to: dateRange.date_to,
+            date_from: versionDateFrom,
+            date_to: versionDateTo,
         },
     }
 
+    // Build version options for dropdown
+    const versionOptions = stepOrderHistory.map((version, index) => ({
+        value: version.id,
+        label: `Version ${index + 1} (${formatVersionDate(version.created_at)})`,
+    }))
+
     return (
         <div>
-            <h3 className="font-semibold mb-4">Step completion funnel</h3>
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold">Step completion funnel</h3>
+                {hasVersionHistory && (
+                    <LemonSelect
+                        size="small"
+                        options={versionOptions}
+                        value={selectedVersionId}
+                        onChange={(value) => setSelectedVersionId(value)}
+                    />
+                )}
+            </div>
+            {hasVersionHistory && selectedVersion && (
+                <div className="text-secondary text-sm mb-4">
+                    Showing data from {formatVersionDate(selectedVersion.created_at)}
+                    {nextVersion ? ` to ${formatVersionDate(nextVersion.created_at)}` : ' to now'}
+                </div>
+            )}
             <Query
                 query={{
                     kind: NodeKind.InsightVizNode,

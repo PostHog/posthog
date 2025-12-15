@@ -13,11 +13,13 @@ import {
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
+    AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     RootAssistantMessage,
+    SubagentUpdateEvent,
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import {
@@ -63,6 +65,12 @@ export function isAssistantToolCallMessage(
     message: RootAssistantMessage | undefined | null
 ): message is AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>> {
     return message?.type === AssistantMessageType.ToolCall && message.ui_payload !== undefined
+}
+
+export function isSubagentUpdateEvent(
+    message: AssistantUpdateEvent | SubagentUpdateEvent | undefined | null
+): message is SubagentUpdateEvent {
+    return message?.content instanceof Object && 'type' in message.content && message.content.type === 'tool_call'
 }
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
@@ -126,6 +134,14 @@ export function formatConversationDate(updatedAt: string | null): string {
         return 'Just now'
     }
     return humanFriendlyDuration(diff, { maxUnits: 1 })
+}
+
+export function getSlackThreadUrl(slackThreadKey: string, slackWorkspaceDomain?: string | null): string {
+    const [_, channel, threadTs] = slackThreadKey.split(':')
+    // threadTs is like "1765374935.148729", URL needs "p1765374935148729"
+    const urlTs = `p${threadTs.replace('.', '')}`
+    const domain = slackWorkspaceDomain || 'slack'
+    return `https://${domain}.slack.com/archives/${channel}/${urlTs}`
 }
 
 /**

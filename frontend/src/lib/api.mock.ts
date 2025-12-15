@@ -262,6 +262,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         discussions_mentioned: false,
     },
     anonymize_data: false,
+    allow_impersonation: true,
     toolbar_mode: 'toolbar',
     has_password: true,
     id: 179,

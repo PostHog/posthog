@@ -175,6 +175,20 @@ class ArtifactManager(AssistantContextMixin):
 
         return result
 
+    async def aget_conversation_artifact_messages(self) -> list[ArtifactMessage]:
+        """Get all artifacts created in a conversation, by the agent and subagents."""
+        conversation_id = cast(UUID, self._get_thread_id(self._config))
+        artifacts = list(AgentArtifact.objects.filter(team=self._team, conversation_id=conversation_id).all())
+        return [
+            ArtifactMessage(
+                id=artifact.short_id,
+                artifact_id=artifact.short_id,
+                source=ArtifactSource.ARTIFACT,
+                content=VisualizationArtifactContent.model_validate(artifact.data),
+            )
+            for artifact in artifacts
+        ]
+
     # -------------------------------------------------------------------------
     # Private helpers
     # -------------------------------------------------------------------------
@@ -206,7 +220,7 @@ class ArtifactManager(AssistantContextMixin):
     def _to_visualization_artifact_message(
         self, message: ArtifactRefMessage, content: VisualizationArtifactContent
     ) -> ArtifactMessage:
-        """Convert an ArtifactMessage to a VisualizationArtifactMessage."""
+        """Convert an ArtifactRefMessage to an ArtifactMessage."""
         return ArtifactMessage(
             id=message.id,
             artifact_id=message.artifact_id,

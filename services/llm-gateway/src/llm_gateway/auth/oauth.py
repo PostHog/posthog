@@ -21,7 +21,7 @@ async def validate_oauth_token(token: str, pool: asyncpg.Pool) -> AuthenticatedU
             """
             SELECT oat.id, oat.user_id, oat.scope, oat.expires,
                    u.current_team_id, oat.application_id
-            FROM oauth2_provider_accesstoken oat
+            FROM posthog_oauthaccesstoken oat
             JOIN posthog_user u ON oat.user_id = u.id
             WHERE oat.token_checksum = $1 AND u.is_active = true
             """,
