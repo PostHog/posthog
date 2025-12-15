@@ -202,16 +202,18 @@ def update_flags_cache(team: Team | int, ttl: int | None = None) -> bool:
     return success
 
 
-def verify_team_flags(team: Team, batch_data: dict | None = None) -> dict:
+def verify_team_flags(team: Team, batch_data: dict | None = None, verbose: bool = False) -> dict:
     """
     Verify a team's flags cache against the database.
 
     Args:
         team: Team to verify
         batch_data: Pre-loaded batch data from batch_load_fn (keyed by team.id)
+        verbose: If True, include detailed diffs with flag keys and field-level differences
 
     Returns:
-        Dict with 'status' ("match", "miss", "mismatch") and 'issue' type
+        Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
+        When verbose=True, includes 'diffs' list with detailed diff information.
     """
     # Use get_from_cache_with_source to detect true cache misses
     # (get_from_cache has cache-through behavior that hides misses)
@@ -244,12 +246,18 @@ def verify_team_flags(team: Team, batch_data: dict | None = None) -> dict:
     # Find missing flags (in DB but not in cache)
     for flag_id in db_flags_by_id:
         if flag_id not in cached_flags_by_id:
-            diffs.append({"type": "MISSING_IN_CACHE", "flag_id": flag_id})
+            diff: dict = {"type": "MISSING_IN_CACHE", "flag_id": flag_id}
+            if verbose:
+                diff["flag_key"] = db_flags_by_id[flag_id].get("key")
+            diffs.append(diff)
 
     # Find stale flags (in cache but not in DB)
     for flag_id in cached_flags_by_id:
         if flag_id not in db_flags_by_id:
-            diffs.append({"type": "STALE_IN_CACHE", "flag_id": flag_id})
+            diff = {"type": "STALE_IN_CACHE", "flag_id": flag_id}
+            if verbose:
+                diff["flag_key"] = cached_flags_by_id[flag_id].get("key")
+            diffs.append(diff)
 
     # Compare field values for flags that exist in both
     for flag_id in db_flags_by_id:
@@ -257,10 +265,14 @@ def verify_team_flags(team: Team, batch_data: dict | None = None) -> dict:
             db_flag = db_flags_by_id[flag_id]
             cached_flag = cached_flags_by_id[flag_id]
             if db_flag != cached_flag:
-                diffs.append({"type": "FIELD_MISMATCH", "flag_id": flag_id})
+                diff = {"type": "FIELD_MISMATCH", "flag_id": flag_id}
+                if verbose:
+                    diff["flag_key"] = db_flag.get("key")
+                    diff["field_diffs"] = _compare_flag_fields(db_flag, cached_flag)
+                diffs.append(diff)
 
     if not diffs:
-        return {"status": "match", "issue": None, "details": ""}
+        return {"status": "match", "issue": "", "details": ""}
 
     # Summarize diffs
     missing_count = sum(1 for d in diffs if d.get("type") == "MISSING_IN_CACHE")
@@ -275,11 +287,31 @@ def verify_team_flags(team: Team, batch_data: dict | None = None) -> dict:
     if mismatch_count > 0:
         summary_parts.append(f"{mismatch_count} mismatched")
 
-    return {
+    result: dict = {
         "status": "mismatch",
         "issue": "DATA_MISMATCH",
         "details": f"{', '.join(summary_parts)} flags" if summary_parts else "unknown differences",
     }
+
+    if verbose:
+        result["diffs"] = diffs
+
+    return result
+
+
+def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
+    """Compare field values between DB and cached versions of a flag."""
+    field_diffs = []
+    all_keys = set(db_flag.keys()) | set(cached_flag.keys())
+
+    for key in all_keys:
+        db_val = db_flag.get(key)
+        cached_val = cached_flag.get(key)
+
+        if db_val != cached_val:
+            field_diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
+
+    return field_diffs
 
 
 # Initialize hypercache management config after update_flags_cache is defined

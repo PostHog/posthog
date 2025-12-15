@@ -21,8 +21,8 @@ logger = structlog.get_logger(__name__)
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
-    soft_time_limit=3600,  # 60 min warning (verifying both caches)
-    time_limit=4200,  # 70 min hard limit
+    soft_time_limit=3300,  # 55 min warning (verifying both caches)
+    time_limit=3600,  # 60 min hard limit (task runs hourly, avoid overlap)
 )
 def verify_and_fix_hypercaches_task() -> None:
     """

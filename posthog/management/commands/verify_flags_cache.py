@@ -68,4 +68,4 @@ class Command(BaseHyperCacheCommand):
 
     def verify_team(self, team, verbose: bool, batch_data: dict | None = None) -> dict:
         """Verify a single team's flags cache against the database."""
-        return verify_team_flags(team, batch_data)
+        return verify_team_flags(team, batch_data, verbose=verbose)

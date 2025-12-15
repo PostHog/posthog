@@ -250,16 +250,18 @@ def get_team_metadata(team: Team | str | int) -> dict[str, Any] | None:
     return team_metadata_hypercache.get_from_cache(team)
 
 
-def verify_team_metadata(team: Team, batch_data: dict | None = None) -> dict:
+def verify_team_metadata(team: Team, batch_data: dict | None = None, verbose: bool = False) -> dict:
     """
     Verify a team's metadata cache against the database.
 
     Args:
         team: Team to verify (must be a Team object with organization/project loaded)
         batch_data: Pre-loaded batch data from batch_load_fn (keyed by team.id)
+        verbose: If True, include detailed diffs with field-level differences
 
     Returns:
-        Dict with 'status' ("match", "miss", "mismatch") and 'issue' type
+        Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
+        When verbose=True, includes 'diffs' list with detailed diff information.
     """
     cached_data = get_team_metadata(team)
 
@@ -287,13 +289,18 @@ def verify_team_metadata(team: Team, batch_data: dict | None = None) -> dict:
             diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
 
     if not diffs:
-        return {"status": "match", "issue": None, "details": ""}
+        return {"status": "match", "issue": "", "details": ""}
 
-    return {
+    result: dict = {
         "status": "mismatch",
         "issue": "DATA_MISMATCH",
         "details": f"{len(diffs)} field(s) differ",
     }
+
+    if verbose:
+        result["diffs"] = diffs
+
+    return result
 
 
 def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -> bool:

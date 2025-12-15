@@ -5,6 +5,7 @@ Provides reusable verification logic for Celery tasks that verify cache consiste
 and automatically fix issues.
 """
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -15,6 +16,9 @@ from posthog.models.team.team import Team
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig, batch_check_expiry_tracking
 
 logger = structlog.get_logger(__name__)
+
+# Default chunk size for batch processing, configurable via environment variable
+DEFAULT_VERIFICATION_CHUNK_SIZE = int(os.environ.get("HYPERCACHE_VERIFICATION_CHUNK_SIZE", "1000"))
 
 # Prometheus counter for tracking fixes during scheduled verification
 HYPERCACHE_VERIFY_FIX_COUNTER = Counter(
@@ -58,7 +62,7 @@ def verify_and_fix_all_teams(
     config: HyperCacheManagementConfig,
     verify_team_fn: Callable[[Team, dict | None], dict],
     cache_type: str,
-    chunk_size: int = 1000,
+    chunk_size: int | None = None,
 ) -> VerificationResult:
     """
     Verify all teams' caches and auto-fix any issues.
@@ -72,11 +76,15 @@ def verify_and_fix_all_teams(
         verify_team_fn: Function that takes (team, batch_data) and returns
             a dict with 'status' ("match", "miss", "mismatch") and 'issue' type
         cache_type: Name for metrics/logging (e.g., "team_metadata", "flags")
-        chunk_size: Number of teams to process per batch (default: 1000)
+        chunk_size: Number of teams to process per batch. Defaults to
+            HYPERCACHE_VERIFICATION_CHUNK_SIZE env var or 1000.
 
     Returns:
         VerificationResult with stats and list of fixed team IDs
     """
+    if chunk_size is None:
+        chunk_size = DEFAULT_VERIFICATION_CHUNK_SIZE
+
     result = VerificationResult()
     last_id = 0
 
