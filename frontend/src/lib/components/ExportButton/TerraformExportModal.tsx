@@ -27,7 +27,9 @@ export function TerraformExportModal({ isOpen, onClose, insight }: TerraformExpo
         includeImport: insight.id !== undefined,
     })
 
-    const filename = `${insight.name || insight.derived_name || 'insight'}.tf`
+    const baseName = insight.name || insight.derived_name || 'insight'
+    const filename = `${baseName}.tf`
+    const displayFilename = baseName.length > 30 ? `${baseName.slice(0, 30)}….tf` : filename
 
     const handleDownload = (): void => {
         const blob = new Blob([result.hcl], { type: 'text/plain' })
@@ -70,7 +72,7 @@ export function TerraformExportModal({ isOpen, onClose, insight }: TerraformExpo
                         Close
                     </LemonButton>
                     <LemonButton type="primary" icon={<IconDownload />} onClick={handleDownload}>
-                        Download {filename}
+                        Download {displayFilename}
                     </LemonButton>
                 </div>
             }
