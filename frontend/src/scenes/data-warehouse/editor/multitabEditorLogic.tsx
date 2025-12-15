@@ -629,7 +629,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
             }
 
-            // Debounce URL sync to avoid performance issues on every keystroke
             clearTimeout(cache.urlSyncTimeout)
             cache.urlSyncTimeout = setTimeout(() => {
                 actions.syncUrlWithQuery()
@@ -1285,7 +1284,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         })
         cache.timeouts = []
 
-        // Clear URL sync debounce timeout
         clearTimeout(cache.urlSyncTimeout)
     }),
 ])
