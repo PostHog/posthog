@@ -6,6 +6,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonDivider,
+    LemonInput,
     LemonLabel,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
