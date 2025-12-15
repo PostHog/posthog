@@ -182,7 +182,7 @@ class User(AbstractUser, UUIDTClassicModel):
         help_text=_("Unselect this to temporarily disable an account."),
     )
     is_not_active_reason = models.TextField(
-        _("de-activated reason"),
+        "De-activated reason",
         max_length=200,
         null=True,
         blank=True,
