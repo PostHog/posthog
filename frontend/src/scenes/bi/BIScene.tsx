@@ -1235,7 +1235,7 @@ function ColumnHeader({
                 }
             >
                 <LemonButton
-                    size="small"
+                    size="xsmall"
                     type="secondary"
                     icon={<IconFilter />}
                     aria-label="Column options"
