@@ -1,4 +1,12 @@
-#!/usr/local/bin/python
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "python-digitalocean>=1.17.0",
+#     "requests>=2.28.0",
+#     "paramiko>=3.0.0",
+# ]
+# ///
 # ruff: noqa: T201 allow print statements
 
 import os

@@ -35,20 +35,15 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
-            - name: Set up Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version: '3.11'
-
-            - name: Install dependencies
-              run: pip install python-digitalocean requests
+            - name: Install uv
+              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867
 
             - name: Cleanup specific PR droplet
               if: inputs.pr_number != ''
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   PR_NUMBER: ${{ inputs.pr_number }}
-              run: python3 bin/hobby-ci.py destroy-pr
+              run: uv run bin/hobby-ci.py destroy-pr
 
             - name: Cleanup stale droplets
               if: inputs.pr_number == ''
@@ -57,7 +52,7 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   MAX_INACTIVE_DAYS: ${{ inputs.max_inactive_days || '7' }}
                   DRY_RUN: ${{ inputs.dry_run || 'false' }}
-              run: python3 bin/hobby-ci.py cleanup-stale
+              run: uv run bin/hobby-ci.py cleanup-stale
 
             - name: Cleanup GitHub deployment and environment
               if: inputs.pr_number != ''
