@@ -354,6 +354,10 @@ docker:
         description: Set up Docker services and run evaluation scripts with cleanup
         hidden: true
 migrations:
+    db:migrate:
+        bin_script: migrate
+        description: Apply database migrations (Django and ClickHouse)
+        hidden: true
     migrations:run:
         bin_script: migrate
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
