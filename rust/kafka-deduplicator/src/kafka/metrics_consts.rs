@@ -55,3 +55,12 @@ pub const BATCH_CONSUMER_BATCH_SIZE: &str = "kafka_batch_consumer_batch_size";
 pub const BATCH_CONSUMER_KAFKA_ERROR: &str = "kafka_batch_consumer_kafka_error";
 
 pub const BATCH_CONSUMER_MESSAGE_ERROR: &str = "kafka_batch_consumer_message_error";
+
+/// Histogram for batch fill ratio (actual batch size / max batch size)
+/// Values range from 0.0 to 1.0, where 1.0 means batch was full
+pub const BATCH_CONSUMER_BATCH_FILL_RATIO: &str = "kafka_batch_consumer_batch_fill_ratio";
+
+/// Histogram for time spent collecting a batch (in milliseconds)
+/// Measures latency from start of batch collection to batch ready for processing
+pub const BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS: &str =
+    "kafka_batch_consumer_batch_collection_duration_ms";

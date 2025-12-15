@@ -1,0 +1,254 @@
+//! Partition Worker - Dedicated worker for processing messages from a single partition
+//!
+//! Each partition gets its own worker with a bounded channel, ensuring:
+//! 1. Ordering is preserved within each partition
+//! 2. Parallelism is achieved across partitions
+//! 3. Backpressure is applied when processing falls behind
+
+use std::sync::Arc;
+
+use anyhow::Result;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use tracing::{debug, error, info, warn};
+
+use crate::kafka::batch_consumer::BatchConsumerProcessor;
+use crate::kafka::batch_message::KafkaMessage;
+use crate::kafka::types::Partition;
+
+/// A batch of messages for a single partition
+pub struct PartitionBatch<T> {
+    pub partition: Partition,
+    pub messages: Vec<KafkaMessage<T>>,
+}
+
+impl<T> PartitionBatch<T> {
+    pub fn new(partition: Partition, messages: Vec<KafkaMessage<T>>) -> Self {
+        Self {
+            partition,
+            messages,
+        }
+    }
+}
+
+/// Configuration for partition workers
+#[derive(Debug, Clone)]
+pub struct PartitionWorkerConfig {
+    /// Size of the channel buffer per partition
+    pub channel_buffer_size: usize,
+}
+
+impl Default for PartitionWorkerConfig {
+    fn default() -> Self {
+        Self {
+            channel_buffer_size: 10, // Buffer up to 10 batches per partition
+        }
+    }
+}
+
+/// A worker that processes messages for a single partition
+pub struct PartitionWorker<T: Send + 'static> {
+    partition: Partition,
+    sender: mpsc::Sender<PartitionBatch<T>>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl<T: Send + 'static> PartitionWorker<T> {
+    /// Create a new partition worker
+    pub fn new<P>(partition: Partition, processor: Arc<P>, config: &PartitionWorkerConfig) -> Self
+    where
+        P: BatchConsumerProcessor<T> + 'static,
+    {
+        let (sender, receiver) = mpsc::channel(config.channel_buffer_size);
+        let partition_clone = partition.clone();
+
+        let handle = tokio::spawn(async move {
+            Self::run_worker(partition_clone, receiver, processor).await;
+        });
+
+        Self {
+            partition,
+            sender,
+            handle: Some(handle),
+        }
+    }
+
+    /// Send a batch to this worker for processing
+    /// Returns error if the channel is full (backpressure) or closed
+    pub async fn send(
+        &self,
+        batch: PartitionBatch<T>,
+    ) -> Result<(), mpsc::error::SendError<PartitionBatch<T>>> {
+        self.sender.send(batch).await
+    }
+
+    /// Try to send a batch without blocking
+    /// Returns error if the channel is full or closed
+    pub fn try_send(
+        &self,
+        batch: PartitionBatch<T>,
+    ) -> Result<(), mpsc::error::TrySendError<PartitionBatch<T>>> {
+        self.sender.try_send(batch)
+    }
+
+    /// Check if the channel has capacity
+    pub fn has_capacity(&self) -> bool {
+        self.sender.capacity() > 0
+    }
+
+    /// Get the current capacity of the channel
+    pub fn capacity(&self) -> usize {
+        self.sender.capacity()
+    }
+
+    /// Get the partition this worker handles
+    pub fn partition(&self) -> &Partition {
+        &self.partition
+    }
+
+    /// Shutdown the worker gracefully
+    pub async fn shutdown(mut self) {
+        // Drop the sender to signal the worker to stop
+        drop(self.sender);
+
+        // Wait for the worker to finish
+        if let Some(handle) = self.handle.take() {
+            match handle.await {
+                Ok(()) => {
+                    debug!(
+                        "Partition worker for {}:{} shut down gracefully",
+                        self.partition.topic(),
+                        self.partition.partition_number()
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "Partition worker for {}:{} panicked during shutdown: {}",
+                        self.partition.topic(),
+                        self.partition.partition_number(),
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    /// The main worker loop
+    async fn run_worker<P>(
+        partition: Partition,
+        mut receiver: mpsc::Receiver<PartitionBatch<T>>,
+        processor: Arc<P>,
+    ) where
+        P: BatchConsumerProcessor<T> + 'static,
+    {
+        info!(
+            "Starting partition worker for {}:{}",
+            partition.topic(),
+            partition.partition_number()
+        );
+
+        while let Some(batch) = receiver.recv().await {
+            let message_count = batch.messages.len();
+            debug!(
+                "Processing batch of {} messages for {}:{}",
+                message_count,
+                partition.topic(),
+                partition.partition_number()
+            );
+
+            if let Err(e) = processor.process_batch(batch.messages).await {
+                error!(
+                    "Error processing batch for {}:{}: {}",
+                    partition.topic(),
+                    partition.partition_number(),
+                    e
+                );
+                // Continue processing - don't crash the worker on errors
+            }
+        }
+
+        info!(
+            "Partition worker for {}:{} shutting down",
+            partition.topic(),
+            partition.partition_number()
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::time::{sleep, Duration};
+
+    struct TestProcessor {
+        processed_count: AtomicUsize,
+        delay_ms: u64,
+    }
+
+    impl TestProcessor {
+        fn new(delay_ms: u64) -> Self {
+            Self {
+                processed_count: AtomicUsize::new(0),
+                delay_ms,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl BatchConsumerProcessor<String> for TestProcessor {
+        async fn process_batch(&self, messages: Vec<KafkaMessage<String>>) -> Result<()> {
+            if self.delay_ms > 0 {
+                sleep(Duration::from_millis(self.delay_ms)).await;
+            }
+            self.processed_count
+                .fetch_add(messages.len(), Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_partition_worker_basic() {
+        let partition = Partition::new("test-topic".to_string(), 0);
+        let processor = Arc::new(TestProcessor::new(0));
+        let config = PartitionWorkerConfig {
+            channel_buffer_size: 5,
+        };
+
+        let worker = PartitionWorker::new(partition.clone(), processor.clone(), &config);
+
+        // Send a batch
+        let batch = PartitionBatch::new(partition.clone(), vec![]);
+        worker.send(batch).await.unwrap();
+
+        // Give time for processing
+        sleep(Duration::from_millis(10)).await;
+
+        // Shutdown
+        worker.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_partition_worker_backpressure() {
+        let partition = Partition::new("test-topic".to_string(), 0);
+        let processor = Arc::new(TestProcessor::new(100)); // 100ms delay
+        let config = PartitionWorkerConfig {
+            channel_buffer_size: 2, // Small buffer
+        };
+
+        let worker = PartitionWorker::new(partition.clone(), processor.clone(), &config);
+
+        // Fill the channel
+        for _ in 0..2 {
+            let batch = PartitionBatch::new(partition.clone(), vec![]);
+            worker.send(batch).await.unwrap();
+        }
+
+        // Channel should be at capacity now
+        assert!(!worker.has_capacity() || worker.capacity() <= 1);
+
+        // Shutdown
+        worker.shutdown().await;
+    }
+}
