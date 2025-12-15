@@ -559,7 +559,6 @@ def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where: str, shard_index: int, n
     Each shard should call this with its own shard_index to only SELECT recordings
     that will end up on that shard, then INSERT directly to the local sharded table.
     """
-    # Use %% to escape the modulo operator since clickhouse-driver uses % for param substitution
     shard_filter = f"cityHash64(toUInt128(accurateCast(session_id, 'UUID'))) %% {num_shards} = {shard_index}"
     combined_where = f"({where}) AND {shard_filter}"
 
