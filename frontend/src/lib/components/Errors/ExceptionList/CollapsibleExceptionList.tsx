@@ -38,6 +38,7 @@ export function CollapsibleExceptionList({
         if (!hasInAppFrames) {
             setShowAllFrames(true)
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasInAppFrames])
 
     return (

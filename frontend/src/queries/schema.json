@@ -28318,7 +28318,7 @@
             "type": "string"
         },
         "SlashCommandName": {
-            "enum": ["/init", "/remember", "/usage", "/feedback"],
+            "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
         },
         "SourceConfig": {

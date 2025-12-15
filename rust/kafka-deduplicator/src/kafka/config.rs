@@ -22,9 +22,7 @@ impl ConsumerConfigBuilder {
             .set("socket.timeout.ms", "10000")
             .set("session.timeout.ms", "30000")
             .set("heartbeat.interval.ms", "5000")
-            .set("max.poll.interval.ms", "300000")
-            .set("fetch.min.bytes", "1")
-            .set("fetch.wait.max.ms", "500");
+            .set("max.poll.interval.ms", "300000");
 
         Self { config }
     }
@@ -65,6 +63,37 @@ impl ConsumerConfigBuilder {
 
     pub fn with_metadata_max_age_ms(mut self, ms: u32) -> Self {
         self.config.set("metadata.max.age.ms", ms.to_string());
+        self
+    }
+
+    /// Set minimum bytes to fetch from broker (triggers fetch when buffer has less than this)
+    pub fn with_fetch_min_bytes(mut self, bytes: u32) -> Self {
+        self.config.set("fetch.min.bytes", bytes.to_string());
+        self
+    }
+
+    /// Set maximum bytes to fetch from broker in a single request
+    pub fn with_fetch_max_bytes(mut self, bytes: u32) -> Self {
+        self.config.set("fetch.max.bytes", bytes.to_string());
+        self
+    }
+
+    /// Set maximum wait time when fetch.min.bytes is not satisfied
+    pub fn with_fetch_wait_max_ms(mut self, ms: u32) -> Self {
+        self.config.set("fetch.wait.max.ms", ms.to_string());
+        self
+    }
+
+    /// Set minimum number of messages to queue for prefetching
+    pub fn with_queued_min_messages(mut self, messages: u32) -> Self {
+        self.config.set("queued.min.messages", messages.to_string());
+        self
+    }
+
+    /// Set maximum bytes to prefetch across all partitions (in KB)
+    pub fn with_queued_max_messages_kbytes(mut self, kbytes: u32) -> Self {
+        self.config
+            .set("queued.max.messages.kbytes", kbytes.to_string());
         self
     }
 
