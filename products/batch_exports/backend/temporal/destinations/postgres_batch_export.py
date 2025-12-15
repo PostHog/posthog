@@ -38,6 +38,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.destinations.utils import _get_query_timeout
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -180,18 +181,6 @@ async def run_in_retryable_transaction(
             sleep_seconds = (2**attempt) * 0.1 * (random.random() + 0.5)
             LOGGER.debug("Sleeping %s seconds", sleep_seconds)
             await asyncio.sleep(sleep_seconds)
-
-
-def _get_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:
-    """Get the timeout to use for long running queries."""
-    min_timeout_seconds = 20 * 60  # 20 minutes
-    max_timeout_seconds = 6 * 60 * 60  # 6 hours
-    if data_interval_start is None:
-        return max_timeout_seconds
-
-    interval_seconds = (data_interval_end - data_interval_start).total_seconds()
-    timeout_seconds = max(min_timeout_seconds, interval_seconds * 0.8)
-    return min(timeout_seconds, max_timeout_seconds)
 
 
 class _PostgreSQLClientInputsProtocol(typing.Protocol):

@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import _get_snowflake_query_timeout
+from products.batch_exports.backend.temporal.destinations.utils import _get_query_timeout
 
 
 @pytest.mark.parametrize(
@@ -18,5 +18,5 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
         (dt.datetime(2025, 1, 1, 12, 0, 0), dt.datetime(2025, 1, 1, 12, 5, 0), 20 * 60),
     ],
 )
-def test_get_snowflake_query_timeout(data_interval_start, data_interval_end, expected_timeout):
-    assert _get_snowflake_query_timeout(data_interval_start, data_interval_end) == expected_timeout
+def test_get_query_timeout(data_interval_start, data_interval_end, expected_timeout):
+    assert _get_query_timeout(data_interval_start, data_interval_end) == expected_timeout
