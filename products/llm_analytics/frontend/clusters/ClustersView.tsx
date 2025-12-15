@@ -158,7 +158,7 @@ export function ClustersView(): JSX.Element {
 
             {/* Cluster Cards */}
             {!currentRunLoading && sortedClusters.length > 0 && (
-                <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {sortedClusters.map((cluster: Cluster) => (
                         <ClusterCard
                             key={cluster.cluster_id}
