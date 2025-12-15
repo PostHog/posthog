@@ -2,7 +2,6 @@ import os
 import json
 import socket
 from datetime import datetime
-from typing import Literal
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import IntegrityError, OperationalError, transaction
@@ -22,9 +21,6 @@ models = {"FeatureFlag": FeatureFlag}
 
 # Maximum number of retry attempts before marking as permanently failed
 MAX_RETRY_ATTEMPTS = 5
-
-# Type alias for recurrence interval - matches ScheduledChange.RecurrenceInterval choices
-RecurrenceIntervalType = Literal["daily", "weekly", "monthly"]
 
 # Prometheus metric for tracking missed scheduled executions
 SCHEDULED_CHANGE_MISSED_EXECUTIONS = Counter(
@@ -76,7 +72,7 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     return isinstance(exception, unrecoverable_types)
 
 
-def compute_next_run(current: datetime, interval: RecurrenceIntervalType) -> datetime:
+def compute_next_run(current: datetime, interval: str) -> datetime:
     """
     Compute the next scheduled run time based on recurrence interval.
 
@@ -88,7 +84,9 @@ def compute_next_run(current: datetime, interval: RecurrenceIntervalType) -> dat
 
     Args:
         current: The current scheduled_at datetime
-        interval: The recurrence interval
+        interval: One of 'daily', 'weekly', 'monthly' (validated at API layer via
+            ScheduledChange.RecurrenceInterval). We use str instead of Literal here
+            because Django's TextChoices fields return str at runtime, not the enum type.
 
     Returns:
         The next scheduled datetime
