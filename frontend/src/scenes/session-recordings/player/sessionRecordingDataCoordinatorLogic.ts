@@ -182,7 +182,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
             const processingMode = values.featureFlags[FEATURE_FLAGS.REPLAY_YIELDING_PROCESSING]
             const enableYielding = processingMode === 'worker_and_yielding'
-            const discardRawSnapshots = !!values.featureFlags[FEATURE_FLAGS.REPLAY_DISCARD_RAW_SNAPSHOTS]
 
             const result = await processAllSnapshots(
                 values.snapshotSources,
@@ -190,8 +189,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 cache.processingCache,
                 values.viewportForTimestamp,
                 props.sessionRecordingId,
-                enableYielding,
-                discardRawSnapshots
+                enableYielding
             )
 
             breakpoint()
