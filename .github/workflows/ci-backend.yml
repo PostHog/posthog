@@ -186,9 +186,9 @@ jobs:
             - name: Install target-determinator
               if: steps.check-bazel.outputs.has_products == 'true' && github.event_name == 'pull_request'
               run: |
-                  curl -LO https://github.com/bazel-contrib/target-determinator/releases/download/v0.31.0/target-determinator-linux-amd64
-                  chmod +x target-determinator-linux-amd64
-                  sudo mv target-determinator-linux-amd64 /usr/local/bin/target-determinator
+                  curl -LO https://github.com/bazel-contrib/target-determinator/releases/download/v0.32.0/target-determinator.linux.amd64
+                  chmod +x target-determinator.linux.amd64
+                  sudo mv target-determinator.linux.amd64 /usr/local/bin/target-determinator
 
             - name: Determine affected targets
               id: determine
