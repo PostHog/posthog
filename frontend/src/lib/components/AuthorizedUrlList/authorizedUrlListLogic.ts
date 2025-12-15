@@ -289,13 +289,11 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     })),
     subscriptions(({ props, actions }) => ({
         currentTeam: (currentTeam) => {
-            let urls: string[] | null | undefined
-            if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
-                urls = currentTeam.recording_domains
-            } else {
-                urls = currentTeam.app_urls
-            }
-            actions.setAuthorizedUrls((urls || []).filter(Boolean))
+            const urls =
+                (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
+                    ? currentTeam.recording_domains
+                    : currentTeam.app_urls) || []
+            actions.setAuthorizedUrls(urls.filter(Boolean))
         },
     })),
     afterMount(({ actions }) => {
