@@ -212,10 +212,11 @@ jobs:
 
                   # For PRs, use target-determinator
                   git fetch origin ${{ github.base_ref }}
-                  TARGETS=$(target-determinator -before=origin/${{ github.base_ref }} //... 2>/dev/null || echo "FALLBACK")
-
-                  if [[ "$TARGETS" == "FALLBACK" ]]; then
-                    echo "target-determinator failed, falling back to run all"
+                  echo "Running: target-determinator -before=origin/${{ github.base_ref }} //..."
+                  if ! TARGETS=$(target-determinator -before=origin/${{ github.base_ref }} //... 2>&1); then
+                    echo "target-determinator failed with output:"
+                    echo "$TARGETS"
+                    echo "Falling back to run all"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
                     echo "bazel_targets=//products/..." >> $GITHUB_OUTPUT
                     echo "has_bazel_targets=true" >> $GITHUB_OUTPUT
