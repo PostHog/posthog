@@ -589,7 +589,7 @@ class ClickHouseClient:
         resp = await self.read_query(
             query,
             query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-            query_id=f"{query_id}-CHECK",
+            query_id=f"{query_id}-CHECK-QUERY-LOG",
         )
 
         if not resp:
@@ -636,20 +636,19 @@ class ClickHouseClient:
             True if the query is running, False otherwise.
         """
         query = """
-                SELECT count() > 0 AS is_running
+                SELECT 1
                 FROM clusterAllReplicas({{cluster_name:String}}, system.processes)
                 WHERE query_id = {{query_id:String}}
-                FORMAT JSONEachRow
+                    AND NOT is_cancelled
+                LIMIT 1
                 """
 
         resp = await self.read_query(
             query,
             query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-            query_id=f"{query_id}-CHECK",
+            query_id=f"{query_id}-CHECK-PROCESS-LIST",
         )
-        result = json.loads(resp)["is_running"]
-        assert result == 1 or result == 0
-        return bool(result)
+        return bool(resp)
 
     async def acancel_query(self, query_id: str) -> None:
         """Cancel a running query in ClickHouse.
