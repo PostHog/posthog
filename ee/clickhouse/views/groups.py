@@ -23,13 +23,14 @@ from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupUsageMetric
+from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
+from posthog.models.property_definition import PropertyType
 from posthog.models.user import User
 
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -44,6 +45,37 @@ from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
 
 logger = structlog.get_logger(__name__)
+
+
+def detect_group_property_type(value):
+    if value is None:
+        return PropertyType.String
+    elif isinstance(value, bool):
+        return PropertyType.Boolean
+    elif isinstance(value, int | float):
+        return PropertyType.Numeric
+    elif isinstance(value, str):
+        if value.lower() in ("true", "false"):
+            return PropertyType.Boolean
+        return PropertyType.String
+    return PropertyType.String
+
+
+def create_property_definition(team_id: int, group_type_index: int, property_name: str, property_value):
+    """Create or update PostgreSQL PropertyDefinition for group property"""
+    property_type = detect_group_property_type(property_value)
+    is_numerical = property_type == PropertyType.Numeric
+
+    PropertyDefinition.objects.update_or_create(
+        team_id=team_id,
+        name=property_name,
+        type=PropertyDefinition.Type.GROUP,
+        group_type_index=group_type_index,
+        defaults={
+            "property_type": property_type.value,
+            "is_numerical": is_numerical,
+        },
+    )
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
@@ -88,7 +120,7 @@ class GroupsTypesViewSet(
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
 
-        if group_type_mapping.detail_dashboard:
+        if group_type_mapping.detail_dashboard_id:
             return response.Response(
                 {"detail": "Dashboard already exists for this group type."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -268,7 +300,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 timestamp=timezone.now(),
             )
         except IntegrityError as exc:
-            if "unique team_id/group_key/group_type_index combo" in str(exc):
+            # Check for both constraint names: Django model name and actual database constraint name
+            if "unique team_id/group_key/group_type_index combo" in str(
+                exc
+            ) or "unique_team_group_key_group_type" in str(exc):
                 raise ValidationError({"detail": "A group with this key already exists"})
             raise
 
@@ -276,6 +311,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             self.trigger_group_identify(group=group, operation="group create")
         except TriggerGroupIdentifyException as exc:
             return response.Response(data=exc.exception_data, status=exc.status_code)
+
+        for prop_name, prop_value in group.group_properties.items():
+            create_property_definition(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                property_name=prop_name,
+                property_value=prop_value,
+            )
 
         details = [
             Detail(
@@ -376,9 +419,17 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                         },
                         status=400,
                     )
+            create_or_update = "update" if request.data["key"] in group.group_properties.keys() else "create"
             original_value = group.group_properties.get(request.data["key"], None)
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
+
+            create_property_definition(
+                team_id=self.team.pk,
+                group_type_index=group.group_type_index,
+                property_name=request.data["key"],
+                property_value=request.data["value"],
+            )
 
             # Need to update ClickHouse too
             timestamp = timezone.now()
@@ -391,11 +442,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 timestamp=timestamp,
             )
 
-            # another internal event submission where we best-effort and don't handle failures...
             try:
                 self.trigger_group_identify(
                     group=group,
-                    operation="group property update",
+                    operation=f"group property {create_or_update}",
                     group_properties={request.data["key"]: request.data["value"]},
                 )
             except TriggerGroupIdentifyException as exc:
@@ -408,13 +458,13 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 was_impersonated=is_impersonated_session(request),
                 item_id=group.pk,
                 scope="Group",
-                activity="update_property",
+                activity=f"{create_or_update}_property",
                 detail=Detail(
                     name=str(request.data["key"]),
                     changes=[
                         Change(
                             type="Group",
-                            action="created" if original_value is None else "changed",
+                            action=f"created" if create_or_update == "create" else "changed",
                             before=original_value,
                             after=request.data["value"],
                         )

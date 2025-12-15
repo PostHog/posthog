@@ -1,10 +1,5 @@
 // Agent Artifact Types - these will be auto-generated to Python via pnpm schema:build
-import {
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
-} from './schema-assistant-queries'
+import { VisualizationArtifactContent } from './schema-assistant-messages'
 
 export interface MarkdownBlock {
     type: 'markdown'
@@ -29,10 +24,7 @@ export interface DocumentArtifactContent {
     blocks: DocumentBlock[]
 }
 
-export interface VisualizationArtifactContent {
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
-    name?: string | null
-    description?: string | null
-}
+// Re-export for convenience
+export type { VisualizationArtifactContent }
 
 export type AgentArtifactContent = DocumentArtifactContent | VisualizationArtifactContent

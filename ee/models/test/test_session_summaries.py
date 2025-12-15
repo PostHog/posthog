@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from posthog.models import Organization, Team, User
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
 from ee.models.session_summaries import (
     ExtraSummaryContext,
     SessionGroupSummary,
@@ -27,13 +28,7 @@ class TestSingleSessionSummary(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.session_id = "test-session-123"
-        # Create a minimal valid SessionSummarySerializer data structure
-        self.summary_data = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "Test session summary", "success": True},
-        }
+        self.summary_data = get_mock_enriched_llm_json_response(self.session_id)
         self.exception_event_ids = ["evt-001", "evt-002"]
         self.extra_context = ExtraSummaryContext(focus_area="authentication")
         self.run_metadata = SessionSummaryRunMeta(model_used="gpt-4", visual_confirmation=False)
@@ -61,7 +56,10 @@ class TestSingleSessionSummary(BaseTest):
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertEqual(summary.session_id, self.session_id)
-        self.assertEqual(summary.summary, self.summary_data)
+        self.assertIn("segments", summary.summary)
+        self.assertIn("key_actions", summary.summary)
+        self.assertIn("segment_outcomes", summary.summary)
+        self.assertIn("session_outcome", summary.summary)
         self.assertEqual(summary.exception_event_ids, self.exception_event_ids)
         self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication"})
         self.assertEqual(
@@ -152,13 +150,8 @@ class TestSingleSessionSummary(BaseTest):
         self.assertIsNone(result)
 
     def test_multiple_summaries_ordering(self) -> None:
-        # Create minimal valid data with version info in session_outcome
-        summary_data_1 = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "Version 1", "success": True},
-        }
+        summary_data_1 = get_mock_enriched_llm_json_response(self.session_id)
+        summary_data_1["session_outcome"]["description"] = "Version 1"
         summary_serializer_1 = SessionSummarySerializer(data=summary_data_1)
         summary_serializer_1.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -169,12 +162,8 @@ class TestSingleSessionSummary(BaseTest):
             created_by=self.user,
         )
 
-        summary_data_2: dict[str, Any] = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "Version 2", "success": True},
-        }
+        summary_data_2 = get_mock_enriched_llm_json_response(self.session_id)
+        summary_data_2["session_outcome"]["description"] = "Version 2"
         summary_serializer_2 = SessionSummarySerializer(data=summary_data_2)
         summary_serializer_2.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -208,17 +197,13 @@ class TestSingleSessionSummaryBulk(BaseTest):
     def _setup_test_data(self) -> None:
         """Set up test data for batch operations."""
 
-        # Create a minimal valid SessionSummarySerializer data structure
-        def create_summary_data(content: str) -> dict:
-            return {
-                "segments": [],
-                "key_actions": [],
-                "segment_outcomes": [],
-                "session_outcome": {"description": content, "success": True},
-            }
+        def create_summary_data(session_id: str, content: str) -> dict[str, Any]:
+            data = get_mock_enriched_llm_json_response(session_id)
+            data["session_outcome"]["description"] = content
+            return data
 
         for session_id in self.session_ids[:3]:
-            summary_data = create_summary_data(f"Summary for {session_id} without context")
+            summary_data = create_summary_data(session_id, f"Summary for {session_id} without context")
             summary_serializer = SessionSummarySerializer(data=summary_data)
             summary_serializer.is_valid(raise_exception=True)
             SingleSessionSummary.objects.add_summary(
@@ -231,7 +216,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
             )
 
         for session_id in self.session_ids[3:5]:
-            summary_data_1 = create_summary_data(f"Summary for {session_id} without context - older")
+            summary_data_1 = create_summary_data(session_id, f"Summary for {session_id} without context - older")
             summary_serializer_1 = SessionSummarySerializer(data=summary_data_1)
             summary_serializer_1.is_valid(raise_exception=True)
             SingleSessionSummary.objects.add_summary(
@@ -242,7 +227,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
                 extra_summary_context=None,
                 created_by=self.user,
             )
-            summary_data_2 = create_summary_data(f"Summary for {session_id} with auth context - newer")
+            summary_data_2 = create_summary_data(session_id, f"Summary for {session_id} with auth context - newer")
             summary_serializer_2 = SessionSummarySerializer(data=summary_data_2)
             summary_serializer_2.is_valid(raise_exception=True)
             SingleSessionSummary.objects.add_summary(
@@ -255,7 +240,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
             )
 
         for session_id in self.session_ids[5:8]:
-            summary_data = create_summary_data(f"Summary for {session_id} with auth context")
+            summary_data = create_summary_data(session_id, f"Summary for {session_id} with auth context")
             summary_serializer = SessionSummarySerializer(data=summary_data)
             summary_serializer.is_valid(raise_exception=True)
             SingleSessionSummary.objects.add_summary(
@@ -268,7 +253,9 @@ class TestSingleSessionSummaryBulk(BaseTest):
             )
 
         other_context: ExtraSummaryContext = ExtraSummaryContext(focus_area="checkout")
-        summary_data = create_summary_data(f"Summary for {self.session_ids[7]} with checkout context")
+        summary_data = create_summary_data(
+            self.session_ids[7], f"Summary for {self.session_ids[7]} with checkout context"
+        )
         summary_serializer = SessionSummarySerializer(data=summary_data)
         summary_serializer.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -355,12 +342,8 @@ class TestSingleSessionSummaryBulk(BaseTest):
 
     def test_get_bulk_summaries_latest_per_session(self) -> None:
         session_id: str = "session-latest-test"
-        summary_data_1: dict[str, Any] = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "Older summary - version 1", "success": True},
-        }
+        summary_data_1 = get_mock_enriched_llm_json_response(session_id)
+        summary_data_1["session_outcome"]["description"] = "Older summary - version 1"
         summary_serializer_1 = SessionSummarySerializer(data=summary_data_1)
         summary_serializer_1.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -371,12 +354,8 @@ class TestSingleSessionSummaryBulk(BaseTest):
             extra_summary_context=None,
             created_by=self.user,
         )
-        summary_data_2: dict[str, Any] = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "Newer summary - version 2", "success": True},
-        }
+        summary_data_2 = get_mock_enriched_llm_json_response(session_id)
+        summary_data_2["session_outcome"]["description"] = "Newer summary - version 2"
         summary_serializer_2 = SessionSummarySerializer(data=summary_data_2)
         summary_serializer_2.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -463,12 +442,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
     def test_summaries_exist_team_isolation(self) -> None:
         other_team: Team = Organization.objects.bootstrap(None)[2]
         # Add summary for other team
-        summary_data = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "other team", "success": True},
-        }
+        summary_data = get_mock_enriched_llm_json_response("cross-team-session")
         summary_serializer = SessionSummarySerializer(data=summary_data)
         summary_serializer.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(

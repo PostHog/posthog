@@ -85,6 +85,16 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
 
 export type CyclotronJobInputSchemaType = z.infer<typeof CyclotronJobInputSchemaTypeSchema>
 
+export const CyclotronInputMappingSchema = z.object({
+    name: z.string(),
+    disabled: z.boolean().optional(),
+    inputs_schema: z.array(CyclotronJobInputSchemaTypeSchema).optional(),
+    inputs: z.record(CyclotronInputSchema).optional().nullable(),
+    filters: z.any().optional().nullable(),
+})
+
+export type CyclotronInputMappingType = z.infer<typeof CyclotronInputMappingSchema>
+
 export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('event'),
@@ -133,6 +143,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             conditions: z.array(
                 z.object({
                     filters: ActionFiltersSchema,
+                    name: z.string().optional(), // Custom name for the condition
                 })
             ),
             delay_duration: z.string().optional(),
@@ -145,6 +156,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             cohorts: z.array(
                 z.object({
                     percentage: z.number(),
+                    name: z.string().optional(), // Custom name for the cohort
                 })
             ),
         }),
@@ -164,6 +176,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             condition: z.object({
                 filters: ActionFiltersSchema.optional().nullable(),
+                name: z.string().optional(), // Custom name for the condition
             }),
             max_wait_duration: z.string(),
         }),
@@ -197,6 +210,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
             inputs: z.record(CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
     z.object({

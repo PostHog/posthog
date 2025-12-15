@@ -6,6 +6,8 @@ from typing import Any, Literal, Optional, cast
 from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -22,7 +24,13 @@ from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
-from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Detail,
+    dict_changes_between,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
@@ -97,6 +105,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "autocapture_exceptions_errors_to_ignore",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
+            "extra_settings",
             "secret_api_token",
             "secret_api_token_backup",
             "session_recording_opt_in",
@@ -170,6 +179,7 @@ TEAM_CONFIG_FIELDS = (
     "feature_flag_confirmation_enabled",
     "feature_flag_confirmation_message",
     "default_evaluation_environments_enabled",
+    "require_evaluation_environment_tags",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -180,6 +190,7 @@ TEAM_CONFIG_FIELDS = (
     "web_analytics_pre_aggregated_tables_enabled",
     "experiment_recalculation_time",
     "receive_org_level_activity_logs",
+    "business_model",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -220,6 +231,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
     )
     campaign_name_mappings = serializers.JSONField(required=False)
     custom_source_mappings = serializers.JSONField(required=False)
+    campaign_field_preferences = serializers.JSONField(required=False)
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
@@ -230,6 +242,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
             "attribution_mode",
             "campaign_name_mappings",
             "custom_source_mappings",
+            "campaign_field_preferences",
         ]
 
     def update(self, instance, validated_data):
@@ -261,6 +274,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
 
         if "custom_source_mappings" in validated_data:
             instance.custom_source_mappings = validated_data["custom_source_mappings"]
+
+        if "campaign_field_preferences" in validated_data:
+            instance.campaign_field_preferences = validated_data["campaign_field_preferences"]
 
         instance.save()
         return instance
@@ -725,6 +741,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
+        # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
+            validated_data["modifiers"] = {
+                **(instance.modifiers or {}),
+                **validated_data["modifiers"],
+            }
+
         updated_team = super().update(instance, validated_data)
         changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
 
@@ -1144,6 +1167,77 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True)
+    def settings_as_of(self, request: request.Request, **kwargs) -> response.Response:
+        """
+        Return the team settings as of the provided timestamp.
+        Query params:
+        - at: ISO8601 datetime (required)
+        - scope: optional, one or multiple keys to filter the returned settings
+        """
+        team = self.get_object()
+
+        at_param = request.query_params.get("at")
+        if not at_param:
+            raise exceptions.ValidationError({"at": "Query parameter 'at' is required (ISO8601)."})
+
+        as_of = parse_datetime(at_param)
+        if as_of is None:
+            raise exceptions.ValidationError(
+                {"at": "Invalid datetime format. Use ISO8601 (e.g., 2025-11-24T12:34:56Z)."}
+            )
+        if timezone.is_naive(as_of):
+            as_of = timezone.make_aware(as_of)
+
+        # Build starting snapshot from current model values for config fields
+        settings_fields = set(TEAM_CONFIG_FIELDS)
+        snapshot: dict[str, Any] = {}
+        for field_name in settings_fields:
+            if hasattr(team, field_name):
+                snapshot[field_name] = getattr(team, field_name)
+            elif hasattr(team, f"{field_name}_id"):
+                snapshot[field_name] = getattr(team, f"{field_name}_id")
+            else:
+                snapshot[field_name] = None
+
+        # Fetch Team-scoped activity logs after the target timestamp
+        logs = (
+            ActivityLog.objects.filter(team_id=team.id, scope="Team", item_id=str(team.id), created_at__gt=as_of)
+            .order_by("-created_at")
+            .only("detail", "created_at", "activity")
+        )
+
+        # Roll back newest → oldest
+        for log in logs.iterator():
+            detail = log.detail or {}
+            changes = detail.get("changes") or []
+            for change in changes:
+                field = change.get("field")
+                action = change.get("action")
+                before = change.get("before")
+
+                # Normalize FK fields (e.g., primary_dashboard_id → primary_dashboard)
+                target = field[:-3] if isinstance(field, str) and field.endswith("_id") else field
+                if target not in settings_fields:
+                    continue
+
+                if action == "changed":
+                    snapshot[target] = before
+                elif action == "created":
+                    snapshot[target] = None
+                elif action == "deleted":
+                    snapshot[target] = before
+                # Other actions (created/deleted without relevant field) are ignored
+
+        # Optional scope filtering
+        scope_values = request.query_params.getlist("scope")
+
+        if scope_values:
+            filtered = {k: snapshot.get(k, None) for k in scope_values}
+            return response.Response(filtered)
+
+        return response.Response(snapshot)
 
     @action(
         methods=["PATCH"],

@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Optional, cast
 from uuid import uuid4
 
+import pytest
 from freezegun.api import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -22,7 +23,6 @@ from unittest.mock import patch
 from django.conf import settings
 from django.utils import timezone
 
-from flaky import flaky
 from rest_framework import status
 from temporalio import common
 
@@ -869,6 +869,29 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}").json()
         self.assertEqual(len(response["results"]), 0)
 
+    def test_person_cohorts_returns_minimal_fields(self) -> None:
+        """Verify that person cohorts endpoint returns only minimal fields (id, name, count)."""
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something"},
+            immediate=True,
+        )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}")
+        self.assertEqual(response.status_code, 200, response.json())
+        data = response.json()
+
+        self.assertEqual(len(data["results"]), 1)
+        # CohortMinimalSerializer only returns id, name, count
+        self.assertEqual(set(data["results"][0].keys()), {"id", "name", "count"})
+
     def test_split_person_clickhouse(self):
         person = _create_person(
             team=self.team,
@@ -918,7 +941,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             version=0,
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_a,
             distinct_id="deleted_user",
             version=0,
@@ -951,7 +974,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Manually add the deleted distinct_id to person B (simulating a merge scenario)
         # This would happen in a real scenario where events come in for the deleted distinct_id
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_b,
             distinct_id="deleted_user",
             version=2,
@@ -1210,7 +1233,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
         wraps=posthog.models.person.deletion.create_person_distinct_id,
     )
-    @flaky(max_runs=3, min_passes=1)
+    @pytest.mark.flaky(reruns=2)
     def test_reset_person_distinct_id(self, mocked_ch_call):
         # clickhouse only deleted person and distinct id that should be updated
         ch_only_deleted_person_uuid = create_person(
@@ -1241,13 +1264,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_linked_to_after,
             distinct_id="distinct_id",
             version=0,
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_linked_to_after,
             distinct_id="distinct_id-2",
             version=0,
@@ -1305,7 +1328,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
         wraps=posthog.models.person.deletion.create_person_distinct_id,
     )
-    @flaky(max_runs=3, min_passes=1)
+    @pytest.mark.flaky(reruns=2)
     def test_reset_person_distinct_id_not_found(self, mocked_ch_call):
         # person who shouldn't be changed
         person_not_changed_1 = Person.objects.create(
@@ -1314,7 +1337,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # distinct id no update
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_not_changed_1,
             distinct_id="distinct_id-1",
             version=0,
@@ -1325,7 +1348,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_deleted_1,
             distinct_id="distinct_id-del-1",
             version=16,

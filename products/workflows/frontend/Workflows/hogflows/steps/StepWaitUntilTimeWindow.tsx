@@ -12,6 +12,7 @@ import { WeekdayType } from '~/types'
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { stepWaitUntilTimeWindowLogic } from './stepWaitUntilTimeWindowLogic'
 
 type DayConfig = 'any' | 'weekday' | 'weekend' | WeekdayType[]
 type TimeConfig = 'any' | [string, string]
@@ -104,7 +105,10 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
     const action = node.data
     const { timezone, day, time } = action.config
 
-    const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { logicProps } = useValues(workflowLogic)
+    const { partialSetWaitUntilTimeWindowConfig } = useActions(
+        stepWaitUntilTimeWindowLogic({ workflowLogicProps: logicProps })
+    )
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -120,7 +124,7 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
         if (!preflight?.available_timezones) {
             throw new Error('No timezones are available')
         }
-        partialSetWorkflowActionConfig(action.id, { timezone: newTimezone[0] })
+        partialSetWaitUntilTimeWindowConfig(action.id, { timezone: newTimezone[0] })
     }
 
     return (
@@ -133,10 +137,10 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
                         isCustomDate={isCustomDate}
                         onDayChange={(value) => {
                             const config = getUpdatedDayConfig(value)
-                            partialSetWorkflowActionConfig(action.id, config)
+                            partialSetWaitUntilTimeWindowConfig(action.id, config)
                         }}
                         onCustomDaysChange={(newDays) =>
-                            partialSetWorkflowActionConfig(action.id, { day: [...newDays] as WeekdayType[] })
+                            partialSetWaitUntilTimeWindowConfig(action.id, { day: [...newDays] as WeekdayType[] })
                         }
                     />
 
@@ -147,12 +151,12 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
                         isCustomTime={isCustomTimeRange}
                         onTimeChange={(value) => {
                             const config = getUpdatedTimeConfig(value)
-                            partialSetWorkflowActionConfig(action.id, config)
+                            partialSetWaitUntilTimeWindowConfig(action.id, config)
                         }}
                         onTimeRangeChange={(newTime, index) => {
                             if (isCustomTimeRange) {
                                 const config = getUpdatedTimeRangeConfig(newTime, index, time)
-                                partialSetWorkflowActionConfig(action.id, config)
+                                partialSetWaitUntilTimeWindowConfig(action.id, config)
                             }
                         }}
                     />

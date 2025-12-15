@@ -1,3 +1,5 @@
+import './LemonInputSelect.scss'
+
 import { DndContext, DragEndEvent, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -59,6 +61,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     disablePrompting?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
+    /** Disable editing functionality (hides edit icons) while still allowing custom values */
+    disableEditing?: boolean
     emptyStateComponent?: React.ReactNode
     onChange?: (newValue: T[]) => void
     onBlur?: () => void
@@ -96,6 +100,7 @@ export function LemonInputSelect<T = string>({
     disableFiltering = false,
     disablePrompting = false,
     allowCustomValues = false,
+    disableEditing = false,
     autoFocus = false,
     className,
     popoverClassName,
@@ -456,7 +461,9 @@ export function LemonInputSelect<T = string>({
                     values={preInputValues.map(getStringKey)}
                     options={options}
                     onClose={(value) => _onActionItem(value, null)}
-                    onInitiateEdit={allowCustomValues ? (value) => _onActionItem(value, null, true) : null}
+                    onInitiateEdit={
+                        allowCustomValues && !disableEditing ? (value) => _onActionItem(value, null, true) : null
+                    }
                     sortable={sortable}
                     onDragEnd={handleDragEnd}
                 />
@@ -465,6 +472,7 @@ export function LemonInputSelect<T = string>({
     }, [
         allOptionsMap,
         allowCustomValues,
+        disableEditing,
         itemBeingEditedIndex,
         getStringKey,
         displayMode,
@@ -479,7 +487,8 @@ export function LemonInputSelect<T = string>({
 
     const valuesAndEditButtonSuffix = useMemo(() => {
         // The edit button only applies to single-select mode with custom values allowed, when in no-input state
-        const isEditButtonVisible = mode !== 'multiple' && allowCustomValues && values.length && !inputValue
+        const isEditButtonVisible =
+            mode !== 'multiple' && allowCustomValues && !disableEditing && values.length && !inputValue
 
         const postInputValues =
             displayMode === 'snacks' && itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
@@ -494,12 +503,19 @@ export function LemonInputSelect<T = string>({
                     values={postInputValues.map(getStringKey)}
                     options={options}
                     onClose={(value) => _onActionItem(value, null)}
-                    onInitiateEdit={allowCustomValues ? (value) => _onActionItem(value, null, true) : null}
+                    onInitiateEdit={
+                        allowCustomValues && !disableEditing ? (value) => _onActionItem(value, null, true) : null
+                    }
                     sortable={sortable}
                     onDragEnd={handleDragEnd}
                 />
                 {isEditButtonVisible && (
-                    <div className="grow flex flex-col items-end">
+                    <div
+                        className={clsx(
+                            'grow flex flex-col items-end LemonInputSelect__edit-button-wrapper',
+                            size && `LemonInputSelect__edit-button-wrapper--${size}`
+                        )}
+                    >
                         <LemonButton
                             icon={<IconPencil />}
                             onClick={() => {
@@ -518,6 +534,7 @@ export function LemonInputSelect<T = string>({
         mode,
         values,
         allowCustomValues,
+        disableEditing,
         itemBeingEditedIndex,
         inputValue,
         getStringKey,
@@ -528,6 +545,7 @@ export function LemonInputSelect<T = string>({
         setInputValue,
         sortable,
         handleDragEnd,
+        size,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
@@ -682,7 +700,7 @@ export function LemonInputSelect<T = string>({
                                                             ) : undefined
                                                         }
                                                         sideAction={
-                                                            !option.__isInput && allowCustomValues
+                                                            !option.__isInput && allowCustomValues && !disableEditing
                                                                 ? {
                                                                       // To reduce visual clutter we only show the icon on focus or hover,
                                                                       // but we do want it present to make sure the layout is stable
@@ -745,7 +763,7 @@ export function LemonInputSelect<T = string>({
                                             ) : undefined
                                         }
                                         sideAction={
-                                            !option.__isInput && allowCustomValues
+                                            !option.__isInput && allowCustomValues && !disableEditing
                                                 ? {
                                                       // To reduce visual clutter we only show the icon on focus or hover,
                                                       // but we do want it present to make sure the layout is stable
@@ -820,7 +838,7 @@ export function LemonInputSelect<T = string>({
                                 ? undefined
                                 : 'Pick value'
                 }
-                autoWidth={autoWidth}
+                autoWidth={fullWidth ? false : autoWidth}
                 fullWidth={fullWidth}
                 prefix={valuesPrefix}
                 suffix={

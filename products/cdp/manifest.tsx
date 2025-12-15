@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -81,7 +80,6 @@ export const manifest: ProductManifest = {
             category: 'Pipeline',
             iconType: 'ingestion_warning',
             href: urls.ingestionWarnings(),
-            flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
             sceneKey: 'IngestionWarnings',
             sceneKeys: ['IngestionWarnings'],
         },

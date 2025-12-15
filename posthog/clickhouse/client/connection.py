@@ -50,6 +50,9 @@ _default_workload = Workload.ONLINE
 
 class ClickHouseUser(StrEnum):
     # Default, not annotated queries goes here.
+    # Avoid using for new queries. We are progressively constraining the resources for this user.
+    # Only resort to using during experimentation and development.
+    # Once you're past that, create a dedicated user for your product/use-case and use that instead.
     DEFAULT = "default"
     # All /api/ requests called programmatically
     API = "api"
@@ -62,6 +65,7 @@ class ClickHouseUser(StrEnum):
     HOGQL = "hogql"
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"
+    ENDPOINTS = "endpoints"
 
     # Dev Operations - do not normally use
     OPS = "ops"

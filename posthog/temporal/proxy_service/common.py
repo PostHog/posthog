@@ -146,6 +146,7 @@ def activity_capture_event(inputs: CaptureEventInputs):
         event=f"managed reverse proxy {inputs.event_type}",
         distinct_id=f"org-{record.organization_id}",
         properties={
+            "organization_id": record.organization_id,
             "proxy_record_id": inputs.proxy_record_id,
             "domain": record.domain if record else None,
             "target_cname": record.target_cname if record else None,

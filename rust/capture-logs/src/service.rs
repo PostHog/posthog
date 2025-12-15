@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use crate::kafka::KafkaSink;
 
-use tracing::{debug, error};
+use tracing::{debug, error, instrument};
 
 #[derive(Clone)]
 pub struct Service {
@@ -40,6 +40,21 @@ impl Service {
     }
 }
 
+#[instrument(skip_all, fields(
+    token = tracing::field::Empty,
+    content_type = %headers.get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    user_agent = %headers.get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    content_length = %headers.get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    content_encoding = %headers.get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")))
+]
 pub async fn export_logs_http(
     State(service): State<Service>,
     Query(query_params): Query<QueryParams>,
@@ -89,6 +104,8 @@ pub async fn export_logs_http(
             Json(json!({"error": format!("Invalid token")})),
         ));
     }
+
+    tracing::Span::current().record("token", token);
 
     // Try to decode as Protobuf, if this fails, try JSON.
     // We do this over relying on Content-Type headers to be as permissive as possible in what we accept.

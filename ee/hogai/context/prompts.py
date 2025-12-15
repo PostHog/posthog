@@ -65,6 +65,7 @@ IMPORTANT: this context may or may not be relevant to your tasks. You should not
 """.strip()
 
 CONTEXT_INITIAL_MODE_PROMPT = "Your initial mode is"
+CONTEXT_MODE_SWITCH_PROMPT = "Your mode has been switched to"
 CONTEXT_MODE_PROMPT = """
-<system_reminder>{{{initial_mode_prompt}}} {{{mode}}}.</system_reminder>
+<system_reminder>{{{mode_prompt}}} {{{mode}}}.</system_reminder>
 """.strip()

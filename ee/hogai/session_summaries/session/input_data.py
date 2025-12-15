@@ -3,16 +3,21 @@ import json
 import datetime
 from typing import cast
 
+import structlog
+
 from posthog.models import Team
 from posthog.session_recordings.constants import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT, EXTRA_SUMMARY_EVENT_FIELDS
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
+from ee.hogai.session_summaries.constants import SESSION_EVENTS_REPLAY_CUTOFF_MS
 from ee.hogai.session_summaries.local.input_data import (
     _get_production_session_events_locally,
     _get_production_session_metadata_locally,
 )
-from ee.hogai.session_summaries.utils import get_column_index
+from ee.hogai.session_summaries.utils import calculate_time_since_start, calculate_time_till_end, get_column_index
+
+logger = structlog.get_logger(__name__)
 
 
 def get_team(team_id: int) -> Team:
@@ -26,7 +31,9 @@ def get_session_metadata(session_id: str, team_id: int, local_reads_prod: bool =
     else:
         session_metadata = _get_production_session_metadata_locally(events_obj, session_id, team_id)
     if not session_metadata:
-        raise ValueError(f"No session metadata found for session_id {session_id}")
+        msg = f"No session metadata found for session_id {session_id}"
+        logger.error(msg, session_id=session_id, team_id=team_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return session_metadata
 
 
@@ -85,11 +92,15 @@ def get_session_events(
         if len(page_events) < items_per_page:
             break
     if not columns:
-        raise ValueError(f"No columns found for session_id {session_id}")
+        msg = f"No columns found for session_id {session_id}"
+        logger.error(msg, session_id=session_id, team_id=team_id, signals_type="session-summaries")
+        raise ValueError(msg)
     if not all_events:
         # Raise an error only if there were no events on all pages,
         # to avoid false positives when the first page consumed all events precisely
-        raise ValueError(f"No events found for session_id {session_id}")
+        msg = f"No events found for session_id {session_id}"
+        logger.error(msg, session_id=session_id, team_id=team_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return columns, all_events
 
 
@@ -166,8 +177,13 @@ def _skip_event_without_valid_context(
 
 
 def add_context_and_filter_events(
-    session_events_columns: list[str], session_events: list[tuple[str | datetime.datetime | list[str] | None, ...]]
+    session_events_columns: list[str],
+    session_events: list[tuple[str | datetime.datetime | list[str] | None, ...]],
+    session_id: str,
+    session_start_time: datetime.datetime,
+    session_end_time: datetime.datetime,
 ) -> tuple[list[str], list[tuple[str | datetime.datetime | list[str] | None, ...]]]:
+    timestamp_index = get_column_index(session_events_columns, "timestamp")
     indexes = {
         "event": get_column_index(session_events_columns, "event"),
         "$event_type": get_column_index(session_events_columns, "$event_type"),
@@ -187,7 +203,25 @@ def add_context_and_filter_events(
         i for i, col in enumerate(session_events_columns) if col not in COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
     ]
     updated_events = []
+    # Events are chronologically ordered, so once we find an event after replay start, all subsequent events are too
+    past_replay_start = False
     for event in session_events:
+        event_timestamp = event[timestamp_index]
+        if not isinstance(event_timestamp, str) and not isinstance(event_timestamp, datetime.datetime):
+            msg = f"Event timestamp is not a string or datetime: {event_timestamp}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
+        # Filter out events that occurred before or near replay start, as we can't confirm them with video
+        if not past_replay_start:
+            ms_since_start = calculate_time_since_start(event_timestamp, session_start_time)
+            if ms_since_start <= SESSION_EVENTS_REPLAY_CUTOFF_MS:
+                continue
+            # No need to check the time from the start anymore, as events are sorted chronologically
+            past_replay_start = True
+        # Filter out events that occurred after or near replay end, as we can't confirm them with video
+        ms_till_end = calculate_time_till_end(event_timestamp, session_end_time)
+        if ms_till_end <= SESSION_EVENTS_REPLAY_CUTOFF_MS:
+            continue
         updated_event: list[str | datetime.datetime | list[str] | None] = list(event)
         # Check for errors worth keeping in the context
         if event[indexes["event"]] == "$exception":
@@ -198,7 +232,9 @@ def add_context_and_filter_events(
             continue
         chain = event[indexes["elements_chain"]]
         if not isinstance(chain, str):
-            raise ValueError(f"Elements chain is not a string: {chain}")
+            msg = f"Elements chain is not a string: {chain}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
         if not chain:
             # If no chain - no additional context will come, so it's ok to check if to skip right away
             if _skip_event_without_valid_context(updated_event, indexes):
@@ -207,11 +243,15 @@ def add_context_and_filter_events(
             continue
         elements_chain_texts = event[indexes["elements_chain_texts"]]
         if not isinstance(elements_chain_texts, list):
-            raise ValueError(f"Elements chain texts is not a list: {elements_chain_texts}")
+            msg = f"Elements chain texts is not a list: {elements_chain_texts}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
         updated_event[indexes["elements_chain_texts"]] = _get_improved_elements_chain_texts(chain, elements_chain_texts)
         elements_chain_elements = event[indexes["elements_chain_elements"]]
         if not isinstance(elements_chain_elements, list):
-            raise ValueError(f"Elements chain elements is not a list: {elements_chain_elements}")
+            msg = f"Elements chain elements is not a list: {elements_chain_elements}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
         updated_event[indexes["elements_chain_elements"]] = _get_improved_elements_chain_elements(
             chain, elements_chain_elements
         )

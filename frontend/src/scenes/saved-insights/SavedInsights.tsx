@@ -12,6 +12,7 @@ import {
     IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconLineGraph,
     IconLive,
     IconLlmAnalytics,
     IconPerson,
@@ -529,6 +530,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.NonIntegratedConversionsTableQuery]: {
+        name: 'Non-Integrated Conversions Table',
+        icon: IconHogQL,
+        inMenu: false,
+    },
     [NodeKind.UsageMetricsQuery]: {
         name: 'Usage Metrics',
         icon: IconPieChart,
@@ -560,6 +566,12 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         description: 'Use Hog to query your data.',
         icon: IconHogQL,
         inMenu: true,
+    },
+    [InsightType.WEB_ANALYTICS]: {
+        name: 'Web Analytics',
+        description: 'Web analytics insights from your website data.',
+        icon: IconLineGraph,
+        inMenu: false,
     },
 }
 

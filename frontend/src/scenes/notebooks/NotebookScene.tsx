@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconInfo, IconOpenSidebar } from '@posthog/icons'
@@ -6,6 +7,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -47,7 +49,23 @@ export function NotebookScene(): JSX.Element {
     useEffect(() => {
         if (notebookId === 'new') {
             // NOTE: We don't do this in the logic afterMount as the logic can get cached by the router
-            createNotebook(NotebookTarget.Scene)
+            let content: JSONContent[] | undefined
+            let title: string | undefined
+
+            const searchParams = new URLSearchParams(router.values.location.search)
+            const contentParam = searchParams.get('notebook')
+            if (contentParam) {
+                try {
+                    const decoded = decodeURIComponent(contentParam)
+                    const parsedNotebook = JSON.parse(decoded)
+                    content = parsedNotebook['body'] as JSONContent[]
+                    title = parsedNotebook['title'] as string
+                } catch (error) {
+                    console.error('Failed to parse content query parameter:', error)
+                }
+            }
+
+            createNotebook(NotebookTarget.Scene, title, content)
         }
         // oxlint-disable-next-line exhaustive-deps
     }, [notebookId])

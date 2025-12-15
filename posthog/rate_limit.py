@@ -443,14 +443,14 @@ class AISustainedRateThrottle(UserRateThrottle):
 
 class LLMGatewayBurstRateThrottle(UserRateThrottle):
     scope = "llm_gateway_burst"
-    rate = "500/minute"
+    rate = "1000/minute"
 
 
 class LLMGatewaySustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
     # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_gateway_sustained"
-    rate = "10000/hour"
+    rate = "20000/hour"
 
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):
@@ -499,6 +499,44 @@ class LLMAnalyticsTextReprBurstThrottle(PersonalApiKeyRateThrottle):
 class LLMAnalyticsTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_text_repr_sustained"
     rate = "600/hour"
+
+
+class LLMAnalyticsTranslationBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_translation_burst"
+    rate = "30/minute"
+
+
+class LLMAnalyticsTranslationSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_translation_sustained"
+    rate = "200/hour"
+
+
+class LLMAnalyticsTranslationDailyThrottle(PersonalApiKeyRateThrottle):
+    # Daily cap for LLM-powered translation endpoint
+    # Hard limit to prevent runaway costs
+    scope = "llm_analytics_translation_daily"
+    rate = "500/day"
+
+
+class LLMAnalyticsSummarizationBurstThrottle(PersonalApiKeyRateThrottle):
+    # Rate limit for LLM-powered summarization endpoint
+    # Conservative limits to control OpenAI API costs
+    scope = "llm_analytics_summarization_burst"
+    rate = "50/minute"
+
+
+class LLMAnalyticsSummarizationSustainedThrottle(PersonalApiKeyRateThrottle):
+    # Rate limit for LLM-powered summarization endpoint
+    # Conservative limits to control OpenAI API costs
+    scope = "llm_analytics_summarization_sustained"
+    rate = "200/hour"
+
+
+class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
+    # Daily cap for LLM-powered summarization endpoint
+    # Hard limit to prevent runaway costs
+    scope = "llm_analytics_summarization_daily"
+    rate = "500/day"
 
 
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):

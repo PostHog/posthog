@@ -138,7 +138,6 @@ class ExternalWebAnalyticsQueryAdapter:
             properties=self._get_base_properties(data.get("host")),
             filterTestAccounts=data.get("filter_test_accounts", True),
             doPathCleaning=data.get("apply_path_cleaning", True),
-            includeRevenue=False,
         )
 
         runner = WebOverviewQueryRunner(

@@ -402,6 +402,7 @@ pub async fn insert_flag_for_team_in_pg(
             version: None,
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         },
     };
 
@@ -678,6 +679,7 @@ pub fn create_test_flag(
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
         evaluation_tags: None,
+        bucketing_identifier: None,
     }
 }
 
@@ -1208,7 +1210,7 @@ impl TestContext {
         redis
             .set(cache_key, payload)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to set cache: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to set cache: {e}"))?;
 
         Ok(())
     }

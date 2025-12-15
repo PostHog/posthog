@@ -24,11 +24,12 @@ import {
 } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
+import { logger } from '../../utils/logger'
 import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
-import { PipelineResult, drop, ok } from '../pipelines/results'
+import { PipelineResult, dlq, drop, ok } from '../pipelines/results'
 import { RedisHelpers } from './redis-helpers'
 
 /* ---------------------------------------------------------------------
@@ -85,6 +86,9 @@ const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
 const MAX_SUPPORTED_INGESTION_LAG_HOURS = 72 // if changing this, you will also need to change the TTLs
 
+// Result type for getSaltForDay which can fail if the date is out of range
+type SaltResult = { success: true; salt: Buffer } | { success: false; reason: 'date_out_of_range' }
+
 interface CookielessConfig {
     disabled: boolean
     forceStatelessMode: boolean
@@ -129,22 +133,22 @@ export class CookielessManager {
         this.cleanupInterval.unref()
     }
 
-    getSaltForDay(yyyymmdd: string, timestampMs: number): Promise<Buffer> {
+    getSaltForDay(yyyymmdd: string, timestampMs: number): Promise<SaltResult> {
         if (!isCalendarDateValid(yyyymmdd)) {
-            throw new Error('Date is out of range')
+            return Promise.resolve({ success: false, reason: 'date_out_of_range' })
         }
 
         // see if we have it locally
         if (this.localSaltMap[yyyymmdd]) {
-            return Promise.resolve(this.localSaltMap[yyyymmdd])
+            return Promise.resolve({ success: true, salt: this.localSaltMap[yyyymmdd] })
         }
 
         // get the salt for the day from redis, but only do this once for this node process
         return this.mutex.run({
-            fn: async (): Promise<Buffer> => {
+            fn: async (): Promise<SaltResult> => {
                 // check if we got the salt while waiting for the mutex
                 if (this.localSaltMap[yyyymmdd]) {
-                    return this.localSaltMap[yyyymmdd]
+                    return { success: true, salt: this.localSaltMap[yyyymmdd] }
                 }
 
                 // try to get it from redis instead
@@ -158,7 +162,7 @@ export class CookielessManager {
                     cookielessCacheHitCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
                     const salt = Buffer.from(saltBase64, 'base64')
                     this.localSaltMap[yyyymmdd] = salt
-                    return salt
+                    return { success: true, salt }
                 }
                 cookielessCacheMissCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
 
@@ -173,7 +177,7 @@ export class CookielessManager {
                 )
                 if (setResult === 'OK') {
                     this.localSaltMap[yyyymmdd] = newSalt
-                    return newSalt
+                    return { success: true, salt: newSalt }
                 }
 
                 // if we couldn't write, it means that it exists in redis already
@@ -190,7 +194,7 @@ export class CookielessManager {
                 const salt = Buffer.from(saltBase64Retry, 'base64')
                 this.localSaltMap[yyyymmdd] = salt
 
-                return salt
+                return { success: true, salt }
             },
             priority: timestampMs,
         })
@@ -240,11 +244,17 @@ export class CookielessManager {
         n?: number
         hashExtra?: string
         hashCache?: Record<string, Buffer>
-    }) {
+    }): Promise<SaltResult> {
         const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestampMs, eventTimeZone, teamTimeZone)
-        const salt = await this.getSaltForDay(yyyymmdd, timestampMs)
+        const saltResult = await this.getSaltForDay(yyyymmdd, timestampMs)
+        if (!saltResult.success) {
+            return saltResult
+        }
         const rootDomain = extractRootDomain(host)
-        return CookielessManager.doHash(salt, teamId, ip, rootDomain, userAgent, n, hashExtra, hashCache)
+        return {
+            success: true,
+            salt: CookielessManager.doHash(saltResult.salt, teamId, ip, rootDomain, userAgent, n, hashExtra, hashCache),
+        }
     }
 
     static doHash(
@@ -284,17 +294,26 @@ export class CookielessManager {
         }
         try {
             return await instrumentFn(`cookieless-batch`, () => this.doBatchInner(events))
-        } catch (e) {
-            if (e instanceof RedisOperationError) {
-                cookielessRedisErrorCounter.labels({
-                    operation: e.operation,
+        } catch (error) {
+            if (error instanceof RedisOperationError) {
+                cookielessRedisErrorCounter
+                    .labels({
+                        operation: error.operation,
+                    })
+                    .inc()
+                logger.error('Cookieless processing failed due to Redis error', {
+                    operation: error.operation,
+                    error,
+                })
+            } else {
+                logger.error('Cookieless processing failed with unexpected error', {
+                    error,
                 })
             }
 
-            // Drop all cookieless events if there are any errors.
-            // We fail close here as Cookieless is a new feature, not available for general use yet, and we don't want any
-            // errors to interfere with the processing of other events.
-            return this.dropAllCookielessEvents(events, 'cookieless_fail_close')
+            // DLQ all errors - both Redis and unexpected errors need investigation
+            // We fail close here as Cookieless is a new feature, not available for general use yet
+            return this.dlqAllCookielessEvents(events, 'cookieless_fail_close', error)
         }
     }
 
@@ -342,7 +361,20 @@ export class CookielessManager {
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
 
             if (!timestamp) {
-                results[i] = drop('cookieless_missing_timestamp')
+                results[i] = drop(
+                    'cookieless_missing_timestamp',
+                    [],
+                    [
+                        {
+                            type: 'cookieless_missing_timestamp',
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                        },
+                    ]
+                )
                 continue
             }
 
@@ -365,13 +397,43 @@ export class CookielessManager {
                 timezone: eventTimeZone,
             } = getProperties(event, timestamp)
             if (!userAgent || !ip || !host) {
+                let reason: string
+                let type: string
+                let missingProperty: string
+
+                if (!userAgent) {
+                    reason = 'cookieless_missing_ua'
+                    type = 'cookieless_missing_user_agent'
+                    missingProperty = '$raw_user_agent'
+                } else if (!ip) {
+                    reason = 'cookieless_missing_ip'
+                    type = 'cookieless_missing_ip'
+                    missingProperty = '$ip'
+                } else {
+                    reason = 'cookieless_missing_host'
+                    type = 'cookieless_missing_host'
+                    missingProperty = '$host'
+                }
+
                 results[i] = drop(
-                    !userAgent ? 'cookieless_missing_ua' : !ip ? 'cookieless_missing_ip' : 'cookieless_missing_host'
+                    reason,
+                    [],
+                    [
+                        {
+                            type,
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                                missingProperty,
+                            },
+                        },
+                    ]
                 )
                 continue
             }
 
-            const baseHash = await this.doHashForDay({
+            const baseHashResult = await this.doHashForDay({
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone: team.timezone,
@@ -382,6 +444,24 @@ export class CookielessManager {
                 hashExtra,
                 hashCache,
             })
+
+            if (!baseHashResult.success) {
+                results[i] = drop(
+                    'cookieless_timestamp_out_of_range',
+                    [],
+                    [
+                        {
+                            type: 'cookieless_timestamp_out_of_range',
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                        },
+                    ]
+                )
+                continue
+            }
 
             eventsWithStatus.push({
                 event,
@@ -396,7 +476,7 @@ export class CookielessManager {
                     ip,
                     host,
                     hashExtra,
-                    baseHash,
+                    baseHash: baseHashResult.salt,
                 },
             })
         }
@@ -457,7 +537,7 @@ export class CookielessManager {
         // Do a third pass to set the distinct and device ID, and find the `sessionRedisKey`s we need to load from redis
         const sessionKeys = new Set<string>()
         for (const eventWithProcessing of eventsWithStatus) {
-            const { event, team, firstPass } = eventWithProcessing
+            const { event, team, firstPass, originalIndex } = eventWithProcessing
             if (!firstPass?.secondPass) {
                 continue
             }
@@ -481,7 +561,7 @@ export class CookielessManager {
                 n = identifiesCacheItem.identifyEventIds.size - 1
             }
 
-            const hashValue = await this.doHashForDay({
+            const hashValueResult = await this.doHashForDay({
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone: team.timezone,
@@ -492,8 +572,14 @@ export class CookielessManager {
                 hashExtra,
                 n,
             })
-            const distinctId = hashToDistinctId(hashValue)
-            const sessionRedisKey = getRedisSessionsKey(hashValue, team.id)
+            // This should not fail since we already validated the timestamp in the first pass,
+            // but if it does, DLQ the event rather than failing the entire batch
+            if (!hashValueResult.success) {
+                results[originalIndex] = dlq('cookieless_unexpected_date_validation_failure')
+                continue
+            }
+            const distinctId = hashToDistinctId(hashValueResult.salt)
+            const sessionRedisKey = getRedisSessionsKey(hashValueResult.salt, team.id)
             sessionKeys.add(sessionRedisKey)
             secondPass.thirdPass = {
                 distinctId,
@@ -613,6 +699,20 @@ export class CookielessManager {
             }
         })
     }
+
+    dlqAllCookielessEvents(
+        events: IncomingEventWithTeam[],
+        reason: string,
+        error?: unknown
+    ): PipelineResult<IncomingEventWithTeam>[] {
+        return events.map((incomingEvent) => {
+            if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
+                return dlq(reason, error)
+            } else {
+                return ok(incomingEvent)
+            }
+        })
+    }
 }
 
 type EventWithStatus = {
@@ -724,14 +824,24 @@ export function toYYYYMMDDInTimezoneSafe(
     if (eventTimeZone) {
         try {
             dateObj = toYearMonthDayInTimezone(timestamp, eventTimeZone)
-        } catch {
-            // pass
+        } catch (error) {
+            logger.warn('Failed to parse event timezone, falling back to team timezone', {
+                eventTimeZone,
+                teamTimeZone,
+                timestamp,
+                error,
+            })
         }
     }
     if (!dateObj) {
         try {
             dateObj = toYearMonthDayInTimezone(timestamp, teamTimeZone)
-        } catch {
+        } catch (error) {
+            logger.warn('Failed to parse team timezone, falling back to UTC', {
+                teamTimeZone,
+                timestamp,
+                error,
+            })
             dateObj = toYearMonthDayInTimezone(timestamp, TIMEZONE_FALLBACK)
         }
     }
@@ -746,13 +856,23 @@ export function toStartOfDayInTimezoneSafe(
     if (eventTimeZone) {
         try {
             return toStartOfDayInTimezone(timestamp, eventTimeZone)
-        } catch {
-            // pass
+        } catch (error) {
+            logger.warn('Failed to get start of day for event timezone, falling back to team timezone', {
+                eventTimeZone,
+                teamTimeZone,
+                timestamp,
+                error,
+            })
         }
     }
     try {
         return toStartOfDayInTimezone(timestamp, teamTimeZone)
-    } catch {
+    } catch (error) {
+        logger.warn('Failed to get start of day for team timezone, falling back to UTC', {
+            teamTimeZone,
+            timestamp,
+            error,
+        })
         return toStartOfDayInTimezone(timestamp, TIMEZONE_FALLBACK)
     }
 }
@@ -853,7 +973,11 @@ export function extractRootDomain(input: string): string {
         try {
             const ip = parse(input)
             return `[${ip.toString()}]`
-        } catch {
+        } catch (error) {
+            logger.debug('Failed to parse IPv6 address, using input as-is', {
+                input,
+                error,
+            })
             return input
         }
     }
@@ -870,8 +994,12 @@ export function extractRootDomain(input: string): string {
         const url = new URL(input)
         hostname = url.hostname
         port = url.port
-    } catch {
+    } catch (error) {
         // If the URL parsing fails, return the original host
+        logger.debug('Failed to parse URL for domain extraction, using input as-is', {
+            input,
+            error,
+        })
         return input
     }
 

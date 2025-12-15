@@ -23,6 +23,7 @@ import {
     HealthCheckResultOk,
     LogLevel,
 } from '~/types'
+import { sanitizeString } from '~/utils/db/utils'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
@@ -84,22 +85,23 @@ const histogramKafkaConsumeInterval = new Histogram({
     buckets: [0, 20, 100, 200, 500, 1000, 2500, 5000, 10000, 20000, 30000, 60000, Infinity],
 })
 
-const gaugeOldestBackgroundTaskAge = new Gauge({
-    name: 'consumer_oldest_background_task_age_ms',
-    help: 'Age of the oldest background task in queue - if this grows unbounded, pod is stuck',
-    labelNames: ['pod', 'groupId'],
+// Simple metrics to track offset commits
+const gaugeLastProcessedOffset = new Gauge({
+    name: 'kafka_consumer_last_processed_offset',
+    help: 'Last processed offset per partition',
+    labelNames: ['topic', 'partition', 'groupId'],
 })
 
-const gaugeTimeSinceLastProgress = new Gauge({
-    name: 'consumer_time_since_last_progress_ms',
-    help: 'Time since any background task completed - shows if pod is making any progress',
-    labelNames: ['pod', 'groupId'],
+const gaugeLastStoredOffset = new Gauge({
+    name: 'kafka_consumer_last_stored_offset',
+    help: 'Last stored (committed) offset per partition',
+    labelNames: ['topic', 'partition', 'groupId'],
 })
 
-const counterBackgroundTaskNotFound = new Counter({
-    name: 'consumer_background_task_not_found_total',
-    help: 'Background task attempted cleanup but was not found in array - indicates serious system integrity issue',
-    labelNames: ['pod', 'groupId'],
+const counterOffsetStoreAttempts = new Counter({
+    name: 'kafka_consumer_offset_store_attempts_total',
+    help: 'Total offset store attempts per partition',
+    labelNames: ['topic', 'partition', 'groupId', 'status'],
 })
 
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
@@ -610,7 +612,39 @@ export class KafkaConsumer {
             logger.debug('📝', 'Storing offsets', { topicPartitionOffsetsToCommit })
             try {
                 this.rdKafkaConsumer.offsetsStore(topicPartitionOffsetsToCommit)
+
+                // Track successful offset stores
+                topicPartitionOffsetsToCommit.forEach((tpo) => {
+                    counterOffsetStoreAttempts
+                        .labels({
+                            topic: tpo.topic,
+                            partition: tpo.partition.toString(),
+                            groupId: this.config.groupId,
+                            status: 'success',
+                        })
+                        .inc()
+
+                    // Track the last stored offset
+                    gaugeLastStoredOffset
+                        .labels({
+                            topic: tpo.topic,
+                            partition: tpo.partition.toString(),
+                            groupId: this.config.groupId,
+                        })
+                        .set(tpo.offset)
+                })
             } catch (e) {
+                // Track failed offset stores
+                topicPartitionOffsetsToCommit.forEach((tpo) => {
+                    counterOffsetStoreAttempts
+                        .labels({
+                            topic: tpo.topic,
+                            partition: tpo.partition.toString(),
+                            groupId: this.config.groupId,
+                            status: 'failed',
+                        })
+                        .inc()
+                })
                 // NOTE: We don't throw here - this can happen if we were re-assigned partitions
                 // and the offsets are no longer valid whilst processing a batch
                 let assignedPartitions: Assignment[] | string = []
@@ -737,6 +771,17 @@ export class KafkaConsumer {
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
+                    // Track last processed offsets
+                    topicPartitionOffsetsToCommit.forEach((tpo) => {
+                        gaugeLastProcessedOffset
+                            .labels({
+                                topic: tpo.topic,
+                                partition: tpo.partition.toString(),
+                                groupId: this.config.groupId,
+                            })
+                            .set(tpo.offset)
+                    })
+
                     void backgroundTask.finally(async () => {
                         // Track that we made progress
                         this.lastBackgroundTaskCompletionTime = Date.now()
@@ -747,9 +792,6 @@ export class KafkaConsumer {
                         // CRITICAL: If task not found, this indicates some bigger problem
                         if (index < 0) {
                             captureException(new Error('Background task not found in array during cleanup'))
-                            counterBackgroundTaskNotFound
-                                .labels({ pod: this.podName, groupId: this.config.groupId })
-                                .inc()
                         }
 
                         // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
@@ -782,19 +824,7 @@ export class KafkaConsumer {
                         createdAt: taskCreatedAt,
                     })
 
-                    // Update metrics
-                    if (this.backgroundTask.length > 0) {
-                        const oldestAge = Date.now() - this.backgroundTask[0].createdAt
-                        gaugeOldestBackgroundTaskAge.labels({ pod: this.podName, groupId }).set(oldestAge)
-                    } else {
-                        gaugeOldestBackgroundTaskAge.labels({ pod: this.podName, groupId }).set(0)
-                    }
-
-                    const timeSinceProgress = Date.now() - this.lastBackgroundTaskCompletionTime
-                    gaugeTimeSinceLastProgress.labels({ pod: this.podName, groupId }).set(timeSinceProgress)
-
                     // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
-
                     if (this.backgroundTask.length >= this.maxBackgroundTasks) {
                         const stopTimer = consumedBatchBackpressureDuration.startTimer({
                             topic: this.config.topic,
@@ -896,15 +926,18 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
 
     const result: EventHeaders = {
         force_disable_person_processing: false,
+        historical_migration: false,
     }
 
     headers?.forEach((header) => {
         Object.keys(header).forEach((key) => {
             const value = header[key].toString()
             if (key === 'token') {
-                result.token = value
+                result.token = sanitizeString(value)
             } else if (key === 'distinct_id') {
-                result.distinct_id = value
+                result.distinct_id = sanitizeString(value)
+            } else if (key === 'session_id') {
+                result.session_id = sanitizeString(value)
             } else if (key === 'timestamp') {
                 result.timestamp = value
             } else if (key === 'event') {
@@ -913,6 +946,13 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.uuid = value
             } else if (key === 'force_disable_person_processing') {
                 result.force_disable_person_processing = value === 'true'
+            } else if (key === 'now') {
+                const parsed = new Date(value)
+                if (!isNaN(parsed.getTime())) {
+                    result.now = parsed
+                }
+            } else if (key === 'historical_migration') {
+                result.historical_migration = value === 'true'
             }
         })
     })
@@ -921,10 +961,13 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     const trackedHeaders = [
         'token',
         'distinct_id',
+        'session_id',
         'timestamp',
         'event',
         'uuid',
+        'now',
         'force_disable_person_processing',
+        'historical_migration',
     ] as const
     trackedHeaders.forEach((header) => {
         const status = result[header] ? 'present' : 'absent'

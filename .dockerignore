@@ -8,6 +8,7 @@
 !common/plugin_transpiler/src
 !common/tailwind
 !dags
+!docs/onboarding
 !ee
 !frontend/@posthog
 !frontend/*.*
@@ -50,12 +51,15 @@
 !test-runner-jest.config.js
 !tsconfig.json
 !unit.json.tpl
-ee/frontend/node_modules
 common/*/*/node_modules
 common/*/node_modules
 common/*/*/dist
 common/*/dist
-products/*/node_modules
+products/**/node_modules
+plugin-server/node_modules
+ee/**/node_modules
+docs/**/node_modules
+**/__pycache__
 rust/.env
 rust/.github
 rust/cyclotron-node/dist
@@ -67,6 +71,3 @@ rust/target
 !docker-compose.base.yml
 !docker-compose.dev.yml
 !docker
-!.git/config
-!.git/HEAD
-!.git/refs

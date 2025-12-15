@@ -66,7 +66,20 @@ export const ApiRedactedPersonalApiKeySchema = z.object({
     scoped_organizations: z.array(z.string()),
 })
 
+export const ApiOAuthIntrospectionSchema = z.discriminatedUnion('active', [
+    z.object({
+        active: z.literal(true),
+        scope: z.string(),
+        scoped_teams: z.array(z.number()),
+        scoped_organizations: z.array(z.string()),
+    }),
+    z.object({
+        active: z.literal(false),
+    }),
+])
+
 export type ApiPropertyDefinition = z.infer<typeof ApiPropertyDefinitionSchema>
 export type ApiEventDefinition = z.infer<typeof ApiEventDefinitionSchema>
 export type ApiUser = z.infer<typeof ApiUserSchema>
 export type ApiRedactedPersonalApiKey = z.infer<typeof ApiRedactedPersonalApiKeySchema>
+export type ApiOAuthIntrospection = z.infer<typeof ApiOAuthIntrospectionSchema>

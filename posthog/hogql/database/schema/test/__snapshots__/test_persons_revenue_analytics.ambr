@@ -56,7 +56,7 @@
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
+     GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -67,7 +67,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_events_with_managed_viewsets_ff
@@ -127,7 +128,7 @@
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
+     GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -138,7 +139,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids
@@ -245,7 +247,7 @@
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
-     GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
+     GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons__revenue_analytics.revenue ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -256,7 +258,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids.1
@@ -362,7 +365,7 @@
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
-     GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
+     GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons__revenue_analytics.revenue ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -373,7 +376,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_email_join
@@ -481,7 +485,7 @@
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
-     GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
+     GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -492,7 +496,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_id_join
@@ -599,7 +604,7 @@
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
-     GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
+     GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -610,7 +615,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_id_join.1
@@ -717,7 +723,7 @@
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
-     GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
+     GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -728,7 +734,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_id_join_with_managed_viewsets_ff
@@ -835,7 +842,7 @@
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
-     GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
+     GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -846,7 +853,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_id_join_with_managed_viewsets_ff.1
@@ -953,7 +961,7 @@
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
-     GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
+     GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -964,7 +972,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_metadata_join
@@ -1072,7 +1081,7 @@
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(JSONExtractString(revenue_analytics_customer.metadata, 'id'), revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
-     GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
+     GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
   ORDER BY persons.id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1083,7 +1092,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_query_revenue_analytics_table
@@ -1195,7 +1205,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_0_disabled
@@ -1213,7 +1224,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_0_disabled.1
@@ -1294,7 +1306,7 @@
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                  ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-              GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
+              GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
@@ -1315,7 +1327,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events
@@ -1333,7 +1346,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events.1
@@ -1392,7 +1406,7 @@
                  FROM events
                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                  ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-              GROUP BY person_id) AS e__poe__revenue_analytics ON equals(e.person_id, e__poe__revenue_analytics.person_id)
+              GROUP BY person_id) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
@@ -1413,7 +1427,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events
@@ -1431,7 +1446,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events.1
@@ -1504,7 +1520,7 @@
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                  ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-              GROUP BY person_id) AS e__poe__revenue_analytics ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__poe__revenue_analytics.person_id)
+              GROUP BY person_id) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
@@ -1525,7 +1541,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined
@@ -1543,7 +1560,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined.1
@@ -1623,7 +1641,7 @@
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                  ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-              GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
+              GROUP BY person_id) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
@@ -1644,7 +1662,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_0_disabled
@@ -1662,7 +1681,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_0_disabled.1
@@ -1764,7 +1784,7 @@
                                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                                 WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                 ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                             GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
+                             GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
@@ -1852,7 +1872,7 @@
                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                       ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                                   GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
+                                   GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
@@ -1945,7 +1965,7 @@
                                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                                 WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                 ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                             GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
+                             GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
@@ -2033,7 +2053,7 @@
                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                       ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                                   GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
+                                   GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(toString(e__pdi__person.e__pdi__person___id), toString(e__pdi__person__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
@@ -2056,7 +2076,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_1_person_id_no_override_properties_on_events
@@ -2074,7 +2095,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_1_person_id_no_override_properties_on_events.1
@@ -2154,7 +2176,7 @@
                                 FROM events
                                 WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                 ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                             GROUP BY person_id) AS e__poe__revenue_analytics ON equals(e.person_id, e__poe__revenue_analytics.person_id)
+                             GROUP BY person_id) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
@@ -2220,7 +2242,7 @@
                                       FROM events
                                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                       ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                                   GROUP BY person_id) AS e__poe__revenue_analytics ON equals(e.person_id, e__poe__revenue_analytics.person_id)
+                                   GROUP BY person_id) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
@@ -2291,7 +2313,7 @@
                                 FROM events
                                 WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                 ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                             GROUP BY person_id) AS e__poe__revenue_analytics ON equals(e.person_id, e__poe__revenue_analytics.person_id)
+                             GROUP BY person_id) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
@@ -2357,7 +2379,7 @@
                                       FROM events
                                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                       ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                                   GROUP BY person_id) AS e__poe__revenue_analytics ON equals(e.person_id, e__poe__revenue_analytics.person_id)
+                                   GROUP BY person_id) AS e__poe__revenue_analytics ON equals(toString(e.person_id), toString(e__poe__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
@@ -2380,7 +2402,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_2_person_id_override_properties_on_events
@@ -2398,7 +2421,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_2_person_id_override_properties_on_events.1
@@ -2492,7 +2516,7 @@
                                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                 WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                 ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                             GROUP BY person_id) AS e__poe__revenue_analytics ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__poe__revenue_analytics.person_id)
+                             GROUP BY person_id) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
@@ -2572,7 +2596,7 @@
                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                       ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                                   GROUP BY person_id) AS e__poe__revenue_analytics ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__poe__revenue_analytics.person_id)
+                                   GROUP BY person_id) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
@@ -2657,7 +2681,7 @@
                                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                 WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                 ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                             GROUP BY person_id) AS e__poe__revenue_analytics ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__poe__revenue_analytics.person_id)
+                             GROUP BY person_id) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
@@ -2737,7 +2761,7 @@
                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                       ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                                   GROUP BY person_id) AS e__poe__revenue_analytics ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__poe__revenue_analytics.person_id)
+                                   GROUP BY person_id) AS e__poe__revenue_analytics ON equals(toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)), toString(e__poe__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
@@ -2760,7 +2784,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_3_person_id_override_properties_joined
@@ -2778,7 +2803,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_3_person_id_override_properties_joined.1
@@ -2879,7 +2905,7 @@
                                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                 WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                 ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                             GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
+                             GROUP BY person_id) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
@@ -2966,7 +2992,7 @@
                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                       ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                                   GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
+                                   GROUP BY person_id) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
@@ -3058,7 +3084,7 @@
                                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                 WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                 ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                             GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
+                             GROUP BY person_id) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                           GROUP BY day_start,
                                    breakdown_value_1)
@@ -3145,7 +3171,7 @@
                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                                       ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-                                   GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
+                                   GROUP BY person_id) AS e__person__revenue_analytics ON equals(toString(e__person.e__person___id), toString(e__person__revenue_analytics.person_id))
                                 WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
                                 GROUP BY day_start,
                                          breakdown_value_1)
@@ -3168,6 +3194,7 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---

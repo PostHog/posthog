@@ -11,18 +11,17 @@ import { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { createVersionChecker } from 'lib/utils/semver'
 
+import { buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { elementIsVisible, elementToActionStep, trimElement } from '~/toolbar/utils'
+import { elementIsVisible, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 
 export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
-
-const FRAME_BUDGET_MS = 12
 
 function yieldToMain(): Promise<void> {
     return new Promise((resolve) => {
@@ -34,10 +33,6 @@ function yieldToMain(): Promise<void> {
             setTimeout(resolve, 0)
         }
     })
-}
-
-function shouldYield(startTime: number): boolean {
-    return performance.now() - startTime >= FRAME_BUDGET_MS
 }
 
 interface ElementProcessingCache {
@@ -136,8 +131,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         startElementObservation: true,
         stopElementObservation: true,
         processElements: true,
+        refreshClickmap: true,
+        setIsRefreshing: (isRefreshing: boolean) => ({ isRefreshing }),
         setProcessedElements: (elements: CountedHTMLElement[]) => ({ elements }),
         setElementsLoading: (loading: boolean) => ({ loading }),
+        setProcessingProgress: (processed: number, total: number) => ({ processed, total }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -206,6 +204,20 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 processElements: () => true,
                 setProcessedElements: () => false,
                 toggleClickmapsEnabled: (state, { enabled }) => (enabled ? state : false),
+            },
+        ],
+        processingProgress: [
+            null as { processed: number; total: number } | null,
+            {
+                setProcessingProgress: (_, { processed, total }) => (processed >= total ? null : { processed, total }),
+                setProcessedElements: () => null,
+                toggleClickmapsEnabled: () => null,
+            },
+        ],
+        isRefreshing: [
+            false,
+            {
+                setIsRefreshing: (_, { isRefreshing }) => isRefreshing,
             },
         ],
     }),
@@ -346,67 +358,65 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         countedElements: () => {
             actions.startElementObservation()
         },
-        processingInputs: () => {
-            actions.processElements()
-        },
     })),
     listeners(({ actions, values, cache }) => ({
         processElements: async (_, breakpoint) => {
+            const BATCH_SIZE = 200
+            const INITIAL_BATCH_SIZE = 50
+
             const { elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled } = values.processingInputs
 
             if (!clickmapsEnabled || !elementStats?.results?.length) {
                 actions.setProcessedElements([])
+                actions.setIsRefreshing(false)
                 return
             }
 
             cache.visibilityCache = cache.visibilityCache || new WeakMap<HTMLElement, boolean>()
             const pageElements = getCachedPageElements(cache as ElementProcessingCache, href)
-
+            const domIndex = buildDOMIndex(pageElements)
             const eventsToProcess = elementStats.results
-            const matchedElements: CountedHTMLElement[] = []
+            const totalEvents = eventsToProcess.length
 
-            let frameStart = performance.now()
-            for (const event of eventsToProcess) {
-                const matched = matchEventToElement(
-                    event,
-                    dataAttributes,
-                    matchLinksByHref,
-                    pageElements,
-                    cache as ElementProcessingCache
-                )
-                if (matched) {
-                    matchedElements.push(matched)
+            const allTrimmedElements: CountedHTMLElement[] = []
+            let processedCount = 0
+
+            while (processedCount < totalEvents) {
+                const batchSize = processedCount === 0 ? INITIAL_BATCH_SIZE : BATCH_SIZE
+                const batchEnd = Math.min(processedCount + batchSize, totalEvents)
+
+                for (let i = processedCount; i < batchEnd; i++) {
+                    const event = eventsToProcess[i]
+                    const matched =
+                        matchEventToElementUsingIndex(event, dataAttributes, matchLinksByHref, domIndex) ||
+                        matchEventToElement(
+                            event,
+                            dataAttributes,
+                            matchLinksByHref,
+                            pageElements,
+                            cache as ElementProcessingCache
+                        )
+
+                    if (matched) {
+                        const trimmed = trimElement(matched.element)
+                        if (
+                            trimmed &&
+                            elementIsVisible(trimmed, cache.visibilityCache as WeakMap<HTMLElement, boolean>)
+                        ) {
+                            allTrimmedElements.push({ ...matched, element: trimmed })
+                        }
+                    }
                 }
 
-                if (shouldYield(frameStart)) {
-                    breakpoint()
-                    await yieldToMain()
-                    frameStart = performance.now()
-                }
+                processedCount = batchEnd
+                actions.setProcessedElements(aggregateAndSortElements(allTrimmedElements))
+                actions.setProcessingProgress(processedCount, totalEvents)
+
+                breakpoint()
+                await yieldToMain()
             }
 
-            breakpoint()
-
-            const trimmedElements: CountedHTMLElement[] = []
-            frameStart = performance.now()
-            for (const el of matchedElements) {
-                const trimmed = trimElement(el.element)
-                if (trimmed && elementIsVisible(trimmed, cache.visibilityCache as WeakMap<HTMLElement, boolean>)) {
-                    trimmedElements.push({ ...el, element: trimmed })
-                }
-
-                if (shouldYield(frameStart)) {
-                    breakpoint()
-                    await yieldToMain()
-                    frameStart = performance.now()
-                }
-            }
-
-            breakpoint()
-
-            const countedElements = aggregateAndSortElements(trimmedElements, dataAttributes)
-
-            actions.setProcessedElements(countedElements)
+            actions.setIsRefreshing(false)
         },
 
         enableHeatmap: () => {
@@ -512,6 +522,23 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
             }
+        },
+
+        getElementStatsSuccess: () => {
+            actions.processElements()
+        },
+
+        setMatchLinksByHref: () => {
+            actions.processElements()
+        },
+
+        refreshClickmap: () => {
+            if (!values.clickmapsEnabled) {
+                return
+            }
+            actions.setIsRefreshing(true)
+            invalidatePageElementsCache(cache as ElementProcessingCache)
+            actions.processElements()
         },
 
         patchHeatmapFilters: ({ filters }) => {
@@ -660,7 +687,7 @@ function matchEventToElement(
     return null
 }
 
-function aggregateAndSortElements(elements: CountedHTMLElement[], dataAttributes: string[]): CountedHTMLElement[] {
+function aggregateAndSortElements(elements: CountedHTMLElement[]): CountedHTMLElement[] {
     const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
 
     for (const countedElement of elements) {
@@ -676,7 +703,6 @@ function aggregateAndSortElements(elements: CountedHTMLElement[], dataAttributes
                 clickCount: countedElement.type === '$autocapture' ? countedElement.count : 0,
                 rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
                 deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
-                actionStep: elementToActionStep(countedElement.element, dataAttributes),
             })
         }
     }

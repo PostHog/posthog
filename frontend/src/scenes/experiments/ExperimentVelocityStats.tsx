@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconInfo, IconTrending } from '@posthog/icons'
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 
@@ -11,11 +11,7 @@ export function ExperimentVelocityStats(): JSX.Element | null {
     const { experimentsStats, experimentsStatsLoading } = useValues(experimentsLogic)
 
     if (experimentsStatsLoading) {
-        return (
-            <div className="p-4 border rounded bg-bg-light flex items-center justify-center" style={{ minHeight: 100 }}>
-                <Spinner />
-            </div>
-        )
+        return null
     }
 
     const { launched_last_30d, percent_change, active_experiments, completed_last_30d } = experimentsStats

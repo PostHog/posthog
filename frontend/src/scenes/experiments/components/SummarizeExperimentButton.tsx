@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
@@ -88,7 +88,7 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
             icon: iconForType('experiment'),
         },
         active: shouldShowMaxSummaryTool,
-        initialMaxPrompt: `Summarize the experiment "${experiment.name}"`,
+        initialMaxPrompt: `!Summarize the experiment "${experiment.name}"`,
         callback(toolOutput) {
             addProductIntent({
                 product_type: ProductKey.EXPERIMENTS,
@@ -113,7 +113,8 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
 
 export function SummarizeExperimentButton(): JSX.Element | null {
     const { openMax } = useExperimentSummaryMaxTool()
-
+    const { experiment } = useValues(experimentLogic)
+    const { reportExperimentAiSummaryRequested } = useActions(experimentLogic)
     if (!openMax) {
         return null
     }
@@ -122,6 +123,7 @@ export function SummarizeExperimentButton(): JSX.Element | null {
         <LemonButton
             size="small"
             onClick={() => {
+                reportExperimentAiSummaryRequested(experiment)
                 openMax()
             }}
             type="secondary"

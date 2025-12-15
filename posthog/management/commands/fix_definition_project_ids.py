@@ -1,8 +1,10 @@
+from collections import defaultdict
+
 from django.core.management.base import BaseCommand
 from django.db import IntegrityError, models
 from django.db.models import Count
 
-from posthog.models import EventDefinition, GroupTypeMapping, PropertyDefinition
+from posthog.models import EventDefinition, GroupTypeMapping, PropertyDefinition, Team
 from posthog.storage.environments_rollback_storage import get_all_rollback_organization_ids
 
 
@@ -211,15 +213,26 @@ class Command(BaseCommand):
     def process_group_type_mappings(self):
         """Process GroupTypeMapping records that need project_id alignment."""
 
-        # Find misaligned GroupTypeMappings
-        misaligned_query = GroupTypeMapping.objects.select_related("team").exclude(
-            project_id=models.F("team__project_id")
+        # Since GroupTypeMapping is in persons_db and Team is in default db,
+        # we can't do JOINs directly. Instead, we'll fetch separately and filter in Python.
+
+        # Get all teams for rollback orgs
+        rollback_teams = Team.objects.filter(organization_id__in=self.rollback_org_ids).values(
+            "id", "project_id", "name", "organization_id", "organization__name"
         )
+        team_lookup = {team["id"]: team for team in rollback_teams}
 
-        # Filter by rollback organizations
-        misaligned_query = misaligned_query.filter(team__organization_id__in=self.rollback_org_ids)
+        # Get all GroupTypeMappings for these teams
+        all_mappings = GroupTypeMapping.objects.filter(team_id__in=team_lookup.keys())
 
-        misaligned_count = misaligned_query.count()
+        # Filter for misaligned ones in Python
+        misaligned_ids = []
+        for mapping in all_mappings:
+            team = team_lookup.get(mapping.team_id)
+            if team and mapping.project_id != team["project_id"]:
+                misaligned_ids.append(mapping.id)
+
+        misaligned_count = len(misaligned_ids)
 
         if misaligned_count == 0:
             self.stdout.write(self.style.SUCCESS("✓ No GroupTypeMappings need project_id alignment"))
@@ -228,46 +241,47 @@ class Command(BaseCommand):
         self.stdout.write(f"Found {misaligned_count} GroupTypeMappings with misaligned project_id")
 
         if self.dry_run:
-            team_summary = (
-                misaligned_query.values("team_id", "team__name", "team__organization_id", "team__organization__name")
-                .annotate(count=Count("id"))
-                .order_by("team__organization_id", "team_id")
-            )
+            # Group by team and count
+            team_counts: dict[int, int] = defaultdict(int)
+            for mapping_id in misaligned_ids:
+                mapping = GroupTypeMapping.objects.get(id=mapping_id)
+                team_counts[mapping.team_id] += 1
+
+            # Sort by organization and team for display
+            sorted_teams = sorted(team_counts.items(), key=lambda x: (team_lookup[x[0]]["organization_id"], x[0]))
 
             current_org_id = None
-            for entry in team_summary:
-                if entry["team__organization_id"] != current_org_id:
-                    current_org_id = entry["team__organization_id"]
-                    self.stdout.write(f"\n  Organization: {entry['team__organization__name']} (ID: {current_org_id})")
+            for team_id, count in sorted_teams:
+                team = team_lookup[team_id]
+                if team["organization_id"] != current_org_id:
+                    current_org_id = team["organization_id"]
+                    self.stdout.write(f"\n  Organization: {team['organization__name']} (ID: {current_org_id})")
 
-                self.stdout.write(
-                    f"    Team: {entry['team__name']} (ID: {entry['team_id']}) - "
-                    f"{entry['count']} GroupTypeMappings to update"
-                )
+                self.stdout.write(f"    Team: {team['name']} (ID: {team_id}) - {count} GroupTypeMappings to update")
 
             return {"total": misaligned_count, "updated": 0}
 
         # Perform the update in batches to handle large datasets efficiently
         updated_count = 0
 
-        # Simple but effective approach: process all records, updating in batches
-        all_misaligned_ids = list(misaligned_query.values_list("id", flat=True))
-
-        for i in range(0, len(all_misaligned_ids), self.batch_size):
-            batch_ids = all_misaligned_ids[i : i + self.batch_size]
-            batch_records = GroupTypeMapping.objects.filter(id__in=batch_ids).select_related("team")
+        # Process all misaligned records, updating in batches
+        for i in range(0, len(misaligned_ids), self.batch_size):
+            batch_ids = misaligned_ids[i : i + self.batch_size]
+            batch_records = GroupTypeMapping.objects.filter(id__in=batch_ids)
 
             for group_type_mapping in batch_records:
-                group_type_mapping.project_id = group_type_mapping.team.project_id
-                try:
-                    group_type_mapping.save(update_fields=["project_id"])
-                    updated_count += 1
-                except IntegrityError:
-                    self.failed_records["GroupTypeMapping"].append(group_type_mapping.id)
+                team = team_lookup.get(group_type_mapping.team_id)
+                if team:
+                    group_type_mapping.project_id = team["project_id"]
+                    try:
+                        group_type_mapping.save(update_fields=["project_id"])
+                        updated_count += 1
+                    except IntegrityError:
+                        self.failed_records["GroupTypeMapping"].append(group_type_mapping.id)
 
-            if i + self.batch_size < len(all_misaligned_ids):
+            if i + self.batch_size < len(misaligned_ids):
                 self.stdout.write(
-                    f"  Processed {min(i + self.batch_size, len(all_misaligned_ids))}/{len(all_misaligned_ids)} GroupTypeMappings..."
+                    f"  Processed {min(i + self.batch_size, len(misaligned_ids))}/{len(misaligned_ids)} GroupTypeMappings..."
                 )
 
         self.stdout.write(self.style.SUCCESS(f"✓ Updated {updated_count} GroupTypeMappings"))

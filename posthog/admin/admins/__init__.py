@@ -23,11 +23,13 @@ from .person_distinct_id_admin import PersonDistinctIdAdmin
 from .personal_api_key_admin import PersonalAPIKeyAdmin
 from .plugin_admin import PluginAdmin
 from .plugin_config_admin import PluginConfigAdmin
+from .product_tour_admin import ProductTourAdmin
 from .project_admin import ProjectAdmin
 from .survey_admin import SurveyAdmin
 from .team_admin import TeamAdmin
 from .text_admin import TextAdmin
 from .user_admin import UserAdmin
+from .user_product_list_admin import UserProductListAdmin
 
 __all__ = [
     "AsyncDeletionAdmin",
@@ -54,9 +56,11 @@ __all__ = [
     "PersonDistinctIdAdmin",
     "PluginAdmin",
     "PluginConfigAdmin",
+    "ProductTourAdmin",
     "ProjectAdmin",
     "SurveyAdmin",
     "TeamAdmin",
     "TextAdmin",
     "UserAdmin",
+    "UserProductListAdmin",
 ]

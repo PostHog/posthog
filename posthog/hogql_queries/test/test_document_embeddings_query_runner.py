@@ -77,7 +77,7 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         inserted_at: datetime
 
     def _seed_document_embeddings(self) -> list[DocumentEmbeddingRow]:
-        sync_execute("TRUNCATE TABLE posthog_document_embeddings", flush=False, team_id=self.team.pk)
+        sync_execute("TRUNCATE TABLE distributed_posthog_document_embeddings", flush=False, team_id=self.team.pk)
 
         fixtures: list[TestDocumentEmbeddingsQueryRunner.DocumentEmbeddingRow] = []
         rows: list[tuple] = []
@@ -128,7 +128,7 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         if rows:
             sync_execute(
                 """
-                INSERT INTO posthog_document_embeddings (
+                INSERT INTO distributed_posthog_document_embeddings (
                     team_id,
                     product,
                     document_type,

@@ -25,6 +25,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -389,7 +390,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         <LemonField
                             name="feature_flag_id"
                             label="Link feature flag (optional)"
-                            info={<>A feature flag will be generated from feature name if not provided</>}
+                            help="A feature flag will be generated from the feature name if not provided"
                         >
                             {({ value, onChange }) => (
                                 <div className="flex">
@@ -475,6 +476,36 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     </div>
                 )}
 
+                {isEditingFeature || isNewEarlyAccessFeature ? (
+                    <div className="max-w-prose">
+                        <LemonField
+                            name="payload"
+                            label="Payload"
+                            showOptional
+                            help={
+                                <>
+                                    Specify a valid JSON payload as a dictionary. This will be exposed by{' '}
+                                    <code>posthog-js</code> and can be used to customize your UI or behavior after the
+                                    user opts in to the feature.
+                                </>
+                            }
+                        >
+                            <JSONEditorInput placeholder='{"key": "value", "anotherKey": {"nested": "object"}}' />
+                        </LemonField>
+                    </div>
+                ) : (
+                    <div className="max-w-prose">
+                        <b>Payload</b>
+                        <div>
+                            {earlyAccessFeature.payload && Object.keys(earlyAccessFeature.payload).length > 0 ? (
+                                <JSONEditorInput readOnly value={earlyAccessFeature.payload} />
+                            ) : (
+                                <span className="text-secondary">No payload configured</span>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {destinationFilters && (
                     <>
                         <SceneDivider />
@@ -490,6 +521,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         </SceneSection>
                     </>
                 )}
+
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
                         <SceneDivider />

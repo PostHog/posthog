@@ -34,7 +34,9 @@ export const SidePanelSettings = (): JSX.Element => {
         })
     }, [selectedSectionId, selectedLevel, setSettings])
 
-    const cameFromMax = previousTab === SidePanelTab.Max && selectedSectionId === 'environment-max'
+    const cameFromMax =
+        previousTab === SidePanelTab.Max &&
+        (selectedSectionId === 'environment-max' || selectedSectionId === ('project-max' as typeof selectedSectionId))
 
     return (
         <div className="flex flex-col overflow-hidden">

@@ -13,6 +13,7 @@ Endpoint:
 """
 
 import json
+import time
 import hashlib
 from typing import cast
 
@@ -306,6 +307,7 @@ The response includes the formatted text and metadata about the rendering.
                 return Response(cached_result, status=status.HTTP_200_OK)
 
             # Cache miss - generate text representation
+            start_time = time.time()
             if event_type == "$ai_trace":
                 # For traces, expect data to have trace and hierarchy
                 text = format_trace_text_repr(
@@ -316,6 +318,7 @@ The response includes the formatted text and metadata about the rendering.
             else:
                 # For $ai_generation and $ai_span
                 text = format_event_text_repr(event=data, options=options)
+            duration_seconds = time.time() - start_time
 
             # Apply max_length cap if output exceeds limit
             max_len = options.get("max_length", 4000000)
@@ -365,6 +368,7 @@ The response includes the formatted text and metadata about the rendering.
                     "entity_id": entity_id,
                     "char_count": len(text),
                     "truncated": truncated_by_max_length,
+                    "duration_seconds": duration_seconds,
                 },
                 self.team,
             )

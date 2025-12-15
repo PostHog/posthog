@@ -8,29 +8,33 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ConversationMessagesDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationMessagesDisplay'
 import { LLMInputOutput } from 'products/llm_analytics/frontend/LLMInputOutput'
+import { AIDataLoading } from 'products/llm_analytics/frontend/components/AIDataLoading'
+import { useAIData } from 'products/llm_analytics/frontend/hooks/useAIData'
 import { normalizeMessages } from 'products/llm_analytics/frontend/utils'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {
-    let input = event.properties.$ai_input_state
-    let output = event.properties.$ai_output_state ?? event.properties.$ai_error
-    let raisedError = event.properties.$ai_is_error
-    if (event.event === '$ai_generation') {
-        input = event.properties.$ai_input
-        output = event.properties.$ai_output_choices ?? event.properties.$ai_output
-        raisedError = event.properties.$ai_is_error
+    const { input, output, isLoading } = useAIData({
+        uuid: event.uuid,
+        input: event.properties?.$ai_input,
+        output: event.properties?.$ai_output_choices,
+    })
+
+    const isGeneration = event.event === '$ai_generation'
+    const raisedError = event.properties.$ai_is_error
+
+    if (isLoading) {
+        return <AIDataLoading variant="block" />
     }
+
     return (
         <div>
-            {event.event === '$ai_generation' ? (
+            {isGeneration ? (
                 <ConversationMessagesDisplay
-                    inputNormalized={normalizeMessages(event.properties.$ai_input, 'user', event.properties.$ai_tools)}
-                    outputNormalized={normalizeMessages(
-                        event.properties.$ai_output_choices ?? event.properties.$ai_output,
-                        'assistant'
-                    )}
+                    inputNormalized={normalizeMessages(input, 'user', event.properties.$ai_tools)}
+                    outputNormalized={normalizeMessages(output, 'assistant')}
                     errorData={event.properties.$ai_error}
                     httpStatus={event.properties.$ai_http_status}
-                    raisedError={event.properties.$ai_is_error}
+                    raisedError={raisedError}
                 />
             ) : (
                 <LLMInputOutput

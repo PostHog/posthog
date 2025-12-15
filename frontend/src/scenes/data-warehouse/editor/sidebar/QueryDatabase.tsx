@@ -111,7 +111,7 @@ export const QueryDatabase = (): JSX.Element => {
                                             'drafts',
                                             'unsaved-folder',
                                             'endpoints',
-                                        ].includes(item.record?.type) && 'font-bold',
+                                        ].includes(item.record?.type) && 'font-semibold',
                                         item.record?.type === 'column' && 'font-mono text-xs',
                                         'truncate'
                                     )}
@@ -378,7 +378,8 @@ export const QueryDatabase = (): JSX.Element => {
                                             undefined,
                                             undefined,
                                             undefined,
-                                            OutputTab.Endpoint
+                                            OutputTab.Endpoint,
+                                            item.record?.endpoint?.name
                                         )
                                     )
                                 }}
@@ -432,6 +433,14 @@ export const QueryDatabase = (): JSX.Element => {
                         </ButtonPrimitive>
                     )
                 }
+            }}
+            renderItemTooltip={(item) => {
+                // Show tooltip with full name for items that could be truncated
+                const tooltipTypes = ['table', 'view', 'managed-view', 'endpoint', 'draft', 'column', 'unsaved-query']
+                if (tooltipTypes.includes(item.record?.type)) {
+                    return item.name
+                }
+                return undefined
             }}
             renderItemIcon={(item) => {
                 if (item.record?.type === 'column') {

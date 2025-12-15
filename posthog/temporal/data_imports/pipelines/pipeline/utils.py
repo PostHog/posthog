@@ -441,7 +441,7 @@ def append_partition_key_to_table(
                 date = row[key]
 
                 if partition_format is None:
-                    partition_format = "month"
+                    partition_format = "week"
 
                 if partition_format == "hour":
                     date_format = "%Y-%m-%dT%H"

@@ -1,6 +1,13 @@
 # Bing Ads Marketing Source Adapter
 
+from posthog.schema import NativeMarketingSource
+
 from posthog.hogql import ast
+
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    INTEGRATION_DEFAULT_SOURCES,
+    INTEGRATION_PRIMARY_SOURCE,
+)
 
 from .base import BingAdsConfig, MarketingSourceAdapter, ValidationResult
 
@@ -13,10 +20,13 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
     - stats_table: DataWarehouse table with campaign performance report
     """
 
+    _source_type = NativeMarketingSource.BING_ADS
+
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
-        """Bing Ads campaigns typically use 'bing' as the UTM source"""
-        return {"bing": ["bing"]}
+        primary = INTEGRATION_PRIMARY_SOURCE[cls._source_type]
+        sources = INTEGRATION_DEFAULT_SOURCES[cls._source_type]
+        return {primary: list(sources)}
 
     def get_source_type(self) -> str:
         return "BingAds"
@@ -51,30 +61,48 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
         campaign_table_name = self.config.campaign_table.name
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
 
+    def _get_campaign_id_field(self) -> ast.Expr:
+        campaign_table_name = self.config.campaign_table.name
+        field_expr = ast.Field(chain=[campaign_table_name, "id"])
+        return ast.Call(name="toString", args=[field_expr])
+
     def _get_source_name_field(self) -> ast.Expr:
         return ast.Call(name="toString", args=[ast.Constant(value="bing")])
 
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(
-            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "impressions"])])]
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "impressions"])]),
+                ast.Constant(value=0),
+            ],
         )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_clicks_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(
-            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "clicks"])])]
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "clicks"])]),
+                ast.Constant(value=0),
+            ],
         )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         base_currency = self.context.base_currency
 
-        # Get cost
+        # Get cost - use ifNull(toFloat(...), 0) to handle both numeric types and NULLs
         spend_field = ast.Field(chain=[stats_table_name, "spend"])
-        spend_float = ast.Call(name="toFloatOrZero", args=[spend_field])
+        spend_float = ast.Call(
+            name="ifNull",
+            args=[ast.Call(name="toFloat", args=[spend_field]), ast.Constant(value=0)],
+        )
 
         # Check if currency column exists in campaign_performance_report table
         try:
@@ -100,9 +128,26 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(
-            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "conversions"])])]
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversions"])]),
+                ast.Constant(value=0),
+            ],
         )
+        sum = ast.Call(name="SUM", args=[field_as_float])
+        return ast.Call(name="toFloat", args=[sum])
+
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        stats_table_name = self.config.stats_table.name
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "revenue"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_from(self) -> ast.JoinExpr:
@@ -157,5 +202,5 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
         return conditions
 
     def _get_group_by(self) -> list[ast.Expr]:
-        """Build GROUP BY expressions"""
-        return [self._get_campaign_name_field()]
+        """Build GROUP BY expressions - group by both name and ID"""
+        return [self._get_campaign_name_field(), self._get_campaign_id_field()]

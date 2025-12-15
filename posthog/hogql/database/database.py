@@ -71,7 +71,7 @@ from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
 )
-from posthog.hogql.database.schema.logs import LogsTable
+from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -121,6 +121,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
+from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
@@ -190,6 +191,8 @@ class Database(BaseModel):
             "document_embeddings": TableNode(name="document_embeddings", table=DocumentEmbeddingsTable()),
             "pg_embeddings": TableNode(name="pg_embeddings", table=PgEmbeddingsTable()),
             "logs": TableNode(name="logs", table=LogsTable()),
+            "log_attributes": TableNode(name="log_attributes", table=LogAttributesTable()),
+            "logs_kafka_metrics": TableNode(name="logs_kafka_metrics", table=LogsKafkaMetricsTable()),
             "numbers": TableNode(name="numbers", table=NumbersTable()),
             "system": SystemTables(),  # This is a `TableNode` already, refer to implementation
             # Web analytics pre-aggregated tables (internal use only)
@@ -699,7 +702,7 @@ class Database(BaseModel):
         with timings.measure("group_type_mapping"):
             _setup_group_key_fields(database, team)
             events_table = database.get_table("events")
-            for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
+            for mapping in GroupTypeMapping.objects.using(PERSONS_DB_FOR_READ).filter(project_id=team.project_id):
                 if events_table.fields.get(mapping.group_type) is None:
                     events_table.fields[mapping.group_type] = FieldTraverser(
                         chain=[f"group_{mapping.group_type_index}"]
@@ -1108,7 +1111,10 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
     - Empty string if no GroupTypeMapping exists for that index
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
     """
-    group_mappings = {mapping.group_type_index: mapping for mapping in GroupTypeMapping.objects.filter(team=team)}
+    group_mappings = {
+        mapping.group_type_index: mapping
+        for mapping in GroupTypeMapping.objects.using(PERSONS_DB_FOR_READ).filter(team=team)
+    }
     table = database.get_table("events")
 
     for group_index in range(5):

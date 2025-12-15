@@ -149,6 +149,48 @@ def validate_custom_source_mappings(mappings: dict) -> None:
             seen_sources[source_lower] = integration_type
 
 
+def validate_campaign_field_preferences(preferences: dict) -> None:
+    """
+    Validate campaign_field_preferences structure: dict of integration type -> field matching config.
+
+    Structure: {
+        "GoogleAds": {
+            "match_field": "campaign_name"      # or "campaign_id"
+        },
+        "MetaAds": {
+            "match_field": "campaign_id"
+        }
+    }
+
+    Valid match_field values: "campaign_name", "campaign_id"
+
+    Note: Manual mappings (campaign_name_mappings) always take precedence over automatic matching.
+    The match_field controls which field to match against after manual mapping is applied.
+    """
+    if not isinstance(preferences, dict):
+        raise ValidationError("campaign_field_preferences must be a dictionary")
+
+    valid_match_fields = ["campaign_name", "campaign_id"]
+
+    for integration_type, config in preferences.items():
+        if not isinstance(integration_type, str):
+            raise ValidationError(f"Integration type '{integration_type}' must be a string")
+
+        if not isinstance(config, dict):
+            raise ValidationError(f"Config for integration '{integration_type}' must be a dictionary")
+
+        # Validate match_field
+        match_field = config.get("match_field")
+        if match_field is None:
+            raise ValidationError(f"Integration '{integration_type}' must have a 'match_field'")
+
+        if match_field not in valid_match_fields:
+            raise ValidationError(
+                f"Invalid match_field '{match_field}' for integration '{integration_type}'. "
+                f"Must be one of: {valid_match_fields}"
+            )
+
+
 def validate_conversion_goals(conversion_goals: list) -> None:
     """Validate conversion goals structure: list of dicts with name, event, and properties."""
     if not isinstance(conversion_goals, list):
@@ -250,6 +292,13 @@ class TeamMarketingAnalyticsConfig(models.Model):
         blank=True,
         help_text="Custom UTM source mappings: maps integration types to lists of custom UTM source values",
     )
+    _campaign_field_preferences = models.JSONField(
+        default=dict,
+        db_column="campaign_field_preferences",
+        null=False,
+        blank=True,
+        help_text="Campaign field matching preferences: defines which field (campaign_name or campaign_id) to match utm_campaign against per integration. Manual mappings always take precedence.",
+    )
 
     def clean(self):
         """Validate model fields"""
@@ -325,6 +374,19 @@ class TeamMarketingAnalyticsConfig(models.Model):
         except ValidationError as e:
             raise ValidationError(f"Invalid custom source mappings: {str(e)}")
 
+    @property
+    def campaign_field_preferences(self) -> dict[str, dict]:
+        return self._campaign_field_preferences or {}
+
+    @campaign_field_preferences.setter
+    def campaign_field_preferences(self, value: dict) -> None:
+        value = value or {}
+        try:
+            validate_campaign_field_preferences(value)
+            self._campaign_field_preferences = value
+        except ValidationError as e:
+            raise ValidationError(f"Invalid campaign field preferences: {str(e)}")
+
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""
 
@@ -369,6 +431,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
             "attribution_mode": self.attribution_mode,
             "campaign_name_mappings": self.campaign_name_mappings,
             "custom_source_mappings": self.custom_source_mappings,
+            "campaign_field_preferences": self.campaign_field_preferences,
         }
 
 

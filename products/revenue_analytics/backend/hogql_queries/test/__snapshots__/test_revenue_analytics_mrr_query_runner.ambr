@@ -26,7 +26,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -222,7 +222,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -367,7 +367,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_no_crash_when_no_source_is_selected
@@ -397,7 +398,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -593,7 +594,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -787,7 +788,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_country_filter
@@ -817,7 +819,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1061,7 +1063,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1278,7 +1280,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data
@@ -1308,7 +1311,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1504,7 +1507,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1698,7 +1701,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_date_range_for_daily_interval
@@ -1728,7 +1732,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1922,7 +1926,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2114,7 +2118,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_double_grouping
@@ -2144,7 +2149,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2397,7 +2402,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2619,7 +2624,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_product_grouping
@@ -2649,7 +2655,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2854,7 +2860,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3053,7 +3059,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_with_managed_viewsets_ff
@@ -3083,7 +3090,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3279,7 +3286,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3473,7 +3480,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_empty_date_range
@@ -3503,7 +3511,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2024-12-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3699,7 +3707,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2024-12-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3893,7 +3901,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data
@@ -3923,7 +3932,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4119,7 +4128,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4313,7 +4322,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_and_currency_aware_divider
@@ -4343,7 +4353,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4540,7 +4550,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4734,7 +4744,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_and_grouping
@@ -4764,7 +4775,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4969,7 +4980,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5168,7 +5179,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_with_managed_viewsets_ff
@@ -5198,7 +5210,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5394,7 +5406,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5588,7 +5600,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_product_filter
@@ -5618,7 +5631,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5823,7 +5836,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -6022,7 +6035,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_product_filter.1
@@ -6052,7 +6066,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -6257,7 +6271,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -6456,6 +6470,7 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---

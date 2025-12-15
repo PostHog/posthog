@@ -145,6 +145,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
+            "business_model",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -214,6 +215,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token",
             "secret_api_token_backup",
             "receive_org_level_activity_logs",
+            "business_model",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -385,6 +387,13 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             validated_data["session_replay_config"] = {
                 **team.session_replay_config,
                 **validated_data["session_replay_config"],
+            }
+
+        # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
+            validated_data["modifiers"] = {
+                **(team.modifiers or {}),
+                **validated_data["modifiers"],
             }
 
         should_team_be_saved_too = False

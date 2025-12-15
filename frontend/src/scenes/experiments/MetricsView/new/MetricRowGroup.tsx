@@ -311,9 +311,7 @@ export function MetricRowGroup({
             >
                 {/* Metric column - with rowspan */}
                 <td
-                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
-                        !isLastMetric ? 'border-b' : ''
-                    } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalRows}
                     style={{
                         height: `${CELL_HEIGHT * totalRows}px`,
@@ -366,7 +364,7 @@ export function MetricRowGroup({
 
                 {/* Details column - with rowspan */}
                 <td
-                    className={`pt-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
+                    className={`pt-3 align-top relative overflow-hidden border-b ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                     rowSpan={totalRows}
@@ -537,14 +535,14 @@ export function MetricRowGroup({
                 if (variantResults.length === 0) {
                     return (
                         <tr
-                            className="hover:bg-bg-hover group [&:last-child>td]:border-b-0 border-l-5 border-r-5"
+                            className={`hover:bg-bg-hover group [&:last-child>td]:border-b-5 border-l-5 border-r-5 ${
+                                !isLastMetric ? 'border-b-5' : ''
+                            }`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             {/* Metric column - always visible */}
                             <td
-                                className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
-                                    !isLastMetric ? 'border-b-5' : ''
-                                } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                             >
                                 {formatBreakdownLabel(
                                     breakdownResult.breakdown_value,
@@ -559,9 +557,7 @@ export function MetricRowGroup({
                             {/* Combined columns for loading/error state */}
                             <td
                                 colSpan={5}
-                                className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
-                                    !isLastMetric ? 'border-b-5' : ''
-                                }`}
+                                className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                             >
                                 {isLoading || exposuresLoading ? (
@@ -583,13 +579,11 @@ export function MetricRowGroup({
                     <>
                         {/* Baseline row */}
                         <tr
-                            className="hover:bg-bg-hover group [&:last-child>td]:border-b-0 border-l-5 border-r-5"
+                            className="hover:bg-bg-hover group [&:last-child>td]:border-b-5 border-l-5 border-r-5"
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             <td
-                                className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
-                                    !isLastMetric ? 'border-b' : ''
-                                } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                                 rowSpan={totalRows}
                                 style={{
                                     height: `${CELL_HEIGHT * totalRows}px`,
@@ -641,7 +635,7 @@ export function MetricRowGroup({
 
                             {/* Details column - with rowspan */}
                             <td
-                                className={`pt-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
+                                className={`pt-3 align-top relative overflow-hidden border-b ${
                                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                                 }`}
                                 rowSpan={totalRows}
@@ -649,22 +643,7 @@ export function MetricRowGroup({
                                     height: `${CELL_HEIGHT * totalRows}px`,
                                     maxHeight: `${CELL_HEIGHT * totalRows}px`,
                                 }}
-                            >
-                                {showDetailsModal && (
-                                    <>
-                                        <div className="flex justify-end">
-                                            <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
-                                        </div>
-                                        <DetailsModal
-                                            isOpen={isModalOpen}
-                                            onClose={() => setIsModalOpen(false)}
-                                            metric={metric}
-                                            result={result}
-                                            experiment={experiment}
-                                        />
-                                    </>
-                                )}
-                            </td>
+                            />
 
                             {/* Chart (grid lines only for baseline) */}
                             <td
@@ -780,9 +759,6 @@ export function MetricRowGroup({
                                         isAlternatingRow={isAlternatingRow}
                                         isLastRow={isLastRow}
                                         isSecondary={isSecondary}
-                                        onTimeseriesClick={
-                                            timeseriesEnabled ? () => handleTimeseriesClick(variant) : undefined
-                                        }
                                     />
                                 </tr>
                             )

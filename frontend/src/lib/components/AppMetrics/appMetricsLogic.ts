@@ -93,7 +93,7 @@ export const loadAppMetricsTotals = async (
         `) as HogQLQueryString
 
     const response = await api.queryHogQL(query, {
-        refresh: 'async',
+        refresh: 'async_except_on_cache_miss',
     })
 
     const res: AppMetricsTotalsResponse = {}
@@ -205,7 +205,7 @@ const loadAppMetricsTimeSeries = async (
         `) as HogQLQueryString
 
     const response = await api.queryHogQL(query, {
-        refresh: 'async',
+        refresh: 'async_except_on_cache_miss',
     })
 
     const labels = response.results?.[0]?.[0].map((label: string) => {

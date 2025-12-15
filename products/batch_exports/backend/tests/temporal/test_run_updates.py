@@ -7,9 +7,8 @@ import unittest.mock
 from django.test import override_settings
 
 from asgiref.sync import sync_to_async
-from flaky import flaky
 
-from posthog.batch_exports.service import disable_and_delete_export, sync_batch_export
+from posthog.batch_exports.service import delete_batch_export, sync_batch_export
 from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, Organization, Team
 
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -76,7 +75,7 @@ def batch_export(destination, team):
 
     yield batch_export
 
-    disable_and_delete_export(batch_export)
+    delete_batch_export(batch_export)
     batch_export.delete()
 
 
@@ -303,7 +302,7 @@ async def test_finish_batch_export_run_never_pauses_with_small_check_window(acti
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@flaky(max_runs=3, min_passes=1)
+@pytest.mark.flaky(reruns=2)
 async def test_finish_batch_export_run_handles_nul_bytes(activity_environment, team, batch_export):
     """Test if 'finish_batch_export_run' will not fail in the prescence of a NUL byte."""
     start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)

@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { VariantTag } from '../../ExperimentView/components'
@@ -165,7 +165,10 @@ export function TimeseriesModal({
                         </div>
                         {hasTimeseriesData ? (
                             processedChartData ? (
-                                <VariantTimeseriesChart chartData={processedChartData} />
+                                <VariantTimeseriesChart
+                                    chartData={processedChartData}
+                                    isRatioMetric={isExperimentRatioMetric(metric)}
+                                />
                             ) : (
                                 <div className="p-10 text-center text-muted">
                                     No timeseries data available for this variant

@@ -197,7 +197,6 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
 
                     params.append('page', (values.filters.page || 1).toString())
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
-                    params.append('include_organization_scoped', '1')
 
                     const response = await api.get(`api/projects/@current/advanced_activity_logs/?${params}`)
                     return response
@@ -209,9 +208,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             null as AvailableFilters | null,
             {
                 loadAvailableFilters: async () => {
-                    const response = await api.get(
-                        `api/projects/@current/advanced_activity_logs/available_filters/?include_organization_scoped=1`
-                    )
+                    const response = await api.get('api/projects/@current/advanced_activity_logs/available_filters/')
                     return response
                 },
             },
@@ -457,7 +454,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     item_ids: values.filters.item_ids,
                 }
 
-                await api.create('api/projects/@current/advanced_activity_logs/export/?include_organization_scoped=1', {
+                await api.create('api/projects/@current/advanced_activity_logs/export/', {
                     format,
                     filters: filtersToExport,
                 })

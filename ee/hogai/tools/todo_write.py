@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Literal, Self
+from typing import ClassVar, Literal, Self
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
@@ -73,11 +73,12 @@ When unsure, use this tool. Proactive task management shows attentiveness and he
 """.strip()
 
 TODO_WRITE_EXAMPLE_PROMPT = """
+<example>
 {{{example}}}
-{{#reasoning}}
-
+<reasoning>
 {{{reasoning}}}
-{{/reasoning}}
+</reasoning>
+</example>
 """.strip()
 
 
@@ -153,19 +154,6 @@ The assistant used the todo list because:
 3. This approach allows for tracking progress across the entire request
 """.strip()
 
-POSITIVE_TODO_EXAMPLES: list[TodoWriteExample] = [
-    TodoWriteExample(
-        example=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION,
-        reasoning=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION_REASONING,
-    ),
-    TodoWriteExample(
-        example=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS, reasoning=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS_REASONING
-    ),
-    TodoWriteExample(
-        example=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS,
-        reasoning=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS_REASONING,
-    ),
-]
 
 NEGATIVE_EXAMPLE_SIMPLE_QUERY_EXPLANATION = """
 User: What does this query do?
@@ -190,15 +178,6 @@ NEGATIVE_EXAMPLE_DOCUMENTATION_REQUEST_REASONING = """
 The assistant did not use the todo list because this is an informational request. The user is simply asking for help, not for the assistant to perform multiple steps or tasks.
 """.strip()
 
-NEGATIVE_TODO_EXAMPLES: list[TodoWriteExample] = [
-    TodoWriteExample(
-        example=NEGATIVE_EXAMPLE_SIMPLE_QUERY_EXPLANATION, reasoning=NEGATIVE_EXAMPLE_SIMPLE_QUERY_EXPLANATION_REASONING
-    ),
-    TodoWriteExample(
-        example=NEGATIVE_EXAMPLE_DOCUMENTATION_REQUEST, reasoning=NEGATIVE_EXAMPLE_DOCUMENTATION_REQUEST_REASONING
-    ),
-]
-
 
 # Has its unique schema that doesn't match the Deep Research schema
 class TodoItem(BaseModel):
@@ -214,6 +193,29 @@ class TodoWriteToolArgs(BaseModel):
 class TodoWriteTool(MaxTool):
     name: Literal["todo_write"] = "todo_write"
     args_schema: type[BaseModel] = TodoWriteToolArgs
+
+    POSITIVE_TODO_EXAMPLES: ClassVar[list[TodoWriteExample]] = [
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION,
+            reasoning=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION_REASONING,
+        ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS, reasoning=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS_REASONING
+        ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS,
+            reasoning=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS_REASONING,
+        ),
+    ]
+    NEGATIVE_TODO_EXAMPLES: ClassVar[list[TodoWriteExample]] = [
+        TodoWriteExample(
+            example=NEGATIVE_EXAMPLE_SIMPLE_QUERY_EXPLANATION,
+            reasoning=NEGATIVE_EXAMPLE_SIMPLE_QUERY_EXPLANATION_REASONING,
+        ),
+        TodoWriteExample(
+            example=NEGATIVE_EXAMPLE_DOCUMENTATION_REQUEST, reasoning=NEGATIVE_EXAMPLE_DOCUMENTATION_REQUEST_REASONING
+        ),
+    ]
 
     async def _arun_impl(self, todos: list[TodoItem]) -> tuple[str, None]:
         return (
@@ -236,8 +238,8 @@ class TodoWriteTool(MaxTool):
     ) -> Self:
         formatted_prompt = format_prompt_string(
             TODO_WRITE_PROMPT,
-            positive_todo_examples=_format_todo_write_examples(positive_examples or POSITIVE_TODO_EXAMPLES),
-            negative_todo_examples=_format_todo_write_examples(negative_examples or NEGATIVE_TODO_EXAMPLES),
+            positive_todo_examples=_format_todo_write_examples(positive_examples or cls.POSITIVE_TODO_EXAMPLES),
+            negative_todo_examples=_format_todo_write_examples(negative_examples or cls.NEGATIVE_TODO_EXAMPLES),
         )
         return cls(
             team=team,

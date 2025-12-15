@@ -3,7 +3,11 @@ import dataclasses
 from datetime import datetime
 from typing import Any, cast
 
+import structlog
+
 from ee.hogai.session_summaries.utils import generate_full_event_id, get_column_index, prepare_datetime
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -49,11 +53,15 @@ class SessionSummaryPromptData:
         to combine events data with the LLM output (avoid LLM returning/hallucinating the event data in the output).
         """
         if not raw_session_events:
-            raise ValueError(f"No session events provided for summarizing session_id {session_id}")
+            msg = f"No session events provided for summarizing session_id {session_id}"
+            logger.error(msg, session_id=session_id, signals_type="session-summaries")
+            raise ValueError(msg)
         if not raw_session_metadata:
-            raise ValueError(f"No session metadata provided for summarizing session_id {session_id}")
+            msg = f"No session metadata provided for summarizing session_id {session_id}"
+            logger.error(msg, session_id=session_id, signals_type="session-summaries")
+            raise ValueError(msg)
         self.columns = ["event_id", "event_index", *raw_session_columns]
-        self.metadata = self._prepare_metadata(raw_session_metadata)
+        self.metadata = self._prepare_metadata(raw_session_metadata=raw_session_metadata, session_id=session_id)
         simplified_events_mapping: dict[str, list[Any]] = {}
         event_ids_mapping: dict[str, str] = {}
         # Pick indexes as we iterate over arrays
@@ -69,8 +77,14 @@ class SessionSummaryPromptData:
             # Stringify timestamp to avoid datetime objects in the prompt
             if timestamp_index is not None:
                 event_timestamp = simplified_event[timestamp_index]
+                if isinstance(event_timestamp, str):
+                    # Sometimes timestamps are stringified (when cache is hit), so it's safe to convert back to datetime.
+                    # It will be converted back to ISO next, but the conversion is required to confirm it's a valid datetime.
+                    event_timestamp = prepare_datetime(event_timestamp)
                 if not isinstance(event_timestamp, datetime):
-                    raise ValueError(f"Timestamp is not a datetime: {event_timestamp}")
+                    msg = f"Timestamp is not a datetime: {event_timestamp}"
+                    logger.error(msg, session_id=session_id, signals_type="session-summaries")
+                    raise ValueError(msg)
                 # All timestamps are stringified, so no datetime in the output type
                 simplified_event[timestamp_index] = event_timestamp.isoformat()
             # Simplify Window IDs
@@ -80,7 +94,9 @@ class SessionSummaryPromptData:
                     # Non-browser events (like Python SDK ones) could have no window ID
                     simplified_event[window_id_index] = None
                 elif not isinstance(event_window_id, str):
-                    raise ValueError(f"Window ID is not a string: {event_window_id}")
+                    msg = f"Window ID is not a string: {event_window_id}"
+                    logger.error(msg, session_id=session_id, signals_type="session-summaries")
+                    raise ValueError(msg)
                 else:
                     simplified_event[window_id_index] = self._simplify_window_id(event_window_id)
             # Simplify URLs
@@ -90,7 +106,9 @@ class SessionSummaryPromptData:
                     # Non-browser events (like Python SDK ones) could have no URL
                     simplified_event[current_url_index] = None
                 elif not isinstance(event_current_url, str):
-                    raise ValueError(f"Current URL is not a string: {event_current_url}")
+                    msg = f"Current URL is not a string: {event_current_url}"
+                    logger.error(msg, session_id=session_id, signals_type="session-summaries")
+                    raise ValueError(msg)
                 else:
                     simplified_event[current_url_index] = self._simplify_url(event_current_url)
             # Generate full event ID from session and event UUIDs to be able to track them across sessions
@@ -109,7 +127,7 @@ class SessionSummaryPromptData:
         return simplified_events_mapping, event_ids_mapping
 
     @staticmethod
-    def _prepare_metadata(raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
+    def _prepare_metadata(raw_session_metadata: dict[str, Any], session_id: str) -> SessionSummaryMetadata:
         # Remove excessive data or fields that negatively impact the LLM performance
         # For example, listing 114 errors, increases chances of error hallucination
         session_metadata = raw_session_metadata.copy()  # Avoid mutating the original
@@ -128,14 +146,20 @@ class SessionSummaryPromptData:
         session_metadata = {k: v for k, v in session_metadata.items() if k in allowed_fields}
         # Start time, duration and console error count should be always present
         if "start_time" not in session_metadata:
-            raise ValueError(f"start_time is required in session metadata: {session_metadata}")
+            msg = f"start_time is required in session metadata: {session_metadata}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
         if "console_error_count" not in session_metadata:
-            raise ValueError(f"console_error_count is required in session metadata: {session_metadata}")
+            msg = f"console_error_count is required in session metadata: {session_metadata}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
         start_time = prepare_datetime(session_metadata["start_time"])
         console_error_count = session_metadata["console_error_count"]
         duration = session_metadata.get("duration") or session_metadata.get("recording_duration")
         if duration is None:
-            raise ValueError(f"duration/recording_duration is required in session metadata: {session_metadata}")
+            msg = f"duration/recording_duration is required in session metadata: {session_metadata}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
         return SessionSummaryMetadata(
             start_time=start_time,
             duration=duration,

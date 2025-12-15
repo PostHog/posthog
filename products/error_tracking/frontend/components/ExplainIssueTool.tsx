@@ -1,23 +1,26 @@
-import { useValues } from 'kea'
-
 import { IconList } from '@posthog/icons'
 
 import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
-import { ErrorTrackingExplainIssueToolContext, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import {
+    ErrorTrackingExplainIssueToolContext,
+    ErrorTrackingRelationalIssue,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 
 import { useStacktraceDisplay } from '../hooks/use-stacktrace-display'
-import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
-export function useErrorTrackingExplainIssueMaxTool(): ReturnType<typeof useMaxTool> {
-    const { issueId, issue } = useValues(errorTrackingIssueSceneLogic)
-
+export function useErrorTrackingExplainIssueMaxTool(
+    issueId: ErrorTrackingRelationalIssue['id'],
+    issueName: ErrorTrackingRelationalIssue['name']
+): ReturnType<typeof useMaxTool> {
     const { ready, stacktraceText } = useStacktraceDisplay()
 
     const context: ErrorTrackingExplainIssueToolContext = {
         stacktrace: stacktraceText,
-        issue_name: issue?.name ?? issueId,
+        issue_name: issueName ?? issueId,
     }
 
     const maxToolResult = useMaxTool({
