@@ -1548,15 +1548,22 @@ def _foreign_key_join_function(
 
 
 def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehouseTable | ExternalDataSchema) -> None:
-    schemas_attr = getattr(warehouse_table, "externaldataschema_set", None)
+    if isinstance(warehouse_table, DataWarehouseTable):
+        # source = warehouse_table.external_data_source
+        # schemas = source.schemas.all()
+        # HACK: looking for tables based on table name cause the connections suck here
+        schemas = ExternalDataSchema.objects.filter(team=warehouse_table.team, name=warehouse_table.name).all()
 
-    if hasattr(schemas_attr, "all"):
-        schemas = list(schemas_attr.all())
     else:
-        schemas = list(schemas_attr or [])
+        schemas_attr = getattr(warehouse_table, "externaldataschema_set", None)
 
-    if not schemas:
-        schemas = [warehouse_table]
+        if hasattr(schemas_attr, "all"):
+            schemas = list(schemas_attr.all())
+        else:
+            schemas = list(schemas_attr or [])
+
+        if not schemas:
+            schemas = [warehouse_table]
 
     def _get_foreign_keys(schema: ExternalDataSchema | DataWarehouseTable) -> list[dict[str, str]] | None:
         foreign_keys = getattr(schema, "foreign_keys", None)
