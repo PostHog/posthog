@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
-
+import { useCallback, useState } from 'react'
 import { IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
@@ -380,6 +379,11 @@ function Sampling(): JSX.Element {
             : 100
     )
 
+    const updateSampling = useCallback((): void => {
+        const returnRate = typeof value == 'number' ? value / 100 : 0
+        updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
+    }, [])
+
     return (
         <>
             <div className="flex flex-row justify-between mt-2">
@@ -399,18 +403,9 @@ function Sampling(): JSX.Element {
                             max={100}
                             suffix={<>%</>}
                             value={value}
-                            onPressEnter={() => {
-                                const returnRate = value ? value / 100 : 1.0
-                                updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
-                            }}
+                            onPressEnter={updateSampling}
                         />
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                const returnRate = value ? value / 100 : 1.0
-                                updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
-                            }}
-                        >
+                        <LemonButton type="secondary" onClick={updateSampling}>
                             Update
                         </LemonButton>
                     </div>
