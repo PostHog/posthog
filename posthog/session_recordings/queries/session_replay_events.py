@@ -384,7 +384,7 @@ class SessionReplayEvents:
         for row in replay_response:
             # Match build_recording_metadata's expected format
             session_id = row[0]
-            metadata = self.build_recording_metadata(session_id, replay_response)
+            metadata = self.build_recording_metadata(session_id, row)
             if metadata:
                 result[session_id] = metadata
         return result
