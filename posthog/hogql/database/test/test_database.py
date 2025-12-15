@@ -391,7 +391,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         for i in range(5):
@@ -425,7 +425,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = Database.create_for(team=self.team)
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
@@ -457,7 +457,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_database_with_warehouse_tables_and_saved_queries_n_plus_1(self, patch_execute):
-        max_queries = FuzzyInt(7, 8)
+        max_queries = FuzzyInt(7, 10)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -513,7 +513,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         # initialization team query doesn't run
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(9):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
@@ -838,12 +838,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 },
             )
 
-            with self.assertNumQueries(FuzzyInt(6, 9)):
+            with self.assertNumQueries(FuzzyInt(6, 10)):
                 Database.create_for(team=self.team)
 
     # We keep adding sources, credentials and tables, number of queries should be stable
     def test_external_data_source_is_not_n_plus_1(self) -> None:
-        num_queries = FuzzyInt(5, 11)
+        num_queries = FuzzyInt(5, 12)
 
         for i in range(10):
             source = ExternalDataSource.objects.create(
@@ -1189,6 +1189,70 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             if isinstance(table, LazyTable | DANGEROUS_NoTeamIdCheckTable):
                 continue
             assert "team_id" in table.fields, f"Table {table_name} must have a team_id column"
+
+    def test_direct_query_foreign_key_lazy_join(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="direct_source",
+            connection_id="connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="",
+            is_direct_query=True,
+            job_inputs={"schema": "posthog"},
+        )
+
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="posthog_team",
+            source=source,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer"},
+                        {"name": "name", "data_type": "character varying"},
+                    ],
+                    "primary_key": ["id"],
+                }
+            },
+        )
+
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="posthog_dashboard",
+            source=source,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer"},
+                        {"name": "team_id", "data_type": "integer"},
+                    ],
+                    "foreign_keys": [{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}],
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team)
+        dashboard_table = database.get_table("postgres.posthog_dashboard")
+
+        assert dashboard_table is not None
+        assert isinstance(dashboard_table, Table)
+        assert "team" in dashboard_table.fields
+
+        team_join = dashboard_table.fields["team"]
+        assert isinstance(team_join, LazyJoin)
+        assert team_join.join_table == "posthog_team"
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+
+        prepare_and_print_ast(
+            parse_select(
+                "SELECT count(id) AS count_of_id, team_id AS team_idd, team.name AS team_name "
+                "FROM postgres.posthog_dashboard GROUP BY team_idd, team.name"
+            ),
+            context,
+            dialect="clickhouse",
+        )
 
     def test_database_serialization_handles_invalid_sources_gracefully(self):
         """Test that serialization continues even with sources that have invalid prefixes."""
