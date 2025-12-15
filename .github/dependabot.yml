@@ -12,7 +12,7 @@ updates:
           interval: weekly
       open-pull-requests-limit: 1
       assignees:
-          - 'posthog/devex'
+          - 'posthog/team-devex'
       groups:
           # Security and authentication packages
           security-auth:
