@@ -1140,7 +1140,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         scheduled_at: scheduleDateMarker.toISOString(),
                         is_recurring: values.isRecurring,
                         recurrence_interval: values.recurrenceInterval,
-                        end_date: values.endDate?.toISOString() || null,
+                        // Use end-of-day to ensure the schedule runs through the entire selected day
+                        // regardless of user's timezone
+                        end_date: values.endDate?.endOf('day').toISOString() || null,
                     }
 
                     return await api.featureFlags.createScheduledChange(currentProjectId, data)
