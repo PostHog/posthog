@@ -28,6 +28,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         setSearchTerm: (search: string) => ({ search }),
         setCreatedBy: (createdBy: string | null) => ({ createdBy }),
         setStatus: (status: string | null) => ({ status }),
+        setTemplateFilter: (search: string) => ({ search }),
     }),
     reducers({
         filters: [
@@ -37,6 +38,12 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 setSearchTerm: (state, { search }) => ({ ...state, search }),
                 setCreatedBy: (state, { createdBy }) => ({ ...state, createdBy }),
                 setStatus: (state, { status }) => ({ ...state, status }),
+            },
+        ],
+        templateFilter: [
+            '' as string,
+            {
+                setTemplateFilter: (_, { search }) => search,
             },
         ],
     }),
