@@ -134,7 +134,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 51
+        cls.base_app_num_queries = 52
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -463,6 +463,9 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
 
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
 @override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
 class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
     other_user: User
 
@@ -573,11 +576,156 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
 
             res = self.client.get("/logout/")
             assert res.status_code == 302
-            assert res.headers["Location"] == "/admin/"
+            assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
 
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
+
+
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
+@override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+class TestImpersonationReadOnlyMiddleware(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+    def login_as_other_user(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            follow=True,
+        )
+
+    def login_as_other_user_read_only(self):
+        return self.client.post(
+            reverse("loginas-user-login-read-only", kwargs={"user_id": self.other_user.id}),
+            follow=True,
+        )
+
+    def test_read_only_impersonation_blocks_write(self):
+        """Verify read-only impersonation blocks DELETE requests with correct error."""
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+
+        self.login_as_other_user_read_only()
+
+        # Verify we're logged in as the other user
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        # Try to delete the dashboard
+        response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/")
+
+        assert response.status_code == 403
+        response_data = response.json()
+        assert response_data["type"] == "authentication_error"
+        assert response_data["code"] == "impersonation_read_only"
+        assert "read-only" in response_data["detail"].lower()
+
+        # Verify dashboard still exists
+        dashboard.refresh_from_db()
+        assert dashboard.name == "Test Dashboard"
+
+    def test_read_only_impersonation_allows_get_requests(self):
+        """Verify read-only impersonation allows GET requests."""
+        self.login_as_other_user_read_only()
+
+        # Verify we're logged in as the other user
+        response = self.client.get("/api/users/@me")
+        assert response.status_code == 200
+        assert response.json()["email"] == "other-user@posthog.com"
+
+        # GET request to dashboards should work
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+        assert response.status_code == 200
+
+    def test_read_only_impersonation_allows_query_endpoint(self):
+        """Verify read-only impersonation allows POST to query endpoint."""
+        self.login_as_other_user_read_only()
+
+        # Verify we're logged in as the other user
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        # POST to query endpoint - the query itself may fail but we shouldn't get blocked by the middleware
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            data={"query": {"kind": "EventsQuery", "select": ["event"]}},
+            content_type="application/json",
+        )
+
+        # Should not be blocked by impersonation middleware (might get other errors)
+        assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
+
+    def test_regular_impersonation_allows_write(self):
+        """Verify regular (non-read-only) impersonation can still write."""
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+
+        self.login_as_other_user()
+
+        # Verify we're logged in as the other user
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        # Update should work with regular impersonation
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/",
+            data={"name": "Updated Dashboard"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+
+        # Verify dashboard was updated
+        dashboard.refresh_from_db()
+        assert dashboard.name == "Updated Dashboard"
+
+    def test_impersonation_blocked_when_user_disallows(self):
+        """Verify regular impersonation fails when target user has allow_impersonation=False."""
+        self.other_user.allow_impersonation = False
+        self.other_user.save()
+
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            follow=True,
+        )
+
+        # Should still be logged in as original user
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+
+    def test_read_only_impersonation_blocked_when_user_disallows(self):
+        """Verify read-only impersonation fails when target user has allow_impersonation=False."""
+        self.other_user.allow_impersonation = False
+        self.other_user.save()
+
+        self.client.post(
+            reverse("loginas-user-login-read-only", kwargs={"user_id": self.other_user.id}),
+            follow=True,
+        )
+
+        # Should still be logged in as original user
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+
+    def test_read_only_impersonation_logout_redirects_to_user_admin(self):
+        """Verify logout from read-only impersonation redirects to user's admin page."""
+        self.login_as_other_user_read_only()
+
+        # Verify we're logged in as the other user
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        # Logout
+        response = self.client.get("/logout/")
+
+        assert response.status_code == 302
+        assert response.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+
+        # Verify we're back to original user
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
 
 @override_settings(SESSION_COOKIE_AGE=100)

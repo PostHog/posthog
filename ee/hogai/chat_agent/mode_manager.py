@@ -9,6 +9,16 @@ from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
+from products.tasks.backend.max_tools import (
+    CreateTaskTool,
+    GetTaskRunLogsTool,
+    GetTaskRunTool,
+    ListRepositoriesTool,
+    ListTaskRunsTool,
+    ListTasksTool,
+    RunTaskTool,
+)
+
 from ee.hogai.chat_agent.prompts import (
     AGENT_CORE_MEMORY_PROMPT,
     AGENT_PROMPT,
@@ -28,7 +38,6 @@ from ee.hogai.chat_agent.prompts import (
 )
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
-from ee.hogai.core.agent_modes.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.product_analytics import product_analytics_agent
 from ee.hogai.core.agent_modes.presets.session_replay import session_replay_agent
@@ -39,7 +48,21 @@ from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
-from ee.hogai.tools import ReadDataTool, ReadTaxonomyTool, SearchTool, SwitchModeTool, TodoWriteTool
+from ee.hogai.tools import (
+    CreateFormTool,
+    ReadDataTool,
+    ReadTaxonomyTool,
+    SearchTool,
+    SwitchModeTool,
+    TaskTool,
+    TodoWriteTool,
+)
+from ee.hogai.utils.feature_flags import (
+    has_agent_modes_feature_flag,
+    has_create_form_tool_feature_flag,
+    has_phai_tasks_feature_flag,
+    has_task_tool_feature_flag,
+)
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
@@ -59,11 +82,33 @@ DEFAULT_TOOLS: list[type["MaxTool"]] = [
     SwitchModeTool,
 ]
 
+TASK_TOOLS: list[type["MaxTool"]] = [
+    CreateTaskTool,
+    RunTaskTool,
+    GetTaskRunTool,
+    GetTaskRunLogsTool,
+    ListTasksTool,
+    ListTaskRunsTool,
+    ListRepositoriesTool,
+]
+CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
+    AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
+    AgentMode.SQL: sql_agent,
+    AgentMode.SESSION_REPLAY: session_replay_agent,
+}
+
 
 class ChatAgentToolkit(AgentToolkit):
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        return DEFAULT_TOOLS if has_agent_modes_feature_flag(self._team, self._user) else LEGACY_DEFAULT_TOOLS
+        tools = list(DEFAULT_TOOLS if has_agent_modes_feature_flag(self._team, self._user) else LEGACY_DEFAULT_TOOLS)
+        if has_create_form_tool_feature_flag(self._team, self._user):
+            tools.append(CreateFormTool)
+        if has_phai_tasks_feature_flag(self._team, self._user):
+            tools.extend(TASK_TOOLS)
+        if has_task_tool_feature_flag(self._team, self._user):
+            tools.append(TaskTool)
+        return tools
 
 
 class ChatAgentToolkitManager(AgentToolkitManager):
@@ -168,11 +213,7 @@ class ChatAgentModeManager(AgentModeManager):
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
-        return {
-            AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
-            AgentMode.SQL: sql_agent,
-            AgentMode.SESSION_REPLAY: session_replay_agent,
-        }
+        return CHAT_AGENT_MODE_REGISTRY
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:

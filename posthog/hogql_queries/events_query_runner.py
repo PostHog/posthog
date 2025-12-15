@@ -23,7 +23,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
 from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
-from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
 
@@ -332,7 +332,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 for i in range(0, len(distinct_ids), batch_size):
                     batch_distinct_ids = distinct_ids[i : i + batch_size]
                     persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
-                    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+                    persons = persons.prefetch_related(
+                        Prefetch(
+                            "persondistinctid_set",
+                            queryset=PersonDistinctId.objects.filter(team_id=self.team.pk).order_by("id"),
+                            to_attr="distinct_ids_cache",
+                        )
+                    )
                     for person in persons.iterator(chunk_size=1000):
                         if person:
                             for person_distinct_id in person.distinct_ids:

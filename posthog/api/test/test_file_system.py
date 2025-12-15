@@ -351,6 +351,47 @@ class TestFileSystemOrdering(APIBaseTest):
         assert parse_datetime(results[1]["last_viewed_at"]) == timestamp - timedelta(hours=3)
 
 
+class TestFileSystemSearchNameOnly(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/environments/{self.team.id}/file_system/"
+        FileSystem.objects.create(
+            team=self.team,
+            path="AlphaParent",
+            depth=1,
+            type="folder",
+            ref="alpha-parent",
+            shortcut=False,
+            created_by=self.user,
+        )
+        FileSystem.objects.create(
+            team=self.team,
+            path="AlphaParent/Child",
+            depth=2,
+            type="folder",
+            ref="alpha-child",
+            shortcut=False,
+            created_by=self.user,
+        )
+
+    def test_default_search_matches_parent_segments(self) -> None:
+        response = self.client.get(self.url, {"search": "alphaparent", "type": "folder"})
+        assert response.status_code == status.HTTP_200_OK
+        paths = [item["path"] for item in response.json()["results"]]
+        assert "AlphaParent" in paths
+        assert "AlphaParent/Child" in paths
+
+    def test_search_name_only_limits_to_basename(self) -> None:
+        response = self.client.get(
+            self.url,
+            {"search": "alphaparent", "type": "folder", "search_name_only": "true"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        paths = [item["path"] for item in response.json()["results"]]
+        assert "AlphaParent" in paths
+        assert "AlphaParent/Child" not in paths
+
+
 class TestLogApiFileSystemView(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

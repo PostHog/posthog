@@ -9,6 +9,7 @@ from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMar
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.models import Team
 from posthog.models.remote_config import cache_key_for_team_token
+from posthog.models.team.team import DEPRECATED_ATTRS
 
 
 class TeamAdmin(admin.ModelAdmin):
@@ -47,6 +48,7 @@ class TeamAdmin(admin.ModelAdmin):
         "remote_config_cache_actions",
     ]
 
+    exclude = DEPRECATED_ATTRS
     inlines = [TeamMarketingAnalyticsConfigInline, UserProductListInline]
     fieldsets = [
         (

@@ -168,3 +168,23 @@ def logging_session_ids(session_ids: list[str]) -> str:
     """Log a list of session ids in a readable format."""
     # Having 150 chars (4 uuids) is enough to identify the sessions and stay readable
     return f"Session IDs: {str(session_ids)[:MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH]}"
+
+
+def calculate_time_since_start(event_timestamp: str | datetime, session_start_time: datetime) -> int:
+    """
+    Calculate milliseconds between event timestamp and session start time.
+    Returns 0 for events that occurred before or exactly at session start.
+    """
+    if isinstance(event_timestamp, str):
+        event_timestamp = datetime.fromisoformat(event_timestamp)
+    return max(0, int((event_timestamp - session_start_time).total_seconds() * 1000))
+
+
+def calculate_time_till_end(event_timestamp: str | datetime, session_end_time: datetime) -> int:
+    """
+    Calculate milliseconds remaining until session end time.
+    Returns 0 for events that occurred at or after session end.
+    """
+    if isinstance(event_timestamp, str):
+        event_timestamp = datetime.fromisoformat(event_timestamp)
+    return max(0, int((session_end_time - event_timestamp).total_seconds() * 1000))

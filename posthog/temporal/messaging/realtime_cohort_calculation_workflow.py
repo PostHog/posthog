@@ -186,7 +186,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     get_cohort_calculation_success_metric().add(1)
                     cohorts_count += 1
                     break
-
                 except Exception as e:
                     is_last_attempt = retry_attempt == max_retries
 

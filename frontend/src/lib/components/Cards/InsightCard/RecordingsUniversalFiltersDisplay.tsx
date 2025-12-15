@@ -31,7 +31,7 @@ function DurationSummary({ filters }: { filters: RecordingUniversalFilters }): J
 }
 
 function FiltersSummary({ filters }: { filters: RecordingUniversalFilters }): JSX.Element | null {
-    const hasFilters = filters.filter_group && filters.filter_group.values.length > 0
+    const hasFilters = !!filters.filter_group?.values?.length
 
     if (!hasFilters && !filters.filter_test_accounts) {
         return null

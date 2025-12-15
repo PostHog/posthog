@@ -1,4 +1,7 @@
+import json
+import base64
 import datetime as dt
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -6,6 +9,7 @@ from posthog.schema import (
     HogQLFilters,
     IntervalType,
     LogPropertyFilter,
+    LogPropertyFilterType,
     LogsQuery,
     LogsQueryResponse,
     PropertyGroupsMode,
@@ -15,13 +19,105 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import operator_is_negative, property_to_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+
+
+def _generate_resource_attribute_filters(
+    resource_attribute_filters, *, existing_filters, query_date_range, team, is_negative_filter
+):
+    """
+    Helper to generate an expression which filters resource_fingerprints, either to resource matching
+    a set of filters, or to exclude resources matching a set of filters (negative filters)
+
+    e.g. for a positive filter:
+
+        (resource_fingerprint) in (
+            SELECT ...
+            FROM log_attributes
+            WHERE attribute_key = 'k8s.container.name' and attribute_value = 'nginx'
+        )
+
+        and for a negative filter:
+
+        (resource_fingerprint) not in (
+            SELECT ...
+            FROM log_attributes
+            WHERE attribute_key = 'k8s.container.name' and attribute_value = 'nginx'
+        )
+    """
+    converted_exprs = []
+    for filter in resource_attribute_filters:
+        if is_negative_filter:
+            # invert the negative filter back to the positive equivalent
+            # we invert the IN logic instead
+            filter.operator = {
+                PropertyOperator.IS_NOT: PropertyOperator.EXACT,
+                PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+                PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
+                PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
+                PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+                PropertyOperator.NOT_IN: PropertyOperator.IN_,
+            }.get(filter.operator, filter.operator)
+
+        if filter.operator == PropertyOperator.IS_SET:
+            converted_exprs.append(
+                parse_expr(
+                    "attribute_key = {attribute_key}", placeholders={"attribute_key": ast.Constant(value=filter.key)}
+                )
+            )
+            continue
+
+        filter_expr = property_to_expr(filter, team=team)
+        converted_expr = parse_expr(
+            "attribute_key = {attribute_key} AND {value_expr}",
+            placeholders={"value_expr": filter_expr, "attribute_key": ast.Constant(value=filter.key)},
+        )
+        converted_exprs.append(converted_expr)
+
+    IN_ = "NOT IN" if is_negative_filter else "IN"
+    # AND for positive filters, OR for negative filters
+    # (if you search for k8s.container.name!='contour' AND k8s.container.name!='nginx',
+    #  we change this to k8s.container.name='contour' OR k8s.container.name='nginx')
+    groupBitmapFunc = "groupBitmapOrState" if is_negative_filter else "groupBitmapAndState"
+
+    # this query has two steps - the inner step filters for resource_fingerprints that match ANY attribute filter
+    # e.g. if you filter on k8s.container.name='contour' and k8s.container.restart_count='0'
+    #      the inner query will have two rows, one for each filter
+    #      each row will have a bitmap of resource_fingerprints that match the attribute filter
+    #      this would probably have 3 results for the container name (we run 3 contour containers) and maybe 5000 for restart_count=0
+    #      (99% of our running containers have restart count 0)
+    # The outer step then ANDs together all the inner bitmaps, which results in a list of resources which match all the filters
+    return parse_expr(
+        f"""
+        (resource_fingerprint) {IN_}
+        (
+            SELECT arrayJoin(bitmapToArray({groupBitmapFunc}(resources))) FROM (
+                SELECT
+                    groupBitmapState(resource_fingerprint) as resources,
+                    {{ops}} as ops
+                FROM log_attributes
+                WHERE
+                    time_bucket >= toStartOfInterval({{date_from}},toIntervalMinute(10))
+                    AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
+                    AND {{resource_attribute_filters}} AND {{existing_filters}}
+                    AND attribute_type = 'resource'
+                    GROUP BY ops
+            )
+        )
+    """,
+        placeholders={
+            **query_date_range.to_placeholders(),
+            "existing_filters": ast.And(exprs=existing_filters),
+            "resource_attribute_filters": ast.Or(exprs=converted_exprs),
+            "ops": ast.Array(exprs=converted_exprs),
+        },
+    )
 
 
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
@@ -39,6 +135,9 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             limit=self.query.limit if self.query.limit else None,
             offset=self.query.offset,
         )
+
+        self.modifiers.convertToProjectTimezone = False
+        self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
         def get_property_type(value):
             try:
@@ -60,6 +159,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             #
             # for now we'll just check str and float as we need a decent UI for datetime filtering.
             for property_filter in self.query.filterGroup.values[0].values:
+                # we only do the type mapping for log attributes
+                if property_filter.type != LogPropertyFilterType.LOG_ATTRIBUTE:
+                    continue
+
                 if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
                     property_type = "str"
                     if isinstance(property_filter.value, list):
@@ -82,13 +185,11 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     LogPropertyFilter(
                         key=filter_key,
                         operator=PropertyOperator.IS_SET,
-                        type="log",
+                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
                     ),
                 )
 
     def _calculate(self) -> LogsQueryResponse:
-        self.modifiers.convertToProjectTimezone = False
-        self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
             query=self.to_query(),
@@ -145,6 +246,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             parse_order_expr("team_id"),
             parse_order_expr(f"time_bucket {order_dir}"),
             parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"uuid {order_dir}"),
         ]
         final_query = parse_select(
             """
@@ -153,7 +255,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 hex(trace_id),
                 hex(span_id),
                 body,
-                attributes,
+                mapFilter((k, v) -> not(has(resource_attributes, k)), attributes),
                 timestamp,
                 observed_timestamp,
                 severity_text,
@@ -168,13 +270,91 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             placeholders={"query": query},
         )
         assert isinstance(final_query, ast.SelectQuery)
-        final_query.order_by = [parse_order_expr(f"timestamp {order_dir}")]
+        final_query.order_by = [
+            parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"uuid {order_dir}"),
+        ]
         return final_query
 
     def where(self):
-        exprs: list[ast.Expr] = [
-            ast.Placeholder(expr=ast.Field(chain=["filters"])),
-        ]
+        exprs: list[ast.Expr] = []
+
+        if self.query.serviceNames:
+            exprs.append(
+                parse_expr(
+                    "service_name IN {serviceNames}",
+                    placeholders={
+                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
+                    },
+                )
+            )
+
+        if self.query.filterGroup:
+            # split out attribute and resource attribute filters
+            attribute_filters = []
+            log_filters = []
+            resource_attribute_positive_filters = []
+            resource_attribute_negative_filters = []
+
+            for property_group in self.query.filterGroup.values:
+                attribute_filters = cast(
+                    list[LogPropertyFilter],
+                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_ATTRIBUTE],
+                )
+                log_filters = cast(
+                    list[LogPropertyFilter], [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
+                )
+                resource_attribute_group_filters = cast(
+                    list[LogPropertyFilter],
+                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE],
+                )
+                if resource_attribute_group_filters:
+                    resource_attribute_positive_filters += [
+                        filter
+                        for filter in resource_attribute_group_filters
+                        if not operator_is_negative(filter.operator)
+                    ]
+                    resource_attribute_negative_filters += [
+                        filter for filter in resource_attribute_group_filters if operator_is_negative(filter.operator)
+                    ]
+
+            negative_resource_filter = ast.Constant(value=True)
+            # generate a query which excludes all the resources which match a negative filter
+            # e.g. if you filter k8s.container.name != "nginx", this will return
+            #      (resource_fingerprint) NOT IN (<query which returns resources which DO have k8s.container.name = "nginx">)
+            if resource_attribute_negative_filters:
+                negative_resource_filter = _generate_resource_attribute_filters(
+                    resource_attribute_negative_filters,
+                    team=self.team,
+                    existing_filters=exprs,
+                    query_date_range=self.query_date_range,
+                    is_negative_filter=True,
+                )
+
+            if resource_attribute_positive_filters:
+                exprs.append(
+                    _generate_resource_attribute_filters(
+                        resource_attribute_positive_filters,
+                        team=self.team,
+                        # negative resource filter is passed in here
+                        existing_filters=[*exprs, negative_resource_filter],
+                        query_date_range=self.query_date_range,
+                        is_negative_filter=False,
+                    )
+                )
+            elif resource_attribute_negative_filters:
+                # If we have both positive and negative filters, the negative filters are applied to the positive filter
+                # query, so we don't need to add them again.
+                # If we ONLY have negative filters, we have to add them to the top level query.
+                exprs.append(negative_resource_filter)
+
+            if attribute_filters:
+                exprs.append(property_to_expr(attribute_filters, team=self.team))
+
+            if log_filters:
+                exprs.append(property_to_expr(log_filters, team=self.team))
+
+        exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
         if self.query.severityLevels:
             exprs.append(
@@ -188,49 +368,51 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 )
             )
 
-        if self.query.serviceNames:
-            exprs.append(
-                parse_expr(
-                    "service_name IN {serviceNames}",
-                    placeholders={
-                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
-                    },
-                )
-            )
-
-        if self.query.searchTerm:
-            # negative search match if first character of search string is !
-            if self.query.searchTerm.startswith("!") and len(self.query.searchTerm) > 1:
-                exprs.append(
-                    parse_expr(
-                        "body NOT LIKE {searchTerm}",
-                        placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm[1:]}%")},
-                    )
-                )
-            else:
-                exprs.append(
-                    parse_expr(
-                        "body LIKE {searchTerm}",
-                        placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
-                    )
-                )
-                # ip addresses are particularly bad at full text searches with our ngram 3 index
-                # match them separately against a materialized column of ip addresses
-                exprs.append(
-                    parse_expr(
-                        "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
-                        placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
-                    )
-                )
-
-        if self.query.filterGroup:
-            exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
-
         if self.query.liveLogsCheckpoint:
             exprs.append(
                 parse_expr(
                     "observed_timestamp >= {liveLogsCheckpoint}",
                     placeholders={"liveLogsCheckpoint": ast.Constant(value=self.query.liveLogsCheckpoint)},
+                )
+            )
+
+        if self.query.after:
+            try:
+                cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
+                cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
+                cursor_uuid = cursor["uuid"]
+            except (KeyError, ValueError, json.JSONDecodeError) as e:
+                raise ValueError(f"Invalid cursor format: {e}")
+            # For ASC (earliest first): get rows where (timestamp, uuid) > cursor
+            # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
+            op = ">" if self.query.orderBy == "earliest" else "<"
+            ts_op = ">=" if self.query.orderBy == "earliest" else "<="
+            # The logs table is sorted by (team_id, time_bucket, ..., timestamp) where
+            # time_bucket = toStartOfDay(timestamp). ClickHouse only prunes efficiently when
+            # the WHERE clause matches the sorting key. A tuple comparison like
+            # (timestamp, uuid) < (x, y) won't trigger pruning.
+            # We add explicit scalar bounds on both time_bucket and timestamp to ensure
+            # ClickHouse can use the primary index and skip irrelevant parts.
+            exprs.append(
+                parse_expr(
+                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
+            exprs.append(
+                parse_expr(
+                    f"timestamp {ts_op} {{cursor_ts}}",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
+            # Tuple comparison handles the exact cursor position (same timestamp, different uuid)
+            exprs.append(
+                parse_expr(
+                    f"(timestamp, uuid) {op} ({{cursor_ts}}, {{cursor_uuid}})",
+                    placeholders={
+                        "cursor_ts": ast.Constant(value=cursor_ts),
+                        "cursor_uuid": ast.Constant(value=cursor_uuid),
+                    },
                 )
             )
 

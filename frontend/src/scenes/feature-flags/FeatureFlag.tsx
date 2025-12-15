@@ -48,22 +48,22 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { addProductIntent } from 'lib/utils/product-intents'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
-import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
-import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -101,95 +101,18 @@ import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
+import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 const RESOURCE_TYPE = 'feature_flag'
-
-// Utility function to create MaxTool configuration for feature flag survey creation
-export function createMaxToolSurveyConfig(
-    featureFlag: FeatureFlagType,
-    user: any,
-    multivariateEnabled: boolean,
-    variants: any[]
-): {
-    identifier: 'create_survey'
-    active: boolean
-    initialMaxPrompt: string
-    suggestions: string[]
-    context: Record<string, any>
-    contextDescription: {
-        text: string
-        icon: JSX.Element
-    }
-    callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => void
-} {
-    return {
-        identifier: 'create_survey' as const,
-        active: Boolean(user?.uuid),
-        initialMaxPrompt: `Create a survey to collect feedback about the "${featureFlag.key}" feature flag${featureFlag.name ? ` (${featureFlag.name})` : ''}${multivariateEnabled && variants?.length > 0 ? ` which has variants: ${variants.map((v) => `"${v.key}"`).join(', ')}` : ''}`,
-        suggestions:
-            multivariateEnabled && variants?.length > 0
-                ? [
-                      `Create a feedback survey comparing variants of the "${featureFlag.key}" feature flag`,
-                      `Create a survey for users who saw the "${variants[0]?.key}" variant of the "${featureFlag.key}" feature flag`,
-                      `Create an A/B test survey asking users to compare the "${featureFlag.key}" feature flag variants`,
-                      `Create a survey to understand which variant of the "${featureFlag.key}" feature flag performs better`,
-                      `Create a survey targeting all variants of the "${featureFlag.key}" feature flag to gather overall feedback`,
-                  ]
-                : [
-                      `Create a feedback survey for users who see the "${featureFlag.key}" feature flag`,
-                      `Create an NPS survey for users exposed to the "${featureFlag.key}" feature flag`,
-                      `Create a satisfaction survey asking about the "${featureFlag.key}" feature flag experience`,
-                      `Create a survey to understand user reactions to the "${featureFlag.key}" feature flag`,
-                  ],
-        context: {
-            feature_flag_key: featureFlag.key,
-            feature_flag_id: featureFlag.id,
-            feature_flag_name: featureFlag.name,
-            target_feature_flag: featureFlag.key,
-            survey_purpose: 'collect_feedback_for_feature_flag',
-            is_multivariate: multivariateEnabled,
-            variants:
-                multivariateEnabled && variants?.length > 0
-                    ? variants.map((v) => ({
-                          key: v.key,
-                          name: v.name || '',
-                          rollout_percentage: v.rollout_percentage,
-                      }))
-                    : [],
-            variant_count: variants?.length || 0,
-        },
-        contextDescription: {
-            text: featureFlag.name,
-            icon: iconForType('feature_flag'),
-        },
-        callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
-            addProductIntent({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEY_CREATED,
-                metadata: {
-                    survey_id: toolOutput.survey_id,
-                    source: SURVEY_CREATED_SOURCE.FEATURE_FLAGS,
-                    created_successfully: !toolOutput?.error,
-                },
-            })
-
-            if (toolOutput?.error || !toolOutput?.survey_id) {
-                return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.FEATURE_FLAGS)
-            }
-
-            // Redirect to the new survey
-            router.actions.push(urls.survey(toolOutput.survey_id))
-        },
-    }
-}
 
 export const scene: SceneExport<FeatureFlagLogicProps> = {
     component: FeatureFlag,
@@ -209,8 +132,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         isEditingFlag,
         activeTab,
         accessDeniedToFeatureFlag,
-        multivariateEnabled,
-        variants,
         experiment,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -229,16 +150,34 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
 
     const { tags } = useValues(tagsModel)
-    const { hasAvailableFeature, user } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { reportUserFeedbackButtonClicked } = useActions(eventUsageLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    // Initialize MaxTool hook for survey creation
-    const { openMax } = useMaxTool(createMaxToolSurveyConfig(featureFlag, user, multivariateEnabled, variants))
+    const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
+    const [quickSurveyVariantKey, setQuickSurveyVariantKey] = useState<string | null>(null)
 
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
+
+    const handleGetFeedback = (variantKey?: string): void => {
+        const hasVariantSurvey = variantKey
+            ? !!getSurveyForFeatureFlagVariant(variantKey, featureFlag.surveys ?? [])
+            : featureFlag.surveys && featureFlag.surveys.length > 0
+
+        reportUserFeedbackButtonClicked(SURVEY_CREATED_SOURCE.FEATURE_FLAGS, {
+            existingSurvey: hasVariantSurvey,
+        })
+
+        if (hasVariantSurvey) {
+            setActiveTab(FeatureFlagsTab.FEEDBACK)
+        } else {
+            setIsQuickSurveyModalOpen(true)
+            setQuickSurveyVariantKey(variantKey ?? null)
+        }
+    }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
@@ -284,7 +223,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             content: (
                 <>
                     <div className="flex flex-col gap-4">
-                        <FeatureFlagRollout readOnly />
+                        <FeatureFlagRollout readOnly onGetFeedback={handleGetFeedback} />
                         {!featureFlag.is_remote_configuration && (
                             <>
                                 <SceneDivider />
@@ -340,7 +279,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             label: (
                 <div className="flex flex-row">
                     <div>Analysis</div>
-                    <LemonTag className="ml-1 float-right uppercase" type="warning">
+                    <LemonTag className="ml-2 float-right uppercase" type="warning">
                         {' '}
                         Beta
                     </LemonTag>
@@ -368,6 +307,22 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             label: 'Permissions',
             key: FeatureFlagsTab.PERMISSIONS,
             content: <FeatureFlagPermissions featureFlag={featureFlag} />,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL]) {
+        tabs.push({
+            label: (
+                <div className="flex flex-row">
+                    <div>User feedback</div>
+                    <LemonTag className="ml-2 float-right uppercase" type="primary">
+                        {' '}
+                        New
+                    </LemonTag>
+                </div>
+            ),
+            key: FeatureFlagsTab.FEEDBACK,
+            content: <FeedbackTab featureFlag={featureFlag} />,
         })
     }
 
@@ -483,7 +438,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                             </div>
                             <SceneDivider />
-                            <FeatureFlagRollout />
+                            <FeatureFlagRollout onGetFeedback={handleGetFeedback} />
                             <SceneDivider />
                             {!featureFlag.is_remote_configuration && (
                                 <>
@@ -820,16 +775,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         Create cohort
                                     </ButtonPrimitive>
                                 )}
-                                {openMax && (
-                                    <ButtonPrimitive
-                                        menuItem
-                                        data-attr={`${RESOURCE_TYPE}-create-survey`}
-                                        onClick={() => openMax()}
-                                    >
-                                        <IconPlusSmall />
-                                        Create survey
-                                    </ButtonPrimitive>
-                                )}
+                                <ButtonPrimitive
+                                    menuItem
+                                    data-attr={`${RESOURCE_TYPE}-create-survey`}
+                                    onClick={() => handleGetFeedback()}
+                                >
+                                    <IconPlusSmall />
+                                    Create survey
+                                </ButtonPrimitive>
                             </ScenePanelActionsSection>
                             <ScenePanelDivider />
                             <ScenePanelActionsSection>
@@ -905,15 +858,22 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                                 }}
                                 actions={
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => editFeatureFlag(true)}
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                    </>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.FeatureFlag}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={featureFlag.user_access_level}
+                                    >
+                                        {({ disabledReason }) => (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                disabledReason={disabledReason}
+                                                onClick={() => editFeatureFlag(true)}
+                                            >
+                                                Edit
+                                            </LemonButton>
+                                        )}
+                                    </AccessControlAction>
                                 }
                             />
                             <LemonTabs
@@ -926,6 +886,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     </>
                 )}
             </div>
+            <QuickSurveyModal
+                context={{
+                    type: QuickSurveyType.FEATURE_FLAG,
+                    flag: featureFlag,
+                    initialVariantKey: quickSurveyVariantKey,
+                }}
+                info="This survey will display to all users in this feature flag, filtered by any conditions you specify below."
+                isOpen={isQuickSurveyModalOpen}
+                onCancel={() => {
+                    setIsQuickSurveyModalOpen(false)
+                    setQuickSurveyVariantKey(null)
+                }}
+            />
         </>
     )
 }
@@ -1033,7 +1006,13 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
     )
 }
 
-function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
+function FeatureFlagRollout({
+    readOnly,
+    onGetFeedback,
+}: {
+    readOnly?: boolean
+    onGetFeedback?: (variantKey?: string) => void
+}): JSX.Element {
     const {
         multivariateEnabled,
         variants,
@@ -1268,6 +1247,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
                                         })
                                     }}
+                                    onGetFeedback={onGetFeedback}
+                                    surveys={featureFlag.surveys ?? []}
                                     variantErrors={variantErrors}
                                 />
                             </SceneSection>
@@ -1515,31 +1496,47 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </SceneSection>
 
                             {readOnly && !featureFlag.is_remote_configuration && (
-                                <SceneSection
-                                    title="Recordings"
-                                    description="Watch recordings of people who have been exposed to the feature flag."
-                                >
-                                    <div className="inline-block">
-                                        <LemonButton
-                                            onClick={() => {
-                                                reportViewRecordingsClicked()
-                                                router.actions.push(
-                                                    urls.replay(ReplayTabs.Home, recordingFilterForFlag)
-                                                )
-                                                addProductIntentForCrossSell({
-                                                    from: ProductKey.FEATURE_FLAGS,
-                                                    to: ProductKey.SESSION_REPLAY,
-                                                    intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                                })
-                                            }}
-                                            icon={<IconRewindPlay />}
-                                            type="secondary"
-                                            size="small"
+                                <>
+                                    <SceneDivider />
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <SceneSection
+                                            title="Recordings"
+                                            description="Watch recordings of people who have been exposed to the feature flag."
                                         >
-                                            View recordings
-                                        </LemonButton>
+                                            <div className="inline-block">
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        reportViewRecordingsClicked()
+                                                        router.actions.push(
+                                                            urls.replay(ReplayTabs.Home, recordingFilterForFlag)
+                                                        )
+                                                        addProductIntentForCrossSell({
+                                                            from: ProductKey.FEATURE_FLAGS,
+                                                            to: ProductKey.SESSION_REPLAY,
+                                                            intent_context:
+                                                                ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                                        })
+                                                    }}
+                                                    icon={<IconRewindPlay />}
+                                                    type="secondary"
+                                                    size="small"
+                                                >
+                                                    View recordings
+                                                </LemonButton>
+                                            </div>
+                                        </SceneSection>
+
+                                        {featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL] && onGetFeedback && (
+                                            <>
+                                                <SceneDivider className="md:hidden" />
+                                                <UserFeedbackSection
+                                                    featureFlag={featureFlag}
+                                                    onGetFeedback={onGetFeedback}
+                                                />
+                                            </>
+                                        )}
                                     </div>
-                                </SceneSection>
+                                </>
                             )}
                         </>
                     )}
@@ -1558,6 +1555,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     onRemoveVariant={removeVariant}
                                     onDistributeEqually={distributeVariantsEqually}
                                     canEditVariant={canEditVariant}
+                                    hasExperiment={hasExperiment ?? false}
+                                    experimentId={experiment?.id}
+                                    experimentName={experiment?.name}
                                     isDraftExperiment={isDraftExperiment}
                                     onVariantChange={(index, field, value) => {
                                         const currentVariants = [...variants]
@@ -1588,6 +1588,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             },
                                         })
                                     }}
+                                    onGetFeedback={onGetFeedback}
+                                    surveys={featureFlag.surveys ?? []}
                                     variantErrors={variantErrors}
                                 />
                             </SceneSection>
@@ -1716,28 +1718,36 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     {readOnly && !featureFlag.is_remote_configuration && (
                         <>
                             <SceneDivider />
-                            <SceneSection
-                                title="Recordings"
-                                description="Watch recordings of people who have been exposed to the feature flag."
-                            >
-                                <LemonButton
-                                    onClick={() => {
-                                        reportViewRecordingsClicked()
-                                        router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
-                                        addProductIntentForCrossSell({
-                                            from: ProductKey.FEATURE_FLAGS,
-                                            to: ProductKey.SESSION_REPLAY,
-                                            intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                        })
-                                    }}
-                                    icon={<IconRewindPlay />}
-                                    type="secondary"
-                                    size="small"
-                                    className="w-fit"
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <SceneSection
+                                    title="Recordings"
+                                    description="Watch recordings of people who have been exposed to the feature flag."
                                 >
-                                    View recordings
-                                </LemonButton>
-                            </SceneSection>
+                                    <LemonButton
+                                        onClick={() => {
+                                            reportViewRecordingsClicked()
+                                            router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
+                                            addProductIntentForCrossSell({
+                                                from: ProductKey.FEATURE_FLAGS,
+                                                to: ProductKey.SESSION_REPLAY,
+                                                intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                            })
+                                        }}
+                                        icon={<IconRewindPlay />}
+                                        type="secondary"
+                                        size="small"
+                                        className="w-fit"
+                                    >
+                                        View recordings
+                                    </LemonButton>
+                                </SceneSection>
+                                {onGetFeedback && (
+                                    <>
+                                        <SceneDivider className="md:hidden" />
+                                        <UserFeedbackSection featureFlag={featureFlag} onGetFeedback={onGetFeedback} />
+                                    </>
+                                )}
+                            </div>
                         </>
                     )}
                 </div>

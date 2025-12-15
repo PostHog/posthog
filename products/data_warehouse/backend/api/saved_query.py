@@ -89,6 +89,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_history_id",
             "soft_update",
             "is_materialized",
+            "origin",
         ]
         read_only_fields = [
             "id",
@@ -101,6 +102,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_error",
             "latest_history_id",
             "is_materialized",
+            "origin",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
@@ -329,9 +331,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-
-            if sync_frequency and sync_frequency != "never":
-                view.setup_model_paths()
 
         if was_sync_frequency_updated:
             view.schedule_materialization(

@@ -12,6 +12,7 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 
+import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
     ActionsNode,
     AnalyticsQueryResponseBase,
@@ -24,7 +25,6 @@ import {
     FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
-    InsightNodeKind,
     InsightQueryNode,
     InsightsQueryBase,
     LifecycleFilter,
@@ -69,8 +69,8 @@ import {
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 
 const insightTypeToNodeKind: Record<
-    Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG>,
-    InsightNodeKind
+    Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG | InsightType.WEB_ANALYTICS>,
+    ProductAnalyticsInsightNodeKind
 > = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
     [InsightType.FUNNELS]: NodeKind.FunnelsQuery,

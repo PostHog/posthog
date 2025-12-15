@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 
@@ -9,92 +9,154 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.client import async_connect, sync_connect
+
+from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadContext
 
 logger = logging.getLogger(__name__)
 
 
-async def _execute_task_processing_workflow(
-    task_id: str, run_id: str, team_id: int, user_id: Optional[int] = None
-) -> str:
-    workflow_id = f"task-processing-{task_id}-{run_id}"
-    workflow_name = "process-task"
-    workflow_input = run_id
-
-    logger.info(f"Starting workflow {workflow_name} ({workflow_id}) for task {task_id}, run {run_id}")
-
-    client = await async_connect()
-
-    retry_policy = RetryPolicy(maximum_attempts=3)
-
-    result = await client.execute_workflow(
-        workflow_name,
-        workflow_input,
-        id=workflow_id,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.TASKS_TASK_QUEUE,
-        retry_policy=retry_policy,
-    )
-
-    return result
+def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[dict[str, Any]]:
+    """Convert slack_thread_context to dict if needed."""
+    if slack_thread_context is None:
+        return None
+    if hasattr(slack_thread_context, "to_dict"):
+        return slack_thread_context.to_dict()
+    return slack_thread_context
 
 
-def execute_task_processing_workflow(task_id: str, run_id: str, team_id: int, user_id: Optional[int] = None) -> None:
+async def execute_task_processing_workflow_async(
+    task_id: str,
+    run_id: str,
+    team_id: int,
+    user_id: Optional[int] = None,
+    create_pr: bool = True,
+    slack_thread_context: Optional[Any] = None,
+) -> None:
     """
-    Execute the task processing workflow synchronously.
-    This is a fire-and-forget operation - it starts the workflow
-    but doesn't wait for completion.
+    Start the task processing workflow asynchronously. Fire-and-forget.
+    Use this from async contexts (e.g., within Temporal activities).
+    """
+    logger.info(f"execute_task_processing_workflow_async called for task {task_id}, run {run_id}")
+    try:
+        if not user_id:
+            logger.warning(f"No user_id provided for task {task_id} - tasks require authenticated user")
+            return
+
+        logger.info(f"Fetching team {team_id} and user {user_id}")
+        team = await Team.objects.select_related("organization").aget(id=team_id)
+        user = await User.objects.aget(id=user_id)
+
+        logger.info(f"Checking feature flag for user {user.distinct_id}, org {team.organization_id}")
+        tasks_enabled = posthoganalytics.feature_enabled(
+            "tasks",
+            user.distinct_id,
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        logger.info(f"Feature flag 'tasks' enabled: {tasks_enabled}")
+
+        if not tasks_enabled:
+            logger.warning(
+                f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled for user {user_id}"
+            )
+            return
+
+        workflow_id = f"task-processing-{task_id}-{run_id}"
+        slack_context_dict = _normalize_slack_context(slack_thread_context)
+
+        workflow_input = ProcessTaskInput(
+            run_id=run_id,
+            create_pr=create_pr,
+            slack_thread_context=slack_context_dict,
+        )
+
+        logger.info(f"Starting workflow process-task ({workflow_id}) for task {task_id}, run {run_id}")
+
+        client = await async_connect()
+        await client.start_workflow(
+            "process-task",
+            workflow_input,
+            id=workflow_id,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        logger.info(f"Workflow started for task {task_id}, run {run_id}")
+
+    except (Team.DoesNotExist, User.DoesNotExist) as e:
+        logger.exception(f"Failed to validate permissions for task workflow execution: {e}")
+    except Exception as e:
+        logger.exception(f"Failed to start task processing workflow: {e}")
+
+
+def execute_task_processing_workflow(
+    task_id: str,
+    run_id: str,
+    team_id: int,
+    user_id: Optional[int] = None,
+    create_pr: bool = True,
+    slack_thread_context: Optional["SlackThreadContext"] = None,
+) -> None:
+    """
+    Start the task processing workflow synchronously. Fire-and-forget.
+    Use this from sync contexts (e.g., API endpoints).
     """
     try:
-        import threading
+        if not user_id:
+            logger.warning(f"No user_id provided for task {task_id} - tasks require authenticated user")
+            return
 
-        # Always offload to a dedicated thread with its own event loop.
-        # This is safer when called from within a Temporal activity (already running an event loop)
-        # and from sync Django views. It avoids create_task() being cancelled when the caller loop ends.
-        def run_workflow() -> None:
-            try:
-                # Check feature flag in the thread where we can make sync Django calls
+        team = Team.objects.get(id=team_id)
+        user = User.objects.get(id=user_id)
 
-                try:
-                    if not user_id:
-                        logger.warning(f"No user_id provided for task {task_id} - tasks require authenticated user")
-                        return
+        tasks_enabled = posthoganalytics.feature_enabled(
+            "tasks",
+            user.distinct_id,
+            groups={"organization": str(team.organization.id)},
+            group_properties={"organization": {"id": str(team.organization.id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
 
-                    team = Team.objects.get(id=team_id)
-                    user = User.objects.get(id=user_id)
+        if not tasks_enabled:
+            logger.warning(
+                f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled for user {user_id}"
+            )
+            return
 
-                    tasks_enabled = posthoganalytics.feature_enabled(
-                        "tasks",
-                        user.distinct_id,
-                        groups={"organization": str(team.organization.id)},
-                        group_properties={"organization": {"id": str(team.organization.id)}},
-                        only_evaluate_locally=False,
-                        send_feature_flag_events=False,
-                    )
+        workflow_id = f"task-processing-{task_id}-{run_id}"
+        slack_context_dict = _normalize_slack_context(slack_thread_context)
 
-                    if not tasks_enabled:
-                        logger.warning(
-                            f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled for user {user_id}"
-                        )
-                        return
+        workflow_input = ProcessTaskInput(
+            run_id=run_id,
+            create_pr=create_pr,
+            slack_thread_context=slack_context_dict,
+        )
 
-                except (Team.DoesNotExist, User.DoesNotExist) as e:
-                    logger.exception(f"Failed to validate permissions for task workflow execution: {e}")
-                    return
-                except Exception as e:
-                    logger.exception(f"Error checking feature flag for task workflow: {e}")
-                    return
+        logger.info(f"Starting workflow process-task ({workflow_id}) for task {task_id}, run {run_id}")
 
-                logger.info(f"Triggering workflow for task {task_id}, run {run_id}")
-                asyncio.run(_execute_task_processing_workflow(task_id, run_id, team_id, user_id))
-                logger.info(f"Workflow completed for task {task_id}, run {run_id}")
-            except Exception as e:
-                logger.exception(f"Workflow execution failed for task {task_id}: {e}")
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "process-task",
+                workflow_input,
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        )
 
-        thread = threading.Thread(target=run_workflow, daemon=True)
-        thread.start()
-        logger.info(f"Started workflow thread for task {task_id}")
+        logger.info(f"Workflow started for task {task_id}, run {run_id}")
 
+    except (Team.DoesNotExist, User.DoesNotExist) as e:
+        logger.exception(f"Failed to validate permissions for task workflow execution: {e}")
     except Exception as e:
-        # Don't let workflow execution failures break the main operation
-        logger.exception(f"Failed to execute task processing workflow: {e}")
+        logger.exception(f"Failed to start task processing workflow: {e}")

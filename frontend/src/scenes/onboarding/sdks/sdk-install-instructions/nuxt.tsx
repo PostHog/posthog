@@ -7,7 +7,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SDK_DEFAULTS_DATE } from './constants'
+import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
+
 import { JSInstallSnippet } from './js-web'
 
 function NuxtEnvVarsSnippet(): JSX.Element {

@@ -10,7 +10,10 @@ import React from 'react'
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -33,7 +36,6 @@ interface QuestionInputProps {
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
     onSubmit?: () => void
-    showDeepResearchModeToggle?: boolean
 }
 
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
@@ -48,13 +50,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         textAreaRef,
         containerClassName,
         onSubmit,
-        showDeepResearchModeToggle,
     },
     ref
 ) {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
+    const { user } = useValues(userLogic)
     const {
         conversation,
         threadLoading,
@@ -64,8 +67,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         deepResearchMode,
         cancelLoading,
         pendingPrompt,
+        isImpersonatingExistingConversation,
+        supportOverrideEnabled,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled } = useActions(maxThreadLogic)
+
+    // Show info banner for conversations created during impersonation (marked as internal)
+    const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -119,7 +127,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         }}
                     >
                         {!isSharedThread && (
-                            <div className="pt-1">
+                            <div className="pt-2">
                                 {!isThreadVisible ? (
                                     <div className="flex items-start justify-between">
                                         <ContextDisplay size={contextDisplaySize} />
@@ -154,7 +162,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 disabled={inputDisabled}
                                 minRows={1}
                                 maxRows={10}
-                                className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                                className="!border-none !bg-transparent min-h-0 py-2 pl-2 pr-12"
                                 autoFocus="true-without-pulse"
                             />
                         </SlashCommandAutocomplete>
@@ -162,7 +170,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     <div
                         className={clsx(
                             'absolute flex items-center',
-                            isSharedThread && 'hidden', // Submit not available at all for shared threads
+                            isSharedThread && 'hidden',
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
@@ -211,7 +219,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                {!isSharedThread && (
+                {!isSharedThread && !featureFlags[FEATURE_FLAGS.AGENT_MODES] && (
                     <ToolsDisplay
                         isFloating={isThreadVisible}
                         tools={tools}
@@ -219,15 +227,21 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         deepResearchMode={deepResearchMode}
                     />
                 )}
-                {!isSharedThread && showDeepResearchModeToggle && (
-                    <div className="flex justify-end gap-1 w-full p-1">
+                {/* Info banner for conversations created during impersonation (marked as internal) */}
+                {isImpersonatedInternalConversation && (
+                    <div className="flex justify-start items-center gap-1 w-full px-2 py-1 bg-bg-light text-muted text-xs rounded-b-lg">
+                        Support agent session — this conversation won't be visible to the customer
+                    </div>
+                )}
+                {/* Override checkbox - shown when impersonating and viewing existing customer conversation (not internal) */}
+                {!conversation?.is_internal && (isImpersonatingExistingConversation || supportOverrideEnabled) && (
+                    <div className="flex justify-start gap-1 w-full p-1 bg-warning-highlight rounded-b-lg">
                         <LemonSwitch
-                            checked={deepResearchMode}
-                            label="Think harder"
-                            disabled={threadLoading}
-                            onChange={(checked) => setDeepResearchMode(checked)}
+                            checked={supportOverrideEnabled}
+                            label="I understand this will add to the customer's conversation"
+                            onChange={(checked: boolean) => setSupportOverrideEnabled(checked)}
                             size="xxsmall"
-                            tooltip="This will make PostHog AI think harder about your question"
+                            tooltip="Support agents should create new conversations instead of using existing ones. Check this to override."
                         />
                     </div>
                 )}

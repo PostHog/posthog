@@ -71,6 +71,7 @@ export type SettingId =
     | 'autocapture-data-attributes'
     | 'date-and-time'
     | 'internal-user-filtering'
+    | 'business-model'
     | 'data-theme'
     | 'correlation-analysis'
     | 'customer-analytics-usage-metrics'
@@ -148,6 +149,7 @@ export type SettingId =
     | 'user-delete'
     | 'web-revenue-events'
     | 'core-memory'
+    | 'changelog'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'web-analytics-opt-in-pre-aggregated-tables-and-api'
@@ -159,6 +161,7 @@ export type SettingId =
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
     | 'organization-ip-anonymization-default'
+    | 'allow-impersonation'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
