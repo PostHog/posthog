@@ -900,14 +900,14 @@ export function BIScene(): JSX.Element {
                         </LemonCard>
                     )}
 
-                    {showGeneratedQuery && _queryString && numericColumns.length > 0 && !queryResponseLoading && (
+                    {showGeneratedQuery && _queryString && numericColumns.length > 0 && (
                         <ResizeHandle onStart={startHogqlResize} ariaLabel="Resize generated HogQL" />
                     )}
 
-                    {numericColumns.length > 0 && selectedFields.length > 0 && !queryResponseLoading && (
+                    {numericColumns.length > 0 && selectedFields.length > 0 && (
                         <LemonCard
                             hoverEffect={false}
-                            className="flex flex-col overflow-hidden"
+                            className="relative flex flex-col overflow-hidden"
                             style={{ minHeight: MIN_RESIZABLE_HEIGHT, height: chartHeight, maxHeight: maxChartHeight }}
                         >
                             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -941,10 +941,16 @@ export function BIScene(): JSX.Element {
                                     <div className="text-muted">Add columns to see a chart.</div>
                                 )}
                             </div>
+
+                            {queryResponseLoading && (
+                                <div className="absolute inset-0 bg-bg-3000/70 backdrop-blur-xs flex items-center justify-center">
+                                    <Spinner />
+                                </div>
+                            )}
                         </LemonCard>
                     )}
 
-                    {numericColumns.length > 0 && selectedFields.length > 0 && !queryResponseLoading && (
+                    {numericColumns.length > 0 && selectedFields.length > 0 && (
                         <ResizeHandle onStart={startChartResize} ariaLabel="Resize chart" />
                     )}
 
