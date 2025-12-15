@@ -8,15 +8,14 @@ with truncation and interactive markers for frontend display.
 
 import json
 import base64
-import random
 from typing import Any, TypedDict
 
 from .constants import (
-    CHUNK_SIZE_LINES,
     DEFAULT_TRUNCATE_BUFFER,
     MAX_UNABLE_TO_PARSE_REPR_LENGTH,
     MAX_UNPARSED_DISPLAY_LENGTH,
     PRESERVE_HEADER_LINES,
+    SAMPLED_VIEW_HEADER,
 )
 
 
@@ -62,131 +61,81 @@ def add_line_numbers(text: str) -> str:
     return "\n".join(numbered_lines)
 
 
-def _extract_line_number(line: str) -> str | None:
-    """Extract line number from a line like 'L001: content' -> 'L001'."""
-    if line.startswith("L") and ": " in line[:12]:
-        prefix_end = line.index(": ")
-        return line[:prefix_end]
-    return None
-
-
-def _make_chunk_marker(start_line: str | None, end_line: str | None, num_lines: int) -> str:
-    """Create a marker for a dropped chunk of lines."""
-    if start_line and end_line and start_line != end_line:
-        return f"{start_line}-{end_line}: [...{num_lines} lines...]"
-    elif start_line:
-        return f"{start_line}: [...{num_lines} lines...]"
-    else:
-        return f"[...{num_lines} lines...]"
-
-
-def reduce_by_dropping_chunks(
+def reduce_by_uniform_sampling(
     text: str,
     max_length: int,
     preserve_header_lines: int = PRESERVE_HEADER_LINES,
-    chunk_size: int = CHUNK_SIZE_LINES,
-) -> tuple[str, int]:
+) -> str:
     """
-    Reduce text to fit within max_length by randomly dropping chunks of lines.
+    Reduce text to fit within max_length by uniformly sampling lines.
 
-    Groups lines into chunks and randomly drops entire chunks, replacing each
-    with a single compact marker. This is more efficient than dropping individual
-    lines since one marker replaces multiple lines.
+    Keeps every Nth line to achieve the target size, preserving line numbers
+    so gaps in the sequence indicate omitted content. A header note explains
+    the sampling ratio.
 
     Args:
         text: Text with line numbers (L001:, L002:, etc.)
         max_length: Maximum allowed length in characters
         preserve_header_lines: Number of lines at the start to never drop
-        chunk_size: Number of lines per chunk (default: 3)
 
     Returns:
-        Tuple of (reduced_text, lines_dropped_count)
+        Sampled text with header note explaining sampling ratio
     """
     if len(text) <= max_length:
-        return text, 0
+        return text
 
     lines = text.split("\n")
     total_lines = len(lines)
 
     if total_lines <= preserve_header_lines:
-        return text, 0
+        return text
 
-    # Get lines after header
     header_lines = lines[:preserve_header_lines]
-    droppable_lines = lines[preserve_header_lines:]
+    body_lines = lines[preserve_header_lines:]
 
-    if not droppable_lines:
-        return text, 0
+    if not body_lines:
+        return text
 
-    # Group lines into chunks, tracking which chunks are already markers
-    chunks: list[tuple[list[str], bool]] = []  # (lines, is_already_marker)
-    for i in range(0, len(droppable_lines), chunk_size):
-        chunk_lines = droppable_lines[i : i + chunk_size]
-        # A chunk is already a marker if it's a single line containing our marker pattern
-        is_marker = len(chunk_lines) == 1 and "[..." in chunk_lines[0] and "lines...]" in chunk_lines[0]
-        chunks.append((chunk_lines, is_marker))
+    sample_header_template_size = len(SAMPLED_VIEW_HEADER.format(percent=100, total=total_lines)) + 1
 
-    # Find chunks that can be dropped (not already markers)
-    droppable_chunk_indices = [i for i, (_, is_marker) in enumerate(chunks) if not is_marker]
+    header_text = "\n".join(header_lines)
+    header_size = len(header_text) + 1 + sample_header_template_size
 
-    if not droppable_chunk_indices:
-        # All chunks are already markers - can't reduce further
-        return text, 0
+    available_for_body = max_length - header_size
+    if available_for_body <= 0:
+        return text
 
-    # Calculate how many characters we need to remove
-    excess_chars = len(text) - max_length
+    avg_line_length = sum(len(line) + 1 for line in body_lines) / len(body_lines)
+    target_body_lines = int(available_for_body / avg_line_length)
 
-    # Estimate savings per chunk
-    droppable_chunks = [chunks[i][0] for i in droppable_chunk_indices]
-    avg_chunk_size = sum(sum(len(line) + 1 for line in chunk) for chunk in droppable_chunks) / len(droppable_chunks)
-    marker_size = 25  # Approximate size of "[...N lines...]" marker
-    effective_savings_per_chunk = max(1, avg_chunk_size - marker_size)
+    if target_body_lines >= len(body_lines):
+        return text
 
-    # Calculate how many chunks to drop
-    chunks_to_drop = int((excess_chars / effective_savings_per_chunk) * 1.2) + 1  # 20% buffer
-    chunks_to_drop = min(chunks_to_drop, len(droppable_chunk_indices))
+    target_body_lines = max(target_body_lines, 1)
 
-    if chunks_to_drop <= 0:
-        return text, 0
+    def sample_lines(target: int) -> tuple[list[str], str, str]:
+        step = len(body_lines) / target
+        sampled = []
+        for i in range(target):
+            idx = int(i * step)
+            if idx < len(body_lines):
+                sampled.append(body_lines[idx])
+        pct = (len(sampled) / len(body_lines)) * 100
+        hdr = SAMPLED_VIEW_HEADER.format(percent=pct, total=total_lines)
+        result_lines = header_lines[:2] + [hdr] + header_lines[2:] + sampled
+        return sampled, hdr, "\n".join(result_lines)
 
-    # Randomly select which chunks to drop
-    drop_chunk_indices = set(random.sample(droppable_chunk_indices, chunks_to_drop))
+    _, _, result = sample_lines(target_body_lines)
 
-    # Build the reduced text
-    reduced_lines = list(header_lines)
-    total_lines_dropped = 0
+    max_iterations = 5
+    iteration = 0
+    while len(result) > max_length and iteration < max_iterations:
+        reduction_factor = max_length / len(result) * 0.9
+        target_body_lines = max(int(target_body_lines * reduction_factor), 1)
+        _, _, result = sample_lines(target_body_lines)
+        iteration += 1
 
-    for i, (chunk_lines, _) in enumerate(chunks):
-        if i in drop_chunk_indices:
-            # Replace chunk with a single marker
-            start_line_num = _extract_line_number(chunk_lines[0])
-            end_line_num = _extract_line_number(chunk_lines[-1]) if len(chunk_lines) > 1 else None
-            marker = _make_chunk_marker(start_line_num, end_line_num, len(chunk_lines))
-            reduced_lines.append(marker)
-            total_lines_dropped += len(chunk_lines)
-        else:
-            reduced_lines.extend(chunk_lines)
-
-    reduced_text = "\n".join(reduced_lines)
-
-    # If still too large, recurse with more aggressive dropping
-    if len(reduced_text) > max_length:
-        further_reduced, further_dropped = reduce_by_dropping_chunks(
-            reduced_text, max_length, preserve_header_lines, chunk_size
-        )
-        return further_reduced, total_lines_dropped + further_dropped
-
-    return reduced_text, total_lines_dropped
-
-
-# Keep old name as alias for backwards compatibility
-def reduce_by_dropping_lines(
-    text: str,
-    max_length: int,
-    preserve_header_lines: int = PRESERVE_HEADER_LINES,
-) -> tuple[str, int]:
-    """Alias for reduce_by_dropping_chunks for backwards compatibility."""
-    return reduce_by_dropping_chunks(text, max_length, preserve_header_lines)
+    return result
 
 
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:

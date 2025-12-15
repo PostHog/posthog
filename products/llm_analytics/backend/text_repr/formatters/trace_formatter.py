@@ -19,7 +19,7 @@ from .message_formatter import (
     add_line_numbers,
     format_input_messages,
     format_output_messages,
-    reduce_by_dropping_lines,
+    reduce_by_uniform_sampling,
     truncate_content,
 )
 
@@ -393,10 +393,10 @@ def format_trace_text_repr(
     if options and options.get("include_line_numbers", False):
         formatted_text = add_line_numbers(formatted_text)
 
-    # Apply max_length constraint by randomly dropping lines if needed
-    # Defaults to 3M chars to fit within LLM context windows
+    # Apply max_length constraint by uniformly sampling lines if needed
+    # Defaults to 2M chars to fit within LLM context windows
     max_length = options.get("max_length", DEFAULT_MAX_LENGTH) if options else DEFAULT_MAX_LENGTH
     if max_length and len(formatted_text) > max_length:
-        formatted_text, _ = reduce_by_dropping_lines(formatted_text, max_length)
+        formatted_text = reduce_by_uniform_sampling(formatted_text, max_length)
 
     return formatted_text
