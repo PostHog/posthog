@@ -199,8 +199,8 @@ class TestScheduledChange(APIBaseTest):
         assert scheduled_change.is_recurring is True
         assert scheduled_change.recurrence_interval == "weekly"
 
-    def test_non_recurring_schedule_ignores_interval(self):
-        """Test that non-recurring schedules ignore recurrence_interval"""
+    def test_non_recurring_schedule_rejects_interval(self):
+        """Test that new non-recurring schedules cannot have recurrence_interval set"""
         feature_flag = FeatureFlag.objects.create(
             team=self.team, created_by=self.user, key="non-recurring-flag", name="Non Recurring Flag"
         )
@@ -215,16 +215,16 @@ class TestScheduledChange(APIBaseTest):
                 "payload": payload,
                 "scheduled_at": "2024-01-15T09:00:00Z",
                 "is_recurring": False,
-                "recurrence_interval": "daily",  # Should be ignored
+                "recurrence_interval": "daily",  # Should be rejected
             },
         )
 
         response_data = response.json()
 
-        assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert response_data["is_recurring"] is False
-        # Interval is stored but not used when is_recurring is False
-        assert response_data["recurrence_interval"] == "daily"
+        # Creating with is_recurring=False and recurrence_interval set is not allowed
+        # This prevents accidentally creating "paused" recurring schedules
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "recurrence_interval" in response_data.get("attr", "")
 
     def test_recurring_schedule_appears_in_list(self):
         """Test that recurring schedules are returned with correct fields in list endpoint"""

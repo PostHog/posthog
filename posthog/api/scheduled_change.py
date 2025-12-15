@@ -64,8 +64,12 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"payload": "Recurring schedules only support the update_status operation."}
                 )
-        # Note: We preserve recurrence_interval when is_recurring is false
-        # This allows users to "pause" a recurring schedule and resume it later
+        # For new schedules (create), if is_recurring is false, recurrence_interval must be null
+        # We only preserve recurrence_interval when is_recurring=false for UPDATES (pausing existing schedules)
+        if not instance and not is_recurring and recurrence_interval:
+            raise serializers.ValidationError(
+                {"recurrence_interval": "Cannot set recurrence_interval when is_recurring is false for new schedules."}
+            )
 
         # Validate end_date is after scheduled_at
         end_date = data.get("end_date", getattr(instance, "end_date", None) if instance else None)
