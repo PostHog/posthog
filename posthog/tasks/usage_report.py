@@ -644,6 +644,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         FROM events
         WHERE created_at >= %(begin)s AND created_at < %(end)s
         AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+        AND NOT historical_migration
         GROUP BY team_id
         """,
         {"begin": begin, "end": end},
