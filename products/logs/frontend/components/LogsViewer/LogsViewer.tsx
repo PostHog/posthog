@@ -5,7 +5,7 @@ import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { cn } from 'lib/utils/css-classes'
 
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
@@ -27,7 +27,7 @@ export interface LogsViewerProps {
     onChangeOrderBy: (orderBy: LogsOrderBy) => void
     onRefresh?: () => void
     onLoadMore?: () => void
-    onAddFilter?: (key: string, value: string, operator?: PropertyOperator) => void
+    onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
 }
 
 export function LogsViewer({

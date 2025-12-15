@@ -326,6 +326,7 @@ export interface UserType extends UserBaseType {
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
+    allow_impersonation: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
     id: number
@@ -3234,10 +3235,20 @@ export type SurveyRawResults = SurveyResponseRow[]
 
 // Product Tours
 export interface ProductTourStep {
+    id: string
     selector: string
     /** Rich text content in tiptap JSONContent format */
     content: Record<string, any> | null
     position?: 'top' | 'bottom' | 'left' | 'right'
+}
+
+/** Tracks a snapshot of steps at a point in time for funnel analysis */
+export interface StepOrderVersion {
+    id: string
+    /** Full snapshot of steps as they existed when this version was created */
+    steps: ProductTourStep[]
+    /** When this version became active */
+    created_at: string
 }
 
 export interface ProductTourContent {
@@ -3248,6 +3259,8 @@ export interface ProductTourContent {
         urlMatchType?: 'exact' | 'contains' | 'regex'
         selector?: string
     }
+    /** History of step order changes for funnel analysis */
+    step_order_history?: StepOrderVersion[]
 }
 
 export interface ProductTour {
@@ -4248,6 +4261,8 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Action/event filter defition */
         action?: ActionFilter | null
         yAxisID?: string
+        /** Total number of respondents for survey questions (for per-respondent percentage calculation) */
+        totalResponses?: number
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
@@ -4659,6 +4674,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'llm_provider_key'
     | 'logs'
     | 'notebook'
     | 'organization'
@@ -5536,6 +5552,15 @@ export interface CyclotronJobFilterEvents extends CyclotronJobFilterBase {
     type: 'events'
 }
 
+export interface CyclotronJobFilterDataWarehouse extends CyclotronJobFilterBase {
+    type: 'data_warehouse'
+    uuid: string
+    table_name: string
+    id_field: string
+    timestamp_field: string
+    distinct_id_field: string
+}
+
 export interface CyclotronJobFilterActions extends CyclotronJobFilterBase {
     type: 'actions'
 }
@@ -5550,8 +5575,9 @@ export type CyclotronJobFilterPropertyFilter =
     | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
-    source?: 'events' | 'person-updates'
+    source?: 'events' | 'person-updates' | 'data-warehouse-table'
     events?: CyclotronJobFilterEvents[]
+    data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
@@ -5863,6 +5889,9 @@ export interface Conversation {
     type: ConversationType
     has_unsupported_content?: boolean
     agent_mode?: string | null
+    slack_thread_key?: string | null
+    slack_workspace_domain?: string | null
+    is_internal?: boolean
 }
 
 export interface ConversationDetail extends Conversation {

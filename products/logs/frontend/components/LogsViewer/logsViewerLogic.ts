@@ -5,7 +5,7 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -25,7 +25,7 @@ export interface LogsViewerLogicProps {
     tabId: string
     logs: ParsedLogMessage[]
     orderBy: LogsOrderBy
-    onAddFilter?: (key: string, value: string, operator?: PropertyOperator) => void
+    onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
@@ -67,7 +67,12 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         setLogs: (logs: ParsedLogMessage[]) => ({ logs }),
 
         // Filter actions (emits to parent via props callback)
-        addFilter: (key: string, value: string, operator?: PropertyOperator) => ({ key, value, operator }),
+        addFilter: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => ({
+            key,
+            value,
+            operator,
+            type,
+        }),
 
         // Attribute breakdowns (per-log)
         toggleAttributeBreakdown: (logId: string, attributeKey: string) => ({ logId, attributeKey }),
@@ -235,8 +240,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 actions.resetCursor()
             }
         },
-        addFilter: ({ key, value, operator }) => {
-            props.onAddFilter?.(key, value, operator)
+        addFilter: ({ key, value, operator, type }) => {
+            props.onAddFilter?.(key, value, operator, type)
         },
         toggleExpandLog: ({ logId }) => {
             // If cursor is at attribute level, check if we just collapsed the row it's in
