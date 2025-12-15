@@ -234,6 +234,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             queryInput,
             viewId,
         }),
+        syncUrlWithQuery: true,
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -627,6 +628,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setInProgressViewEdit(values.activeTab.view.id, values.activeTab.view.latest_history_id)
                 }
             }
+
+            // Debounce URL sync to avoid performance issues on every keystroke
+            clearTimeout(cache.urlSyncTimeout)
+            cache.urlSyncTimeout = setTimeout(() => {
+                actions.syncUrlWithQuery()
+            }, 500)
         },
         saveDraft: async ({ queryInput, viewId }) => {
             if (values.activeTab) {
@@ -1088,7 +1095,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     }),
     tabAwareActionToUrl(({ values }) => ({
-        setQueryInput: () => {
+        syncUrlWithQuery: () => {
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
         createTab: () => {
@@ -1277,5 +1284,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } catch {}
         })
         cache.timeouts = []
+
+        // Clear URL sync debounce timeout
+        clearTimeout(cache.urlSyncTimeout)
     }),
 ])
