@@ -1,20 +1,13 @@
 use axum::{
-    extract::{Query, State},
-    http::StatusCode,
+    extract::State,
+    http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
 };
 use futures_util::stream::Stream;
-use serde::Deserialize;
 use std::convert::Infallible;
 use tracing::{error, info, warn};
 
-use crate::router::State as AppState;
-
-#[derive(Debug, Deserialize)]
-pub struct SseQueryParams {
-    #[serde(alias = "api_key", alias = "$token")]
-    pub token: Option<String>,
-}
+use crate::{api::auth::extract_bearer_token, router::State as AppState};
 
 /// SSE endpoint for real-time feature flag definition updates.
 ///
@@ -22,8 +15,8 @@ pub struct SseQueryParams {
 /// feature flags are changed for the team. The client is responsible for evaluating
 /// the flags locally using the provided definitions.
 ///
-/// Query parameters:
-/// - `token` (or `api_key` or `$token`): PostHog API token (required)
+/// Authentication:
+/// - Requires `Authorization: Bearer <token>` header with PostHog API token
 ///
 /// The endpoint:
 /// - Authenticates the token to determine the team
@@ -43,16 +36,13 @@ pub struct SseQueryParams {
 /// ```
 pub async fn feature_flags_stream(
     State(state): State<AppState>,
-    Query(params): Query<SseQueryParams>,
+    headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
-    // Extract and validate token
-    let token = match params.token {
-        Some(t) if !t.is_empty() => t,
-        _ => {
-            warn!("SSE request missing token parameter");
-            return Err(StatusCode::UNAUTHORIZED);
-        }
-    };
+    // Extract and validate token from Authorization header
+    let token = extract_bearer_token(&headers).ok_or_else(|| {
+        warn!("SSE request missing valid Authorization header");
+        StatusCode::UNAUTHORIZED
+    })?;
 
     // Authenticate token and get team
     let flag_service = crate::flags::flag_service::FlagService::new(
