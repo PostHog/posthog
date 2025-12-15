@@ -102,6 +102,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "$ai_http_status": 200 if not error else getattr(error, "status_code", 500),
                 "team_id": self.team.id,
                 "organization_id": str(self.organization.id),
+                "ai_product": "llm_gateway",
             }
 
             if response:

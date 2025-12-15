@@ -46,7 +46,6 @@ from posthog.tasks.tasks import (
     redis_heartbeat,
     refresh_activity_log_fields_cache,
     replay_count_metrics,
-    schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -414,8 +413,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 clickhouse_materialize_columns.s(),
                 name="clickhouse materialize columns",
             )
-
-        sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
 
         if playlist_counter_crontab := get_crontab(settings.PLAYLIST_COUNTER_SCHEDULE_CRON):
             sender.add_periodic_task(

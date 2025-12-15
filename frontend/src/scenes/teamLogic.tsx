@@ -307,7 +307,8 @@ export const teamLogic = kea<teamLogicType>([
         ],
         customerAnalyticsConfig: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamType): CustomerAnalyticsConfig => currentTeam.customer_analytics_config,
+            (currentTeam: TeamType): CustomerAnalyticsConfig =>
+                currentTeam?.customer_analytics_config ?? ({} as CustomerAnalyticsConfig),
         ],
     })),
     listeners(({ actions }) => ({

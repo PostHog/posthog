@@ -63,6 +63,7 @@ class UserAdmin(DjangoUserAdmin):
                     "pending_email",
                     "strapi_id",
                     "revoke_sessions_link",
+                    "allow_impersonation",
                 )
             },
         ),
@@ -91,6 +92,7 @@ class UserAdmin(DjangoUserAdmin):
         "current_organization",
         "email_verification_status",
         "revoke_sessions_link",
+        "allow_impersonation",
     ]
     ordering = ("email",)
 

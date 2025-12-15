@@ -120,6 +120,7 @@ export interface MultiQuestionForm {
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
+    /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
 }
 
@@ -320,6 +321,12 @@ export interface AssistantUpdateEvent {
     content: string
 }
 
+export interface SubagentUpdateEvent {
+    id: string
+    tool_call_id: string
+    content: AssistantToolCall
+}
+
 export enum AssistantGenerationStatusType {
     Acknowledged = 'ack',
     GenerationError = 'generation_error',
@@ -374,13 +381,14 @@ export type AssistantTool =
     | 'list_tasks'
     | 'list_task_runs'
     | 'list_repositories'
-    // Below are modes-only
+    | 'web_search'
     | 'execute_sql'
     | 'switch_mode'
     | 'summarize_sessions'
     | 'filter_session_recordings'
     | 'create_insight'
     | 'create_form'
+    | 'task'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -393,6 +401,7 @@ export enum SlashCommandName {
     SlashRemember = '/remember',
     SlashUsage = '/usage',
     SlashFeedback = '/feedback',
+    SlashTicket = '/ticket',
 }
 
 /** Exact possible `urls` keys for the `navigate` tool. */
