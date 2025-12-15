@@ -17,15 +17,17 @@ from posthog.schema import (
     PersonsOnEventsMode,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, _add_foreign_key_lazy_joins
+from posthog.hogql.database.database import Database, _add_foreign_key_lazy_joins, _foreign_key_join_function
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
     FieldTraverser,
     IntegerDatabaseField,
     LazyJoin,
+    LazyJoinToAdd,
     LazyTable,
     StringDatabaseField,
     Table,
@@ -1306,6 +1308,36 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             context,
             dialect="clickhouse",
         )
+
+    def test_foreign_key_lazy_join_uses_target_table_in_subquery(self):
+        join_table = Table(name="postgres.posthog_team", fields={"id": IntegerDatabaseField(name="id")})
+
+        lazy_join = LazyJoin(
+            from_field=["team_id"],
+            to_field=["id"],
+            join_table=join_table,
+            join_function=_foreign_key_join_function(["team_id"], ["id"]),
+        )
+
+        join_to_add = LazyJoinToAdd(
+            from_table="postgres__posthog_dashboarditem",
+            to_table="postgres__posthog_dashboarditem__team",
+            lazy_join=lazy_join,
+            lazy_join_type=ast.LazyJoinType(
+                table_type=ast.TableType(table=join_table),
+                field="team",
+                lazy_join=lazy_join,
+            ),
+            fields_accessed={"name": ["name"]},
+        )
+
+        join_expr = lazy_join.join_function(
+            join_to_add, HogQLContext(team_id=self.team.pk, enable_select_queries=True), ast.SelectQuery()
+        )
+
+        assert isinstance(join_expr.table, ast.SelectQuery)
+        assert isinstance(join_expr.table.select_from, ast.JoinExpr)
+        assert join_expr.table.select_from.table.chain == ["postgres", "posthog_team"]
 
     def test_database_serialization_handles_invalid_sources_gracefully(self):
         """Test that serialization continues even with sources that have invalid prefixes."""

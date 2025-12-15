@@ -1519,6 +1519,14 @@ def _foreign_key_join_function(
     from_field: list[str | int], to_field: list[str | int]
 ) -> Callable[[LazyJoinToAdd, HogQLContext, ast.SelectQuery], ast.JoinExpr]:
     def _join_function(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery):
+        join_table = join_to_add.lazy_join.resolve_table(context)
+
+        join_table_chain: list[str | int]
+        if isinstance(join_table.name, str):
+            join_table_chain = join_table.name.split(".")
+        else:
+            join_table_chain = [join_to_add.to_table]
+
         if not join_to_add.fields_accessed:
             raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
 
@@ -1531,7 +1539,7 @@ def _foreign_key_join_function(
                     ast.Alias(alias=alias, expr=ast.Field(chain=chain))
                     for alias, chain in join_to_add.fields_accessed.items()
                 ],
-                select_from=ast.JoinExpr(table=ast.Field(chain=[join_to_add.to_table])),
+                select_from=ast.JoinExpr(table=ast.Field(chain=join_table_chain)),
             ),
             join_type="LEFT JOIN",
             alias=join_to_add.to_table,
