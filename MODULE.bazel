@@ -1,6 +1,6 @@
 module(name = "posthog", version = "0.0.1")
 
-bazel_dep(name = "platforms", version = "0.0.10")
+bazel_dep(name = "platforms", version = "0.0.11")
 bazel_dep(name = "aspect_rules_py", version = "1.6.6")
 bazel_dep(name = "rules_python", version = "1.4.0")
 bazel_dep(name = "rules_python_gazelle_plugin", version = "1.4.0")

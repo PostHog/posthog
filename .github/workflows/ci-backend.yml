@@ -191,6 +191,10 @@ jobs:
                   chmod +x target-determinator.linux.amd64
                   sudo mv target-determinator.linux.amd64 /usr/local/bin/target-determinator
 
+            - name: Generate requirements_lock.txt for Bazel
+              if: steps.check-bazel.outputs.has_products == 'true'
+              run: bazel run //:requirements.update
+
             - name: Determine affected targets
               id: determine
               run: |
