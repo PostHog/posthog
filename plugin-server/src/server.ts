@@ -1,4 +1,5 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
+import * as Pyroscope from '@pyroscope/nodejs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
@@ -15,6 +16,7 @@ import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membersh
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
@@ -76,6 +78,7 @@ export class PluginServer {
 
         this.expressApp = setupExpressApp()
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
+        this.setupContinuousProfiling()
     }
 
     private setupPodTermination(): void {
@@ -200,6 +203,14 @@ export class PluginServer {
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.cdpDataWarehouseEvents) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpDatawarehouseEventsConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -395,5 +406,61 @@ export class PluginServer {
         logger.info('💤', ' Shutting down completed. Exiting...')
 
         process.exit(error ? 1 : 0)
+    }
+
+    private setupContinuousProfiling(): void {
+        if (!this.config.CONTINUOUS_PROFILING_ENABLED) {
+            logger.info('Continuous profiling is disabled')
+            return
+        }
+
+        if (!this.config.PYROSCOPE_SERVER_ADDRESS) {
+            logger.warn('Continuous profiling is enabled but PYROSCOPE_SERVER_ADDRESS is empty, skipping')
+            return
+        }
+
+        try {
+            const tags = this.collectK8sTags()
+
+            Pyroscope.init({
+                serverAddress: this.config.PYROSCOPE_SERVER_ADDRESS,
+                appName: this.config.PYROSCOPE_APPLICATION_NAME || 'plugin-server',
+                tags,
+            })
+
+            Pyroscope.start()
+            logger.info('Continuous profiling started', {
+                serverAddress: this.config.PYROSCOPE_SERVER_ADDRESS,
+                appName: this.config.PYROSCOPE_APPLICATION_NAME || 'plugin-server',
+                tags,
+            })
+        } catch (error) {
+            logger.error('Failed to start continuous profiling', { error })
+        }
+    }
+
+    private collectK8sTags(): Record<string, string> {
+        // K8s metadata environment variables for Pyroscope tags
+        const k8sTagEnvVars: Record<string, string> = {
+            namespace: 'K8S_NAMESPACE',
+            pod: 'K8S_POD_NAME',
+            node: 'K8S_NODE_NAME',
+            pod_template_hash: 'K8S_POD_TEMPLATE_HASH',
+            app_instance: 'K8S_APP_INSTANCE',
+            app: 'K8S_APP',
+            container: 'K8S_CONTAINER_NAME',
+            controller_type: 'K8S_CONTROLLER_TYPE',
+        }
+
+        const tags: Record<string, string> = { src: 'SDK' }
+        for (const [tagName, envVar] of Object.entries(k8sTagEnvVars)) {
+            const value = process.env[envVar]
+            if (value) {
+                tags[tagName] = value
+            } else {
+                logger.warn(`K8s tag ${tagName} not set (env var ${envVar} is empty)`)
+            }
+        }
+        return tags
     }
 }

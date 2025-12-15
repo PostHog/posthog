@@ -51,7 +51,7 @@ class SlashCommandHandlerNode(AssistantNode):
         command_instance = command_class(self._team, self._user)
         return await command_instance.execute(config, state)
 
-    def router(self, state: AssistantState) -> AssistantNodeName | list[Send]:
+    async def arouter(self, state: AssistantState) -> AssistantNodeName | list[Send]:
         """
         Route based on whether a slash command was detected.
 
@@ -71,9 +71,9 @@ class SlashCommandHandlerNode(AssistantNode):
         ]
 
         # Check if memory onboarding should run instead
-        memory_onboarding_should_run = MemoryOnboardingNode(self._team, self._user).should_run_onboarding_at_start(
-            state
-        )
+        memory_onboarding_should_run = await MemoryOnboardingNode(
+            self._team, self._user
+        ).should_run_onboarding_at_start(state)
         if memory_onboarding_should_run == "memory_onboarding":
             send_list = [Send(AssistantNodeName.MEMORY_ONBOARDING, state)]
 

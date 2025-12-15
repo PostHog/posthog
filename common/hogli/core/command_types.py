@@ -81,6 +81,7 @@ class Command:
         self.name = name
         self.config = config
         self.description = config.get("description", "")
+        self.env = config.get("env", {})
 
     def get_underlying_command(self) -> str:
         """Get the underlying command being executed. Override in subclasses."""
@@ -179,7 +180,7 @@ class BinScriptCommand(Command):
 
     def execute(self, *args: str) -> None:
         """Execute the script with any passed arguments."""
-        _run([str(self.script_path), *args])
+        _run([str(self.script_path), *args], env=self.env)
 
 
 class DirectCommand(Command):
@@ -222,11 +223,11 @@ class DirectCommand(Command):
                 # Pass args as positional parameters: _ is placeholder for $0, then actual args as $1, $2, etc.
                 escaped_args = " ".join(shlex.quote(arg) for arg in args)
                 cmd_str = f"sh -c {shlex.quote(cmd_str)} _ {escaped_args}"
-            _run(cmd_str, shell=True)
+            _run(cmd_str, shell=True, env=self.env)
         else:
             # Use list format for simple commands without shell operators
             # Use shlex.split() to properly handle quoted arguments
-            _run([*shlex.split(cmd_str), *args])
+            _run([*shlex.split(cmd_str), *args], env=self.env)
 
 
 class CompositeCommand(Command):
@@ -275,8 +276,8 @@ class CompositeCommand(Command):
                 # Always pass --yes to child commands if parent was confirmed
                 # This ensures children don't prompt again even if they require confirmation
                 if confirmed:
-                    _run([bin_hogli, step, "--yes"])
+                    _run([bin_hogli, step, "--yes"], env=self.env)
                 else:
-                    _run([bin_hogli, step])
+                    _run([bin_hogli, step], env=self.env)
             except SystemExit:
                 raise

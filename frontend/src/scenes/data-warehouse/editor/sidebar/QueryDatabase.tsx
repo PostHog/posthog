@@ -111,7 +111,7 @@ export const QueryDatabase = (): JSX.Element => {
                                             'drafts',
                                             'unsaved-folder',
                                             'endpoints',
-                                        ].includes(item.record?.type) && 'font-bold',
+                                        ].includes(item.record?.type) && 'font-semibold',
                                         item.record?.type === 'column' && 'font-mono text-xs',
                                         'truncate'
                                     )}

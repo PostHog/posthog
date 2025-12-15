@@ -2,10 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { dayjs } from 'lib/dayjs'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
 
@@ -30,6 +32,7 @@ export function IntegrationView({
 
     const isGitHub = integration.kind === 'github'
     const repositories = isGitHub ? getGitHubRepositories(integration.id) : []
+    const refreshedAtTimestamp = integration.config?.refreshed_at || null
 
     useEffect(() => {
         if (isGitHub) {
@@ -58,16 +61,31 @@ export function IntegrationView({
                     <div>
                         <div className="flex gap-2">
                             <span>
-                                Connected to <strong>{integration.display_name}</strong>
+                                {refreshedAtTimestamp ? (
+                                    <Tooltip
+                                        title={
+                                            <div className="flex gap-1 items-baseline">
+                                                Last refreshed <TZLabel time={dayjs.unix(refreshedAtTimestamp)} />
+                                            </div>
+                                        }
+                                    >
+                                        <strong className="cursor-help underline">Connected</strong>
+                                    </Tooltip>
+                                ) : (
+                                    <>Connected</>
+                                )}{' '}
+                                to <strong>{integration.display_name}</strong>
                             </span>
                         </div>
                         {integration.created_by ? (
-                            <UserActivityIndicator
-                                at={integration.created_at}
-                                by={integration.created_by}
-                                prefix="Updated"
-                                className="text-secondary"
-                            />
+                            <div className="flex items-center">
+                                <UserActivityIndicator
+                                    at={integration.created_at}
+                                    by={integration.created_by}
+                                    prefix="Created"
+                                    className="text-secondary"
+                                />
+                            </div>
                         ) : null}
                         {isGitHub && (
                             <div className="mt-1">
