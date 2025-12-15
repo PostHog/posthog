@@ -1,4 +1,5 @@
 import pytest
+from unittest import mock
 
 from django.test.client import Client as HttpClient
 
@@ -129,7 +130,28 @@ def test_list_is_partitioned_by_team(client: HttpClient, organization, team, use
     assert len(response["results"]) == 0
 
 
-def test_list_filters_workflows_destination(client: HttpClient, organization, team, user):
+@pytest.fixture
+def enable_backfilling_workflows(team):
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
+    ) as feature_enabled:
+        yield
+
+        feature_enabled.assert_any_call(
+            "backfill-workflows-destination",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
+
+
+def test_list_filters_workflows_destination(client: HttpClient, organization, team, user, enable_backfilling_workflows):
     """
     Workflows should be filtered out from the list.
     """
