@@ -273,6 +273,59 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert dashboard_join.from_field == ["dashboard_id"]
         assert dashboard_join.to_field == ["id"]
 
+    def test_add_foreign_key_lazy_joins_from_related_table(self):
+        hogql_table = HogQLDataWarehouseTable(
+            name="postgres.posthog_dashboarditem",
+            url="s3://placeholder",
+            format="CSV",
+            access_key=None,
+            access_secret=None,
+            fields={"dashboard_id": IntegerDatabaseField(name="dashboard_id")},
+            structure="`dashboard_id` String",
+            table_id="test",
+        )
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"schema": "public"},
+        )
+
+        warehouse_table = DataWarehouseTable.objects.create(
+            name="posthog_dashboarditem",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            url_pattern="s3://placeholder",
+        )
+
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="some_other_name",
+            source=source,
+            table=warehouse_table,
+            should_sync=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {"column": "dashboard_id", "target_table": "posthog_dashboard", "target_column": "id"}
+                    ]
+                }
+            },
+        )
+
+        _add_foreign_key_lazy_joins(hogql_table, warehouse_table)
+
+        dashboard_join = hogql_table.fields.get("dashboard")
+
+        assert isinstance(dashboard_join, LazyJoin)
+        assert dashboard_join.join_table == "postgres.posthog_dashboard"
+        assert dashboard_join.from_field == ["dashboard_id"]
+        assert dashboard_join.to_field == ["id"]
+
     def test_add_foreign_key_lazy_joins_direct_query_schema_metadata(self):
         hogql_table = HogQLDataWarehouseTable(
             name="posthog_activitylog",
