@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
+    IconCode2,
     IconGraph,
     IconGridMasonry,
     IconNotebook,
@@ -30,6 +31,7 @@ import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { DashboardTerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -106,6 +108,9 @@ export function DashboardHeader(): JSX.Element | null {
     const { push } = useActions(router)
 
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
+
+    const [terraformModalOpen, setTerraformModalOpen] = useState(false)
+    const terraformFeatureEnabled = useFeatureFlag('MANAGE_INSIGHTS_THROUGH_TERRAFORM')
 
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
@@ -187,6 +192,13 @@ export function DashboardHeader(): JSX.Element | null {
                     {canEditDashboard && <DuplicateDashboardModal />}
                     {canEditDashboard && <DashboardInsightColorsModal />}
                     {user?.is_staff && <DashboardTemplateEditor />}
+                    {terraformFeatureEnabled && (
+                        <DashboardTerraformExportModal
+                            isOpen={terraformModalOpen}
+                            onClose={() => setTerraformModalOpen(false)}
+                            dashboard={dashboard}
+                        />
+                    )}
                 </>
             )}
 
@@ -327,6 +339,17 @@ export function DashboardHeader(): JSX.Element | null {
                                     : []),
                             ]}
                         />
+                    )}
+
+                    {dashboard && terraformFeatureEnabled && (
+                        <ButtonPrimitive
+                            onClick={() => setTerraformModalOpen(true)}
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-manage-terraform`}
+                        >
+                            <IconCode2 />
+                            Manage with Terraform
+                        </ButtonPrimitive>
                     )}
 
                     {user?.is_staff && (
