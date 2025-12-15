@@ -18,6 +18,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
         <>
             <StepSchemaErrors />
             <HogFlowFunctionConfiguration
+                key={node.id}
                 templateId={templateId}
                 inputs={inputs}
                 setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}

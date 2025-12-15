@@ -273,6 +273,7 @@ function StepTriggerConfigurationWebhook({
                 ]}
             />
             <HogFlowFunctionConfiguration
+                key={`${workflow.id}_${action.id}_${config.type}`}
                 templateId={config.template_id}
                 inputs={config.inputs}
                 setInputs={(inputs) =>
@@ -367,7 +368,7 @@ function StepTriggerConfigurationTrackingPixel({
         workflow.id !== 'new' ? `${publicWebhooksHostOrigin()}/public/webhooks/${workflow.id}` : null
 
     const trackingPixelHtml = trackingPixelUrl
-        ? `<img 
+        ? `<img
     src="${trackingPixelUrl}.gif"
     width="1" height="1" style="display:none;" alt=""
 />`
@@ -414,6 +415,7 @@ function StepTriggerConfigurationTrackingPixel({
             />
 
             <HogFlowFunctionConfiguration
+                key={`${workflow.id}_${action.id}_${config.type}`}
                 templateId={config.template_id}
                 inputs={config.inputs}
                 setInputs={(inputs) =>
