@@ -67,7 +67,7 @@ export function MenuItems({
     const { selectedPaths: customProductsSelectedPaths } = useValues(editCustomProductsModalLogic)
 
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
-    const { checkedItems, checkedItemsCount, checkedItemCountNumeric, checkedItemsArray } = useValues(
+    const { checkedItems, checkedItemCountNumeric, checkedItemsArray } = useValues(
         projectTreeLogic(projectTreeLogicProps)
     )
 
@@ -189,7 +189,7 @@ export function MenuItems({
                         data-attr="tree-item-menu-move-checked-items-button"
                     >
                         <ButtonPrimitive menuItem>
-                            Move {pluralize(parseInt(checkedItemsCount), 'selected item')} here
+                            Move {pluralize(checkedItemCountNumeric, 'selected item')} here
                         </ButtonPrimitive>
                     </MenuItem>
                     <MenuItem
@@ -201,7 +201,7 @@ export function MenuItems({
                         data-attr="tree-item-menu-create-shortcut-button"
                     >
                         <ButtonPrimitive menuItem>
-                            Create {pluralize(parseInt(checkedItemsCount), 'shortcut')} here
+                            Create {pluralize(checkedItemCountNumeric, 'shortcut')} here
                         </ButtonPrimitive>
                     </MenuItem>
                     <MenuSeparator />
