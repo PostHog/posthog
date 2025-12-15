@@ -177,7 +177,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ),
         )
 
-        description = format_prompt_string(READ_DATA_PROMPT, **prompt_vars).strip()
+        description = format_prompt_string(READ_DATA_PROMPT, template_format="mustache", **prompt_vars).strip()
 
         return cls(
             team=team,
@@ -190,7 +190,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             context_manager=context_manager,
         )
 
-    async def _arun_impl(self, query: dict) -> tuple[str, None]:
+    async def _arun_impl(self, query: dict) -> tuple[str, ToolMessagesArtifact | None]:
         validated_query = _InternalReadDataToolArgs(query=query).query
         match validated_query:
             case ReadBillingInfo():
@@ -278,5 +278,5 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                     f"- id: {message.artifact_id}\n- name: {viz_content.name}\n- description: {viz_content.description}\n- query: {viz_content.query}"
                 )
         if len(formatted_artifacts) == 0:
-            return "No artifacts available"
-        return "\n\n".join(formatted_artifacts)
+            return "No artifacts available", None
+        return "\n\n".join(formatted_artifacts), None
