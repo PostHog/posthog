@@ -588,9 +588,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
-        self._add_launch_schedules(
-            instance, validated_data.get("scheduled_start_datetime"), validated_data.get("scheduled_end_datetime")
-        )
+        self._add_launch_schedules(instance)
 
         team = Team.objects.get(id=self.context["team_id"])
         log_activity(
@@ -721,8 +719,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._add_internal_response_sampling_filters(instance)
         self._add_launch_schedules(
             instance,
-            validated_data.get("scheduled_start_datetime"),
-            validated_data.get("scheduled_end_datetime"),
             before_update.scheduled_start_datetime,
             before_update.scheduled_end_datetime,
         )
@@ -753,15 +749,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     def _add_launch_schedules(
         self,
         instance: Survey,
-        scheduled_start_datetime: str | None,
-        scheduled_end_datetime: str | None,
-        before_update_scheduled_start_datetime: datetime | str | None,
-        before_update_scheduled_end_datetime: datetime | str | None,
+        before_update_scheduled_start_datetime: datetime | None = None,
+        before_update_scheduled_end_datetime: datetime | None = None,
     ) -> None:
         # no new launch schedules, exit early
         if (
-            scheduled_start_datetime == before_update_scheduled_start_datetime
-            and scheduled_end_datetime == before_update_scheduled_end_datetime
+            instance.scheduled_start_datetime == before_update_scheduled_start_datetime
+            and instance.scheduled_end_datetime == before_update_scheduled_end_datetime
         ):
             return
 
@@ -769,25 +763,25 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         ScheduledChange.objects.filter(model_name="Survey", record_id=instance.id, executed_at__isnull=True).delete()
 
         # create start schedule if its in the future
-        if scheduled_start_datetime and datetime.fromisoformat(scheduled_start_datetime) > datetime.now(UTC):
+        if instance.scheduled_start_datetime and instance.scheduled_start_datetime > datetime.now(UTC):
             ScheduledChange.objects.create(
                 model_name="Survey",
                 record_id=instance.id,
-                scheduled_at=scheduled_start_datetime,
+                scheduled_at=instance.scheduled_start_datetime,
                 created_by_id=self.context["request"].user.id,
                 team_id=self.context["team_id"],
-                payload={"scheduled_start_datetime": scheduled_start_datetime},
+                payload={"scheduled_start_datetime": instance.scheduled_start_datetime.isoformat()},
             )
 
         # create end schedule if its in the future
-        if scheduled_end_datetime and datetime.fromisoformat(scheduled_end_datetime) > datetime.now(UTC):
+        if instance.scheduled_end_datetime and instance.scheduled_end_datetime > datetime.now(UTC):
             ScheduledChange.objects.create(
                 model_name="Survey",
                 record_id=instance.id,
-                scheduled_at=scheduled_end_datetime,
+                scheduled_at=instance.scheduled_end_datetime,
                 created_by_id=self.context["request"].user.id,
                 team_id=self.context["team_id"],
-                payload={"scheduled_end_datetime": scheduled_end_datetime},
+                payload={"scheduled_end_datetime": instance.scheduled_end_datetime.isoformat()},
             )
 
     def _associate_actions(self, instance: Survey, conditions):

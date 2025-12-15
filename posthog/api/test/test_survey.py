@@ -1241,6 +1241,8 @@ class TestSurvey(APIBaseTest):
                     "archived": False,
                     "start_date": None,
                     "end_date": None,
+                    "scheduled_start_datetime": None,
+                    "scheduled_end_datetime": None,
                     "responses_limit": None,
                     "feature_flag_keys": [
                         {"key": "linked_flag_key", "value": None},
@@ -1351,12 +1353,12 @@ class TestSurvey(APIBaseTest):
                 "scheduled_end_datetime": "2023-05-05T12:00:00Z",
             },
             format="json",
-        ).json()
+        )
 
         assert invalid_launch_schedule_survey.status_code == status.HTTP_400_BAD_REQUEST
         assert (
             invalid_launch_schedule_survey.json()["detail"]
-            == "Scheduled end datetime must be after scheduled start datetime."
+            == "Scheduled launch time must be before scheduled end time."
         )
 
     @freeze_time("2023-05-01 12:00:00")
@@ -4877,6 +4879,8 @@ class TestAddLaunchSchedules(APIBaseTest):
         self.survey.id = 123
         self.survey.team = self.team
         self.survey.created_by = self.user
+        self.survey.scheduled_start_datetime = None
+        self.survey.scheduled_end_datetime = None
         self.context = {
             "request": MagicMock(user=self.user),
             "team_id": self.team.id,
@@ -4886,64 +4890,76 @@ class TestAddLaunchSchedules(APIBaseTest):
     @patch("posthog.api.survey.ScheduledChange.objects.create")
     @patch("posthog.api.survey.ScheduledChange.objects.filter")
     def test_no_change_in_schedule_noop(self, mock_filter, mock_create):
-        before = datetime.now(UTC).isoformat()
-        self.serializer._add_launch_schedules(self.survey, before, before, before, before)
+        before = datetime.now(UTC)
+        self.survey.scheduled_start_datetime = before
+        self.survey.scheduled_end_datetime = before
+        self.serializer._add_launch_schedules(self.survey, before, before)
         mock_filter.assert_not_called()
         mock_create.assert_not_called()
 
     @patch("posthog.api.survey.ScheduledChange.objects.create")
     @patch("posthog.api.survey.ScheduledChange.objects.filter")
     def test_null_schedule_noop(self, mock_filter, mock_create):
-        self.serializer._add_launch_schedules(self.survey, None, None, None, None)
+        self.survey.scheduled_start_datetime = None
+        self.survey.scheduled_end_datetime = None
+        self.serializer._add_launch_schedules(self.survey, None, None)
         mock_filter.assert_not_called()
         mock_create.assert_not_called()
 
     @patch("posthog.api.survey.ScheduledChange.objects.create")
     @patch("posthog.api.survey.ScheduledChange.objects.filter")
-    def test_deletes_existing_schedules_that_have_already_run(self, mock_filter, _):
-        before = (datetime.now(UTC) + timedelta(days=1)).isoformat()
-        after = (datetime.now(UTC) + timedelta(days=2)).isoformat()
+    def test_deletes_existing_schedules_that_have_not_already_run(self, mock_filter, _):
+        before = datetime.now(UTC) + timedelta(days=1)
+        after = datetime.now(UTC) + timedelta(days=2)
+        self.survey.scheduled_start_datetime = after
+        self.survey.scheduled_end_datetime = after
         mock_delete = MagicMock()
         mock_filter.return_value.delete = mock_delete
-        self.serializer._add_launch_schedules(self.survey, after, after, before, before)
+        self.serializer._add_launch_schedules(self.survey, before, before)
         mock_filter.assert_called_once_with(model_name="Survey", record_id=self.survey.id, executed_at__isnull=True)
         mock_delete.assert_called_once()
 
     @patch("posthog.api.survey.ScheduledChange.objects.create")
     @patch("posthog.api.survey.ScheduledChange.objects.filter")
     def test_does_not_create_schedules_if_dates_in_past(self, mock_filter, mock_create):
-        start = (datetime.now(UTC) - timedelta(days=3)).isoformat()
-        end = (datetime.now(UTC) - timedelta(days=2)).isoformat()
-        self.serializer._add_launch_schedules(self.survey, start, end, None, None)
+        start = datetime.now(UTC) - timedelta(days=3)
+        end = datetime.now(UTC) - timedelta(days=2)
+        self.survey.scheduled_start_datetime = start
+        self.survey.scheduled_end_datetime = end
+        self.serializer._add_launch_schedules(self.survey, None, None)
         mock_create.assert_not_called()
         mock_filter.assert_called_once_with(model_name="Survey", record_id=self.survey.id, executed_at__isnull=True)
 
     @patch("posthog.api.survey.ScheduledChange.objects.create")
     @patch("posthog.api.survey.ScheduledChange.objects.filter")
     def test_create_start_schedule(self, _, mock_create):
-        start = (datetime.now(UTC) + timedelta(days=2)).isoformat()
-        self.serializer._add_launch_schedules(self.survey, start, None, None, None)
+        start = datetime.now(UTC) + timedelta(days=2)
+        self.survey.scheduled_start_datetime = start
+        self.survey.scheduled_end_datetime = None
+        self.serializer._add_launch_schedules(self.survey, None, None)
         mock_create.assert_called_once_with(
             model_name="Survey",
             record_id=self.survey.id,
             scheduled_at=start,
             created_by_id=self.user.id,
             team_id=self.team.id,
-            payload={"scheduled_start_datetime": start},
+            payload={"scheduled_start_datetime": start.isoformat()},
         )
 
     @patch("posthog.api.survey.ScheduledChange.objects.create")
     @patch("posthog.api.survey.ScheduledChange.objects.filter")
     def test_create_end_schedule(self, _, mock_create):
-        end = (datetime.now(UTC) + timedelta(days=2)).isoformat()
-        self.serializer._add_launch_schedules(self.survey, None, end, None, None)
+        end = datetime.now(UTC) + timedelta(days=2)
+        self.survey.scheduled_start_datetime = None
+        self.survey.scheduled_end_datetime = end
+        self.serializer._add_launch_schedules(self.survey, None, None)
         mock_create.assert_called_once_with(
             model_name="Survey",
             record_id=self.survey.id,
             scheduled_at=end,
             created_by_id=self.user.id,
             team_id=self.team.id,
-            payload={"scheduled_end_datetime": end},
+            payload={"scheduled_end_datetime": end.isoformat()},
         )
 
 
@@ -4974,7 +4990,9 @@ class TestSurveyScheduledChangesDispatcher(APIBaseTest, QueryMatchingTest):
             self.survey.end_date = None
             scheduled_start_datetime = datetime.now(UTC)
             self.survey.scheduled_changes_dispatcher(
-                {"scheduled_start_datetime": scheduled_start_datetime}, user=self.user
+                {"scheduled_start_datetime": scheduled_start_datetime.isoformat()},
+                user=self.user,
+                scheduled_change_id=1,
             )
 
             self.survey_serializer.assert_not_called()
@@ -4987,7 +5005,9 @@ class TestSurveyScheduledChangesDispatcher(APIBaseTest, QueryMatchingTest):
         ):
             self.survey.end_date = datetime.now(UTC)
             scheduled_end_datetime = datetime.now(UTC)
-            self.survey.scheduled_changes_dispatcher({"scheduled_end_datetime": scheduled_end_datetime}, user=self.user)
+            self.survey.scheduled_changes_dispatcher(
+                {"scheduled_end_datetime": scheduled_end_datetime.isoformat()}, user=self.user, scheduled_change_id=2
+            )
             self.survey_serializer.assert_not_called()
             mock_report_user_action.assert_not_called()
 
@@ -5000,19 +5020,24 @@ class TestSurveyScheduledChangesDispatcher(APIBaseTest, QueryMatchingTest):
             self.survey.start_date = None
             self.survey.end_date = datetime.now(UTC)
 
+            new_start_date = datetime.now(UTC)
+
             def _save_side_effect():
-                self.survey.start_date = scheduled_start_datetime
+                self.survey.start_date = new_start_date
                 self.survey.end_date = None
 
             self.instantiated_survey_serializer.save.side_effect = _save_side_effect
 
-            self.survey.scheduled_changes_dispatcher(
-                {"scheduled_start_datetime": scheduled_start_datetime}, user=self.user
-            )
+            with patch("posthog.models.surveys.survey.timezone.now", return_value=new_start_date):
+                self.survey.scheduled_changes_dispatcher(
+                    {"scheduled_start_datetime": scheduled_start_datetime.isoformat()},
+                    user=self.user,
+                    scheduled_change_id=3,
+                )
 
             self.survey_serializer.assert_called_once()
             _, kwargs = self.survey_serializer.call_args
-            assert kwargs["data"] == {"start_date": scheduled_start_datetime, "end_date": None}
+            assert kwargs["data"] == {"start_date": new_start_date, "end_date": None}
             self.instantiated_survey_serializer.is_valid.assert_called_once_with(raise_exception=True)
             self.instantiated_survey_serializer.save.assert_called_once()
             mock_report_user_action.assert_called_once()
@@ -5020,6 +5045,7 @@ class TestSurveyScheduledChangesDispatcher(APIBaseTest, QueryMatchingTest):
             assert call_kwargs["team"] == self.team
             assert call_args[1] in ["survey launched", "survey resumed"]
             assert call_args[2]["trigger_source"] == "scheduled_change"
+            assert call_args[2]["scheduled_change_id"] == 3
 
     def test_end_datetime_calls_validate_and_save(self):
         with (
@@ -5029,15 +5055,22 @@ class TestSurveyScheduledChangesDispatcher(APIBaseTest, QueryMatchingTest):
             scheduled_end_datetime = datetime.now(UTC)
             self.survey.end_date = None
 
+            new_end_date = datetime.now(UTC)
+
             def _save_side_effect():
-                self.survey.end_date = scheduled_end_datetime
+                self.survey.end_date = new_end_date
 
             self.instantiated_survey_serializer.save.side_effect = _save_side_effect
 
-            self.survey.scheduled_changes_dispatcher({"scheduled_end_datetime": scheduled_end_datetime}, user=self.user)
+            with patch("posthog.models.surveys.survey.timezone.now", return_value=new_end_date):
+                self.survey.scheduled_changes_dispatcher(
+                    {"scheduled_end_datetime": scheduled_end_datetime.isoformat()},
+                    user=self.user,
+                    scheduled_change_id=4,
+                )
             self.survey_serializer.assert_called_once()
             _, kwargs = self.survey_serializer.call_args
-            assert kwargs["data"] == {"end_date": scheduled_end_datetime}
+            assert kwargs["data"] == {"end_date": new_end_date}
             self.instantiated_survey_serializer.is_valid.assert_called_once_with(raise_exception=True)
             self.instantiated_survey_serializer.save.assert_called_once()
             mock_report_user_action.assert_called_once()
@@ -5045,6 +5078,7 @@ class TestSurveyScheduledChangesDispatcher(APIBaseTest, QueryMatchingTest):
             assert call_kwargs["team"] == self.team
             assert call_args[1] == "survey stopped"
             assert call_args[2]["trigger_source"] == "scheduled_change"
+            assert call_args[2]["scheduled_change_id"] == 4
 
     def test_raises_exception_if_payload_invalid(self):
         with patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}):
@@ -5052,6 +5086,8 @@ class TestSurveyScheduledChangesDispatcher(APIBaseTest, QueryMatchingTest):
                 Exception,
                 match="Payload must contain either 'scheduled_start_datetime' or 'scheduled_end_datetime' key",
             ):
-                self.survey.scheduled_changes_dispatcher({"invalid_payload_key": 123}, user=self.user)
+                self.survey.scheduled_changes_dispatcher(
+                    {"invalid_payload_key": 123}, user=self.user, scheduled_change_id=5
+                )
 
             self.survey_serializer.assert_not_called()

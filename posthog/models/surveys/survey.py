@@ -1,13 +1,14 @@
 import json
 import uuid
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 from dateutil.rrule import DAILY, rrule
 from django_deprecate_fields import deprecate_field
@@ -305,21 +306,16 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
         return None
 
-    def scheduled_changes_dispatcher(
-        self, payload, user: Optional[AbstractBaseUser] = None, scheduled_change_id: Optional[int] = None
-    ):
+    def scheduled_changes_dispatcher(self, payload, user: AbstractBaseUser, scheduled_change_id: int):
         from posthog.api.survey import SurveySerializer
         from posthog.event_usage import report_user_action
-        from posthog.models.user import User
 
         if "scheduled_start_datetime" not in payload and "scheduled_end_datetime" not in payload:
             raise Exception("Payload must contain either 'scheduled_start_datetime' or 'scheduled_end_datetime' key")
 
         http_request = HttpRequest()
-        # We kind of cheat here and set the request user to the user who created the scheduled change
-        # It's not the correct type, but it matches enough to get the job done
-        http_request.user = user or self.created_by  # type: ignore
-        http_request.method = "PATCH"  # This is a partial update, not a new creation
+        http_request.user = user
+        http_request.method = "PATCH"
         context = {
             "request": http_request,
             "team_id": self.team_id,
@@ -335,7 +331,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             if self.start_date and not self.end_date:
                 return
 
-            serializer_data["start_date"] = payload.get("scheduled_start_datetime")
+            serializer_data["start_date"] = timezone.now()
             serializer_data["end_date"] = None
 
         elif payload.get("scheduled_end_datetime"):
@@ -343,15 +339,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             if self.end_date:
                 return
 
-            serializer_data["end_date"] = payload.get("scheduled_end_datetime")
+            serializer_data["end_date"] = timezone.now()
 
         serializer = SurveySerializer(self, data=serializer_data, context=context, partial=True)
         if serializer.is_valid(raise_exception=True):
             serializer.save()
-
-        actor = user if isinstance(user, User) else None
-        if actor is None:
-            return
 
         event_payload = self.get_lifecycle_analytics_event(
             before_start_date=before_start_date,
@@ -362,7 +354,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             return
 
         event, properties = event_payload
-        report_user_action(actor, event, properties, team=self.team)
+        report_user_action(user, event, {**properties, "scheduled_change_id": scheduled_change_id}, team=self.team)
 
 
 def update_response_sampling_limits(sender, instance, **kwargs):
