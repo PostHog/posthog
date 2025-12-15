@@ -2,15 +2,15 @@ import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import type { Category, NotebookInfo } from '~/types'
-import { InsightShortId } from '~/types'
+import type { InsightShortId } from '~/types'
 
-import {
+import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
-import {
+import type {
     FunnelsQuery,
     HogQLQuery,
     QuerySchema,
@@ -24,6 +24,9 @@ import {
 
 // re-export MaxBillingContext to make it available in the schema
 export type { MaxBillingContext }
+
+// re-export QuerySchema to make it available in the schema
+export type AssistantQuerySchema = QuerySchema
 
 // Define ProsemirrorJSONContent locally to avoid exporting the TipTap type into schema.json
 // which leads to improper type naming
@@ -269,7 +272,7 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
 
 export interface VisualizationArtifactContent {
     content_type: ArtifactContentType.Visualization
-    query: AnyAssistantGeneratedQuery | QuerySchema
+    query: AnyAssistantGeneratedQuery | AssistantQuerySchema
     name?: string | null
     description?: string | null
 }
