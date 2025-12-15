@@ -34,7 +34,7 @@ async def test_build_recording_export_context_success():
     mock_record.save = MagicMock()
 
     mock_qs = MagicMock()
-    mock_qs.select_related.return_value.aget = AsyncMock(return_value=mock_record)
+    mock_qs.select_related.return_value.only.return_value.aget = AsyncMock(return_value=mock_record)
 
     with (
         patch("posthog.temporal.export_recording.activities.ExportedRecording.objects", mock_qs),
@@ -47,7 +47,8 @@ async def test_build_recording_export_context_success():
     assert result.team_id == TEST_TEAM_ID
     assert result.exported_recording_id == TEST_RECORDING_ID
     mock_qs.select_related.assert_called_once_with("team")
-    mock_qs.select_related.return_value.aget.assert_called_once_with(id=TEST_RECORDING_ID)
+    mock_qs.select_related.return_value.only.assert_called_once_with("status", "session_id", "team__id")
+    mock_qs.select_related.return_value.only.return_value.aget.assert_called_once_with(id=TEST_RECORDING_ID)
 
 
 @pytest.mark.asyncio

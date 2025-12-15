@@ -27,7 +27,11 @@ async def build_recording_export_context(input: ExportRecordingInput) -> ExportC
     logger = LOGGER.bind()
     logger.info(f"Building export context for recording {input.exported_recording_id}")
 
-    export_record = await ExportedRecording.objects.select_related("team").aget(id=input.exported_recording_id)
+    export_record = (
+        await ExportedRecording.objects.select_related("team")
+        .only("status", "session_id", "team__id")
+        .aget(id=input.exported_recording_id)
+    )
 
     export_record.status = ExportedRecording.Status.RUNNING
     await database_sync_to_async(export_record.save)(update_fields=["status"])
