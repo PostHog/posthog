@@ -4549,6 +4549,7 @@ export enum ExporterFormat {
     WEBM = 'video/webm',
     MP4 = 'video/mp4',
     GIF = 'image/gif',
+    HCL = 'text/hcl',
 }
 
 /** Exporting directly from the browser to a file */
