@@ -148,6 +148,8 @@ class OrganizationSerializer(
             "customer_id",
             "member_count",
             "default_role_id",
+            "is_active",
+            "is_not_active_reason",
         ]
         extra_kwargs = {
             "slug": {

@@ -13,9 +13,7 @@ class Migration(migrations.Migration):
             model_name="organization",
             name="is_active",
             field=models.BooleanField(
-                blank=True,
                 help_text="Set this to 'No' to temporarily disable an organization.",
-                null=True,
                 default=True,
                 verbose_name="active",
             ),
