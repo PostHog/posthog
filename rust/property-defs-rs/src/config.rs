@@ -1,10 +1,14 @@
 use std::{num::ParseIntError, str::FromStr};
 
+use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     // this maps to the original, shared CLOUD PG DB instance in production. When
     // we migrate to the new persons DB, this won't change.
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]

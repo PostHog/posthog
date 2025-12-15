@@ -67,40 +67,49 @@ export function timeoutGuard(
 
 /** If we get new UTM params, make sure we set those  **/
 export function personInitialAndUTMProperties(properties: Properties): Properties {
-    const propertiesCopy = { ...properties }
+    let $set: Record<string, any> | undefined
+    let $set_once: Record<string, any> | undefined
+    let hasPersonProps = false
 
-    const propertiesForPerson: [string, any][] = Object.entries(properties).filter(([key]) =>
-        eventToPersonProperties.has(key)
-    )
+    for (const key in properties) {
+        if (eventToPersonProperties.has(key)) {
+            const value = properties[key]
 
-    // all potential params are checked for $initial_ values and added to $set_once
-    const maybeSetOnce: [string, any][] = propertiesForPerson.map(([key, value]) => [
-        `$initial_${key.replace('$', '')}`,
-        value,
-    ])
+            if (!hasPersonProps) {
+                hasPersonProps = true
+                $set = properties.$set ? { ...properties.$set } : {}
+                $set_once = properties.$set_once ? { ...properties.$set_once } : {}
+            }
 
-    // all found are also then added to $set
-    const maybeSet: [string, any][] = propertiesForPerson
+            if (!(key in $set!)) {
+                $set![key] = value
+            }
 
-    if (maybeSet.length > 0) {
-        propertiesCopy.$set = { ...Object.fromEntries(maybeSet), ...(properties.$set || {}) }
+            const initialKey = `$initial_${key.replace('$', '')}`
+            if (!(initialKey in $set_once!)) {
+                $set_once![initialKey] = value
+            }
+        }
     }
-    if (maybeSetOnce.length > 0) {
-        propertiesCopy.$set_once = { ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }
+
+    if (!hasPersonProps) {
+        return properties
     }
 
-    if (propertiesCopy.$os_name) {
+    const result: Properties = { ...properties, $set, $set_once }
+
+    if (result.$os_name) {
         // For the purposes of $initial properties, $os_name is treated as a fallback alias of $os, starting August 2024
-        // It's as special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
-        propertiesCopy.$os ??= propertiesCopy.$os_name
-        propertiesCopy.$set.$os ??= propertiesCopy.$os_name
-        propertiesCopy.$set_once.$initial_os ??= propertiesCopy.$os_name
+        // It's a special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
+        result.$os ??= result.$os_name
+        result.$set.$os ??= result.$os_name
+        result.$set_once.$initial_os ??= result.$os_name
         // Make sure $os_name is not used in $set/$set_once, as that hasn't been a thing before
-        delete propertiesCopy.$set.$os_name
-        delete propertiesCopy.$set_once.$initial_os_name
+        delete result.$set.$os_name
+        delete result.$set_once.$initial_os_name
     }
 
-    return propertiesCopy
+    return result
 }
 
 export function hasDifferenceWithProposedNewNormalisationMode(properties: Properties): boolean {

@@ -1,5 +1,5 @@
 use std::{
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU8, AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -16,6 +16,51 @@ use metrics::gauge;
 // Global atomic counter for active connections
 static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
 
+// Shutdown status state machine
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum ShutdownStatus {
+    Unknown = 0,
+    Running = 1,
+    Prestop = 2,
+    Terminating = 3,
+    Completed = 4,
+}
+
+impl ShutdownStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Running => "running",
+            Self::Prestop => "prestop",
+            Self::Terminating => "terminating",
+            Self::Completed => "completed",
+        }
+    }
+}
+
+impl From<u8> for ShutdownStatus {
+    fn from(v: u8) -> Self {
+        match v {
+            1 => Self::Running,
+            2 => Self::Prestop,
+            3 => Self::Terminating,
+            4 => Self::Completed,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+static SHUTDOWN_STATUS: AtomicU8 = AtomicU8::new(ShutdownStatus::Running as u8);
+
+pub fn set_shutdown_status(status: ShutdownStatus) {
+    SHUTDOWN_STATUS.store(status as u8, Ordering::Relaxed);
+}
+
+pub fn get_shutdown_status() -> ShutdownStatus {
+    SHUTDOWN_STATUS.load(Ordering::Relaxed).into()
+}
+
 // Guard to ensure connection count is decremented even on panic
 struct ConnectionGuard;
 
@@ -24,7 +69,11 @@ impl Drop for ConnectionGuard {
         let connections = ACTIVE_CONNECTIONS
             .fetch_sub(1, Ordering::Relaxed)
             .saturating_sub(1);
-        gauge!(METRIC_CAPTURE_ACTIVE_CONNECTIONS).set(connections as f64);
+        gauge!(
+            METRIC_CAPTURE_ACTIVE_CONNECTIONS,
+            "shutdown_status" => get_shutdown_status().as_str()
+        )
+        .set(connections as f64);
     }
 }
 const METRIC_CAPTURE_ACTIVE_CONNECTIONS: &str = "capture_active_connections";
@@ -47,9 +96,13 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
 
     let method = req.method().clone();
 
-    // Track active connections
+    // Track active connections with shutdown status label
     let connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
-    gauge!(METRIC_CAPTURE_ACTIVE_CONNECTIONS).set(connections as f64);
+    gauge!(
+        METRIC_CAPTURE_ACTIVE_CONNECTIONS,
+        "shutdown_status" => get_shutdown_status().as_str()
+    )
+    .set(connections as f64);
     let _guard = ConnectionGuard;
 
     // Run the rest of the request handling first, so we can measure it and get response
@@ -80,6 +133,10 @@ where
 {
     if let Some(request_timeout_seconds) = request_timeout_seconds {
         let timeout_duration = Duration::from_secs(request_timeout_seconds);
+        tracing::info!(
+            "Applying request timeout middleware with duration: {:?}",
+            timeout_duration
+        );
 
         return router.layer(axum::middleware::from_fn(
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
@@ -138,5 +195,6 @@ where
     }
 
     // no timeout configured
+    tracing::info!("No request timeout middleware applied");
     router
 }

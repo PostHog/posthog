@@ -213,6 +213,7 @@ where
         token_dropper,
         config.export_prometheus,
         config.capture_mode,
+        config.otel_service_name.clone(), // this matches k8s role label in prod deploy envs
         config.concurrency_limit,
         event_max_bytes,
         config.enable_historical_rerouting,
@@ -231,11 +232,15 @@ where
         config.is_mirror_deploy,
         config.log_level
     );
-    axum::serve(
+
+    if let Err(e) = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown)
     .await
-    .unwrap()
+    {
+        tracing::error!("HTTP server graceful shutdown failed: {}", e);
+    }
+    tracing::info!("HTTP server graceful shutdown completed");
 }

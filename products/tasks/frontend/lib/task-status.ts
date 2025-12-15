@@ -13,5 +13,5 @@ export const TASK_STATUS_CONFIG: Record<
     [TaskRunStatus.IN_PROGRESS]: { status: 'primary', label: 'In progress' },
     [TaskRunStatus.COMPLETED]: { status: 'success', label: 'Completed' },
     [TaskRunStatus.FAILED]: { status: 'danger', label: 'Failed' },
-    [TaskRunStatus.CANCELLED]: { status: 'danger', label: 'CancelLed' },
+    [TaskRunStatus.CANCELLED]: { status: 'danger', label: 'Cancelled' },
 }

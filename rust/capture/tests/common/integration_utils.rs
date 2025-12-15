@@ -986,6 +986,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             TokenDropper::default(),
             false,
             unit.mode.clone(),
+            String::from("capture"),
             None,
             25 * 1024 * 1024,
             enable_historical_rerouting,
