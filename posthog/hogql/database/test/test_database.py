@@ -1241,7 +1241,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         team_join = dashboard_table.fields["team"]
         assert isinstance(team_join, LazyJoin)
-        assert team_join.join_table == "posthog_team"
+        assert team_join.join_table == "postgres.posthog_team"
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
 
