@@ -7,16 +7,27 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import IntegrityError, OperationalError, transaction
 from django.utils import timezone
 
+import structlog
 from celery import current_task
 from dateutil.relativedelta import relativedelta
+from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, ScheduledChange
+
+logger = structlog.get_logger(__name__)
 
 models = {"FeatureFlag": FeatureFlag}
 
 # Maximum number of retry attempts before marking as permanently failed
 MAX_RETRY_ATTEMPTS = 5
+
+# Prometheus metric for tracking missed scheduled executions
+SCHEDULED_CHANGE_MISSED_EXECUTIONS = Counter(
+    "posthog_scheduled_change_missed_executions_total",
+    "Number of scheduled change executions that were skipped due to delayed processing",
+    ["interval"],
+)
 
 
 def is_unrecoverable_error(exception: Exception) -> bool:
@@ -128,8 +139,25 @@ def process_scheduled_changes() -> None:
                         # If task execution was delayed and next_run is still in the past, skip ahead
                         # to avoid immediate re-trigger or missed executions piling up
                         now = timezone.now()
+                        skipped_count = 0
                         while next_run <= now:
                             next_run = compute_next_run(next_run, scheduled_change.recurrence_interval)
+                            skipped_count += 1
+
+                        # Log and track if we skipped executions due to delayed processing
+                        # (skipped_count > 1 means we skipped more than just advancing to the next run)
+                        if skipped_count > 1:
+                            missed_count = skipped_count - 1
+                            logger.warning(
+                                "Recurring schedule skipped executions due to delayed processing",
+                                scheduled_change_id=scheduled_change.id,
+                                missed_count=missed_count,
+                                interval=scheduled_change.recurrence_interval,
+                                next_run=next_run.isoformat(),
+                            )
+                            SCHEDULED_CHANGE_MISSED_EXECUTIONS.labels(
+                                interval=scheduled_change.recurrence_interval
+                            ).inc(missed_count)
 
                         # Check if end_date has passed - if so, mark as completed
                         if scheduled_change.end_date and next_run > scheduled_change.end_date:
