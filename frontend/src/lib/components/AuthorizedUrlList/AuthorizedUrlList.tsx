@@ -38,8 +38,7 @@ export function AuthorizedUrlList({
     allowAdd = true,
     allowDelete = true,
     showLaunch = true,
-    addButtonClassName,
-}: AuthorizedUrlListProps & { addText?: string; addButtonClassName?: string }): JSX.Element {
+}: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
         actionId: actionId ?? null,
@@ -74,7 +73,7 @@ export function AuthorizedUrlList({
                 </div>
             ) : allowAdd ? (
                 <LemonButton
-                    className={addButtonClassName ? addButtonClassName : 'w-full'}
+                    className="w-full"
                     onClick={newUrl}
                     type="secondary"
                     icon={<IconPlus />}

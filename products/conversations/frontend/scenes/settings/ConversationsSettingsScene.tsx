@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonColorPicker, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
-import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -15,6 +15,109 @@ import { conversationsSettingsLogic } from './conversationsSettingsLogic'
 
 export const scene: SceneExport = {
     component: ConversationsSettingsScene,
+}
+
+function ConversationsAuthorizedDomains(): JSX.Element {
+    const { conversationsDomains, isAddingDomain, editingDomainIndex, domainInputValue } =
+        useValues(conversationsSettingsLogic)
+    const { setIsAddingDomain, setDomainInputValue, saveDomain, removeDomain, startEditDomain, cancelDomainEdit } =
+        useActions(conversationsSettingsLogic)
+
+    return (
+        <div className="flex flex-col gap-2">
+            {conversationsDomains.length === 0 && !isAddingDomain && (
+                <div className="border rounded p-4 text-secondary">
+                    <p className="mb-0">
+                        <span className="font-bold">No authorized domains configured.</span>
+                        <br />
+                        The conversations widget will be displayed on all domains. Add domains to restrict where the
+                        widget can appear.
+                    </p>
+                </div>
+            )}
+
+            {(isAddingDomain || editingDomainIndex !== null) && (
+                <div className="border rounded p-2 bg-surface-primary">
+                    <div className="flex gap-2">
+                        <LemonInput
+                            autoFocus
+                            value={domainInputValue}
+                            onChange={setDomainInputValue}
+                            placeholder="https://example.com or https://*.example.com"
+                            fullWidth
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    saveDomain(domainInputValue, editingDomainIndex)
+                                } else if (e.key === 'Escape') {
+                                    cancelDomainEdit()
+                                }
+                            }}
+                        />
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={() => saveDomain(domainInputValue, editingDomainIndex)}
+                            disabledReason={!domainInputValue.trim() ? 'Enter a domain' : undefined}
+                        >
+                            Save
+                        </LemonButton>
+                        <LemonButton type="secondary" size="small" onClick={cancelDomainEdit}>
+                            Cancel
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
+
+            {!isAddingDomain && editingDomainIndex === null && (
+                <LemonButton
+                    className="max-w-80"
+                    onClick={() => setIsAddingDomain(true)}
+                    type="secondary"
+                    icon={<IconPlus />}
+                    size="small"
+                >
+                    Add authorized domain
+                </LemonButton>
+            )}
+
+            {conversationsDomains.map((domain: string, index: number) =>
+                editingDomainIndex === index ? null : (
+                    <div key={index} className="border rounded flex items-center p-2 pl-4 bg-surface-primary">
+                        <span title={domain} className="flex-1 truncate">
+                            {domain}
+                        </span>
+                        <div className="flex gap-1 shrink-0">
+                            <LemonButton
+                                icon={<IconPencil />}
+                                onClick={() => startEditDomain(index)}
+                                tooltip="Edit"
+                                size="small"
+                            />
+                            <LemonButton
+                                icon={<IconTrash />}
+                                tooltip="Remove domain"
+                                size="small"
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: <>Remove {domain}?</>,
+                                        description: 'Are you sure you want to remove this authorized domain?',
+                                        primaryButton: {
+                                            status: 'danger',
+                                            children: 'Remove',
+                                            onClick: () => removeDomain(index),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                }}
+                            />
+                        </div>
+                    </div>
+                )
+            )}
+        </div>
+    )
 }
 
 export function ConversationsSettingsScene(): JSX.Element {
@@ -95,13 +198,7 @@ export function ConversationsSettingsScene(): JSX.Element {
                                     Restrict which domains can display the conversations widget. Leave empty to allow
                                     all domains. Wildcards are supported (e.g. https://*.example.com).
                                 </p>
-                                <AuthorizedUrlList
-                                    type={AuthorizedUrlListType.CONVERSATIONS_WIDGET}
-                                    addText="Add authorized domain"
-                                    showLaunch={false}
-                                    displaySuggestions={false}
-                                    addButtonClassName="max-w-80"
-                                />
+                                <ConversationsAuthorizedDomains />
                             </div>
 
                             <div className="space-y-2 pt-8">
