@@ -7,10 +7,19 @@ use super::types::FeatureFlagEvent;
 
 type ClientSender = tokio::sync::mpsc::UnboundedSender<FeatureFlagEvent>;
 
+/// Redis Pub/Sub channel name for feature flag updates.
+///
+/// IMPORTANT: This constant MUST match the channel name in the Django model:
+/// `posthog/models/feature_flag/feature_flag.py::broadcast_feature_flag_updates_to_redis`
+///
+/// When Django saves/updates a feature flag, it publishes to this channel.
+/// This Rust service subscribes to the same channel to receive updates.
+const FEATURE_FLAGS_REDIS_CHANNEL: &str = "feature_flags:updates";
+
 /// Manages Redis Pub/Sub subscription for SSE feature flag updates.
 ///
 /// This manager uses a single global Redis subscription for ALL teams:
-/// - One Redis connection per pod (subscribes to "feature_flags:updates")
+/// - One Redis connection per pod (subscribes to FEATURE_FLAGS_REDIS_CHANNEL)
 /// - Tracks active SSE clients by team_id
 /// - Filters and broadcasts only to clients whose team matches the event
 /// - Much more scalable than per-team subscriptions
@@ -65,11 +74,9 @@ impl SseRedisSubscriptionManager {
         let redis_url = self.redis_url.clone();
 
         tokio::spawn(async move {
-            let channel = "feature_flags:updates";
-
             info!(
                 "Attempting to subscribe to global Redis channel: {}",
-                channel
+                FEATURE_FLAGS_REDIS_CHANNEL
             );
 
             // Create a new Redis client and pub/sub connection
@@ -90,14 +97,14 @@ impl SseRedisSubscriptionManager {
             };
 
             // Subscribe to the global channel
-            if let Err(e) = pubsub_conn.subscribe(channel).await {
-                error!("Failed to subscribe to {}: {}", channel, e);
+            if let Err(e) = pubsub_conn.subscribe(FEATURE_FLAGS_REDIS_CHANNEL).await {
+                error!("Failed to subscribe to {}: {}", FEATURE_FLAGS_REDIS_CHANNEL, e);
                 return;
             }
 
             info!(
                 "Successfully subscribed to global Redis channel: {}",
-                channel
+                FEATURE_FLAGS_REDIS_CHANNEL
             );
 
             // Listen for messages
@@ -158,8 +165,8 @@ impl SseRedisSubscriptionManager {
             drop(pubsub_stream);
 
             // Unsubscribe
-            if let Err(e) = pubsub_conn.unsubscribe(channel).await {
-                error!("Failed to unsubscribe from {}: {}", channel, e);
+            if let Err(e) = pubsub_conn.unsubscribe(FEATURE_FLAGS_REDIS_CHANNEL).await {
+                error!("Failed to unsubscribe from {}: {}", FEATURE_FLAGS_REDIS_CHANNEL, e);
             }
 
             info!("Global Redis subscriber stopped");

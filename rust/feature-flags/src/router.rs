@@ -95,9 +95,7 @@ pub fn router(
 
     // Initialize SSE manager for real-time feature flag updates
     // For now, use a simple Redis URL - in production, this should come from config
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
-    let sse_manager = Arc::new(SseRedisSubscriptionManager::new(redis_url));
+    let sse_manager = Arc::new(SseRedisSubscriptionManager::new(config.redis_url.clone()));
     // Initialize IP-based rate limiter with configuration
     let ip_rate_limiter = IpRateLimiter::new(
         *config.flags_ip_rate_limit_enabled,

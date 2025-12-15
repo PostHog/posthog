@@ -5,7 +5,7 @@ use axum::{
 };
 use futures_util::stream::Stream;
 use serde::Deserialize;
-use std::{convert::Infallible, time::Duration};
+use std::convert::Infallible;
 use tracing::{error, info, warn};
 
 use crate::router::State as AppState;
@@ -30,7 +30,7 @@ pub struct SseQueryParams {
 /// - Sends connection confirmation on initial connect
 /// - Subscribes to Redis Pub/Sub for the team's feature flag updates
 /// - When a flag is updated, sends the raw flag definition data
-/// - Sends heartbeats every 30 seconds to keep the connection alive
+/// - Uses Axum's built-in keep-alive mechanism (sends comment every 15 seconds)
 /// - Cleans up subscriptions when the client disconnects
 ///
 /// Event format:
@@ -95,6 +95,7 @@ pub async fn feature_flags_stream(
     }
 
     // Create SSE stream
+    // Note: KeepAlive::default() handles connection keep-alive by sending comments every 15 seconds.
     let stream = async_stream::stream! {
         // Send connection confirmation
         yield Ok(Event::default()
@@ -102,29 +103,18 @@ pub async fn feature_flags_stream(
             .data(format!(r#"{{"team_id": {team_id}}}"#)));
 
         // Stream events from Redis
-        loop {
-            match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                Ok(Some(event)) => {
-                    // Send raw flag definition data
-                    if let Ok(data_json) = serde_json::to_string(&event.data) {
-                        yield Ok(Event::default()
-                            .event("message")
-                            .data(data_json));
-                    } else {
-                        error!("Failed to serialize flag data for team {}", team_id);
-                    }
-                }
-                Ok(None) => {
-                    // Channel closed
-                    info!("SSE channel closed for team {}", team_id);
-                    break;
-                }
-                Err(_) => {
-                    // Timeout - send heartbeat
-                    yield Ok(Event::default().comment("heartbeat"));
-                }
+        while let Some(event) = rx.recv().await {
+            // Send raw flag definition data
+            if let Ok(data_json) = serde_json::to_string(&event.data) {
+                yield Ok(Event::default()
+                    .event("message")
+                    .data(data_json));
+            } else {
+                error!("Failed to serialize flag data for team {}", team_id);
             }
         }
+
+        info!("SSE channel closed for team {}", team_id);
     };
 
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))

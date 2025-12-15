@@ -26,6 +26,15 @@ from posthog.models.utils import RootTeamMixin, UUIDModel
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
+# Redis Pub/Sub channel name for feature flag updates.
+#
+# IMPORTANT: This constant MUST match the channel name in the Rust SSE manager:
+# `rust/feature-flags/src/sse/sse_redis_manager.rs::FEATURE_FLAGS_REDIS_CHANNEL`
+#
+# When Django saves/updates a feature flag, it publishes to this channel.
+# The Rust service subscribes to the same channel to receive updates.
+FEATURE_FLAGS_REDIS_CHANNEL = "feature_flags:updates"
+
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
@@ -515,7 +524,7 @@ def broadcast_feature_flag_updates_to_redis(sender, instance, created=False, **k
         Django Signal → Redis PUBLISH (global channel) → All Rust Pods → Filter by team → SSE Clients
 
     Scalability:
-        - Uses ONE Redis channel for ALL teams: "feature_flags:updates"
+        - Uses ONE Redis channel for ALL teams (FEATURE_FLAGS_REDIS_CHANNEL)
         - Each Rust pod has ONE Redis subscription (not per-team)
         - Pods filter events in-memory by team_id
         - Much more scalable than per-team Redis subscriptions
@@ -537,10 +546,9 @@ def broadcast_feature_flag_updates_to_redis(sender, instance, created=False, **k
         # Each pod will filter and only broadcast to SSE clients for this team
         try:
             redis_client = get_client()
-            channel = "feature_flags:updates"
             message = json.dumps({"type": event_type, "data": data})
 
-            redis_client.publish(channel, message)
+            redis_client.publish(FEATURE_FLAGS_REDIS_CHANNEL, message)
             logger.info(
                 f"Published {event_type} event for flag {instance.key} (team {instance.team_id}) to global Redis channel"
             )
