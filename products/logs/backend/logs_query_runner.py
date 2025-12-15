@@ -81,10 +81,6 @@ def _generate_resource_attribute_filters(
         converted_exprs.append(converted_expr)
 
     IN_ = "NOT IN" if is_negative_filter else "IN"
-    # AND for positive filters, OR for negative filters
-    # (if you search for k8s.container.name!='contour' AND k8s.container.name!='nginx',
-    #  we change this to k8s.container.name='contour' OR k8s.container.name='nginx')
-    groupBitmapFunc = "groupBitmapOrState" if is_negative_filter else "groupBitmapAndState"
 
     # this query has two steps - the inner step filters for resource_fingerprints that match ANY attribute filter
     # e.g. if you filter on k8s.container.name='contour' and k8s.container.restart_count='0'
@@ -97,18 +93,16 @@ def _generate_resource_attribute_filters(
         f"""
         (resource_fingerprint) {IN_}
         (
-            SELECT arrayJoin(bitmapToArray({groupBitmapFunc}(resources))) FROM (
-                SELECT
-                    groupBitmapState(resource_fingerprint) as resources,
-                    {{ops}} as ops
-                FROM log_attributes
-                WHERE
-                    time_bucket >= toStartOfInterval({{date_from}},toIntervalMinute(10))
-                    AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
-                    AND {{resource_attribute_filters}} AND {{existing_filters}}
-                    AND attribute_type = 'resource'
-                    GROUP BY ops
-            )
+            SELECT
+                resource_fingerprint
+            FROM log_attributes
+            WHERE
+                time_bucket >= toStartOfInterval({{date_from}},toIntervalMinute(10))
+                AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
+                AND attribute_type = 'resource'
+                AND {{resource_attribute_filters}} AND {{existing_filters}}
+            GROUP BY resource_fingerprint
+            HAVING arrayAll(x -> x > 0, sumForEach({{ops}}))
         )
     """,
         placeholders={
