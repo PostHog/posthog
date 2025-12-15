@@ -6,7 +6,7 @@ use common_database::get_pool;
 use common_redis::MockRedisClient;
 use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
-use reqwest::header::{CONTENT_TYPE, ORIGIN};
+use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
@@ -169,7 +169,7 @@ impl ServerHandle {
             let cohort_cache = Arc::new(
                 feature_flags::cohorts::cohort_cache_manager::CohortCacheManager::new(
                     non_persons_reader.clone(),
-                    Some(config.cache_max_cohort_entries),
+                    Some(config.cohort_cache_capacity_bytes),
                     Some(config.cache_ttl_seconds),
                 ),
             );
@@ -278,37 +278,6 @@ impl ServerHandle {
             .post(format!("http://{:?}/flags", self.addr))
             .body(body)
             .header(CONTENT_TYPE, "xyz")
-            .send()
-            .await
-            .expect("failed to send request")
-    }
-
-    #[allow(dead_code)]
-    pub async fn send_flags_request_with_origin<T: Into<reqwest::Body>>(
-        &self,
-        body: T,
-        version: Option<&str>,
-        config: Option<&str>,
-        origin: &str,
-    ) -> reqwest::Response {
-        let client = reqwest::Client::new();
-        let mut url = format!("http://{}/flags", self.addr);
-        let mut params = vec![];
-        if let Some(v) = version {
-            params.push(format!("v={v}"));
-        }
-        if let Some(c) = config {
-            params.push(format!("config={c}"));
-        }
-        if !params.is_empty() {
-            url.push('?');
-            url.push_str(&params.join("&"));
-        }
-        client
-            .post(url)
-            .body(body)
-            .header(CONTENT_TYPE, "application/json")
-            .header(ORIGIN, origin)
             .send()
             .await
             .expect("failed to send request")

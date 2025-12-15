@@ -234,7 +234,6 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
 
     response.config.surveys = Some(serde_json::json!(team.surveys_opt_in.unwrap_or(false)));
     response.config.heatmaps = Some(team.heatmaps_opt_in.unwrap_or(false));
-    
     response.config.default_identified_only = Some(true);
     response.config.flags_persistence_default =
         Some(team.flags_persistence_default.unwrap_or(false));
