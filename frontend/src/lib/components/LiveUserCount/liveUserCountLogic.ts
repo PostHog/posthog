@@ -1,45 +1,52 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { liveWebAnalyticsLogicType } from './liveWebAnalyticsLogicType'
+import type { liveUserCountLogicType } from './liveUserCountLogicType'
 
-export interface StatsResponse {
+export interface LiveUserCountStats {
     users_on_product?: number
+    active_recordings?: number
 }
-export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
-    path(['scenes', 'webAnalytics', 'liveWebAnalyticsLogic']),
+
+export interface LiveUserCountLogicProps {
+    pollIntervalMs?: number
+}
+
+export const liveUserCountLogic = kea<liveUserCountLogicType>([
+    path((key) => ['lib', 'components', 'LiveUserCount', 'liveUserCountLogic', key]),
+    key((props) => props.pollIntervalMs ?? 30000),
+    props({ pollIntervalMs: 30000 } as LiveUserCountLogicProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
     })),
     actions(() => ({
         pollStats: true,
-        setLiveUserCount: ({ liveUserCount, now }: { liveUserCount: number; now: Date }) => ({
-            liveUserCount,
-            now,
-        }),
-        setNow: ({ now }: { now: Date }) => ({ now }),
+        setStats: (stats: LiveUserCountStats, now: Date) => ({ stats, now }),
+        setNow: (now: Date) => ({ now }),
         setIsHovering: (isHovering: boolean) => ({ isHovering }),
+        pauseStream: true,
+        resumeStream: true,
     })),
     reducers({
-        liveUserCount: [
-            null as number | null,
+        stats: [
+            null as LiveUserCountStats | null,
             {
-                setLiveUserCount: (_, { liveUserCount }) => liveUserCount,
+                setStats: (_, { stats }) => stats,
             },
         ],
         statsUpdatedTime: [
             null as Date | null,
             {
-                setLiveUserCount: (_, { now }) => now,
+                setStats: (_, { now }) => now,
             },
         ],
         now: [
             null as Date | null,
             {
                 setNow: (_, { now }) => now,
-                setLiveUserCount: (_, { now }) => now,
+                setStats: (_, { now }) => now,
             },
         ],
         isHovering: [
@@ -50,7 +57,9 @@ export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
         ],
     }),
     selectors({
-        liveUserUpdatedSecondsAgo: [
+        liveUserCount: [(s) => [s.stats], (stats) => stats?.users_on_product ?? null],
+        activeRecordings: [(s) => [s.stats], (stats) => stats?.active_recordings ?? null],
+        statsUpdatedSecondsAgo: [
             (s) => [s.statsUpdatedTime, s.now],
             (statsUpdatedTime: Date | null, now: Date | null) => {
                 if (!statsUpdatedTime || !now) {
@@ -58,14 +67,13 @@ export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
                 }
                 const seconds = Math.ceil((now.getTime() - statsUpdatedTime.getTime()) / 1000)
                 if (seconds < 0 || seconds >= 300) {
-                    // this should only happen if we have a bug, but be defensive and don't show anything surprising if there is a bug
                     return null
                 }
                 return seconds
             },
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         pollStats: async () => {
             try {
                 if (!values.currentTeam) {
@@ -77,19 +85,18 @@ export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
                         Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                     },
                 })
-                const data: StatsResponse = await response.json()
-                const liveUserCount = data.users_on_product || 0 // returns undefined if there are no users
-                actions.setLiveUserCount({ liveUserCount, now: new Date() })
+                const data: LiveUserCountStats = await response.json()
+                actions.setStats(data, new Date())
             } catch (error) {
                 console.error('Failed to poll stats:', error)
             }
         },
         setIsHovering: ({ isHovering }) => {
             if (isHovering) {
-                actions.setNow({ now: new Date() })
+                actions.setNow(new Date())
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {
-                        actions.setNow({ now: new Date() })
+                        actions.setNow(new Date())
                     }, 500)
                     return () => clearInterval(intervalId)
                 }, 'nowInterval')
@@ -97,21 +104,23 @@ export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
                 cache.disposables.dispose('nowInterval')
             }
         },
-    })),
-    events(({ actions, cache }) => ({
-        afterMount: () => {
-            actions.setNow({ now: new Date() })
+        pauseStream: () => {
+            cache.disposables.dispose('statsInterval')
+        },
+        resumeStream: () => {
             actions.pollStats()
-
             cache.disposables.add(() => {
                 const intervalId = setInterval(() => {
                     actions.pollStats()
-                }, 30000)
+                }, props.pollIntervalMs ?? 30000)
                 return () => clearInterval(intervalId)
             }, 'statsInterval')
         },
-        beforeUnmount: () => {
-            // Disposables handle cleanup automatically
+    })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.setNow(new Date())
+            actions.resumeStream()
         },
     })),
 ])

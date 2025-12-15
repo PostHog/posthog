@@ -400,6 +400,7 @@ export enum SlashCommandName {
     SlashRemember = '/remember',
     SlashUsage = '/usage',
     SlashFeedback = '/feedback',
+    SlashTicket = '/ticket',
 }
 
 /** Exact possible `urls` keys for the `navigate` tool. */

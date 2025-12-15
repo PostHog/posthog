@@ -116,6 +116,7 @@ core:
         steps:
             - docker:services:remove
             - docker:services:up
+            - setup:python
             - check:postgres
             - check:clickhouse
             - migrations:run
@@ -360,6 +361,8 @@ migrations:
     migrations:run:
         bin_script: migrate
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
+        env:
+            DEBUG: '1'
     migrations:check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them
@@ -511,6 +514,19 @@ tools:
         description: 'TODO: add description for start-llm-gateway'
         hidden: true
 utilities:
+    nuke:
+        steps:
+            - name: announce
+              cmd: say -v 'Samantha' 'Nuclear launch detected' 2>/dev/null || true
+            - name: node_modules
+              cmd: rm -rf **/node_modules
+            - name: python venvs
+              cmd: rm -rf .venv .flox/cache/venv && uv sync --active
+            - name: rust builds
+              cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
+            - dev:reset
+        description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
+        destructive: true
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
@@ -544,3 +560,6 @@ environment:
         cmd: flox activate
         description: Enter Flox development environment shell.
         hidden: true
+    setup:python:
+        cmd: uv sync --active
+        description: Install Python dependencies to active virtual environment

@@ -14,6 +14,7 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { UrlTriggerConfig } from 'lib/components/Triggers/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
@@ -326,6 +327,7 @@ export interface UserType extends UserBaseType {
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
+    allow_impersonation: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
     id: number
@@ -611,8 +613,8 @@ export interface TeamType extends TeamBasicType {
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
-    session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
-    session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
+    session_recording_url_trigger_config?: UrlTriggerConfig[]
+    session_recording_url_blocklist_config?: UrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
     session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
@@ -4547,6 +4549,7 @@ export enum ExporterFormat {
     WEBM = 'video/webm',
     MP4 = 'video/mp4',
     GIF = 'image/gif',
+    HCL = 'text/hcl',
 }
 
 /** Exporting directly from the browser to a file */
@@ -5779,11 +5782,6 @@ export type AppMetricsV2RequestParams = {
     kind?: string
     interval?: 'hour' | 'day' | 'week'
     breakdown_by?: 'name' | 'kind'
-}
-
-export type SessionReplayUrlTriggerConfig = {
-    url: string
-    matching: 'regex'
 }
 
 export type ReplayTemplateType = {
