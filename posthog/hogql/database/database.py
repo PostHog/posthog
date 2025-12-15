@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.core.cache import cache
 from django.db.models import Prefetch, Q
 
 import structlog
@@ -159,6 +160,57 @@ type DatabaseSchemaTable = (
     | DatabaseSchemaManagedViewTable
     | DatabaseSchemaEndpointTable
 )
+
+
+@dataclasses.dataclass
+class DirectQuerySchemaInfo:
+    name: str
+    columns: list[dict[str, str]]
+    foreign_keys: list[dict[str, str]]
+    schema_metadata: dict[str, Any] | None
+    source_type: str
+    prefix: str | None
+    pg_schema: str
+
+
+DIRECT_QUERY_CACHE_TTL_SECONDS = 60
+
+
+def _get_direct_query_schema_info(team: "Team") -> list[DirectQuerySchemaInfo]:
+    cache_key = f"hogql_direct_query_schemas_{team.pk}"
+    cached = cache.get(cache_key)
+
+    if cached is not None:
+        return [DirectQuerySchemaInfo(**entry) for entry in cached]
+
+    direct_query_schemas = (
+        ExternalDataSchema.objects.select_related("source")
+        .filter(
+            team_id=team.pk,
+            source__is_direct_query=True,
+            deleted=False,
+        )
+        .exclude(source__deleted=True)
+        .all()
+    )
+
+    schema_info = [
+        DirectQuerySchemaInfo(
+            name=dq_schema.name,
+            columns=dq_schema.columns or [],
+            foreign_keys=dq_schema.foreign_keys or [],
+            schema_metadata=dq_schema.schema_metadata,
+            source_type=dq_schema.source.source_type,
+            prefix=dq_schema.source.prefix,
+            pg_schema=dq_schema.source.job_inputs.get("schema", "public") if dq_schema.source.job_inputs else "public",
+        )
+        for dq_schema in direct_query_schemas
+    ]
+
+    cache.set(cache_key, [dataclasses.asdict(info) for info in schema_info], DIRECT_QUERY_CACHE_TTL_SECONDS)
+
+    return schema_info
+
 
 logger = structlog.get_logger(__name__)
 
@@ -1066,23 +1118,13 @@ class Database(BaseModel):
         with timings.measure("direct_query_tables"):
             from posthog.hogql.database.postgres_table import PostgresTable
 
-            direct_query_schemas = (
-                ExternalDataSchema.objects.select_related("source")
-                .filter(
-                    team_id=team.pk,
-                    source__is_direct_query=True,
-                    deleted=False,
-                )
-                .exclude(source__deleted=True)
-                .all()
-            )
+            direct_query_schemas = _get_direct_query_schema_info(team)
 
             for dq_schema in direct_query_schemas:
                 try:
-                    dq_source = dq_schema.source
-                    source_type = dq_source.source_type
-                    prefix = dq_source.prefix
-                    pg_schema = dq_source.job_inputs.get("schema", "public") if dq_source.job_inputs else "public"
+                    source_type = dq_schema.source_type
+                    prefix = dq_schema.prefix
+                    pg_schema = dq_schema.pg_schema
 
                     # Build table_key using the same logic as regular warehouse tables
                     if prefix is not None and isinstance(prefix, str) and prefix != "":
@@ -1556,7 +1598,9 @@ def _foreign_key_join_function(
     return _join_function
 
 
-def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehouseTable | ExternalDataSchema) -> None:
+def _add_foreign_key_lazy_joins(
+    hogql_table: Table, warehouse_table: DataWarehouseTable | ExternalDataSchema | DirectQuerySchemaInfo
+) -> None:
     schemas_attr = getattr(warehouse_table, "externaldataschema_set", None)
 
     if hasattr(schemas_attr, "all"):
@@ -1567,7 +1611,9 @@ def _add_foreign_key_lazy_joins(hogql_table: Table, warehouse_table: DataWarehou
     if not schemas:
         schemas = [warehouse_table]
 
-    def _get_foreign_keys(schema: ExternalDataSchema | DataWarehouseTable) -> list[dict[str, str]] | None:
+    def _get_foreign_keys(
+        schema: ExternalDataSchema | DataWarehouseTable | DirectQuerySchemaInfo,
+    ) -> list[dict[str, str]] | None:
         foreign_keys = getattr(schema, "foreign_keys", None)
 
         if foreign_keys:
