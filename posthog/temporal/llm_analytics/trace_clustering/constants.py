@@ -54,11 +54,13 @@ COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 # Event properties
 EVENT_NAME = "$ai_trace_clusters"
 
-# Rendering type for clustering (only use detailed embeddings)
-LLMA_TRACE_DETAILED_RENDERING = "llma_trace_detailed"
-
-# Document type for LLM trace summaries
-LLMA_TRACE_DOCUMENT_TYPE = "llm-trace-summary"
+# Document type for LLM trace summaries (clustering uses detailed mode only)
+# New format includes mode suffix
+LLMA_TRACE_DOCUMENT_TYPE = "llm-trace-summary-detailed"
+# Legacy format (before mode suffix was added) - used with rendering filter
+LLMA_TRACE_DOCUMENT_TYPE_LEGACY = "llm-trace-summary"
+# Legacy rendering value for detailed summaries
+LLMA_TRACE_RENDERING_LEGACY = "llma_trace_detailed"
 
 # Product for LLM trace summaries (matches sorting key in posthog_document_embeddings)
 LLMA_TRACE_PRODUCT = "llm-analytics"

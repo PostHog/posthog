@@ -128,7 +128,9 @@ class TraceSummary(TypedDict):
 
 # Type aliases for data access
 TraceId = str
+BatchRunId = str
 TraceEmbeddings = dict[TraceId, list[float]]
+TraceBatchRunIds = dict[TraceId, BatchRunId]  # Maps trace_id -> batch_run_id from embeddings
 TraceSummaries = dict[TraceId, TraceSummary]
 
 
@@ -167,6 +169,7 @@ class ClusteringComputeResult:
     centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid, shape (k, 2)
     probabilities: list[float]  # Cluster membership probability per sample (0 for noise)
     num_noise_points: int = 0  # Count of noise/outlier points
+    batch_run_ids: dict[str, str] = field(default_factory=dict)  # trace_id -> batch_run_id for linking to summaries
 
 
 @dataclass
@@ -197,6 +200,7 @@ class GenerateLabelsActivityInputs:
     centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid
     window_start: str
     window_end: str
+    batch_run_ids: dict[str, str] = field(default_factory=dict)  # trace_id -> batch_run_id for linking to summaries
 
 
 @dataclass
@@ -221,3 +225,4 @@ class EmitEventsActivityInputs:
     cluster_labels: dict[int, ClusterLabel]
     coords_2d: list[list[float]]  # UMAP 2D coordinates per trace
     centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid
+    batch_run_ids: dict[str, str] = field(default_factory=dict)  # trace_id -> batch_run_id for linking to summaries

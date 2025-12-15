@@ -27,6 +27,7 @@ def generate_cluster_labels(
     centroid_coords_2d: list[list[float]],
     window_start: datetime,
     window_end: datetime,
+    batch_run_ids: dict[str, str] | None = None,
 ) -> dict[int, ClusterLabel]:
     """Generate titles and descriptions for all clusters using the labeling agent.
 
@@ -41,6 +42,7 @@ def generate_cluster_labels(
         centroid_coords_2d: UMAP 2D coordinates for each centroid
         window_start: Start of time window
         window_end: End of time window
+        batch_run_ids: Dict mapping trace_id -> batch_run_id for linking to summaries
 
     Returns:
         Dict mapping cluster_id -> ClusterLabel
@@ -61,6 +63,7 @@ def generate_cluster_labels(
     all_trace_summaries = fetch_trace_summaries(
         team=team,
         trace_ids=trace_ids,
+        batch_run_ids=batch_run_ids or {},
         window_start=window_start,
         window_end=window_end,
     )

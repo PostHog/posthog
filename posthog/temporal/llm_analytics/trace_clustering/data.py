@@ -7,6 +7,8 @@ All queries are team-scoped through HogQL's automatic team filtering.
 
 from datetime import datetime
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
@@ -15,7 +17,14 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
-from posthog.temporal.llm_analytics.trace_clustering.models import TraceEmbeddings, TraceId, TraceSummaries
+from posthog.temporal.llm_analytics.trace_clustering.models import (
+    TraceBatchRunIds,
+    TraceEmbeddings,
+    TraceId,
+    TraceSummaries,
+)
+
+logger = structlog.get_logger(__name__)
 
 # AI event types to query for trace filtering (same as TracesQueryRunner)
 AI_EVENT_TYPES = ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace")
@@ -98,7 +107,7 @@ def fetch_trace_embeddings_for_clustering(
     window_end: datetime,
     max_samples: int,
     trace_filters: list[dict] | None = None,
-) -> tuple[list[TraceId], TraceEmbeddings]:
+) -> tuple[list[TraceId], TraceEmbeddings, TraceBatchRunIds]:
     """Query trace IDs and embeddings from document_embeddings table using HogQL.
 
     If trace_filters are provided, first queries for eligible trace IDs from AI events
@@ -112,7 +121,8 @@ def fetch_trace_embeddings_for_clustering(
         trace_filters: Optional property filters to scope which traces are included
 
     Returns:
-        Tuple of (list of trace IDs, dict mapping trace_id -> embedding vector)
+        Tuple of (list of trace IDs, dict mapping trace_id -> embedding vector,
+                  dict mapping trace_id -> batch_run_id for linking to summaries)
     """
     # If filters provided, first get eligible trace IDs
     eligible_trace_ids: list[TraceId] | None = None
@@ -126,19 +136,25 @@ def fetch_trace_embeddings_for_clustering(
         )
         # If no traces match filters, return early
         if not eligible_trace_ids:
-            return [], {}
+            return [], {}, {}
 
     # Build base query - add IN clause if we have eligible trace IDs
+    # We also fetch rendering to link embeddings to their source summarization run
+    # Backwards compatibility: support both old and new document type formats
+    # - New format: document_type = "llm-trace-summary-detailed" (mode in document_type, batch_run_id in rendering)
+    # - Old format: document_type = "llm-trace-summary" AND rendering = "llma_trace_detailed"
     if eligible_trace_ids:
         query = parse_select(
             """
-            SELECT document_id, embedding
+            SELECT document_id, embedding, rendering
             FROM raw_document_embeddings
             WHERE timestamp >= {start_dt}
                 AND timestamp < {end_dt}
                 AND product = {product}
-                AND document_type = {document_type}
-                AND rendering = {rendering}
+                AND (
+                    document_type = {document_type_new}
+                    OR (document_type = {document_type_legacy} AND rendering = {rendering_legacy})
+                )
                 AND length(embedding) > 0
                 AND document_id IN {eligible_ids}
             ORDER BY rand()
@@ -149,13 +165,15 @@ def fetch_trace_embeddings_for_clustering(
     else:
         query = parse_select(
             """
-            SELECT document_id, embedding
+            SELECT document_id, embedding, rendering
             FROM raw_document_embeddings
             WHERE timestamp >= {start_dt}
                 AND timestamp < {end_dt}
                 AND product = {product}
-                AND document_type = {document_type}
-                AND rendering = {rendering}
+                AND (
+                    document_type = {document_type_new}
+                    OR (document_type = {document_type_legacy} AND rendering = {rendering_legacy})
+                )
                 AND length(embedding) > 0
             ORDER BY rand()
             LIMIT {max_samples}
@@ -167,8 +185,9 @@ def fetch_trace_embeddings_for_clustering(
         "start_dt": ast.Constant(value=window_start),
         "end_dt": ast.Constant(value=window_end),
         "product": ast.Constant(value=constants.LLMA_TRACE_PRODUCT),
-        "document_type": ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE),
-        "rendering": ast.Constant(value=constants.LLMA_TRACE_DETAILED_RENDERING),
+        "document_type_new": ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE),
+        "document_type_legacy": ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY),
+        "rendering_legacy": ast.Constant(value=constants.LLMA_TRACE_RENDERING_LEGACY),
         "max_samples": ast.Constant(value=max_samples),
     }
     if eligible_ids_tuple:
@@ -184,28 +203,57 @@ def fetch_trace_embeddings_for_clustering(
 
     rows = result.results or []
 
-    # Build both in single loop to ensure trace_ids and embeddings_map are in same order
+    logger.info(
+        "fetch_trace_embeddings_for_clustering: query result",
+        num_rows=len(rows),
+        window_start=str(window_start),
+        window_end=str(window_end),
+        max_samples=max_samples,
+        sample_document_ids=[row[0] for row in rows[:5]] if rows else [],
+    )
+
+    # Build all maps in single loop to ensure trace_ids, embeddings_map, and batch_run_ids are aligned
     trace_ids: list[TraceId] = []
     embeddings_map: TraceEmbeddings = {}
+    batch_run_ids_map: TraceBatchRunIds = {}
+
+    # Legacy rendering values that are NOT batch_run_ids
+    legacy_rendering_values = {
+        constants.LLMA_TRACE_RENDERING_LEGACY,  # "llma_trace_detailed"
+        "llma_trace_minimal",  # Other legacy mode
+    }
+
     for row in rows:
         trace_id = row[0]
         trace_ids.append(trace_id)
         embeddings_map[trace_id] = row[1]
 
-    return trace_ids, embeddings_map
+        # Only store as batch_run_id if it's not a legacy rendering constant
+        # Legacy embeddings have rendering like "llma_trace_detailed"
+        # New embeddings have rendering = batch_run_id (e.g., "1_2025-12-13T...")
+        rendering_value = row[2]
+        if rendering_value and rendering_value not in legacy_rendering_values:
+            batch_run_ids_map[trace_id] = rendering_value
+
+    return trace_ids, embeddings_map, batch_run_ids_map
 
 
 def fetch_trace_summaries(
     team: Team,
     trace_ids: list[TraceId],
+    batch_run_ids: TraceBatchRunIds,
     window_start: datetime,
     window_end: datetime,
 ) -> TraceSummaries:
     """Fetch trace summaries from $ai_trace_summary events using HogQL.
 
+    Filters summaries to only return those matching the batch_run_id from the embeddings,
+    ensuring we get the summary from the same summarization run as the embedding.
+
     Args:
         team: Team object (for HogQL team-scoped queries)
         trace_ids: List of trace IDs to fetch summaries for
+        batch_run_ids: Mapping of trace_id -> batch_run_id from the embeddings query
         window_start: Start of time window
         window_end: End of time window
 
@@ -215,20 +263,26 @@ def fetch_trace_summaries(
     if not trace_ids:
         return {}
 
+    # Use a high limit to handle duplicate summary events per trace (some traces have up to 4 summaries)
+    # We'll filter by batch_run_id in Python after fetching
+    max_rows = len(trace_ids) * 5  # Allow for duplicates
+
     query = parse_select(
         """
         SELECT
-            properties.$ai_trace_id as trace_id,
+            coalesce(properties.$ai_trace_id, JSONExtractString(properties, '$ai_trace_id')) as trace_id,
             properties.$ai_summary_title as title,
             properties.$ai_summary_flow_diagram as flow_diagram,
             properties.$ai_summary_bullets as bullets,
             properties.$ai_summary_interesting_notes as interesting_notes,
-            properties.trace_timestamp as trace_timestamp
+            properties.trace_timestamp as trace_timestamp,
+            properties.$ai_batch_run_id as batch_run_id
         FROM events
         WHERE event = {event_name}
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND properties.$ai_trace_id IN {trace_ids}
+            AND coalesce(properties.$ai_trace_id, JSONExtractString(properties, '$ai_trace_id')) IN {trace_ids}
+        LIMIT {max_rows}
         """
     )
 
@@ -244,28 +298,86 @@ def fetch_trace_summaries(
                 "start_dt": ast.Constant(value=window_start),
                 "end_dt": ast.Constant(value=window_end),
                 "trace_ids": trace_ids_tuple,
+                "max_rows": ast.Constant(value=max_rows),
             },
             team=team,
         )
 
+    # Debug: log the generated clickhouse SQL
+    logger.info(
+        "fetch_trace_summaries: HogQL debug",
+        clickhouse_sql=result.clickhouse if hasattr(result, "clickhouse") else "N/A",
+        num_results=len(result.results or []),
+        window_start=str(window_start),
+        window_end=str(window_end),
+        sample_trace_ids=trace_ids[:5],
+    )
+
     rows = result.results or []
     trace_summaries: TraceSummaries = {}
-    for row in rows:
-        # trace_timestamp may be a datetime object from HogQL, convert to ISO string
-        trace_ts = row[5]
-        if trace_ts is None:
-            trace_ts_str = ""
-        elif hasattr(trace_ts, "isoformat"):
-            trace_ts_str = trace_ts.isoformat()
-        else:
-            trace_ts_str = str(trace_ts) if trace_ts else ""
+    missing_timestamp_traces: list[TraceId] = []
+    null_timestamp_raw_values: list[tuple[TraceId, str]] = []
+    skipped_wrong_batch = 0
 
-        trace_summaries[row[0]] = {
+    for row in rows:
+        trace_id = row[0]
+        summary_batch_run_id = row[6]  # $ai_batch_run_id from summary event
+
+        # Backwards compatibility: only filter if BOTH embedding and summary have batch_run_ids
+        # - Old embeddings (rendering="llma_trace_detailed") won't have batch_run_id → accept any summary
+        # - Old summaries won't have $ai_batch_run_id → accept them (can't verify match)
+        # - New embeddings + new summaries → only accept if batch_run_ids match
+        expected_batch_run_id = batch_run_ids.get(trace_id)
+        if expected_batch_run_id and summary_batch_run_id and expected_batch_run_id != summary_batch_run_id:
+            skipped_wrong_batch += 1
+            continue
+
+        # HogQL parses timestamp strings into datetime objects
+        trace_ts = row[5]
+        trace_ts_str = trace_ts.isoformat() if trace_ts else ""
+
+        if not trace_ts:
+            missing_timestamp_traces.append(trace_id)
+            null_timestamp_raw_values.append((trace_id, repr(trace_ts)))
+
+        trace_summaries[trace_id] = {
             "title": row[1],
             "flow_diagram": row[2],
             "bullets": row[3],
             "interesting_notes": row[4],
             "trace_timestamp": trace_ts_str,
         }
+
+    # Detailed debug logging
+    logger.info(
+        "fetch_trace_summaries: processing complete",
+        total_rows=len(rows),
+        skipped_wrong_batch=skipped_wrong_batch,
+        unique_trace_ids=len(trace_summaries),
+        traces_with_timestamp=len(trace_summaries) - len(missing_timestamp_traces),
+        traces_without_timestamp=len(missing_timestamp_traces),
+        null_timestamp_raw_values=null_timestamp_raw_values[:10],
+    )
+
+    # Log summary of results
+    returned_ids = set(trace_summaries.keys())
+    requested_ids = set(trace_ids)
+    missing_ids = requested_ids - returned_ids
+
+    if missing_ids:
+        logger.warning(
+            "fetch_trace_summaries: some requested traces not found in results",
+            requested_count=len(trace_ids),
+            returned_count=len(trace_summaries),
+            missing_count=len(missing_ids),
+            missing_trace_ids=list(missing_ids)[:10],  # Log first 10 to avoid huge logs
+        )
+
+    if missing_timestamp_traces:
+        logger.warning(
+            "fetch_trace_summaries: some traces have null trace_timestamp",
+            count=len(missing_timestamp_traces),
+            trace_ids=missing_timestamp_traces[:10],  # Log first 10
+        )
 
     return trace_summaries

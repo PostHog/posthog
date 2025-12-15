@@ -62,13 +62,40 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
 
     team = Team.objects.get(id=inputs.team_id)
 
-    trace_ids, embeddings_map = fetch_trace_embeddings_for_clustering(
+    trace_ids, embeddings_map, batch_run_ids_map = fetch_trace_embeddings_for_clustering(
         team=team,
         window_start=window_start,
         window_end=window_end,
         max_samples=inputs.max_samples,
         trace_filters=inputs.trace_filters if inputs.trace_filters else None,
     )
+
+    logger.info(
+        "perform_clustering_compute: fetched embeddings",
+        num_trace_ids=len(trace_ids),
+        num_embeddings=len(embeddings_map),
+        sample_trace_ids=trace_ids[:5] if trace_ids else [],
+    )
+
+    # Need at least 2 traces to perform clustering
+    if len(trace_ids) < 2:
+        logger.warning(
+            "Not enough traces for clustering",
+            trace_count=len(trace_ids),
+            team_id=inputs.team_id,
+        )
+        return ClusteringComputeResult(
+            clustering_run_id=clustering_run_id,
+            trace_ids=[],
+            labels=[],
+            centroids=[],
+            distances=[],
+            coords_2d=[],
+            centroid_coords_2d=[],
+            probabilities=[],
+            num_noise_points=0,
+            batch_run_ids={},
+        )
 
     embeddings_array = np.array(list(embeddings_map.values()))
 
@@ -167,6 +194,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         centroid_coords_2d=centroid_coords_2d.tolist(),
         probabilities=probabilities,
         num_noise_points=num_noise_points,
+        batch_run_ids=batch_run_ids_map,
     )
 
 
@@ -207,6 +235,7 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
         centroid_coords_2d=inputs.centroid_coords_2d,
         window_start=window_start,
         window_end=window_end,
+        batch_run_ids=inputs.batch_run_ids,
     )
 
     return GenerateLabelsActivityOutputs(cluster_labels=cluster_labels)
@@ -241,6 +270,7 @@ def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
         cluster_labels=inputs.cluster_labels,
         coords_2d=np.array(inputs.coords_2d),
         centroid_coords_2d=np.array(inputs.centroid_coords_2d),
+        batch_run_ids=inputs.batch_run_ids,
     )
 
     return ClusteringResult(

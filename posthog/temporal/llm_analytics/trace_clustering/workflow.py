@@ -166,6 +166,7 @@ class DailyTraceClusteringWorkflow:
                     centroid_coords_2d=compute_result.centroid_coords_2d,
                     window_start=window_start,
                     window_end=window_end,
+                    batch_run_ids=compute_result.batch_run_ids,
                 )
             ],
             start_to_close_timeout=timedelta(seconds=600),  # 10 minutes for agent run
@@ -188,6 +189,7 @@ class DailyTraceClusteringWorkflow:
                     cluster_labels=labels_result.cluster_labels,
                     coords_2d=compute_result.coords_2d,
                     centroid_coords_2d=compute_result.centroid_coords_2d,
+                    batch_run_ids=compute_result.batch_run_ids,
                 )
             ],
             start_to_close_timeout=constants.EMIT_ACTIVITY_TIMEOUT,

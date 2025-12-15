@@ -133,14 +133,16 @@ async def generate_and_save_summary_activity(
             parts.append(f"\nInteresting Notes:\n{notes_text}")
 
         summary_text = "\n".join(parts)
-        rendering = f"llma_trace_{mode}"
+        # Use batch_run_id as rendering to link embeddings to their source summarization run
+        # Use mode suffix in document_type to distinguish detailed vs minimal summaries
+        document_type_with_mode = f"{LLM_TRACES_SUMMARIES_DOCUMENT_TYPE}-{mode}"
 
         embedder = LLMTracesSummarizerEmbedder(team=team)
         embedder._embed_document(
             content=summary_text,
             document_id=trace_id,
-            document_type=LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
-            rendering=rendering,
+            document_type=document_type_with_mode,
+            rendering=batch_run_id,
             product=LLM_TRACES_SUMMARIES_PRODUCT,
         )
 

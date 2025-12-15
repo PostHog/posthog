@@ -13,6 +13,7 @@ from typing import TypedDict
 from django.utils.dateparse import parse_datetime
 
 import numpy as np
+import structlog
 
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
@@ -20,6 +21,8 @@ from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_summaries
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterData, ClusterLabel, TraceId
+
+logger = structlog.get_logger(__name__)
 
 
 class _TraceDistanceData(TypedDict):
@@ -42,6 +45,7 @@ def emit_cluster_events(
     cluster_labels: dict[int, ClusterLabel],
     coords_2d: np.ndarray,
     centroid_coords_2d: np.ndarray,
+    batch_run_ids: dict[str, str] | None = None,
 ) -> list[ClusterData]:
     """Emit $ai_trace_clusters event to ClickHouse.
 
@@ -60,6 +64,7 @@ def emit_cluster_events(
         cluster_labels: Dict mapping cluster_id -> ClusterLabel
         coords_2d: UMAP 2D coordinates for each trace, shape (n_traces, 2)
         centroid_coords_2d: UMAP 2D coordinates for each centroid, shape (n_clusters, 2)
+        batch_run_ids: Dict mapping trace_id -> batch_run_id for linking to summaries
 
     Returns:
         List of ClusterData objects emitted
@@ -73,9 +78,19 @@ def emit_cluster_events(
     if window_start_dt is None or window_end_dt is None:
         raise ValueError(f"Invalid datetime format: window_start={window_start}, window_end={window_end}")
 
+    logger.info(
+        "emit_cluster_events: window info",
+        window_start_str=window_start,
+        window_end_str=window_end,
+        window_start_dt=str(window_start_dt),
+        window_end_dt=str(window_end_dt),
+        num_trace_ids=len(trace_ids),
+    )
+
     trace_summaries = fetch_trace_summaries(
         team=team,
         trace_ids=trace_ids,
+        batch_run_ids=batch_run_ids or {},
         window_start=window_start_dt,
         window_end=window_end_dt,
     )
@@ -84,6 +99,23 @@ def emit_cluster_events(
     trace_timestamps: dict[str, str] = {
         trace_id: summary.get("trace_timestamp", "") for trace_id, summary in trace_summaries.items()
     }
+
+    # Debug logging for timestamp tracking
+    traces_with_summaries = len(trace_summaries)
+    traces_with_timestamps = sum(1 for ts in trace_timestamps.values() if ts)
+    traces_missing_summaries = len(trace_ids) - traces_with_summaries
+    traces_with_empty_timestamps = traces_with_summaries - traces_with_timestamps
+
+    logger.info(
+        "emit_cluster_events: timestamp analysis",
+        total_trace_ids=len(trace_ids),
+        traces_with_summaries=traces_with_summaries,
+        traces_missing_summaries=traces_missing_summaries,
+        traces_with_timestamps=traces_with_timestamps,
+        traces_with_empty_timestamps=traces_with_empty_timestamps,
+        sample_missing_summary_ids=list(set(trace_ids) - set(trace_summaries.keys()))[:5],
+        sample_empty_timestamp_ids=[tid for tid, ts in trace_timestamps.items() if not ts][:5],
+    )
 
     # Build clusters array with centroids and trace distances
     clusters = _build_cluster_data(
