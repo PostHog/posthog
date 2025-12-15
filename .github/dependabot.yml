@@ -5,8 +5,8 @@ updates:
       schedule:
           interval: weekly
 
-    # Python dependencies for main PostHog application
-    - package-ecosystem: 'pip'
+    # Python dependencies for main PostHog application (uv updates both pyproject.toml and uv.lock)
+    - package-ecosystem: 'uv'
       directory: '/'
       schedule:
           interval: weekly
