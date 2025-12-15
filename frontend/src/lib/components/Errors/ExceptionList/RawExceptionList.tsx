@@ -28,7 +28,7 @@ export function RawExceptionList({
         if (!hasInAppFrames) {
             setShowAllFrames(true)
         }
-    }, [hasInAppFrames, setShowAllFrames])
+    }, [hasInAppFrames])
 
     return (
         <div className={cn('flex flex-col gap-y-2', className)}>
