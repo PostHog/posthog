@@ -275,7 +275,6 @@ FROM events
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-ORDER BY timestamp
 FORMAT ArrowStream
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -542,7 +541,6 @@ FROM (
         AND (length({include_events}::Array(String)) = 0 OR event IN {include_events}::Array(String))
         AND (length({exclude_events}::Array(String)) = 0 OR event NOT IN {exclude_events}::Array(String))
         $filters
-    $order
 ) AS events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -591,7 +589,6 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    $order
 ) AS events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -639,7 +636,6 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    $order
 ) AS events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -685,7 +681,6 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    $order
 ) as events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -716,7 +711,6 @@ WHERE
     AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
     AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
     $filters
-ORDER BY timestamp
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
     max_bytes_before_external_sort=50000000000,
@@ -763,7 +757,6 @@ FROM (
         AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
         AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
         $filters
-    $order
 ) AS events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.

@@ -240,6 +240,5 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
             insert_into_kafka_activity_from_stage,
             insert_inputs,  # type: ignore[arg-type]
             interval=inputs.interval,
-            num_partitions=1,
             is_workflows=True,
         )
