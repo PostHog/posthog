@@ -292,7 +292,7 @@ class AssistantContextManager(AssistantContextMixin):
             Formatted insight string or empty string if failed
         """
         try:
-            serialized_query = insight.query.model_dump_json(exclude_none=True)
+            query_model = insight.query
 
             if dashboard_filters or insight.filtersOverride or insight.variablesOverride:
                 query_dict = insight.query.model_dump(mode="json")
@@ -306,9 +306,9 @@ class AssistantContextManager(AssistantContextMixin):
                     variables_overrides = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
                     query_dict = apply_dashboard_variables_to_dict(query_dict, variables_overrides, self._team)
 
-                serialized_query = validate_assistant_query(query_dict)
+                query_model = validate_assistant_query(query_dict)
 
-            raw_results, _ = await query_runner.arun_and_format_query(serialized_query)
+            raw_results, _ = await query_runner.arun_and_format_query(query_model)
 
             result = (
                 PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
@@ -316,7 +316,7 @@ class AssistantContextManager(AssistantContextMixin):
                     heading=heading or "",
                     name=insight.name or f"ID {insight.id}",
                     description=insight.description,
-                    query_schema=serialized_query,
+                    query_schema=insight.query.model_dump_json(exclude_none=True),
                     query=raw_results,
                 )
                 .to_string()
