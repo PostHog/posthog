@@ -2,19 +2,26 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 from products.error_tracking.backend.indexed_embedding import (
-    DOCUMENT_EMBEDDINGS_BUFFER_TABLE_SQL,
+    DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE_SQL,
+    DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE_SQL,
     DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL,
     EMBEDDING_TABLES_1,
     KAFKA_TO_BUFFER_MV_SQL,
 )
 
 operations = [
-    # Create the buffer table that receives all embeddings from Kafka
+    # Create the sharded buffer table on data nodes
     run_sql_with_exceptions(
-        DOCUMENT_EMBEDDINGS_BUFFER_TABLE_SQL(),
+        DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE_SQL(),
+        node_roles=[NodeRole.DATA],
+        sharded=True,
+    ),
+    # Create the writable distributed buffer table on ingestion nodes
+    run_sql_with_exceptions(
+        DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE_SQL(),
         node_roles=[NodeRole.INGESTION_SMALL],
     ),
-    # Create the MV that moves data from Kafka to buffer table
+    # Create the MV that moves data from Kafka to writable buffer table
     run_sql_with_exceptions(
         KAFKA_TO_BUFFER_MV_SQL(),
         node_roles=[NodeRole.INGESTION_SMALL],
@@ -54,21 +61,24 @@ for model_tables in EMBEDDING_TABLES_1:
     )
 
 # Create writable distributed tables
+# Note: These are now on data nodes since the MVs that write to them are also on data nodes
+# This keeps all buffer->model table processing local to data nodes, avoiding cross-node traffic
 for model_tables in EMBEDDING_TABLES_1:
     operations.append(
         run_sql_with_exceptions(
             model_tables.writable_table_sql(),
-            node_roles=[NodeRole.INGESTION_SMALL],
+            node_roles=[NodeRole.DATA],
         )
     )
 
-# Finally, create materialized views to start consuming from Kafka
-# These are brand new MVs so no need to drop anything first
+# Finally, create materialized views to start consuming from the buffer
+# Note: MVs are on data nodes where the buffer lives, so they read locally from the sharded buffer
+# and write locally to the model-specific sharded tables via the writable distributed tables
 for model_tables in EMBEDDING_TABLES_1:
     operations.append(
         run_sql_with_exceptions(
             model_tables.materialized_view_sql(),
-            node_roles=[NodeRole.INGESTION_SMALL],
+            node_roles=[NodeRole.DATA],
         )
     )
 

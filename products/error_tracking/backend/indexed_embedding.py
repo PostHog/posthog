@@ -1,8 +1,93 @@
 """
 Model-specific embedding tables with vector indexes.
 
-Each embedding model (e.g., 'text-embedding-1024') gets its own set of tables
-optimized for that specific vector dimension, with proper vector similarity indexes.
+Outline of pipeline here is (I've elided sharded/distributed/writable details here):
+```
+Embedding Topic
+  → Kafka Table
+    → Buffer MV (single on-off tap)
+      → Buffer Table (1 dat TTL)
+        → Model-Specific MVs (filter from buffer)
+          → Model Specific Tables (indexed, 3 month TTL, partitioned weekly)
+            → model specific document_embeddings tables (in hogql)
+              → General document_embeddings table (in hogql) (adds model_name back, dynamically routes queries)
+```
+The general structure is to have a table _per embedding model/dimensionality pair_, to allow us to use data skipping vector similarity indexes (which require the vectors in the underlying column to be all the same size). These tables also have a TTL, to keep the size of those indexes bounded, and then there's an extra buffering step so there's one place to atomically halt ingestion during table maintenance. The reason the size of those indexes needs to be bounded is because the _entire index_ needs to be held in memory when used.
+
+Then we expose a lazy table in hogql, which routes the query to the right model-specific table dynamically, on the basis of which model is being used in the `WHERE` clause of the query. This lazy table also adds a `FINAL` to the `JoinExpr`, because the `argMax` subquery approach to selecting the final version of a dataset breaks vector index usage (at least for now - I'm 99% sure the problem is the `GROUP BY` that approach necessitates, as even the example below contains a subquery, just without grouping).
+
+All of this means hogql queries like:
+```sql
+WITH embedText('Bug in session replay page', 'text-embedding-3-large-3072') as query,
+SELECT product, document_type, rendering, content, cosineDistance(embedding, query) as dist FROM document_embeddings WHERE model_name = 'text-embedding-3-large-3072' ORDER BY dist
+```
+
+Become clickhouse sql that looks like:
+```sql
+SELECT
+    document_embeddings.product AS product,
+    document_embeddings.document_type AS document_type,
+    document_embeddings.rendering AS rendering,
+    document_embeddings.content AS content,
+    cosineDistance(document_embeddings.embedding, [omitted]) AS dist
+FROM
+    (SELECT
+        distributed_posthog_document_embeddings_text_embedding_3_large_3072.product AS product,
+        distributed_posthog_document_embeddings_text_embedding_3_large_3072.document_type AS document_type,
+        distributed_posthog_document_embeddings_text_embedding_3_large_3072.rendering AS rendering,
+        distributed_posthog_document_embeddings_text_embedding_3_large_3072.content AS content,
+        distributed_posthog_document_embeddings_text_embedding_3_large_3072.embedding AS embedding,
+        'text-embedding-3-large-3072' AS model_name,
+        distributed_posthog_document_embeddings_text_embedding_3_large_3072.document_id AS document_id
+    FROM
+        distributed_posthog_document_embeddings_text_embedding_3_large_3072 FINAL
+    WHERE
+        equals(distributed_posthog_document_embeddings_text_embedding_3_large_3072.team_id, 1)) AS document_embeddings
+WHERE
+    ifNull(equals(document_embeddings.model_name, 'text-embedding-3-large-3072'), 0)
+ORDER BY
+    dist ASC
+LIMIT 101
+OFFSET 0
+```
+
+With query plans like:
+```
+Expression (Project names)
+  Limit (preliminary LIMIT (without OFFSET))
+    Sorting (Sorting for ORDER BY)
+      Expression ((Before ORDER BY + Projection))
+        Filter (((WHERE + (Change column names to column identifiers + (Change remote column names to local column names + ( + (Project names + Projection))))) + (WHERE + Change column names to column identifiers)))
+          ReadFromMergeTree (default.sharded_posthog_document_embeddings_text_embedding_3_large_3072)
+          Indexes:
+            MinMax
+              Condition: true
+              Parts: 3/3
+              Granules: 3/3
+            Partition
+              Condition: true
+              Parts: 3/3
+              Granules: 3/3
+            PrimaryKey
+              Keys:
+                team_id
+              Condition: (team_id in [1, 1])
+              Parts: 3/3
+              Granules: 3/3
+              Search Algorithm: binary search
+            Skip
+              Name: embedding_idx_cosine
+              Description: vector_similarity GRANULARITY 100000000
+              Parts: 3/3
+              Granules: 3/3
+            PrimaryKeyExpand
+              Description: Selects all granules that intersect by PK values with the previous skip indexes selection
+              Parts: 3/3
+              Granules: 3/3
+              Ranges: 3
+```
+
+The really important bit there being that `Skip` index usage - all of this architecture is built to allow us to use them.
 """
 
 from typing import Optional
@@ -64,36 +149,68 @@ FROM {database}.{buffer_table}
 WHERE model_name = '{model_name}'
 """
 
+# Name of the Kafka-to-buffer MV
+KAFKA_TO_BUFFER_MV = "posthog_document_embeddings_kafka_to_buffer_mv"
 
-# SQL for buffer table that receives all embeddings from Kafka
-def DOCUMENT_EMBEDDINGS_BUFFER_TABLE_SQL():
-    return """
+
+# Base SQL template for buffer tables
+def _buffer_table_sql(table_name: str, engine) -> str:
+    return f"""
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     product LowCardinality(String),
     document_type LowCardinality(String),
-    model_name LowCardinality(String),  -- Keep this for filtering in model-specific MVs
+    model_name LowCardinality(String),  -- Used for filtering in model-specific MVs
     rendering LowCardinality(String),
     document_id String,
     timestamp DateTime64(3, 'UTC'),
     inserted_at DateTime64(3, 'UTC'),
     content String DEFAULT '',
     metadata String DEFAULT '{{}}',
-    embedding Array(Float64){extra_fields}
-) ENGINE = MergeTree()
+    embedding Array(Float64)
+    {KAFKA_COLUMNS_WITH_PARTITION}
+) ENGINE = {engine}"""
+
+
+# SQL for sharded buffer table on data nodes that receives all embeddings from Kafka
+def DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE_SQL():
+    from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
+
+    engine = ReplacingMergeTree(
+        DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, ver="inserted_at", replication_scheme=ReplicationScheme.SHARDED
+    )
+
+    return (
+        _buffer_table_sql(DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, engine)
+        + """
 PARTITION BY toDate(inserted_at)
 ORDER BY (inserted_at, model_name, cityHash64(document_id))
 TTL inserted_at + INTERVAL 1 DAY
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
-""".format(table_name=DOCUMENT_EMBEDDINGS_BUFFER_TABLE, extra_fields=KAFKA_COLUMNS_WITH_PARTITION)
+"""
+    )
 
 
-# Name of the buffer table
-DOCUMENT_EMBEDDINGS_BUFFER_TABLE = "posthog_document_embeddings_buffer"
+# SQL for writable distributed buffer table on ingestion nodes (writes to sharded buffer on data nodes)
+def DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE_SQL():
+    from posthog.clickhouse.table_engines import Distributed
 
-# Name of the Kafka-to-buffer MV
-KAFKA_TO_BUFFER_MV = "posthog_document_embeddings_kafka_to_buffer_mv"
+    engine = Distributed(
+        data_table=DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE,
+        sharding_key="cityHash64(document_id)",
+    )
+
+    return _buffer_table_sql(DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE, engine) + "\n"
+
+
+# Buffer tables: Data flows from Kafka -> writable buffer (ingestion) -> sharded buffer (data nodes)
+DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE = (
+    "sharded_posthog_document_embeddings_buffer"  # Persistent storage on data nodes
+)
+DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE = (
+    "writable_posthog_document_embeddings_buffer"  # Stateless proxy on ingestion nodes
+)
 
 # Define the models currently in use
 EMBEDDING_MODELS_1 = [
@@ -142,7 +259,7 @@ _partition
 FROM {database}.{kafka_table}
 """.format(
         mv_name=KAFKA_TO_BUFFER_MV,
-        target_table=DOCUMENT_EMBEDDINGS_BUFFER_TABLE,
+        target_table=DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE,
         kafka_table=KAFKA_DOCUMENT_EMBEDDINGS,
         database=settings.CLICKHOUSE_DATABASE,
     )
@@ -222,7 +339,7 @@ class ModelTableDefinitions:
         return MODEL_SPECIFIC_MV_SQL.format(
             mv_name=self.materialized_view_name(),
             target_table=self.writable_table_name(),
-            buffer_table=DOCUMENT_EMBEDDINGS_BUFFER_TABLE,
+            buffer_table=DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE,
             database=settings.CLICKHOUSE_DATABASE,
             model_name=self.model_name,
         )
