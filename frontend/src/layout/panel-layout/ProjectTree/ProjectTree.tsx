@@ -58,6 +58,7 @@ let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
+const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
 
 const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
     [UserProductListReason.USED_BY_COLLEAGUES]:
@@ -137,6 +138,10 @@ export function ProjectTree({
     const [customProductHelperDismissed, setCustomProductHelperDismissed] = useLocalStorage<boolean>(
         CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY,
         false
+    )
+    const [seenCustomProducts, setSeenCustomProducts] = useLocalStorage<string[]>(
+        SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY,
+        []
     )
 
     const showFilterDropdown = root === 'project://'
@@ -549,7 +554,7 @@ export function ProjectTree({
                         <>
                             {suggestedProductBaseTooltipText}
                             <br />
-                            You can remove this product from your sidebar on the pencil button above.
+                            Right-click to remove from sidebar.
                             <br />
                             <br />
                         </>
@@ -637,16 +642,27 @@ export function ProjectTree({
                 const createdAt = item.record?.created_at
                 const reason = item.record?.reason as UserProductListReason | undefined
                 const reasonText = item.record?.reason_text as string | null | undefined
+                const itemId = item.id
 
                 // This indicator is shown if we detect we're looking at a custom product
                 // that's been recently added to the user's sidebar.
                 // We extract the `reasonText` from the item or come up with some default
                 // ones for some specific reasons that have a reasonable default.
+                // We exclude USED_ON_SEPARATE_TEAM as those are not particularly useful to highlight.
+                // We also hide the indicator once the user has hovered over the item.
                 const showIndicator =
                     root === 'custom-products://' &&
                     createdAt &&
                     dayjs().diff(dayjs(createdAt), 'days') < 7 &&
-                    (reasonText || (reason && USER_PRODUCT_LIST_REASON_DEFAULTS[reason]))
+                    reason !== UserProductListReason.USED_ON_SEPARATE_TEAM &&
+                    (reasonText || (reason && USER_PRODUCT_LIST_REASON_DEFAULTS[reason])) &&
+                    !seenCustomProducts.includes(itemId)
+
+                const handleMouseEnter = (): void => {
+                    if (showIndicator && !seenCustomProducts.includes(itemId)) {
+                        setSeenCustomProducts([...seenCustomProducts, itemId])
+                    }
+                }
 
                 return (
                     <>
@@ -657,7 +673,7 @@ export function ProjectTree({
                                 className="ml-[4px]"
                             />
                         )}
-                        <div className="relative">
+                        <div className="relative" onMouseEnter={handleMouseEnter}>
                             <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
                             {showIndicator && (
                                 <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
