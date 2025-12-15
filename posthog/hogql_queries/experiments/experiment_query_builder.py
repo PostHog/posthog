@@ -32,6 +32,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
+from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
@@ -1443,8 +1444,8 @@ class ExperimentQueryBuilder:
                     exposures.variant AS variant,
                     MAX(if(
                         completion_events.completion_timestamp IS NOT NULL
-                        AND completion_events.completion_timestamp >= start_events.start_timestamp + {retention_window_start_interval}
-                        AND completion_events.completion_timestamp < start_events.start_timestamp + {retention_window_end_interval},
+                        AND {truncated_completion_timestamp} >= {truncated_start_timestamp} + {retention_window_start_interval}
+                        AND {truncated_completion_timestamp} <= {truncated_start_timestamp} + {retention_window_end_interval},
                         1,
                         0
                     )) AS value
@@ -1471,6 +1472,12 @@ class ExperimentQueryBuilder:
             "retention_window_end_interval": self._build_retention_window_interval(self.metric.retention_window_end),
             "start_conversion_window_predicate": self._build_start_conversion_window_predicate(),
             "completion_retention_window_predicate": self._build_completion_retention_window_predicate(),
+            "truncated_start_timestamp": self._get_retention_window_truncation_expr(
+                parse_expr("start_events.start_timestamp")
+            ),
+            "truncated_completion_timestamp": self._get_retention_window_truncation_expr(
+                parse_expr("completion_events.completion_timestamp")
+            ),
         }
 
         query = parse_select(
@@ -1507,6 +1514,31 @@ class ExperimentQueryBuilder:
             return parse_expr("min(timestamp)")
         else:  # LAST_SEEN
             return parse_expr("max(timestamp)")
+
+    def _get_retention_window_truncation_expr(self, timestamp_expr: ast.Expr) -> ast.Expr:
+        """
+        Returns truncated timestamp expression for retention window comparisons.
+
+        For DAY: returns toStartOfDay(timestamp)
+        For HOUR: returns toStartOfHour(timestamp)
+        For other units: returns timestamp unchanged
+
+        This ensures [7,7] day window means "any time on day 7" rather than
+        "exactly 7*24 hours after start event to the second".
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+
+        # Only truncate DAY and HOUR units for intuitive behavior
+        unit_to_interval_name = {
+            FunnelConversionWindowTimeUnit.DAY: "day",
+            FunnelConversionWindowTimeUnit.HOUR: "hour",
+        }
+
+        interval_name = unit_to_interval_name.get(self.metric.retention_window_unit)
+        if interval_name is None:
+            return timestamp_expr
+
+        return get_start_of_interval_hogql(interval=interval_name, team=self.team, source=timestamp_expr)
 
     def _build_retention_window_interval(self, window_value: int) -> ast.Expr:
         """
@@ -1612,6 +1644,10 @@ class ExperimentQueryBuilder:
 
         This is a performance optimization - we'll do the exact retention window
         calculation in the entity_metrics CTE.
+
+        For DAY/HOUR units that use timestamp truncation, we add a buffer to account
+        for the truncation window. This ensures that same-period retention (e.g., [0,0])
+        captures all events within that period, not just events at the exact same second.
         """
         assert isinstance(self.metric, ExperimentRetentionMetric)
 
@@ -1620,13 +1656,26 @@ class ExperimentQueryBuilder:
             self.metric.retention_window_unit,
         )
 
+        # For DAY/HOUR units, add a buffer to account for truncation
+        # This ensures same-period retention windows work correctly
+        truncation_buffer = 0
+        if self.metric.retention_window_unit == FunnelConversionWindowTimeUnit.DAY:
+            # For DAY units, allow completions within the same day (24 hours)
+            truncation_buffer = 86400  # 1 day in seconds
+        elif self.metric.retention_window_unit == FunnelConversionWindowTimeUnit.HOUR:
+            # For HOUR units, allow completions within the same hour
+            truncation_buffer = 3600  # 1 hour in seconds
+
+        # Add buffer to retention window end
+        buffered_window_end_seconds = retention_window_end_seconds + truncation_buffer
+
         return parse_expr(
             """
             completion_events.completion_timestamp >= start_events.start_timestamp
-            AND completion_events.completion_timestamp < start_events.start_timestamp + toIntervalSecond({retention_window_end_seconds})
+            AND completion_events.completion_timestamp <= start_events.start_timestamp + toIntervalSecond({retention_window_end_seconds})
             """,
             placeholders={
-                "retention_window_end_seconds": ast.Constant(value=retention_window_end_seconds),
+                "retention_window_end_seconds": ast.Constant(value=buffered_window_end_seconds),
             },
         )
 
