@@ -9,7 +9,8 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { getPersonDisplayName } from '../utils'
-import { CdpEventsConsumer, counterParseError } from './cdp-events.consumer'
+import { CdpEventsConsumer } from './cdp-events.consumer'
+import { counterParseError } from './metrics'
 
 export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
     protected name = 'CdpPersonUpdatesConsumer'

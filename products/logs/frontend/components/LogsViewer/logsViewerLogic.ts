@@ -5,7 +5,7 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -25,7 +25,7 @@ export interface LogsViewerLogicProps {
     tabId: string
     logs: ParsedLogMessage[]
     orderBy: LogsOrderBy
-    onAddFilter?: (key: string, value: string, operator?: PropertyOperator) => void
+    onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
@@ -67,10 +67,20 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         setLogs: (logs: ParsedLogMessage[]) => ({ logs }),
 
         // Filter actions (emits to parent via props callback)
-        addFilter: (key: string, value: string, operator?: PropertyOperator) => ({ key, value, operator }),
+        addFilter: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => ({
+            key,
+            value,
+            operator,
+            type,
+        }),
 
         // Attribute breakdowns (per-log)
         toggleAttributeBreakdown: (logId: string, attributeKey: string) => ({ logId, attributeKey }),
+
+        // Attribute columns (show attributes as columns in the log list)
+        toggleAttributeColumn: (attributeKey: string) => ({ attributeKey }),
+        removeAttributeColumn: (attributeKey: string) => ({ attributeKey }),
+        setAttributeColumnWidth: (attributeKey: string, width: number) => ({ attributeKey, width }),
 
         // Row height recomputation (triggered by child components when content changes)
         recomputeRowHeights: (logIds?: string[]) => ({ logIds }),
@@ -172,6 +182,34 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             },
         ],
 
+        // Attribute columns shown in log list
+        attributeColumns: [
+            [] as string[],
+            { persist: true },
+            {
+                toggleAttributeColumn: (state, { attributeKey }) => {
+                    if (state.includes(attributeKey)) {
+                        return state.filter((k: string) => k !== attributeKey)
+                    }
+                    return [...state, attributeKey]
+                },
+                removeAttributeColumn: (state, { attributeKey }) => state.filter((k: string) => k !== attributeKey),
+            },
+        ],
+
+        // Attribute column widths (user-resizable)
+        attributeColumnWidths: [
+            {} as Record<string, number>,
+            { persist: true },
+            {
+                setAttributeColumnWidth: (state, { attributeKey, width }) => ({ ...state, [attributeKey]: width }),
+                removeAttributeColumn: (state, { attributeKey }) => {
+                    const { [attributeKey]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
+
         // Tracks requests to recompute row heights - VirtualizedLogsList watches this
         recomputeRowHeightsRequest: [
             null as { logIds?: string[]; timestamp: number } | null,
@@ -227,6 +265,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         ],
 
         logsCount: [(s) => [s.logs], (logs: ParsedLogMessage[]): number => logs.length],
+
+        isAttributeColumn: [
+            (s) => [s.attributeColumns],
+            (attributeColumns: string[]) =>
+                (attributeKey: string): boolean =>
+                    attributeColumns.includes(attributeKey),
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -235,8 +280,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 actions.resetCursor()
             }
         },
-        addFilter: ({ key, value, operator }) => {
-            props.onAddFilter?.(key, value, operator)
+        addFilter: ({ key, value, operator, type }) => {
+            props.onAddFilter?.(key, value, operator, type)
         },
         toggleExpandLog: ({ logId }) => {
             // If cursor is at attribute level, check if we just collapsed the row it's in

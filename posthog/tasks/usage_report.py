@@ -958,6 +958,8 @@ def get_teams_with_ai_event_count_in_period(
 
 # AI billing markup: 20% markup on top of cost
 AI_COST_MARKUP_PERCENT = 0.2
+# Tools excluded from AI billing (traces with only these tools are not billed)
+AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
 # Region-to-team mapping for where AI events are stored
 CLOUD_REGION_TO_TEAM_ID = {
     "EU": 1,
@@ -975,8 +977,9 @@ def get_teams_with_ai_credits_used_in_period(
     Calculate AI credits used in the period for billable AI generations.
 
     Billing is performed at the trace level. Traces are billable only if they contain
-    tool calls that include at least one non-search tool. Free (non-billable) traces:
-        - Traces that only contain 'search' tool calls
+    tool calls that include at least one non-excluded tool. Free (non-billable) traces:
+        - Traces that only contain 'summarize_sessions' tool calls
+        - Traces that only contain 'search' tool calls with kind='docs'
 
     We are also performing additional filtering to maintain current trace tool calls and not all messages
     in the ongoing conversation thread (otherwise we might end up billing for traces we would not want to)
@@ -984,7 +987,7 @@ def get_teams_with_ai_credits_used_in_period(
     Conversion logic:
     1. Extract $ai_total_cost_usd from billable $ai_generation events
     2. Filter out negative or zero costs (defensive)
-    3. Exclude generations from traces with only search docs tool calls
+    3. Exclude generations from traces with only excluded tool calls
     4. Convert to cents (multiply by 100)
     5. Add markup
     6. Convert 1:1 to credits
@@ -1001,21 +1004,26 @@ def get_teams_with_ai_credits_used_in_period(
         results = sync_execute(
             """
             WITH trace_analysis AS (
+                WITH %(excluded_tools)s AS excluded_tools
                 SELECT
                     trace_id,
                     multiIf(
                         length(tool_calls) > 0
-                            AND arrayAll(
-                                tc ->
-                                    JSONExtractString(tc, 'name') = 'search'
-                                    AND JSONExtractString(
-                                        JSONExtractRaw(tc, 'args'),
-                                        'kind'
-                                    ) = 'docs',
-                                tool_calls
-                            ),
-                        0,  -- all tool calls are docs-search → NOT billable
-                        1   -- everything else (no tools OR any non-docs-search tool) → billable
+                        AND arrayAll(
+                            i ->
+                                -- tool must be in the excluded list
+                                has(excluded_tools, tool_names[i])
+                                AND
+                                -- if it's search, it must be docs-search
+                                if(
+                                    tool_names[i] = 'search',
+                                    JSONExtractString(JSONExtractRaw(tool_calls[i], 'args'), 'kind') = 'docs',
+                                    1
+                                ),
+                            arrayEnumerate(tool_calls)
+                        ),
+                        0,  -- all tool calls are excluded → NOT billable
+                        1   -- everything else → billable
                     ) AS is_billable
                 FROM (
                     SELECT
@@ -1039,7 +1047,8 @@ def get_teams_with_ai_credits_used_in_period(
                                     ) + 1
                                 )
                             )
-                        ) AS tool_calls
+                        ) AS tool_calls,
+                        arrayMap(tc -> JSONExtractString(tc, 'name'), tool_calls) AS tool_names
                     FROM events
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
@@ -1102,6 +1111,7 @@ def get_teams_with_ai_credits_used_in_period(
                 "begin": begin,
                 "end": end,
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
+                "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
