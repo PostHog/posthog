@@ -5,10 +5,12 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 import structlog
+import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -31,6 +33,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import (
@@ -619,6 +622,22 @@ class HogFunctionViewSet(
         # Check if backfill is already enabled
         if hog_function.batch_export_id:
             return Response({"error": "Backfills already enabled for this function"}, status=400)
+
+        # Check feature flag for backfill-workflows-destination
+        team = Team.objects.get(id=self.team_id)
+        if not posthoganalytics.feature_enabled(
+            "backfill-workflows-destination",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        ):
+            raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
 
         # Prepare batch export data matching the frontend's structure
         batch_export_data = {
