@@ -530,5 +530,63 @@ describe('calculateInputCost()', () => {
             // Total: 0.00375
             expectCostToBeCloseTo(result, 0.00375)
         })
+
+        it('matches Anthropic path for Claude models via Vertex provider', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'vertex',
+                    $ai_model: 'claude-haiku-4-5',
+                    $ai_input_tokens: 457,
+                    $ai_cache_read_input_tokens: 36216,
+                },
+            })
+
+            const result = calculateInputCost(event, ANTHROPIC_MODEL)
+
+            // Should use Anthropic path because model starts with "claude"
+            // Anthropic reports input_tokens as non-cached tokens (not total)
+            // Read: 36216 * 3e-7 = 0.0108648
+            // Regular: 457 * 0.000003 = 0.001371
+            // Total: 0.0108648 + 0.001371 = 0.0122358
+            expectCostToBeCloseTo(result, 0.0122358, 5)
+        })
+
+        it('matches Anthropic path for Claude models via Google provider', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'google',
+                    $ai_model: 'claude-3-5-sonnet',
+                    $ai_input_tokens: 1000,
+                    $ai_cache_read_input_tokens: 500,
+                },
+            })
+
+            const result = calculateInputCost(event, ANTHROPIC_MODEL)
+
+            // Should use Anthropic path because model starts with "claude"
+            // Read: 500 * 3e-7 = 0.00015
+            // Regular: 1000 * 0.000003 = 0.003
+            // Total: 0.00315
+            expectCostToBeCloseTo(result, 0.00315)
+        })
+
+        it('matches Anthropic path for Claude models with uppercase', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'vertex',
+                    $ai_model: 'Claude-3-Opus',
+                    $ai_input_tokens: 1000,
+                    $ai_cache_read_input_tokens: 500,
+                },
+            })
+
+            const result = calculateInputCost(event, ANTHROPIC_MODEL)
+
+            // Should use Anthropic path (case-insensitive)
+            // Read: 500 * 3e-7 = 0.00015
+            // Regular: 1000 * 0.000003 = 0.003
+            // Total: 0.00315
+            expectCostToBeCloseTo(result, 0.00315)
+        })
     })
 })
