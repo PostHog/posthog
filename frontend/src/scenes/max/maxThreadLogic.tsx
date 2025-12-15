@@ -886,11 +886,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 isImpersonatingExistingConversation,
         ],
 
-        submissionDisabledReason: [
+        contextDisabledReason: [
             (s) => [
                 s.formPending,
                 s.multiQuestionFormPending,
-                s.question,
                 s.threadLoading,
                 s.activeStreamingThreads,
                 s.isImpersonatingExistingConversation,
@@ -898,7 +897,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (
                 formPending,
                 multiQuestionFormPending,
-                question,
                 threadLoading,
                 activeStreamingThreads,
                 isImpersonatingExistingConversation
@@ -921,13 +919,25 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return 'Please answer the questions above'
                 }
 
-                if (!question) {
-                    return 'I need some input first'
-                }
-
                 // Prevent submission if too many active streaming threads (limit: 10)
                 if (activeStreamingThreads >= 10) {
                     return 'You have too many chats running. Please wait for one to finish.'
+                }
+
+                return undefined
+            },
+        ],
+
+        submissionDisabledReason: [
+            (s) => [s.contextDisabledReason, s.question],
+            (contextDisabledReason, question): string | undefined => {
+                // Context-related reasons take precedence (form pending, streaming, etc.)
+                if (contextDisabledReason) {
+                    return contextDisabledReason
+                }
+
+                if (!question) {
+                    return 'I need some input first'
                 }
 
                 return undefined
