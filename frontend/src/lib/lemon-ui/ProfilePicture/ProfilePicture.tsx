@@ -9,14 +9,14 @@ import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeSta
 import { fullName, inStorybookTestRunner } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
-import { HedgehogConfig, MinimalHedgehogConfig, UserType } from '~/types'
+import { HedgehogConfig, MinimalHedgehogConfig, UserBasicType } from '~/types'
 
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { IconRobot } from '../icons'
 
 export interface ProfilePictureProps {
     user?:
-        | (Pick<Partial<UserType>, 'first_name' | 'email' | 'last_name'> & {
+        | (Pick<Partial<UserBasicType>, 'first_name' | 'email' | 'last_name'> & {
               hedgehog_config?: MinimalHedgehogConfig | HedgehogConfig
           })
         | null
