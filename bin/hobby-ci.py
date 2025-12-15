@@ -786,6 +786,13 @@ def main():
                         env_file.write(f"HOBBY_NAME={existing_droplet.name}\n")
                         env_file.write("HOBBY_DROPLET_NEW=false\n")
 
+                # Write droplet info file for GitHub deployment URL
+                with open("/tmp/droplet_info.txt", "w") as f:
+                    f.write(f"Droplet ID: {existing_droplet.id}\n")
+                    f.write(f"Droplet IP: {existing_droplet.ip_address}\n")
+                    f.write(f"SSH: ssh root@{existing_droplet.ip_address}\n")
+                    f.write(f"URL: https://{ht.hostname}\n")
+
                 print(f"✅ Preview deployment updated successfully", flush=True)
                 print(f"🌐 URL: https://{ht.hostname}", flush=True)
             else:
