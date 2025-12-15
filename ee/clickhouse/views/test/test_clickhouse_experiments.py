@@ -2773,6 +2773,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "parameters": {},
                 "filters": {},
                 "metrics": [initial_mean_metric, initial_funnel_metric, initial_ratio_metric],
+                "primary_metrics_ordered_uuids": ["metric-1", "metric-2", "metric-3"],
             },
         )
         exp_id = response.json()["id"]
@@ -2827,6 +2828,11 @@ class TestExperimentCRUD(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
             {
                 "metrics": [updated_funnel_metric, updated_mean_metric, updated_ratio_metric],
+                "primary_metrics_ordered_uuids": [
+                    "964398d7-ec8a-424d-890b-4e6bbc9a5c84",
+                    "824e38ae-f9d7-41f4-962c-74c9e744529a",
+                    "70e0c887-1f32-4c7d-8405-0faded2e9722",
+                ],
                 "start_date": "2024-01-01T10:00:00Z",
                 "stats_config": {"method": "frequentist"},
                 "exposure_criteria": {
