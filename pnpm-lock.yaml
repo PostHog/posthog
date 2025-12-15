@@ -811,8 +811,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.303.1
-        version: 1.303.1
+        specifier: 1.306.2
+        version: 1.306.2
       posthog-js-lite:
         specifier: 4.2.1
         version: 4.2.1
@@ -1777,8 +1777,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.303.1
-        version: 1.303.1
+        specifier: 1.306.2
+        version: 1.306.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -2483,8 +2483,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.303.1
-        version: 1.303.1
+        specifier: 1.306.2
+        version: 1.306.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -2555,8 +2555,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.303.1
-        version: 1.303.1
+        specifier: 1.306.2
+        version: 1.306.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -16605,8 +16605,8 @@ packages:
   posthog-js-lite@4.2.1:
     resolution: {integrity: sha512-E5sN4Z9TxEdp/L7HkyuvMs3demijmXcgbtGPj1ykPq+aCyPgGOvL745p4rIPVwzBZoqjoIdqRls8ck+LVRHCdQ==}
 
-  posthog-js@1.303.1:
-    resolution: {integrity: sha512-qSQ5T/eBwtJx/FzokB6dTCpICdz1Vi5nNfeRTlhbz7NTrb6VAc14g2XQtgYb6fr4AhRoFs61aPHZRcQJJlDjfA==}
+  posthog-js@1.306.2:
+    resolution: {integrity: sha512-zBEjDvUs5RNTWbyHVjbL16Oigm2buFG2PQRRMC46hfL2HSh+8//zMD5gV3etxkUhjjTltKubK3mkqONMldw9Yg==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -19110,8 +19110,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.333.0:
-    resolution: {integrity: sha512-s/oLgeIQAXlq/n2ib4mfQOIrRFXP5ybk+le3Y7JyYXq0cU6fuXyk/3puRjdkmWwebALBA9Z8+wZmE8T+q7zxQA==}
+  unlayer-types@1.339.0:
+    resolution: {integrity: sha512-zrHqtaT2y8wD5Qjn4w+sPmpaHvhdAzG0FF1NyAGlP+NS7rcr00cXEtPtwMB9r9lDsoqu2E3drT4wKd/MXyrTqQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -38594,7 +38594,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.0
 
-  posthog-js@1.303.1:
+  posthog-js@1.306.2:
     dependencies:
       '@posthog/core': 1.7.1
       core-js: 3.40.0
@@ -39414,7 +39414,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.333.0
+      unlayer-types: 1.339.0
 
   react-error-overlay@6.0.9: {}
 
@@ -41592,7 +41592,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.333.0: {}
+  unlayer-types@1.339.0: {}
 
   unpipe@1.0.0: {}
 
