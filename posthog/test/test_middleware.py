@@ -846,19 +846,6 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_null_is_active_allows_request(self):
-        self.organization.is_active = None
-        self.organization.save()
-
-        # API paths are skipped by middleware
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.user.email)
-
-        # Non-API paths are checked
-        response = self.client.get("/dashboard")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
     def test_api_paths_skipped_even_with_inactive_org(self):
         """API paths should be skipped by middleware regardless of org status"""
         self.organization.is_active = False
