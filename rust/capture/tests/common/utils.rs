@@ -53,6 +53,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
         kafka_message_timeout_ms: 10000, // 10s, ACKs can be slow on low volumes, should be tuned
+        kafka_ack_timeout_ms: 30000,     // 30s app-level timeout for delivery ACK
         kafka_producer_message_max_bytes: 1000000, // 1MB, rdkafka default
         kafka_topic_metadata_refresh_interval_ms: 10000,
         kafka_compression_codec: "none".to_string(),

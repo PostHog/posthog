@@ -135,6 +135,7 @@ pub struct KafkaSink {
     heatmaps_topic: String,
     replay_overflow_limiter: Option<RedisLimiter>,
     replay_overflow_topic: String,
+    ack_timeout: Duration,
 }
 
 impl KafkaSink {
@@ -224,6 +225,7 @@ impl KafkaSink {
             heatmaps_topic: config.kafka_heatmaps_topic,
             replay_overflow_topic: config.kafka_replay_overflow_topic,
             replay_overflow_limiter,
+            ack_timeout: Duration::from_millis(config.kafka_ack_timeout_ms),
         })
     }
 
@@ -336,31 +338,50 @@ impl KafkaSink {
         }
     }
 
-    async fn process_ack(delivery: DeliveryFuture) -> Result<(), CaptureError> {
-        match delivery.await {
-            Err(_) => {
-                // Cancelled due to timeout while retrying
-                counter!("capture_kafka_produce_errors_total").increment(1);
-                error!("failed to produce to Kafka before write timeout");
+    async fn process_ack(
+        delivery: DeliveryFuture,
+        ack_timeout: Duration,
+    ) -> Result<(), CaptureError> {
+        match tokio::time::timeout(ack_timeout, delivery).await {
+            Err(_elapsed) => {
+                // Application-level timeout - delivery future didn't resolve in time
+                counter!("capture_kafka_produce_errors_total", "cause" => "timeout").increment(1);
+                error!(
+                    "Kafka delivery ACK timed out at application level after {}ms",
+                    ack_timeout.as_millis()
+                );
                 Err(CaptureError::RetryableSinkError)
             }
-            Ok(Err((KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge), _))) => {
-                // Rejected by broker due to message size
-                report_dropped_events("kafka_message_size", 1);
-                Err(CaptureError::EventTooBig(
-                    "Event rejected by kafka broker during ack".to_string(),
-                ))
-            }
-            Ok(Err((err, _))) => {
-                // Unretriable produce error
-                counter!("capture_kafka_produce_errors_total").increment(1);
-                error!("failed to produce to Kafka: {err}");
-                Err(CaptureError::RetryableSinkError)
-            }
-            Ok(Ok(_)) => {
-                counter!("capture_events_ingested_total").increment(1);
-                Ok(())
-            }
+            Ok(inner_result) => match inner_result {
+                Err(_) => {
+                    // Cancelled due to timeout while retrying (rdkafka internal)
+                    counter!("capture_kafka_produce_errors_total", "cause" => "write_timeout")
+                        .increment(1);
+                    error!("failed to produce to Kafka before write timeout");
+                    Err(CaptureError::RetryableSinkError)
+                }
+                Ok(Err((
+                    KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge),
+                    _,
+                ))) => {
+                    // Rejected by broker due to message size
+                    report_dropped_events("kafka_message_size", 1);
+                    Err(CaptureError::EventTooBig(
+                        "Event rejected by kafka broker during ack".to_string(),
+                    ))
+                }
+                Ok(Err((err, _))) => {
+                    // Unretriable produce error
+                    counter!("capture_kafka_produce_errors_total", "cause" => "producer_error")
+                        .increment(1);
+                    error!("failed to produce to Kafka: {err}");
+                    Err(CaptureError::RetryableSinkError)
+                }
+                Ok(Ok(_)) => {
+                    counter!("capture_events_ingested_total").increment(1);
+                    Ok(())
+                }
+            },
         }
     }
 }
@@ -371,7 +392,7 @@ impl Event for KafkaSink {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         let ack = self.kafka_send(event).await?;
         histogram!("capture_event_batch_size").record(1.0);
-        Self::process_ack(ack)
+        Self::process_ack(ack, self.ack_timeout)
             .instrument(info_span!("ack_wait_one"))
             .await
     }
@@ -380,12 +401,13 @@ impl Event for KafkaSink {
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let mut set = JoinSet::new();
         let batch_size = events.len();
+        let ack_timeout = self.ack_timeout;
         for event in events {
             // We await kafka_send to get events in the producer queue sequentially
             let ack = self.kafka_send(event).await?;
 
             // Then stash the returned DeliveryFuture, waiting concurrently for the write ACKs from brokers.
-            set.spawn(Self::process_ack(ack));
+            set.spawn(Self::process_ack(ack, ack_timeout));
         }
 
         // Await on all the produce promises, fail batch on first failure
@@ -451,6 +473,7 @@ mod tests {
             kafka_producer_linger_ms: 0,
             kafka_producer_queue_mib: 50,
             kafka_message_timeout_ms: 500,
+            kafka_ack_timeout_ms: 5000, // 5 second app-level timeout for tests
             kafka_topic_metadata_refresh_interval_ms: 20000,
             kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
             kafka_compression_codec: "none".to_string(),
