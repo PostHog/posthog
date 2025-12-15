@@ -116,6 +116,7 @@ core:
         steps:
             - docker:services:remove
             - docker:services:up
+            - setup:python
             - check:postgres
             - check:clickhouse
             - migrations:run
@@ -353,13 +354,11 @@ docker:
         description: Set up Docker services and run evaluation scripts with cleanup
         hidden: true
 migrations:
-    db:migrate:
-        bin_script: migrate
-        description: Apply database migrations (Django and ClickHouse)
-        hidden: true
     migrations:run:
         bin_script: migrate
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
+        env:
+            DEBUG: '1'
     migrations:check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them
@@ -544,3 +543,6 @@ environment:
         cmd: flox activate
         description: Enter Flox development environment shell.
         hidden: true
+    setup:python:
+        cmd: uv sync --active
+        description: Install Python dependencies to active virtual environment
