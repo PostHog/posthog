@@ -22,6 +22,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         toggleWorkflowStatus: (workflow: HogFlow) => ({ workflow }),
         duplicateWorkflow: (workflow: HogFlow) => ({ workflow }),
         deleteWorkflow: (workflow: HogFlow) => ({ workflow }),
+        deleteHogflowTemplate: (template: HogFlow) => ({ template }),
         loadWorkflows: () => ({}),
         setFilters: (filters: Partial<WorkflowsFilters>) => ({ filters }),
         setSearchTerm: (search: string) => ({ search }),
@@ -73,6 +74,10 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 loadWorkflowTemplates: async (): Promise<HogFlow[]> => {
                     const response = await api.hogFlowTemplates.getHogFlowTemplates()
                     return response.results as HogFlow[]
+                },
+                deleteHogflowTemplate: async ({ template }) => {
+                    await api.hogFlowTemplates.deleteHogFlowTemplate(template.id)
+                    return values.workflowTemplates.filter((t) => t.id !== template.id)
                 },
             },
         ],

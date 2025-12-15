@@ -3,13 +3,14 @@ import { useMountedLogic } from 'kea'
 import { urlToAction } from 'kea-router'
 import { router } from 'kea-router'
 
-import { IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { IconLetter, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -97,7 +98,7 @@ export function WorkflowsScene(): JSX.Element {
 
     const workflowsLogicInstance = useMountedLogic(workflowsLogic)
     const { workflowTemplates, workflowTemplatesLoading } = useValues(workflowsLogicInstance)
-    const { loadWorkflowTemplates } = useActions(workflowsLogicInstance)
+    const { loadWorkflowTemplates, deleteHogflowTemplate } = useActions(workflowsLogicInstance)
 
     const hasWorkflowsFeatureFlag = useFeatureFlag('WORKFLOWS')
 
@@ -117,7 +118,41 @@ export function WorkflowsScene(): JSX.Element {
             ]
         }
         return templates.map((template: HogFlow) => ({
-            label: template.name || 'Unnamed template',
+            label: (
+                <div className="flex items-center justify-between gap-2 w-full">
+                    <span className="flex-1">{template.name || 'Unnamed template'}</span>
+                    <LemonButton
+                        icon={<IconTrash />}
+                        size="small"
+                        status="danger"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            LemonDialog.open({
+                                title: 'Delete template?',
+                                description: `Are you sure you want to delete "${template.name}"? This action cannot be undone.`,
+                                primaryButton: {
+                                    children: 'Delete',
+                                    status: 'danger',
+                                    onClick: async () => {
+                                        try {
+                                            await deleteHogflowTemplate(template)
+                                            lemonToast.success(`Template "${template.name}" deleted`)
+                                        } catch (error: any) {
+                                            lemonToast.error(
+                                                `Failed to delete template: ${error.detail || error.message || 'Unknown error'}`
+                                            )
+                                        }
+                                    },
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                },
+                            })
+                        }}
+                        tooltip="Delete template"
+                    />
+                </div>
+            ),
             onClick: () => {
                 router.actions.push(urls.workflowNew(), { templateId: template.id })
             },

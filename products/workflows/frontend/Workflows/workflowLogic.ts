@@ -492,7 +492,7 @@ export const workflowLogic = kea<workflowLogicType>([
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
         },
         saveAsTemplate: async () => {
-            const workflow = values.originalWorkflow
+            const workflow = values.workflow
             if (!workflow) {
                 return
             }
