@@ -176,7 +176,11 @@ def schedule_web_analytics_warming_for_teams_task():
     max_retries=3,
 )
 def warm_web_analytics_cache_task(team_id: int, query_json: dict, normalized_query_hash: str):
-    team = Team.objects.get(pk=team_id)
+    try:
+        team = Team.objects.get(pk=team_id)
+    except Team.DoesNotExist:
+        logger.info("Warming web analytics cache failed - team not found", team_id=team_id)
+        return
 
     tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
 
