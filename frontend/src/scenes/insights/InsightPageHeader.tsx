@@ -373,14 +373,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        <ButtonPrimitive
-                            onClick={() => setTerraformModalOpen(true)}
-                            menuItem
-                            data-attr={`${RESOURCE_TYPE}-manage-terraform`}
-                        >
-                            <IconCode2 />
-                            Manage with Terraform
-                        </ButtonPrimitive>
+                        {featureFlags[FEATURE_FLAGS.MANAGE_INSIGHTS_THROUGH_TERRAFORM] ? (
+                            <ButtonPrimitive
+                                onClick={() => setTerraformModalOpen(true)}
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-manage-terraform`}
+                            >
+                                <IconCode2 />
+                                Manage with Terraform
+                            </ButtonPrimitive>
+                        ) : null}
 
                         {hasDashboardItemId && featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
                             <ButtonPrimitive onClick={() => setEndpointModalOpen(true)} menuItem>
