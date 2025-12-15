@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.core.cache import cache
 from django.core.files.uploadedfile import UploadedFile
-from django.http import HttpResponseNotAllowed, JsonResponse
+from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import path, reverse
@@ -21,6 +21,7 @@ from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMar
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import cache_key_for_team_token
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -351,6 +352,21 @@ class TeamAdmin(admin.ModelAdmin):
                 )
             )
 
+            log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=request.user,
+                was_impersonated=False,
+                item_id=session_id,
+                scope="Replay",
+                activity="exported",
+                detail=Detail(
+                    name=f"Session replay {session_id}",
+                    short_id=session_id,
+                    type="admin_export",
+                ),
+            )
+
             messages.success(
                 request,
                 f"Export triggered for session '{session_id}' on team '{team.name}' by {request.user.email}. Export ID: {export_record.id}",
@@ -454,6 +470,20 @@ class TeamAdmin(admin.ModelAdmin):
                 )
             )
 
+            log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=request.user,
+                was_impersonated=False,
+                item_id=None,
+                scope="Replay",
+                activity="imported",
+                detail=Detail(
+                    name=f"Session replay import from {import_file.name}",
+                    type="admin_import",
+                ),
+            )
+
             messages.success(
                 request,
                 f"Import triggered for team '{team.name}' by {request.user.email}.",
@@ -482,8 +512,6 @@ class TeamAdmin(admin.ModelAdmin):
         return render(request, "admin/posthog/team/export_history.html", context)
 
     def download_export_view(self, request, object_id, export_id):
-        from django.http import HttpResponse
-
         from posthog.storage import session_recording_v2_object_storage
 
         team = Team.objects.get(pk=object_id)

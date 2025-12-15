@@ -382,9 +382,8 @@ class SessionReplayEvents:
         # Build metadata for each session
         result: dict[str, Optional[RecordingMetadata]] = {session_id: None for session_id in session_ids}
         for row in replay_response:
-            # Match build_recording_metadata's expected format
             session_id = row[0]
-            metadata = self.build_recording_metadata(session_id, row)
+            metadata = self.build_recording_metadata(session_id, [row])
             if metadata:
                 result[session_id] = metadata
         return result
