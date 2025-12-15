@@ -177,10 +177,7 @@ class BatchExportInsertIntoInternalStageInputs:
 
 @activity.defn
 async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInternalStageInputs):
-    """Write record batches to our own internal S3 staging area.
-
-    TODO - update sessions model query
-    """
+    """Write record batches to our own internal S3 staging area."""
     bind_contextvars(
         team_id=inputs.team_id,
         data_interval_start=inputs.data_interval_start,
