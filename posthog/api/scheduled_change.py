@@ -67,6 +67,12 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         # Note: We preserve recurrence_interval when is_recurring is false
         # This allows users to "pause" a recurring schedule and resume it later
 
+        # Validate end_date is after scheduled_at
+        end_date = data.get("end_date", getattr(instance, "end_date", None) if instance else None)
+        scheduled_at = data.get("scheduled_at", getattr(instance, "scheduled_at", None) if instance else None)
+        if end_date and scheduled_at and end_date <= scheduled_at:
+            raise serializers.ValidationError({"end_date": "End date must be after the scheduled start date."})
+
         return data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ScheduledChange:
