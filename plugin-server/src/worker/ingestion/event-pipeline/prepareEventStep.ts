@@ -1,26 +1,31 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PreIngestionEvent } from '~/types'
+import { PreIngestionEvent, Team } from '~/types'
 
 import { AI_EVENT_TYPES, processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
+import { EventsProcessor } from '../process-event'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
 import { invalidTimestampCounter } from './metrics'
-import { EventPipelineRunner } from './runner'
 
 export async function prepareEventStep(
-    runner: EventPipelineRunner,
+    kafkaProducer: KafkaProducerWrapper,
+    eventsProcessor: EventsProcessor,
+    groupStoreForBatch: GroupStoreForBatch,
     event: PluginEvent,
-    processPerson: boolean
+    processPerson: boolean,
+    team: Team
 ): Promise<PreIngestionEvent> {
     const { team_id, uuid } = event
     const tsParsingIngestionWarnings: Promise<unknown>[] = []
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
         invalidTimestampCounter.labels(type).inc()
 
-        tsParsingIngestionWarnings.push(captureIngestionWarning(runner.hub.db.kafkaProducer, team_id, type, details))
+        tsParsingIngestionWarnings.push(captureIngestionWarning(kafkaProducer, team_id, type, details))
     }
 
     if (AI_EVENT_TYPES.has(event.event)) {
@@ -34,14 +39,14 @@ export async function prepareEventStep(
         }
     }
 
-    const preIngestionEvent = await runner.eventsProcessor.processEvent(
+    const preIngestionEvent = await eventsProcessor.processEvent(
         String(event.distinct_id),
         event,
-        team_id,
+        team,
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid!, // it will throw if it's undefined,
         processPerson,
-        runner.groupStoreForBatch
+        groupStoreForBatch
     )
     await Promise.all(tsParsingIngestionWarnings)
 

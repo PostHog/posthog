@@ -4,7 +4,6 @@ from django.conf import settings
 from django.core.exceptions import EmptyResultSet
 from django.db import connections, models, router, transaction
 from django.db.models import F, Q
-from django.db.models.deletion import Collector
 
 from posthog.models.utils import UUIDT
 from posthog.person_db_router import PERSONS_DB_FOR_READ
@@ -240,24 +239,12 @@ class Person(models.Model):
         using = using or router.db_for_write(self.__class__, instance=self)
 
         with transaction.atomic(using=using):
-            # Collect all related objects that would be deleted
-            collector = Collector(using=using, origin=self)
-            collector.collect([self], keep_parents=keep_parents)
-
-            # Remove the Person instance itself from the collector
-            # so it only deletes related objects
-            if Person in collector.data:
-                person_instances = collector.data[Person]
-                if isinstance(person_instances, set):
-                    person_instances.discard(self)
-
-            # Delete all related objects (PersonDistinctId, etc.)
-            collector.delete()
+            # Delete PersonDistinctId records with explicit team_id for partition pruning.
+            # Django's Collector.delete() generates: DELETE FROM posthog_persondistinctid WHERE person_id IN (...)
+            # which misses team_id and would scan all partitions on a partitioned table.
+            PersonDistinctId.objects.filter(team_id=person_team_id, person_id=person_pk).delete()
 
             # Now delete the Person itself with explicit team_id for partition pruning
-            # Use the correct database connection
-            from django.db import connections
-
             db_connection = connections[using]
             with db_connection.cursor() as cursor:
                 cursor.execute(

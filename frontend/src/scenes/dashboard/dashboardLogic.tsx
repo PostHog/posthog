@@ -1353,6 +1353,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
+        setPageVisibility: ({ visible }) => {
+            if (!visible) {
+                cache.disposables.dispose('autoRefreshInterval')
+            } else if (values.autoRefresh.enabled) {
+                actions.resetInterval()
+            }
+        },
         loadDashboardFailure: () => {
             const { action, dashboardQueryId, startTime } = values.dashboardLoadData
 

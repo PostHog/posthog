@@ -14,6 +14,7 @@ import { Breadcrumb } from '~/types'
 import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
 import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
 import type { sessionRecordingDataCoordinatorLogicType } from '../player/sessionRecordingDataCoordinatorLogicType'
+import { createWindowIdRegistry } from '../player/snapshot-processing/process-all-snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
@@ -28,13 +29,15 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
     if (data.version === '2023-04-28') {
         return data
     } else if (data.version === '2022-12-02') {
+        const registerWindowId = createWindowIdRegistry()
         return {
             version: '2023-04-28',
             data: {
-                id: '', // This wasn't available in a previous version
+                id: '',
                 person: data.data.person || undefined,
                 snapshots: Object.entries(data.data.snapshotsByWindowId)
-                    .flatMap(([windowId, snapshots]) => {
+                    .flatMap(([windowIdUuid, snapshots]) => {
+                        const windowId = registerWindowId(windowIdUuid)
                         return snapshots.map((snapshot) => ({
                             ...snapshot,
                             windowId,

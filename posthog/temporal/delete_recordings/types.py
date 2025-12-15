@@ -1,40 +1,46 @@
-from dataclasses import dataclass
+from pydantic import BaseModel
 
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 
-@dataclass(frozen=True)
-class Recording:
+class Recording(BaseModel):
     session_id: str
     team_id: int
 
 
-@dataclass(frozen=True)
-class RecordingWithBlocks:
+class RecordingWithBlocks(BaseModel):
     recording: Recording
     blocks: list[RecordingBlock]
 
 
-@dataclass(frozen=True)
-class RecordingsWithPersonInput:
+class RecordingsWithPersonInput(BaseModel):
     distinct_ids: list[str]
     team_id: int
     batch_size: int = 100
 
 
-@dataclass(frozen=True)
-class RecordingsWithQueryInput:
-    query: str
+class RecordingsWithTeamInput(BaseModel):
     team_id: int
     dry_run: bool = False
     batch_size: int = 100
 
 
-@dataclass(frozen=True)
-class RecordingBlockGroup:
+class RecordingsWithQueryInput(BaseModel):
+    query: str
+    team_id: int
+    dry_run: bool = False
+    batch_size: int = 100
+    query_limit: int = 100
+
+
+class RecordingBlockGroup(BaseModel):
     recording: Recording
     path: str
     ranges: list[tuple[int, int]]
+
+
+class DeleteRecordingMetadataInput(BaseModel):
+    dry_run: bool = False
 
 
 class DeleteRecordingError(Exception):

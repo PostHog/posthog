@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
+from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
@@ -45,6 +46,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
@@ -60,6 +62,7 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.openapi import generate_openapi_spec
 
 from common.hogvm.python.utils import HogVMException
 
@@ -72,7 +75,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "list", "run", "versions", "version_detail"]
+    scope_object_read_actions = ["retrieve", "list", "run", "versions", "version_detail", "openapi_spec"]
     scope_object_write_actions: list[str] = ["create", "destroy", "update"]
     lookup_field = "name"
     queryset = Endpoint.objects.all()
@@ -218,6 +221,18 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 scope="Endpoint",
                 activity="created",
                 detail=Detail(name=endpoint.name),
+            )
+
+            # Report endpoint created event
+            report_user_action(
+                user=cast(User, request.user),
+                event="endpoint created",
+                properties={
+                    "endpoint_id": str(endpoint.id),
+                    "endpoint_name": endpoint.name,
+                    "query_kind": endpoint.query.get("kind") if isinstance(endpoint.query, dict) else None,
+                },
+                team=self.team,
             )
 
             return Response(self._serialize_endpoint(endpoint), status=status.HTTP_201_CREATED)
@@ -376,11 +391,23 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        endpoint_id = str(endpoint.id)
+        endpoint_name = endpoint.name
 
         if endpoint.saved_query:
             self._disable_materialization(endpoint)
 
         endpoint.delete()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=endpoint_id,
+            scope="Endpoint",
+            activity="deleted",
+            detail=Detail(name=endpoint_name),
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _should_use_materialized_table(self, endpoint: Endpoint, data: EndpointRunRequest) -> bool:
@@ -464,6 +491,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         )
         return Response(result, status=response_status)
 
+    def _is_cache_stale(self, result: Response, saved_query) -> bool:
+        """Check if cached result is older than the materialization."""
+        if not isinstance(result.data, dict) or not result.data.get("is_cached"):
+            return False
+
+        last_refresh = result.data.get("last_refresh")
+        if not last_refresh or not saved_query.last_run_at:
+            return False
+
+        if isinstance(last_refresh, str):
+            last_refresh = isoparse(last_refresh)
+
+        return last_refresh < saved_query.last_run_at
+
     def _execute_materialized_endpoint(
         self, endpoint: Endpoint, data: EndpointRunRequest, request: Request
     ) -> Response:
@@ -502,9 +543,17 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             }
             tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
 
-            return self._execute_query_and_respond(
+            result = self._execute_query_and_respond(
                 query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
             )
+
+            if self._is_cache_stale(result, saved_query):
+                query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
+                result = self._execute_query_and_respond(
+                    query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
+                )
+
+            return result
         except Exception as e:
             capture_exception(
                 e,
@@ -584,25 +633,22 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     )
     @action(methods=["GET", "POST"], detail=True)
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
-        """Execute endpoint with optional parameters.
-
-        Query Parameters:
-            version (int, optional): Specific version to execute. Defaults to latest.
-        """
+        """Execute endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)
         data = self.get_model(request.data, EndpointRunRequest)
         self.validate_run_request(data, endpoint)
 
-        version_param = request.query_params.get("version") or request.data.get("version")
-        version_number = None
-
-        if version_param is not None:
-            try:
-                version_number = int(version_param)
-            except (ValueError, TypeError):
-                return Response(
-                    {"error": f"Invalid version parameter: {version_param}"}, status=status.HTTP_400_BAD_REQUEST
-                )
+        # Support version from request body or query params (for backwards compatibility)
+        version_number = data.version
+        if version_number is None:
+            version_param = request.query_params.get("version")
+            if version_param is not None:
+                try:
+                    version_number = int(version_param)
+                except (ValueError, TypeError):
+                    return Response(
+                        {"error": f"Invalid version parameter: {version_param}"}, status=status.HTTP_400_BAD_REQUEST
+                    )
 
         version_obj = None
         try:
@@ -655,6 +701,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_endpoints_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
         try:
+            tag_queries(product=Product.ENDPOINTS)
             data = EndpointLastExecutionTimesRequest.model_validate(request.data)
             names = data.names
             if not names:
@@ -747,3 +794,48 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return Response({"error": f"Version {version_number} not found"}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(self._serialize_endpoint_version(version_obj))
+
+    @extend_schema(
+        description="Get materialization status for an endpoint.",
+    )
+    @action(methods=["GET"], detail=True, url_path="materialization_status")
+    def materialization_status(self, request: Request, name=None, *args, **kwargs) -> Response:
+        """Get materialization status for an endpoint without fetching full endpoint data."""
+        endpoint = get_object_or_404(Endpoint.objects.select_related("saved_query"), team=self.team, name=name)
+
+        if endpoint.is_materialized and endpoint.saved_query:
+            sync_freq_str = None
+            if endpoint.saved_query.sync_frequency_interval:
+                sync_freq_str = sync_frequency_interval_to_sync_frequency(endpoint.saved_query.sync_frequency_interval)
+
+            result = {
+                "status": endpoint.materialization_status,
+                "can_materialize": True,
+                "last_materialized_at": (
+                    endpoint.last_materialized_at.isoformat() if endpoint.last_materialized_at else None
+                ),
+                "error": endpoint.materialization_error,
+                "sync_frequency": sync_freq_str,
+            }
+        else:
+            can_mat, reason = endpoint.can_materialize()
+            result = {
+                "can_materialize": can_mat,
+                "reason": reason if not can_mat else None,
+            }
+
+        return Response(result)
+
+    @extend_schema(
+        description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
+    )
+    @action(methods=["GET"], detail=True, url_path="openapi.json")
+    def openapi_spec(self, request: Request, name=None, *args, **kwargs) -> Response:
+        """Generate OpenAPI 3.0 specification for this endpoint.
+
+        Returns a spec that can be used with tools like openapi-generator,
+        `@hey-api/openapi-ts`, or any other OpenAPI-compatible SDK generator.
+        """
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        spec = generate_openapi_spec(endpoint, self.team.id, request)
+        return Response(spec, content_type="application/json")

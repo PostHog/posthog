@@ -1,4 +1,9 @@
-from posthog.temporal.delete_recordings.types import Recording, RecordingsWithPersonInput, RecordingsWithQueryInput
+from posthog.temporal.delete_recordings.types import (
+    DeleteRecordingMetadataInput,
+    Recording,
+    RecordingsWithPersonInput,
+    RecordingsWithQueryInput,
+)
 
 
 def test_recording_creation():
@@ -49,21 +54,30 @@ def test_recordings_with_query_input_dry_run_true():
     assert input.dry_run is True
 
 
-def test_recording_immutability():
-    """Test that Recording is frozen (immutable)."""
+def test_recording_mutability():
+    """Test that Recording is mutable."""
     recording = Recording(session_id="test-id", team_id=123)
-    try:
-        recording.session_id = "new-id"  # type: ignore[misc]
-        raise AssertionError()
-    except AttributeError:
-        pass
+    recording.session_id = "new-id"
+    assert recording.session_id == "new-id"
 
 
-def test_recordings_with_query_input_immutability():
-    """Test that RecordingsWithQueryInput is frozen (immutable)."""
+def test_recordings_with_query_input_mutability():
+    """Test that RecordingsWithQueryInput is mutable."""
     input = RecordingsWithQueryInput(query="test", team_id=123)
-    try:
-        input.dry_run = True  # type: ignore[misc]
-        raise AssertionError()
-    except AttributeError:
-        pass
+    input.dry_run = True
+    assert input.dry_run is True
+
+
+def test_delete_recording_metadata_input_defaults():
+    input = DeleteRecordingMetadataInput()
+    assert input.dry_run is False
+
+
+def test_delete_recording_metadata_input_dry_run_true():
+    input = DeleteRecordingMetadataInput(dry_run=True)
+    assert input.dry_run is True
+
+
+def test_delete_recording_metadata_input_dry_run_false():
+    input = DeleteRecordingMetadataInput(dry_run=False)
+    assert input.dry_run is False

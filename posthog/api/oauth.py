@@ -450,6 +450,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
     @staticmethod
     def get_token_response(token_value=None):
+        if not token_value:
+            return JsonResponse({"active": False}, status=200)
+
         try:
             token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
             token = OAuthAccessToken.objects.get(token_checksum=token_checksum) or OAuthRefreshToken.objects.get(
@@ -476,25 +479,23 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         """
         Get the token from the URL parameters.
         URL: https://example.com/introspect?token=mF_9.B5f-4.1JqM
-
-        :param request:
-        :param args:
-        :param kwargs:
-        :return:
         """
         return self.get_token_response(request.GET.get("token", None))
 
     def post(self, request, *args, **kwargs):
         """
-        Get the token from the body form parameters.
-        Body: token=mF_9.B5f-4.1JqM
-
-        :param request:
-        :param args:
-        :param kwargs:
-        :return:
+        Get the token from the body (supports both form-urlencoded and JSON).
+        Form: token=mF_9.B5f-4.1JqM
+        JSON: {"token": "mF_9.B5f-4.1JqM"}
         """
-        return self.get_token_response(request.POST.get("token", None))
+        token = request.POST.get("token")
+        if not token and request.content_type == "application/json" and request.body:
+            try:
+                json_data = json.loads(request.body)
+                token = json_data.get("token")
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return self.get_token_response(token)
 
 
 class OAuthConnectDiscoveryInfoView(ConnectDiscoveryInfoView):

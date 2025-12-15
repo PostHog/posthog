@@ -1,10 +1,11 @@
 import { Redis } from 'ioredis'
 
-import { Hub } from '../types'
 import {
     EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerHub,
     REDIS_KEY_PREFIX,
-    RestrictionType,
+    RedisRestrictionType,
+    Restriction,
 } from './event-ingestion-restriction-manager'
 
 jest.mock('./db/redis', () => {
@@ -23,8 +24,55 @@ jest.mock('./db/redis', () => {
     }
 })
 
+type DynamicConfigInput = {
+    dropTokens?: string[]
+    skipPersonTokens?: string[]
+    forceOverflowTokens?: string[]
+    redirectToDlqTokens?: string[]
+}
+
+function toRedisFormat(tokens: string[] | undefined, pipeline: string = 'analytics'): string | null {
+    if (!tokens) {
+        return null
+    }
+    return JSON.stringify(
+        tokens.map((t) => {
+            if (t.includes(':distinct_id:')) {
+                const [token, , distinctId] = t.split(':')
+                return { token, distinct_id: distinctId, pipelines: [pipeline] }
+            } else if (t.includes(':session_id:')) {
+                const [token, , sessionId] = t.split(':')
+                return { token, session_id: sessionId, pipelines: [pipeline] }
+            } else if (t.includes(':event_name:')) {
+                const [token, , eventName] = t.split(':')
+                return { token, event_name: eventName, pipelines: [pipeline] }
+            } else if (t.includes(':event_uuid:')) {
+                const [token, , eventUuid] = t.split(':')
+                return { token, event_uuid: eventUuid, pipelines: [pipeline] }
+            } else {
+                return { token: t, pipelines: [pipeline] }
+            }
+        })
+    )
+}
+
+function setupDynamicConfig(
+    pipelineMock: any,
+    manager: EventIngestionRestrictionManager,
+    config: DynamicConfigInput
+): Promise<void> {
+    pipelineMock.exec.mockResolvedValueOnce([
+        [null, toRedisFormat(config.dropTokens)],
+        [null, toRedisFormat(config.skipPersonTokens)],
+        [null, toRedisFormat(config.forceOverflowTokens)],
+        [null, toRedisFormat(config.redirectToDlqTokens)],
+    ])
+
+    return manager.forceRefresh()
+}
+
 describe('EventIngestionRestrictionManager', () => {
-    let hub: Hub
+    let hub: EventIngestionRestrictionManagerHub
     let redisClient: Redis
     let pipelineMock: any
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -33,6 +81,7 @@ describe('EventIngestionRestrictionManager', () => {
         pipelineMock = {
             get: jest.fn().mockReturnThis(),
             exec: jest.fn().mockResolvedValue([
+                [null, null],
                 [null, null],
                 [null, null],
                 [null, null],
@@ -46,9 +95,9 @@ describe('EventIngestionRestrictionManager', () => {
         hub = {
             USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: true,
             redisPool: require('./db/redis').createRedisPool(),
-        } as unknown as Hub
+        }
 
-        eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+        eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
             staticDropEventTokens: [],
             staticSkipPersonTokens: [],
             staticForceOverflowTokens: [],
@@ -62,12 +111,12 @@ describe('EventIngestionRestrictionManager', () => {
 
     describe('constructor', () => {
         it('initializes with default values if no options provided', () => {
-            const manager = new EventIngestionRestrictionManager(hub as Hub)
+            const manager = new EventIngestionRestrictionManager(hub)
             expect(manager).toBeDefined()
         })
 
         it('initializes with provided options', () => {
-            const manager = new EventIngestionRestrictionManager(hub as Hub, {
+            const manager = new EventIngestionRestrictionManager(hub, {
                 staticDropEventTokens: ['token1'],
                 staticSkipPersonTokens: ['token2'],
                 staticForceOverflowTokens: ['token3'],
@@ -76,93 +125,117 @@ describe('EventIngestionRestrictionManager', () => {
         })
     })
 
-    describe('fetchDynamicEventIngestionRestrictionConfig', () => {
+    describe('dynamic config loading from Redis', () => {
         beforeEach(() => {
-            // Set the property to enable dynamic config
             hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = true
         })
 
-        it('returns empty object if dynamic config is disabled', async () => {
+        it('does not call Redis when dynamic config is disabled', async () => {
             hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
-            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
-            expect(result).toEqual({})
+            const manager = new EventIngestionRestrictionManager(hub)
+
+            await manager.forceRefresh()
+
             expect(hub.redisPool.acquire).not.toHaveBeenCalled()
         })
 
         it('never calls Redis through dynamicConfigRefresher when USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG is false', () => {
             hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
+            const manager = new EventIngestionRestrictionManager(hub)
 
-            // Create a new manager with the flag set to false
-            const manager = new EventIngestionRestrictionManager(hub as Hub)
+            manager.getAppliedRestrictions('test-token')
 
-            // Create a spy on the fetchDynamicEventIngestionRestrictionConfig method
-            const fetchSpy = jest.spyOn(manager, 'fetchDynamicEventIngestionRestrictionConfig')
-
-            // Call the methods that might trigger Redis access
-            manager.shouldDropEvent('test-token')
-            manager.shouldSkipPerson('test-token')
-            manager.shouldForceOverflow('test-token')
-
-            // Verify that fetchDynamicEventIngestionRestrictionConfig was never called
-            expect(fetchSpy).not.toHaveBeenCalled()
-
-            // Additionally verify Redis wasn't accessed
             expect(hub.redisPool.acquire).not.toHaveBeenCalled()
         })
 
         it('fetches and parses Redis data correctly', async () => {
-            // on class initialization, we load the cache, so assert that pipeline get was called 3 times
-            expect(pipelineMock.get).toHaveBeenCalledTimes(3)
-            // now clear the mock, so we can assert again below
-            pipelineMock.get.mockClear()
-            pipelineMock.exec.mockResolvedValue([
-                [null, JSON.stringify(['token1', 'token2'])],
-                [null, JSON.stringify(['token3', 'token4'])],
-                [null, JSON.stringify(['token5', 'token6'])],
+            pipelineMock.exec.mockResolvedValueOnce([
+                [
+                    null,
+                    JSON.stringify([
+                        { token: 'token1', pipelines: ['analytics'] },
+                        { token: 'token2', pipelines: ['analytics'] },
+                    ]),
+                ],
+                [
+                    null,
+                    JSON.stringify([
+                        { token: 'token3', pipelines: ['analytics'] },
+                        { token: 'token4', pipelines: ['analytics'] },
+                    ]),
+                ],
+                [
+                    null,
+                    JSON.stringify([
+                        { token: 'token5', pipelines: ['analytics'] },
+                        { token: 'token6', pipelines: ['analytics'] },
+                    ]),
+                ],
+                [
+                    null,
+                    JSON.stringify([
+                        { token: 'token7', pipelines: ['analytics'] },
+                        { token: 'token8', pipelines: ['analytics'] },
+                    ]),
+                ],
             ])
 
-            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+            await eventIngestionRestrictionManager.forceRefresh()
 
-            expect(result).toEqual({
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token1', 'token2']),
-                [RestrictionType.SKIP_PERSON_PROCESSING]: new Set(['token3', 'token4']),
-                [RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]: new Set(['token5', 'token6']),
-            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token1')).toContain(Restriction.DROP_EVENT)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(Restriction.DROP_EVENT)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token3')).toContain(
+                Restriction.SKIP_PERSON_PROCESSING
+            )
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token4')).toContain(
+                Restriction.SKIP_PERSON_PROCESSING
+            )
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token5')).toContain(
+                Restriction.FORCE_OVERFLOW
+            )
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token6')).toContain(
+                Restriction.FORCE_OVERFLOW
+            )
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token7')).toContain(
+                Restriction.REDIRECT_TO_DLQ
+            )
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token8')).toContain(
+                Restriction.REDIRECT_TO_DLQ
+            )
 
             expect(hub.redisPool.acquire).toHaveBeenCalled()
-            expect(pipelineMock.get).toHaveBeenCalledTimes(3)
             expect(pipelineMock.get).toHaveBeenCalledWith(
-                `${REDIS_KEY_PREFIX}:${RestrictionType.DROP_EVENT_FROM_INGESTION}`
+                `${REDIS_KEY_PREFIX}:${RedisRestrictionType.DROP_EVENT_FROM_INGESTION}`
             )
             expect(pipelineMock.get).toHaveBeenCalledWith(
-                `${REDIS_KEY_PREFIX}:${RestrictionType.SKIP_PERSON_PROCESSING}`
+                `${REDIS_KEY_PREFIX}:${RedisRestrictionType.SKIP_PERSON_PROCESSING}`
             )
             expect(pipelineMock.get).toHaveBeenCalledWith(
-                `${REDIS_KEY_PREFIX}:${RestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`
+                `${REDIS_KEY_PREFIX}:${RedisRestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`
             )
+            expect(pipelineMock.get).toHaveBeenCalledWith(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.REDIRECT_TO_DLQ}`)
             expect(hub.redisPool.release).toHaveBeenCalledWith(redisClient)
         })
 
         it('handles Redis errors gracefully', async () => {
-            const error = new Error('Redis error')
-            pipelineMock.exec.mockRejectedValue(error)
+            pipelineMock.exec.mockRejectedValueOnce(new Error('Redis error'))
 
-            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
-            expect(result).toEqual({})
+            await eventIngestionRestrictionManager.forceRefresh()
+
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('any-token')).toEqual(new Set())
             expect(hub.redisPool.release).toHaveBeenCalledWith(redisClient)
         })
 
         it('handles Redis pool acquisition errors gracefully', async () => {
-            const error = new Error('Pool error')
-            require('./db/redis').createRedisPool().acquire.mockRejectedValueOnce(error)
+            require('./db/redis').createRedisPool().acquire.mockRejectedValueOnce(new Error('Pool error'))
 
-            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
-            expect(result).toEqual({})
+            await eventIngestionRestrictionManager.forceRefresh()
+
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('any-token')).toEqual(new Set())
         })
 
         it('handles new format with pipeline fields (analytics pipeline)', async () => {
-            pipelineMock.get.mockClear()
-            pipelineMock.exec.mockResolvedValue([
+            pipelineMock.exec.mockResolvedValueOnce([
                 [
                     null,
                     JSON.stringify([
@@ -173,35 +246,33 @@ describe('EventIngestionRestrictionManager', () => {
                 ],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
-            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+            await eventIngestionRestrictionManager.forceRefresh()
 
-            // Should only include token1 and token2 (pipelines includes 'analytics'), not token3
-            expect(result).toEqual({
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token1', 'token2:user1']),
-            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token1')).toContain(Restriction.DROP_EVENT)
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token2', { distinct_id: 'user1' })
+            ).toContain(Restriction.DROP_EVENT)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token3')).toEqual(new Set())
         })
 
         it('handles new format with only session_recordings enabled (analytics pipeline)', async () => {
-            pipelineMock.get.mockClear()
-            pipelineMock.exec.mockResolvedValue([
+            pipelineMock.exec.mockResolvedValueOnce([
                 [null, JSON.stringify([{ token: 'token1', pipelines: ['session_recordings'] }])],
+                [null, null],
                 [null, null],
                 [null, null],
             ])
 
-            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+            await eventIngestionRestrictionManager.forceRefresh()
 
-            // Should be empty because pipelines doesn't include 'analytics'
-            expect(result).toEqual({
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set([]),
-            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token1')).toEqual(new Set())
         })
 
         it('excludes entries with empty pipelines array', async () => {
-            pipelineMock.get.mockClear()
-            pipelineMock.exec.mockResolvedValue([
+            pipelineMock.exec.mockResolvedValueOnce([
                 [
                     null,
                     JSON.stringify([
@@ -211,69 +282,31 @@ describe('EventIngestionRestrictionManager', () => {
                 ],
                 [null, null],
                 [null, null],
-            ])
-
-            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
-
-            expect(result).toEqual({
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token2']),
-            })
-        })
-
-        it('handles mixed old and new formats (analytics pipeline)', async () => {
-            pipelineMock.get.mockClear()
-            pipelineMock.exec.mockResolvedValue([
-                [
-                    null,
-                    JSON.stringify([
-                        'old-token1',
-                        'old-token2:distinct1',
-                        { token: 'new-token1', pipelines: ['analytics'] },
-                        { token: 'new-token2', distinct_id: 'user1', pipelines: ['session_recordings'] },
-                    ]),
-                ],
-                [null, null],
                 [null, null],
             ])
 
-            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+            await eventIngestionRestrictionManager.forceRefresh()
 
-            // Should include old-token1, old-token2:distinct1 (old format defaults to analytics)
-            // and new-token1 (pipelines includes 'analytics'), but NOT new-token2
-            expect(result).toEqual({
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set([
-                    'old-token1',
-                    'old-token2:distinct1',
-                    'new-token1',
-                ]),
-            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token1')).toEqual(new Set())
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(Restriction.DROP_EVENT)
         })
 
         it('excludes entries when pipeline field is missing', async () => {
-            pipelineMock.get.mockClear()
-            pipelineMock.exec.mockResolvedValue([
-                [
-                    null,
-                    JSON.stringify([
-                        { token: 'token1' }, // Missing pipelines field - will be excluded
-                        { token: 'token2', pipelines: ['analytics'] }, // Has pipelines field
-                    ]),
-                ],
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, JSON.stringify([{ token: 'token1' }, { token: 'token2', pipelines: ['analytics'] }])],
+                [null, null],
                 [null, null],
                 [null, null],
             ])
 
-            const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+            await eventIngestionRestrictionManager.forceRefresh()
 
-            // Should only include token2 (pipelines includes 'analytics'), token1 is excluded (missing field)
-            expect(result).toEqual({
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token2']),
-            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token1')).toEqual(new Set())
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(Restriction.DROP_EVENT)
         })
 
         it('filters by session_recordings pipeline', async () => {
-            pipelineMock.get.mockClear()
-            pipelineMock.exec.mockResolvedValue([
+            pipelineMock.exec.mockResolvedValueOnce([
                 [
                     null,
                     JSON.stringify([
@@ -284,209 +317,1030 @@ describe('EventIngestionRestrictionManager', () => {
                 ],
                 [null, null],
                 [null, null],
-            ])
-
-            const manager = new EventIngestionRestrictionManager(hub as Hub, {
-                pipeline: 'session_recordings',
-            })
-
-            const result = await manager.fetchDynamicEventIngestionRestrictionConfig()
-
-            // Should only include token2 and token3 (pipelines includes 'session_recordings')
-            expect(result).toEqual({
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token2', 'token3']),
-            })
-        })
-
-        it('old format excluded from session_recordings pipeline', async () => {
-            pipelineMock.get.mockClear()
-            pipelineMock.exec.mockResolvedValue([
-                [
-                    null,
-                    JSON.stringify([
-                        'old-token1', // Old format, should be excluded from session_recordings
-                        { token: 'new-token1', pipelines: ['session_recordings'] },
-                    ]),
-                ],
-                [null, null],
                 [null, null],
             ])
 
-            const manager = new EventIngestionRestrictionManager(hub as Hub, {
+            const manager = new EventIngestionRestrictionManager(hub, {
                 pipeline: 'session_recordings',
             })
+            await manager.forceRefresh()
 
-            const result = await manager.fetchDynamicEventIngestionRestrictionConfig()
-
-            // Should only include new-token1, not old-token1 (old format defaults to analytics only)
-            expect(result).toEqual({
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['new-token1']),
-            })
+            expect(manager.getAppliedRestrictions('token1')).toEqual(new Set())
+            expect(manager.getAppliedRestrictions('token2')).toContain(Restriction.DROP_EVENT)
+            expect(manager.getAppliedRestrictions('token3')).toContain(Restriction.DROP_EVENT)
         })
     })
 
-    describe('shouldDropEvent', () => {
-        it('returns false if token is not provided', () => {
-            expect(eventIngestionRestrictionManager.shouldDropEvent()).toBe(false)
+    describe('getAppliedRestrictions - DROP_EVENT', () => {
+        it('returns empty array if token is not provided', () => {
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('returns true if token is in static drop list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+        it('includes DROP_EVENT if token is in static drop list', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticDropEventTokens: ['static-drop-token'],
             })
-            expect(eventIngestionRestrictionManager.shouldDropEvent('static-drop-token')).toBe(true)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-drop-token')).toContain(
+                Restriction.DROP_EVENT
+            )
         })
 
-        it('returns true if token:distinctId is in static drop list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
-                staticDropEventTokens: ['static-drop-token:123'],
+        it('includes DROP_EVENT if token:distinctId is in static drop list', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+                staticDropEventTokens: ['static-drop-token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.shouldDropEvent('static-drop-token', '123')).toBe(true)
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('static-drop-token', { distinct_id: '123' })
+            ).toContain(Restriction.DROP_EVENT)
         })
 
-        it('returns false if dynamic config is disabled', () => {
+        it('returns empty array if dynamic config is disabled', () => {
             hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
-            expect(eventIngestionRestrictionManager.shouldDropEvent('token')).toBe(false)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
         })
 
-        it('returns false if dynamic set is not defined', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {}
-            expect(eventIngestionRestrictionManager.shouldDropEvent('token')).toBe(false)
+        it('returns empty array if dynamic set is not defined', async () => {
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, null],
+                [null, null],
+                [null, null],
+                [null, null],
+            ])
+            await eventIngestionRestrictionManager.forceRefresh()
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
         })
 
-        it('returns true if token is in the dynamic config list', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token']),
-            }
-            expect(eventIngestionRestrictionManager.shouldDropEvent('token')).toBe(true)
+        it('includes DROP_EVENT if token is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                dropTokens: ['token'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toContain(Restriction.DROP_EVENT)
         })
 
-        it('returns true if distinctId is in the dynamic config list', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token:123']),
-            }
-            expect(eventIngestionRestrictionManager.shouldDropEvent('token', '123')).toBe(true)
+        it('includes DROP_EVENT if distinctId is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                dropTokens: ['token:distinct_id:123'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })).toContain(
+                Restriction.DROP_EVENT
+            )
         })
 
-        it('returns false if neither token nor distinctId is in the dynamic config list', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {
-                [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['other-token', 'token:789']),
-            }
-            expect(eventIngestionRestrictionManager.shouldDropEvent('token', '123')).toBe(false)
+        it('does not include DROP_EVENT if neither token nor distinctId is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                dropTokens: ['other-token', 'token:distinct_id:789'],
+            })
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })
+            ).not.toContain(Restriction.DROP_EVENT)
         })
     })
 
-    describe('shouldSkipPerson', () => {
-        it('returns false if token is not provided', () => {
-            expect(eventIngestionRestrictionManager.shouldSkipPerson()).toBe(false)
+    describe('getAppliedRestrictions - SKIP_PERSON_PROCESSING', () => {
+        it('returns empty array if token is not provided', () => {
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('returns true if token is in static skip list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+        it('includes SKIP_PERSON_PROCESSING if token is in static skip list', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticSkipPersonTokens: ['static-skip-token'],
             })
-            expect(eventIngestionRestrictionManager.shouldSkipPerson('static-skip-token')).toBe(true)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-skip-token')).toContain(
+                Restriction.SKIP_PERSON_PROCESSING
+            )
         })
 
-        it('returns true if token:distinctId is in static skip list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
-                staticSkipPersonTokens: ['static-skip-token:123'],
+        it('includes SKIP_PERSON_PROCESSING if token:distinctId is in static skip list', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+                staticSkipPersonTokens: ['static-skip-token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.shouldSkipPerson('static-skip-token', '123')).toBe(true)
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('static-skip-token', { distinct_id: '123' })
+            ).toContain(Restriction.SKIP_PERSON_PROCESSING)
         })
 
-        it('returns false if dynamic config is disabled', () => {
+        it('returns empty array if dynamic config is disabled', () => {
             hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
-            expect(eventIngestionRestrictionManager.shouldSkipPerson('token')).toBe(false)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
         })
 
-        it('returns false if dynamic set is not defined', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {}
-            expect(eventIngestionRestrictionManager.shouldSkipPerson('token')).toBe(false)
+        it('returns empty array if dynamic set is not defined', async () => {
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, null],
+                [null, null],
+                [null, null],
+                [null, null],
+            ])
+            await eventIngestionRestrictionManager.forceRefresh()
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
         })
 
-        it('returns true if token is in the dynamic config list', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {
-                [RestrictionType.SKIP_PERSON_PROCESSING]: new Set(['token']),
-            }
-            expect(eventIngestionRestrictionManager.shouldSkipPerson('token')).toBe(true)
+        it('includes SKIP_PERSON_PROCESSING if token is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                skipPersonTokens: ['token'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toContain(
+                Restriction.SKIP_PERSON_PROCESSING
+            )
         })
 
-        it('returns true if distinctId is in the dynamic config list', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {
-                [RestrictionType.SKIP_PERSON_PROCESSING]: new Set(['token:123']),
-            }
-            expect(eventIngestionRestrictionManager.shouldSkipPerson('token', '123')).toBe(true)
+        it('includes SKIP_PERSON_PROCESSING if distinctId is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                skipPersonTokens: ['token:distinct_id:123'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })).toContain(
+                Restriction.SKIP_PERSON_PROCESSING
+            )
         })
 
-        it('returns false if neither token nor distinctId is in the dynamic config list', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {
-                [RestrictionType.SKIP_PERSON_PROCESSING]: new Set(['other-token', 'token:789']),
-            }
-            expect(eventIngestionRestrictionManager.shouldSkipPerson('token', '123')).toBe(false)
+        it('does not include SKIP_PERSON_PROCESSING if neither token nor distinctId is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                skipPersonTokens: ['other-token', 'token:distinct_id:789'],
+            })
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })
+            ).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
         })
     })
 
-    describe('shouldForceOverflow', () => {
-        it('returns false if token is not provided', () => {
-            expect(eventIngestionRestrictionManager.shouldForceOverflow()).toBe(false)
+    describe('getAppliedRestrictions - FORCE_OVERFLOW', () => {
+        it('returns empty array if token is not provided', () => {
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('returns true if token is in static overflow list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+        it('includes FORCE_OVERFLOW if token is in static overflow list', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticForceOverflowTokens: ['static-overflow-token'],
             })
-            expect(eventIngestionRestrictionManager.shouldForceOverflow('static-overflow-token')).toBe(true)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-overflow-token')).toContain(
+                Restriction.FORCE_OVERFLOW
+            )
         })
 
-        it('returns true if token:distinctId is in static overflow list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
-                staticForceOverflowTokens: ['static-overflow-token:123'],
+        it('includes FORCE_OVERFLOW if token:distinctId is in static overflow list', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+                staticForceOverflowTokens: ['static-overflow-token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.shouldForceOverflow('static-overflow-token', '123')).toBe(true)
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('static-overflow-token', { distinct_id: '123' })
+            ).toContain(Restriction.FORCE_OVERFLOW)
         })
 
-        it('returns false if dynamic config is disabled', () => {
+        it('returns empty array if dynamic config is disabled', () => {
             hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
-            expect(eventIngestionRestrictionManager.shouldForceOverflow('token')).toBe(false)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
         })
 
-        it('returns false if dynamic set is not defined', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {}
-            expect(eventIngestionRestrictionManager.shouldForceOverflow('token')).toBe(false)
+        it('returns empty array if dynamic set is not defined', async () => {
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, null],
+                [null, null],
+                [null, null],
+                [null, null],
+            ])
+            await eventIngestionRestrictionManager.forceRefresh()
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
         })
 
-        it('returns true if token is in the dynamic config list', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {
-                [RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]: new Set(['token']),
-            }
-            expect(eventIngestionRestrictionManager.shouldForceOverflow('token')).toBe(true)
+        it('includes FORCE_OVERFLOW if token is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                forceOverflowTokens: ['token'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toContain(
+                Restriction.FORCE_OVERFLOW
+            )
         })
 
-        it('returns true if distinctId is in the dynamic config list', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {
-                [RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]: new Set(['token:123']),
-            }
-            expect(eventIngestionRestrictionManager.shouldForceOverflow('token', '123')).toBe(true)
+        it('includes FORCE_OVERFLOW if distinctId is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                forceOverflowTokens: ['token:distinct_id:123'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })).toContain(
+                Restriction.FORCE_OVERFLOW
+            )
         })
 
-        it('returns false if neither token nor distinctId is in the dynamic config list', () => {
-            // @ts-expect-error - Setting private property for testing
-            eventIngestionRestrictionManager.latestDynamicConfig = {
-                [RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]: new Set(['other-token', 'token:789']),
-            }
-            expect(eventIngestionRestrictionManager.shouldForceOverflow('token', '123')).toBe(false)
+        it('does not include FORCE_OVERFLOW if neither token nor distinctId is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                forceOverflowTokens: ['other-token', 'token:distinct_id:789'],
+            })
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })
+            ).not.toContain(Restriction.FORCE_OVERFLOW)
+        })
+    })
+
+    describe('getAppliedRestrictions - REDIRECT_TO_DLQ', () => {
+        it('returns empty array if token is not provided', () => {
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
+        })
+
+        it('includes REDIRECT_TO_DLQ if token is in static DLQ list', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+                staticRedirectToDlqTokens: ['static-dlq-token'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-dlq-token')).toContain(
+                Restriction.REDIRECT_TO_DLQ
+            )
+        })
+
+        it('includes REDIRECT_TO_DLQ if token:distinctId is in static DLQ list', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+                staticRedirectToDlqTokens: ['static-dlq-token:distinct_id:123'],
+            })
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('static-dlq-token', { distinct_id: '123' })
+            ).toContain(Restriction.REDIRECT_TO_DLQ)
+        })
+
+        it('returns empty array if dynamic config is disabled', () => {
+            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
+        })
+
+        it('returns empty array if dynamic set is not defined', async () => {
+            pipelineMock.exec.mockResolvedValueOnce([
+                [null, null],
+                [null, null],
+                [null, null],
+                [null, null],
+            ])
+            await eventIngestionRestrictionManager.forceRefresh()
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
+        })
+
+        it('includes REDIRECT_TO_DLQ if token is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                redirectToDlqTokens: ['token'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toContain(
+                Restriction.REDIRECT_TO_DLQ
+            )
+        })
+
+        it('includes REDIRECT_TO_DLQ if distinctId is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                redirectToDlqTokens: ['token:distinct_id:123'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })).toContain(
+                Restriction.REDIRECT_TO_DLQ
+            )
+        })
+
+        it('does not include REDIRECT_TO_DLQ if neither token nor distinctId is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                redirectToDlqTokens: ['other-token', 'token:distinct_id:789'],
+            })
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })
+            ).not.toContain(Restriction.REDIRECT_TO_DLQ)
+        })
+
+        it('includes REDIRECT_TO_DLQ if session_id is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                redirectToDlqTokens: ['token:session_id:session123'],
+            })
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token', { session_id: 'session123' })
+            ).toContain(Restriction.REDIRECT_TO_DLQ)
+        })
+
+        it('includes REDIRECT_TO_DLQ if event_name is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                redirectToDlqTokens: ['token:event_name:$pageview'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { event: '$pageview' })).toContain(
+                Restriction.REDIRECT_TO_DLQ
+            )
+        })
+
+        it('includes REDIRECT_TO_DLQ if event_uuid is in the dynamic config list', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                redirectToDlqTokens: ['token:event_uuid:uuid-123'],
+            })
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { uuid: 'uuid-123' })).toContain(
+                Restriction.REDIRECT_TO_DLQ
+            )
+        })
+    })
+
+    describe('session_id support', () => {
+        describe('Redis parsing with session_ids', () => {
+            it('handles new format with session_id field', async () => {
+                pipelineMock.exec.mockResolvedValueOnce([
+                    [
+                        null,
+                        JSON.stringify([
+                            { token: 'token1', session_id: 'session123', pipelines: ['analytics'] },
+                            { token: 'token2', distinct_id: 'user1', pipelines: ['analytics'] },
+                        ]),
+                    ],
+                    [null, null],
+                    [null, null],
+                    [null, null],
+                ])
+
+                await eventIngestionRestrictionManager.forceRefresh()
+
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { session_id: 'session123' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token2', { distinct_id: 'user1' })
+                ).toContain(Restriction.DROP_EVENT)
+            })
+
+            it('handles mixed distinct_id and session_id entries', async () => {
+                pipelineMock.exec.mockResolvedValueOnce([
+                    [
+                        null,
+                        JSON.stringify([
+                            { token: 'token1', distinct_id: 'user1', pipelines: ['analytics'] },
+                            { token: 'token1', session_id: 'session123', pipelines: ['analytics'] },
+                            { token: 'token2', pipelines: ['analytics'] },
+                        ]),
+                    ],
+                    [null, null],
+                    [null, null],
+                    [null, null],
+                ])
+
+                await eventIngestionRestrictionManager.forceRefresh()
+
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { distinct_id: 'user1' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { session_id: 'session123' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(
+                    Restriction.DROP_EVENT
+                )
+            })
+        })
+
+        describe('getAppliedRestrictions with session_id - DROP_EVENT', () => {
+            it('includes DROP_EVENT if session_id is in the dynamic config list', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    dropTokens: ['token:session_id:session123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { session_id: 'session123' })
+                ).toContain(Restriction.DROP_EVENT)
+            })
+
+            it('includes DROP_EVENT if either distinct_id OR session_id matches (OR logic)', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    dropTokens: ['token:distinct_id:user1', 'token:session_id:session123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                    })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'session123',
+                    })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                    })
+                ).not.toContain(Restriction.DROP_EVENT)
+            })
+
+            it('does not include DROP_EVENT if session_id does not match', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    dropTokens: ['token:session_id:session123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { session_id: 'other-session' })
+                ).not.toContain(Restriction.DROP_EVENT)
+            })
+        })
+
+        describe('getAppliedRestrictions with session_id - SKIP_PERSON_PROCESSING', () => {
+            it('includes SKIP_PERSON_PROCESSING if session_id is in the dynamic config list', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    skipPersonTokens: ['token:session_id:session123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { session_id: 'session123' })
+                ).toContain(Restriction.SKIP_PERSON_PROCESSING)
+            })
+
+            it('includes SKIP_PERSON_PROCESSING if either distinct_id OR session_id matches (OR logic)', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    skipPersonTokens: ['token:distinct_id:user1', 'token:session_id:session123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                    })
+                ).toContain(Restriction.SKIP_PERSON_PROCESSING)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'session123',
+                    })
+                ).toContain(Restriction.SKIP_PERSON_PROCESSING)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                    })
+                ).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
+            })
+        })
+
+        describe('getAppliedRestrictions with session_id - FORCE_OVERFLOW', () => {
+            it('includes FORCE_OVERFLOW if session_id is in the dynamic config list', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    forceOverflowTokens: ['token:session_id:session123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { session_id: 'session123' })
+                ).toContain(Restriction.FORCE_OVERFLOW)
+            })
+
+            it('includes FORCE_OVERFLOW if either distinct_id OR session_id matches (OR logic)', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    forceOverflowTokens: ['token:distinct_id:user1', 'token:session_id:session123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                    })
+                ).toContain(Restriction.FORCE_OVERFLOW)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'session123',
+                    })
+                ).toContain(Restriction.FORCE_OVERFLOW)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                    })
+                ).not.toContain(Restriction.FORCE_OVERFLOW)
+            })
+        })
+    })
+
+    describe('event_name support', () => {
+        describe('Redis parsing with event_name', () => {
+            it('handles new format with event_name field', async () => {
+                pipelineMock.exec.mockResolvedValueOnce([
+                    [
+                        null,
+                        JSON.stringify([
+                            { token: 'token1', event: '$pageview', pipelines: ['analytics'] },
+                            { token: 'token2', distinct_id: 'user1', pipelines: ['analytics'] },
+                        ]),
+                    ],
+                    [null, null],
+                    [null, null],
+                    [null, null],
+                ])
+
+                await eventIngestionRestrictionManager.forceRefresh()
+
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { event: '$pageview' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token2', { distinct_id: 'user1' })
+                ).toContain(Restriction.DROP_EVENT)
+            })
+
+            it('handles mixed distinct_id, session_id, and event_name entries', async () => {
+                pipelineMock.exec.mockResolvedValueOnce([
+                    [
+                        null,
+                        JSON.stringify([
+                            { token: 'token1', distinct_id: 'user1', pipelines: ['analytics'] },
+                            { token: 'token1', session_id: 'session123', pipelines: ['analytics'] },
+                            { token: 'token1', event: '$pageview', pipelines: ['analytics'] },
+                            { token: 'token2', pipelines: ['analytics'] },
+                        ]),
+                    ],
+                    [null, null],
+                    [null, null],
+                    [null, null],
+                ])
+
+                await eventIngestionRestrictionManager.forceRefresh()
+
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { distinct_id: 'user1' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { session_id: 'session123' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { event: '$pageview' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(
+                    Restriction.DROP_EVENT
+                )
+            })
+        })
+
+        describe('getAppliedRestrictions with event_name - DROP_EVENT', () => {
+            it('includes DROP_EVENT if event_name is in the dynamic config list', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    dropTokens: ['token:event_name:$pageview'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { event: '$pageview' })
+                ).toContain(Restriction.DROP_EVENT)
+            })
+
+            it('includes DROP_EVENT if any filter matches (OR logic)', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    dropTokens: [
+                        'token:distinct_id:user1',
+                        'token:session_id:session123',
+                        'token:event_name:$pageview',
+                    ],
+                })
+                // Match by distinct_id
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
+                ).toContain(Restriction.DROP_EVENT)
+                // Match by session_id
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'session123',
+                        event: 'other-event',
+                    })
+                ).toContain(Restriction.DROP_EVENT)
+                // Match by event_name
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: '$pageview',
+                    })
+                ).toContain(Restriction.DROP_EVENT)
+                // No match
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
+                ).not.toContain(Restriction.DROP_EVENT)
+            })
+
+            it('does not include DROP_EVENT if event_name does not match', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    dropTokens: ['token:event_name:$pageview'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { event: '$autocapture' })
+                ).not.toContain(Restriction.DROP_EVENT)
+            })
+        })
+
+        describe('getAppliedRestrictions with event_name - SKIP_PERSON_PROCESSING', () => {
+            it('includes SKIP_PERSON_PROCESSING if event_name is in the dynamic config list', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    skipPersonTokens: ['token:event_name:$pageview'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { event: '$pageview' })
+                ).toContain(Restriction.SKIP_PERSON_PROCESSING)
+            })
+
+            it('includes SKIP_PERSON_PROCESSING if any filter matches (OR logic)', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    skipPersonTokens: ['token:distinct_id:user1', 'token:event_name:$pageview'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
+                ).toContain(Restriction.SKIP_PERSON_PROCESSING)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: '$pageview',
+                    })
+                ).toContain(Restriction.SKIP_PERSON_PROCESSING)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
+                ).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
+            })
+        })
+
+        describe('getAppliedRestrictions with event_name - FORCE_OVERFLOW', () => {
+            it('includes FORCE_OVERFLOW if event_name is in the dynamic config list', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    forceOverflowTokens: ['token:event_name:$pageview'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { event: '$pageview' })
+                ).toContain(Restriction.FORCE_OVERFLOW)
+            })
+
+            it('includes FORCE_OVERFLOW if any filter matches (OR logic)', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    forceOverflowTokens: ['token:distinct_id:user1', 'token:event_name:$pageview'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
+                ).toContain(Restriction.FORCE_OVERFLOW)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: '$pageview',
+                    })
+                ).toContain(Restriction.FORCE_OVERFLOW)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
+                ).not.toContain(Restriction.FORCE_OVERFLOW)
+            })
+        })
+    })
+
+    describe('event_uuid support', () => {
+        describe('Redis parsing with event_uuid', () => {
+            it('handles new format with event_uuid field', async () => {
+                pipelineMock.exec.mockResolvedValueOnce([
+                    [
+                        null,
+                        JSON.stringify([
+                            {
+                                token: 'token1',
+                                uuid: '550e8400-e29b-41d4-a716-446655440000',
+                                pipelines: ['analytics'],
+                            },
+                            { token: 'token2', pipelines: ['analytics'] },
+                        ]),
+                    ],
+                    [null, null],
+                    [null, null],
+                    [null, null],
+                ])
+
+                await eventIngestionRestrictionManager.forceRefresh()
+
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', {
+                        uuid: '550e8400-e29b-41d4-a716-446655440000',
+                    })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(
+                    Restriction.DROP_EVENT
+                )
+            })
+
+            it('handles mixed distinct_id, session_id, and event_uuid entries', async () => {
+                pipelineMock.exec.mockResolvedValueOnce([
+                    [
+                        null,
+                        JSON.stringify([
+                            { token: 'token1', distinct_id: 'user1', pipelines: ['analytics'] },
+                            { token: 'token1', session_id: 'session123', pipelines: ['analytics'] },
+                            { token: 'token1', uuid: 'uuid-123', pipelines: ['analytics'] },
+                            { token: 'token2', pipelines: ['analytics'] },
+                        ]),
+                    ],
+                    [null, null],
+                    [null, null],
+                    [null, null],
+                ])
+
+                await eventIngestionRestrictionManager.forceRefresh()
+
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { distinct_id: 'user1' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { session_id: 'session123' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { uuid: 'uuid-123' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(
+                    Restriction.DROP_EVENT
+                )
+            })
+        })
+
+        describe('getAppliedRestrictions with event_uuid - DROP_EVENT', () => {
+            it('includes DROP_EVENT if event_uuid is in the dynamic config list', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    dropTokens: ['token:event_uuid:uuid-123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { uuid: 'uuid-123' })
+                ).toContain(Restriction.DROP_EVENT)
+            })
+
+            it('includes DROP_EVENT if any filter matches (OR logic)', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    dropTokens: ['token:distinct_id:user1', 'token:session_id:session123', 'token:event_uuid:uuid-123'],
+                })
+                // Match by distinct_id
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
+                ).toContain(Restriction.DROP_EVENT)
+                // Match by session_id
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'session123',
+                        uuid: 'other-uuid',
+                    })
+                ).toContain(Restriction.DROP_EVENT)
+                // Match by event_uuid
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'uuid-123',
+                    })
+                ).toContain(Restriction.DROP_EVENT)
+                // No match
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
+                ).not.toContain(Restriction.DROP_EVENT)
+            })
+
+            it('does not include DROP_EVENT if event_uuid does not match', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    dropTokens: ['token:event_uuid:uuid-123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { uuid: 'other-uuid' })
+                ).not.toContain(Restriction.DROP_EVENT)
+            })
+        })
+
+        describe('getAppliedRestrictions with event_uuid - SKIP_PERSON_PROCESSING', () => {
+            it('includes SKIP_PERSON_PROCESSING if event_uuid is in the dynamic config list', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    skipPersonTokens: ['token:event_uuid:uuid-123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { uuid: 'uuid-123' })
+                ).toContain(Restriction.SKIP_PERSON_PROCESSING)
+            })
+
+            it('includes SKIP_PERSON_PROCESSING if any filter matches (OR logic)', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    skipPersonTokens: ['token:distinct_id:user1', 'token:event_uuid:uuid-123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
+                ).toContain(Restriction.SKIP_PERSON_PROCESSING)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'uuid-123',
+                    })
+                ).toContain(Restriction.SKIP_PERSON_PROCESSING)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
+                ).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
+            })
+        })
+
+        describe('getAppliedRestrictions with event_uuid - FORCE_OVERFLOW', () => {
+            it('includes FORCE_OVERFLOW if event_uuid is in the dynamic config list', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    forceOverflowTokens: ['token:event_uuid:uuid-123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { uuid: 'uuid-123' })
+                ).toContain(Restriction.FORCE_OVERFLOW)
+            })
+
+            it('includes FORCE_OVERFLOW if any filter matches (OR logic)', async () => {
+                await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                    forceOverflowTokens: ['token:distinct_id:user1', 'token:event_uuid:uuid-123'],
+                })
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
+                ).toContain(Restriction.FORCE_OVERFLOW)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'uuid-123',
+                    })
+                ).toContain(Restriction.FORCE_OVERFLOW)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
+                ).not.toContain(Restriction.FORCE_OVERFLOW)
+            })
+        })
+    })
+
+    describe('multiple restrictions for same entity', () => {
+        it('returns multiple restrictions when token matches multiple static lists', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+                staticDropEventTokens: ['multi-token'],
+                staticSkipPersonTokens: ['multi-token'],
+                staticForceOverflowTokens: ['multi-token'],
+                staticRedirectToDlqTokens: ['multi-token'],
+            })
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('multi-token')
+            expect(restrictions).toContain(Restriction.DROP_EVENT)
+            expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)
+            expect(restrictions).toContain(Restriction.FORCE_OVERFLOW)
+            expect(restrictions).toContain(Restriction.REDIRECT_TO_DLQ)
+            expect(restrictions.size).toBe(4)
+        })
+
+        it('returns multiple restrictions when token matches multiple dynamic config lists', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                dropTokens: ['token'],
+                skipPersonTokens: ['token'],
+                forceOverflowTokens: ['token'],
+                redirectToDlqTokens: ['token'],
+            })
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token')
+            expect(restrictions).toContain(Restriction.DROP_EVENT)
+            expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)
+            expect(restrictions).toContain(Restriction.FORCE_OVERFLOW)
+            expect(restrictions).toContain(Restriction.REDIRECT_TO_DLQ)
+            expect(restrictions.size).toBe(4)
+        })
+
+        it('returns DROP_EVENT and SKIP_PERSON_PROCESSING for token:distinct_id combination', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                dropTokens: ['token:distinct_id:user1'],
+                skipPersonTokens: ['token:distinct_id:user1'],
+            })
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                distinct_id: 'user1',
+            })
+            expect(restrictions).toContain(Restriction.DROP_EVENT)
+            expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)
+            expect(restrictions).not.toContain(Restriction.FORCE_OVERFLOW)
+            expect(restrictions).not.toContain(Restriction.REDIRECT_TO_DLQ)
+            expect(restrictions.size).toBe(2)
+        })
+
+        it('returns FORCE_OVERFLOW and REDIRECT_TO_DLQ for session_id', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                forceOverflowTokens: ['token:session_id:session123'],
+                redirectToDlqTokens: ['token:session_id:session123'],
+            })
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                session_id: 'session123',
+            })
+            expect(restrictions).toContain(Restriction.FORCE_OVERFLOW)
+            expect(restrictions).toContain(Restriction.REDIRECT_TO_DLQ)
+            expect(restrictions).not.toContain(Restriction.DROP_EVENT)
+            expect(restrictions).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
+            expect(restrictions.size).toBe(2)
+        })
+
+        it('combines static and dynamic restrictions', async () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+                staticDropEventTokens: ['combo-token'],
+                staticSkipPersonTokens: [],
+                staticForceOverflowTokens: [],
+                staticRedirectToDlqTokens: [],
+            })
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                skipPersonTokens: ['combo-token'],
+                forceOverflowTokens: ['combo-token'],
+            })
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('combo-token')
+            expect(restrictions).toContain(Restriction.DROP_EVENT)
+            expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)
+            expect(restrictions).toContain(Restriction.FORCE_OVERFLOW)
+            expect(restrictions).not.toContain(Restriction.REDIRECT_TO_DLQ)
+            expect(restrictions.size).toBe(3)
+        })
+
+        it('matches different restriction types by different identifiers', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                dropTokens: ['token:distinct_id:user1'],
+                skipPersonTokens: ['token:session_id:session123'],
+                forceOverflowTokens: ['token:event_name:$pageview'],
+                redirectToDlqTokens: ['token:event_uuid:uuid-abc'],
+            })
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                distinct_id: 'user1',
+                session_id: 'session123',
+                event: '$pageview',
+                uuid: 'uuid-abc',
+            })
+            expect(restrictions).toContain(Restriction.DROP_EVENT)
+            expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)
+            expect(restrictions).toContain(Restriction.FORCE_OVERFLOW)
+            expect(restrictions).toContain(Restriction.REDIRECT_TO_DLQ)
+            expect(restrictions.size).toBe(4)
+        })
+
+        it('returns partial matches when only some identifiers match', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                dropTokens: ['token:distinct_id:user1'],
+                skipPersonTokens: ['token:session_id:other-session'],
+                forceOverflowTokens: ['token:event_name:$pageview'],
+                redirectToDlqTokens: ['token:event_uuid:other-uuid'],
+            })
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                distinct_id: 'user1',
+                session_id: 'session123',
+                event: '$pageview',
+                uuid: 'uuid-abc',
+            })
+            expect(restrictions).toContain(Restriction.DROP_EVENT)
+            expect(restrictions).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
+            expect(restrictions).toContain(Restriction.FORCE_OVERFLOW)
+            expect(restrictions).not.toContain(Restriction.REDIRECT_TO_DLQ)
+            expect(restrictions.size).toBe(2)
+        })
+
+        it('returns empty when no restrictions match despite having configs', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                dropTokens: ['other-token'],
+                skipPersonTokens: ['token:distinct_id:other-user'],
+                forceOverflowTokens: ['token:session_id:other-session'],
+                redirectToDlqTokens: ['token:event_name:other-event'],
+            })
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                distinct_id: 'user1',
+                session_id: 'session123',
+                event: '$pageview',
+            })
+            expect(restrictions.size).toBe(0)
+        })
+
+        it('token-level restriction applies regardless of other identifiers', async () => {
+            await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
+                dropTokens: ['token'],
+                skipPersonTokens: ['token'],
+            })
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                distinct_id: 'any-user',
+                session_id: 'any-session',
+                event: 'any-event',
+                uuid: 'any-uuid',
+            })
+            expect(restrictions).toContain(Restriction.DROP_EVENT)
+            expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)
+            expect(restrictions.size).toBe(2)
         })
     })
 })

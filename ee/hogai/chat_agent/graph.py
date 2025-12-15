@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Literal
 
 from ee.hogai.chat_agent.loop_graph.graph import ChatAgentLoopGraph
 from ee.hogai.chat_agent.memory.nodes import (
@@ -11,7 +12,7 @@ from ee.hogai.chat_agent.memory.nodes import (
     MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
 )
-from ee.hogai.chat_agent.usage.nodes import UsageNode
+from ee.hogai.chat_agent.slash_commands.nodes import SlashCommandHandlerNode
 from ee.hogai.core.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState
@@ -72,7 +73,7 @@ class AssistantGraph(ChatAgentLoopGraph):
         )
         self._graph.add_conditional_edges(
             AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
-            memory_onboarding_enquiry.router,
+            memory_onboarding_enquiry.arouter,
             path_map={
                 "continue": AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
                 "interrupt": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT,
@@ -104,24 +105,27 @@ class AssistantGraph(ChatAgentLoopGraph):
         self._graph.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
 
-    def add_usage_handler(
-        self,
-    ):
+    def add_slash_command_handler(self):
+        """
+        The SlashCommandHandlerNode detects slash commands and executes them directly.
+        Non-command messages are routed to the normal conversation flow.
+        """
         self._has_start_node = True
 
-        usage_node = UsageNode(self._team, self._user)
-        self.add_node(AssistantNodeName.USAGE_COMMAND_HANDLER, usage_node)
-        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.USAGE_COMMAND_HANDLER)
+        slash_command_handler = SlashCommandHandlerNode(self._team, self._user)
+        self.add_node(AssistantNodeName.SLASH_COMMAND_HANDLER, slash_command_handler)
+        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.SLASH_COMMAND_HANDLER)
         self._graph.add_conditional_edges(
-            AssistantNodeName.USAGE_COMMAND_HANDLER,
-            usage_node.router,  # type: ignore[arg-type]
+            AssistantNodeName.SLASH_COMMAND_HANDLER,
+            slash_command_handler.arouter,
         )
+
         return self
 
-    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
         return (
             self.add_title_generator()
-            .add_usage_handler()
+            .add_slash_command_handler()
             .add_memory_onboarding()
             .add_memory_collector()
             .add_memory_collector_tools()
