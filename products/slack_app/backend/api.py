@@ -121,13 +121,14 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
         team_id=integration.team_id, slack_thread_key=slack_thread_key
     ).first()
 
-    # Check if conversation is already in progress
-    if existing_conversation and existing_conversation.status in [
-        Conversation.Status.IN_PROGRESS,
-        Conversation.Status.CANCELING,
-    ]:
-        try:
-            slack = SlackIntegration(integration)
+    try:
+        slack = SlackIntegration(integration)
+
+        # Check if conversation is already in progress
+        if existing_conversation and existing_conversation.status in [
+            Conversation.Status.IN_PROGRESS,
+            Conversation.Status.CANCELING,
+        ]:
             user_id = event.get("user")
             if user_id:
                 slack.client.chat_postEphemeral(
@@ -142,12 +143,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                 thread_ts=thread_ts,
                 status=existing_conversation.status,
             )
-        except Exception as e:
-            logger.exception("slack_app_ephemeral_message_failed", error=str(e))
-        return
-
-    try:
-        slack = SlackIntegration(integration)
+            return
 
         # Get our bot's IDs so we can filter out our own messages and check reactions
         auth_response = slack.client.auth_test()
