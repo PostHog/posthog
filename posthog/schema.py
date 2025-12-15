@@ -3129,6 +3129,7 @@ class SlashCommandName(StrEnum):
     FIELD_REMEMBER = "/remember"
     FIELD_USAGE = "/usage"
     FIELD_FEEDBACK = "/feedback"
+    FIELD_TICKET = "/ticket"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
@@ -9294,6 +9295,9 @@ class EndpointRunRequest(BaseModel):
             " variable value. Variable must be set on the endpoint's query between curly braces (i.e."
             ' {variable.from_date}) For example: {"from_date": "1970-01-01"}'
         ),
+    )
+    version: int | None = Field(
+        default=None, description="Specific endpoint version to execute. If not provided, the latest version is used."
     )
 
 

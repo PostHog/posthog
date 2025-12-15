@@ -301,7 +301,7 @@ interface ContextDisplayProps {
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { deepResearchMode, showContextUI, submissionDisabledReason } = useValues(maxThreadLogic)
+    const { deepResearchMode, showContextUI, contextDisabledReason } = useValues(maxThreadLogic)
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
@@ -327,7 +327,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                         Turn off deep research to add context
                     </LemonButton>
                 ) : (
-                    <Tooltip title={submissionDisabledReason ?? 'Add context to help PostHog AI answer your question'}>
+                    <Tooltip title={contextDisabledReason ?? 'Add context to help PostHog AI answer your question'}>
                         <TaxonomicPopover
                             size="xxsmall"
                             type="tertiary"
@@ -340,7 +340,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                             placeholderClass="text-secondary"
                             maxContextOptions={contextOptions}
                             width={450}
-                            disabledReason={submissionDisabledReason}
+                            disabledReason={contextDisabledReason}
                         />
                     </Tooltip>
                 )}
