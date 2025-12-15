@@ -267,6 +267,51 @@ jobs:
                           comment_id: parseInt(commentId),
                           body: updatedBody,
                       });
+            - name: Create GitHub deployment
+              id: create-deployment
+              if: env.PREVIEW_MODE == 'true'
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const prNumber = context.issue.number;
+                      const environment = `preview-pr-${prNumber}`;
+
+                      // Parse instance URL from droplet info
+                      let instanceUrl = '';
+                      if (fs.existsSync('/tmp/droplet_info.txt')) {
+                          const dropletInfo = fs.readFileSync('/tmp/droplet_info.txt', 'utf8');
+                          const urlMatch = dropletInfo.match(/URL: (.*)/);
+                          if (urlMatch) instanceUrl = urlMatch[1];
+                      }
+
+                      // Create deployment
+                      const { data: deployment } = await github.rest.repos.createDeployment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          ref: context.sha,
+                          environment: environment,
+                          auto_merge: false,
+                          required_contexts: [],
+                          description: `Hobby preview for PR #${prNumber}`
+                      });
+
+                      console.log(`Created deployment ${deployment.id} for ${environment}`);
+
+                      // Set initial status to in_progress
+                      await github.rest.repos.createDeploymentStatus({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          deployment_id: deployment.id,
+                          state: 'in_progress',
+                          environment_url: instanceUrl || undefined,
+                          log_url: `${context.payload.repository.html_url}/actions/runs/${context.runId}`,
+                          description: 'Running smoke tests...'
+                      });
+
+                      // Save deployment ID for later status update
+                      fs.appendFileSync(process.env.GITHUB_OUTPUT, `deployment-id=${deployment.id}\n`);
+                      fs.appendFileSync(process.env.GITHUB_OUTPUT, `environment=${environment}\n`);
             - name: Run smoke tests on DO
               id: test
               timeout-minutes: 30
@@ -412,6 +457,40 @@ jobs:
                           comment_id: parseInt(commentId),
                           body: commentBody,
                       });
+            - name: Update GitHub deployment status
+              if: always() && env.PREVIEW_MODE == 'true' && steps.create-deployment.outputs.deployment-id
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const deploymentId = '${{ steps.create-deployment.outputs.deployment-id }}';
+                      const testExitCode = process.env.TEST_EXIT_CODE;
+                      const testPassed = testExitCode === '0';
+
+                      // Parse instance URL from droplet info
+                      let instanceUrl = '';
+                      if (fs.existsSync('/tmp/droplet_info.txt')) {
+                          const dropletInfo = fs.readFileSync('/tmp/droplet_info.txt', 'utf8');
+                          const urlMatch = dropletInfo.match(/URL: (.*)/);
+                          if (urlMatch) instanceUrl = urlMatch[1];
+                      }
+
+                      const state = testPassed ? 'success' : 'failure';
+                      const description = testPassed
+                          ? 'Preview deployment ready'
+                          : 'Smoke tests failed';
+
+                      await github.rest.repos.createDeploymentStatus({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          deployment_id: parseInt(deploymentId),
+                          state: state,
+                          environment_url: instanceUrl || undefined,
+                          log_url: `${context.payload.repository.html_url}/actions/runs/${context.runId}`,
+                          description: description
+                      });
+
+                      console.log(`Updated deployment ${deploymentId} to ${state}`);
             - name: Fetch logs after test
               if: always()
               run: python3 bin/hobby-ci.py fetch-logs || echo "Could not fetch logs"

@@ -6,6 +6,69 @@ on:
             - closed
 
 jobs:
+    cleanup-hobby-preview:
+        name: Cleanup hobby preview deployment
+        runs-on: ubuntu-24.04
+        if: contains(github.event.pull_request.labels.*.name, 'hobby-preview')
+        permissions:
+            deployments: write
+        steps:
+            - name: Cleanup GitHub deployment and environment
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              with:
+                  script: |
+                      const prNumber = context.issue.number;
+                      const environment = `preview-pr-${prNumber}`;
+
+                      console.log(`Cleaning up deployments for ${environment}`);
+
+                      // Get all deployments for this environment
+                      const { data: deployments } = await github.rest.repos.listDeployments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          environment: environment,
+                          per_page: 100
+                      });
+
+                      console.log(`Found ${deployments.length} deployments`);
+
+                      // Mark all deployments as inactive and delete them
+                      for (const deployment of deployments) {
+                          try {
+                              // Must mark as inactive before deletion
+                              await github.rest.repos.createDeploymentStatus({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  deployment_id: deployment.id,
+                                  state: 'inactive',
+                                  description: 'PR closed'
+                              });
+
+                              // Delete the deployment
+                              await github.rest.repos.deleteDeployment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  deployment_id: deployment.id
+                              });
+
+                              console.log(`Deleted deployment ${deployment.id}`);
+                          } catch (error) {
+                              console.log(`Could not delete deployment ${deployment.id}: ${error.message}`);
+                          }
+                      }
+
+                      // Delete the environment itself
+                      try {
+                          await github.rest.repos.deleteAnEnvironment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              environment_name: environment
+                          });
+                          console.log(`Deleted environment ${environment}`);
+                      } catch (error) {
+                          console.log(`Could not delete environment ${environment}: ${error.message}`);
+                      }
+
     report-pr-age:
         name: Report age of PR
         runs-on: ubuntu-24.04
