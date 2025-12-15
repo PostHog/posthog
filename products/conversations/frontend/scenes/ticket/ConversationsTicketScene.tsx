@@ -290,10 +290,29 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
 
                 {/* Sidebar with all metadata */}
                 <div className="space-y-3">
+                    {/* Customer */}
+                    {ticket?.distinct_id && (
+                        <LemonCard hoverEffect={false} className="p-3">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-sm font-semibold">Customer</h3>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => push(urls.personByDistinctId(ticket.distinct_id))}
+                                >
+                                    View person
+                                </LemonButton>
+                            </div>
+                            <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                        </LemonCard>
+                    )}
                     {/* Ticket info */}
                     <LemonCard hoverEffect={false} className="p-3">
                         <h3 className="text-sm font-semibold mb-2">Ticket info</h3>
                         <div className="space-y-2 text-xs">
+                            <div className="flex justify-between">
+                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                            </div>
                             <div className="flex justify-between">
                                 <span className="text-muted-alt">Created</span>
                                 <span>
@@ -361,23 +380,6 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
                             </LemonButton>
                         </div>
                     </LemonCard>
-
-                    {/* Customer */}
-                    {ticket?.distinct_id && (
-                        <LemonCard hoverEffect={false} className="p-3">
-                            <div className="flex items-center justify-between mb-3">
-                                <h3 className="text-sm font-semibold">Customer</h3>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    onClick={() => push(urls.personByDistinctId(ticket.distinct_id))}
-                                >
-                                    View person
-                                </LemonButton>
-                            </div>
-                            <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
-                        </LemonCard>
-                    )}
 
                     {/* Recent events */}
                     {ticket?.recentEvents && ticket.recentEvents.length > 0 && (

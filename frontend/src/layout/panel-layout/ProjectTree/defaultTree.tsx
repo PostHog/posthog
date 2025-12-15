@@ -5,6 +5,7 @@ import {
     IconApps,
     IconBook,
     IconBug,
+    IconChat,
     IconCircleDashed,
     IconCode2,
     IconCursor,
@@ -12,7 +13,6 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconExternal,
-    IconFeatures,
     IconFlask,
     IconFunnels,
     IconGraph,
@@ -246,7 +246,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconLive />,
     },
     chat: {
-        icon: <IconFeatures />,
+        icon: <IconChat />,
     },
     search: {
         icon: <IconSearch />,
