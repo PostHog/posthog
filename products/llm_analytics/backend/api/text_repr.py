@@ -337,10 +337,12 @@ The response includes the formatted text and metadata about the rendering.
                     char_count=len(text),
                     max_length=max_length,
                 )
+                # Format max_length for display, with fallback if not set
+                max_length_display = f"{max_length:,}" if max_length else "the configured limit"
                 return Response(
                     {
                         "error": "Trace too large for text view",
-                        "detail": f"This trace exceeds the maximum size for text view ({max_length:,} chars). Use the collapsed view instead.",
+                        "detail": f"This trace exceeds the maximum size for text view ({max_length_display} chars). Use the collapsed view instead.",
                     },
                     status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 )
