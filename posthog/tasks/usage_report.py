@@ -522,7 +522,7 @@ def get_teams_with_billable_event_count_in_period(
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE created_at >= %(begin)s AND created_at < %(end)s
             AND event NOT IN %(excluded_events)s
         GROUP BY team_id
     """
@@ -559,7 +559,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE created_at >= %(begin)s AND created_at < %(end)s
             AND event NOT IN %(excluded_events)s
             AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
