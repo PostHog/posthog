@@ -52,7 +52,7 @@ export function TriggersSummary({ triggers }: { triggers: Trigger[] }): JSX.Elem
 function triggerSummary(trigger: Trigger): string | null {
     return match(trigger)
         .with({ type: TriggerType.URL_MATCH }, (t) => pluralize(t.urls?.length || 0, 'pattern'))
-        .with({ type: TriggerType.EVENT }, (t) => `${t.events?.length} pattern${t.events?.length === 1 ? '' : 's'}`)
+        .with({ type: TriggerType.EVENT }, (t) => pluralize(t.events?.length || 0, 'event'))
         .with({ type: TriggerType.FEATURE_FLAG }, (t) => t.key)
         .with({ type: TriggerType.SAMPLING }, (t) => (t.sampleRate ? `${t.sampleRate}%` : 'N/A'))
         .with({ type: TriggerType.MIN_DURATION }, (t) => (t.minDurationMs ? `${t.minDurationMs / 1000}s` : 'N/A'))
