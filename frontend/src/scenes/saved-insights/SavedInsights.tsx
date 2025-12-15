@@ -330,6 +330,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.WebAvgTimeOnPageTrendsQuery]: {
+        name: 'Average Time On Page',
+        description: 'View the average time spent viewing a specific path.',
+        icon: IconTrends,
+        inMenu: true,
+    },
     [NodeKind.WebGoalsQuery]: {
         name: 'Goals',
         description: 'View goal conversions.',
