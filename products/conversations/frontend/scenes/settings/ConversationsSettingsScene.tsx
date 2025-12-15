@@ -28,10 +28,9 @@ function ConversationsAuthorizedDomains(): JSX.Element {
             {conversationsDomains.length === 0 && !isAddingDomain && (
                 <div className="border rounded p-4 text-secondary">
                     <p className="mb-0">
-                        <span className="font-bold">No authorized domains configured.</span>
+                        <span className="font-bold">No domains configured.</span>
                         <br />
-                        The conversations widget will be displayed on all domains. Add domains to restrict where the
-                        widget can appear.
+                        The widget will show on all domains. Add domains to limit where it appears.
                     </p>
                 </div>
             )}
@@ -76,7 +75,7 @@ function ConversationsAuthorizedDomains(): JSX.Element {
                     icon={<IconPlus />}
                     size="small"
                 >
-                    Add authorized domain
+                    Add domain
                 </LemonButton>
             )}
 
@@ -100,7 +99,7 @@ function ConversationsAuthorizedDomains(): JSX.Element {
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: <>Remove {domain}?</>,
-                                        description: 'Are you sure you want to remove this authorized domain?',
+                                        description: 'Are you sure you want to remove this domain?',
                                         primaryButton: {
                                             status: 'danger',
                                             children: 'Remove',
@@ -193,10 +192,10 @@ export function ConversationsSettingsScene(): JSX.Element {
                             </div>
 
                             <div className="space-y-2 pt-8">
-                                <label className="text-sm font-medium">Authorized domains</label>
+                                <label className="text-sm font-medium">Allowed domains</label>
                                 <p className="text-xs text-muted-alt">
-                                    Restrict which domains can display the conversations widget. Leave empty to allow
-                                    all domains. Wildcards are supported (e.g. https://*.example.com).
+                                    Specify which domains can show the conversations widget. Leave empty to show on all
+                                    domains. Wildcards supported (e.g. https://*.example.com).
                                 </p>
                                 <ConversationsAuthorizedDomains />
                             </div>

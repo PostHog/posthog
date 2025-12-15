@@ -3242,7 +3242,7 @@ async fn test_config_conversations_disabled() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_config_conversations_allowed_when_no_domains_set() -> Result<()> {
+async fn test_config_conversations_returns_empty_domains() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
@@ -3284,26 +3284,21 @@ async fn test_config_conversations_allowed_when_no_domains_set() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    // With no domains set, conversations should be allowed from any origin
     let res = server
-        .send_flags_request_with_origin(
-            payload.to_string(),
-            Some("2"),
-            Some("true"),
-            "https://any.site.com",
-        )
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
     assert!(json_data["conversations"].is_object());
     assert_eq!(json_data["conversations"]["enabled"], true);
+    assert_eq!(json_data["conversations"]["domains"], json!([]));
 
     Ok(())
 }
 
 #[tokio::test]
-async fn test_config_conversations_domain_not_allowed() -> Result<()> {
+async fn test_config_conversations_returns_domains_for_sdk_filtering() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
@@ -3311,10 +3306,13 @@ async fn test_config_conversations_domain_not_allowed() -> Result<()> {
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
-    // Enable conversations with specific allowed domain
+    // Enable conversations with specific domains
     team.conversations_enabled = Some(true);
     team.conversations_public_token = Some("test_token".to_string());
-    team.conversations_widget_domains = Some(vec!["https://example.com".to_string()]);
+    team.conversations_widget_domains = Some(vec![
+        "https://example.com".to_string(),
+        "https://*.posthog.com".to_string(),
+    ]);
 
     // Update the team in Redis
     let serialized_team = serde_json::to_string(&team).unwrap();
@@ -3345,109 +3343,18 @@ async fn test_config_conversations_domain_not_allowed() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    // Request from non-allowed domain
     let res = server
-        .send_flags_request_with_origin(
-            payload.to_string(),
-            Some("2"),
-            Some("true"),
-            "https://evil.site.com",
-        )
-        .await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    let json_data = res.json::<Value>().await?;
-    assert_eq!(json_data["conversations"], false);
-
-    // Request from allowed domain
-    let res = server
-        .send_flags_request_with_origin(
-            payload.to_string(),
-            Some("2"),
-            Some("true"),
-            "https://example.com",
-        )
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
     assert!(json_data["conversations"].is_object());
     assert_eq!(json_data["conversations"]["enabled"], true);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_config_conversations_domain_wildcard_allowed() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
-    let distinct_id = "user_distinct_id".to_string();
-
-    let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token.clone();
-
-    // Enable conversations with wildcard domain
-    team.conversations_enabled = Some(true);
-    team.conversations_public_token = Some("test_token".to_string());
-    team.conversations_widget_domains = Some(vec!["https://*.example.com".to_string()]);
-
-    // Update the team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
-        .await
-        .unwrap();
-
-    // Insert team in PG
-    let context = TestContext::new(None).await;
-    context.insert_new_team(Some(team.id)).await.unwrap();
-    context
-        .insert_person(team.id, distinct_id.clone(), None)
-        .await
-        .unwrap();
-
-    let server = ServerHandle::for_config(config).await;
-
-    let payload = json!({
-        "token": token,
-        "distinct_id": distinct_id,
-    });
-
-    // Request from matching wildcard subdomain
-    let res = server
-        .send_flags_request_with_origin(
-            payload.to_string(),
-            Some("2"),
-            Some("true"),
-            "https://random.example.com",
-        )
-        .await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    let json_data = res.json::<Value>().await?;
-    assert!(json_data["conversations"].is_object());
-    assert_eq!(json_data["conversations"]["enabled"], true);
-
-    // Request from non-matching domain (should fail)
-    let res = server
-        .send_flags_request_with_origin(
-            payload.to_string(),
-            Some("2"),
-            Some("true"),
-            "https://random.example.com.evilsite.com",
-        )
-        .await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    let json_data = res.json::<Value>().await?;
-    assert_eq!(json_data["conversations"], false);
+    assert_eq!(
+        json_data["conversations"]["domains"],
+        json!(["https://example.com", "https://*.posthog.com"])
+    );
 
     Ok(())
 }

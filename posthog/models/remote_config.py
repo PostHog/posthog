@@ -97,15 +97,7 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
                 if not on_permitted_recording_domain(domains, request=request):
                     config["sessionRecording"] = False
 
-    # Remove domains from conversations widget
-    if config.get("conversations") and isinstance(config["conversations"], dict):
-        if "domains" in config["conversations"]:
-            domains = config["conversations"].pop("domains")
-
-            # Empty list of domains means always permitted
-            if request and domains:
-                if not on_permitted_recording_domain(domains, request=request):
-                    config["conversations"] = False
+    # Keep domains in conversations config for SDK-side filtering (don't check server-side)
 
     # Remove site apps JS
     config.pop("siteAppsJS", None)

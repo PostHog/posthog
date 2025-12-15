@@ -254,7 +254,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert b'"color": "#1d4aff"' in response.content
         assert b'"token": "js_test_token"' in response.content
 
-    def test_conversations_allowed_when_no_permitted_domains_are_set(self):
+    def test_conversations_returns_empty_domains_when_none_set(self):
         self.team.conversations_enabled = True
         self.team.conversations_public_token = "test_token"
         self.team.conversations_widget_domains = []
@@ -269,11 +269,12 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         conversations = response.json()["conversations"]
         assert conversations["enabled"] is True
+        assert conversations["domains"] == []
 
-    def test_conversations_domain_not_allowed(self):
+    def test_conversations_returns_domains_for_sdk_filtering(self):
         self.team.conversations_enabled = True
         self.team.conversations_public_token = "test_token"
-        self.team.conversations_widget_domains = ["https://example.com"]
+        self.team.conversations_widget_domains = ["https://example.com", "https://*.posthog.com"]
         self.team.save()
 
         from posthog.tasks.remote_config import update_team_remote_config
@@ -281,36 +282,8 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         update_team_remote_config(self.team.id)
         cache.clear()
 
-        response = self.client.get(f"/array/{self.team.api_token}/config", headers={"origin": "https://evil.site.com"})
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["conversations"] is False
-
-        response = self.client.get(f"/array/{self.team.api_token}/config", headers={"origin": "https://example.com"})
+        response = self.client.get(f"/array/{self.team.api_token}/config", headers={"origin": "https://any.site.com"})
         assert response.status_code == status.HTTP_200_OK
         conversations = response.json()["conversations"]
         assert conversations["enabled"] is True
-
-    def test_conversations_domain_wildcard_allowed(self):
-        self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token"
-        self.team.conversations_widget_domains = ["https://*.example.com"]
-        self.team.save()
-
-        from posthog.tasks.remote_config import update_team_remote_config
-
-        update_team_remote_config(self.team.id)
-        cache.clear()
-
-        response = self.client.get(
-            f"/array/{self.team.api_token}/config", headers={"origin": "https://random.example.com"}
-        )
-        assert response.status_code == status.HTTP_200_OK
-        conversations = response.json()["conversations"]
-        assert conversations["enabled"] is True
-
-        # Make sure the domain matches exactly
-        response = self.client.get(
-            f"/array/{self.team.api_token}/config", headers={"origin": "https://random.example.com.evilsite.com"}
-        )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["conversations"] is False
+        assert conversations["domains"] == ["https://example.com", "https://*.posthog.com"]

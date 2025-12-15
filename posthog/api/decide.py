@@ -181,13 +181,14 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     response["surveys"] = surveys_opt_in
     response["heatmaps"] = True if team.heatmaps_opt_in else False
 
-    # Conversations widget config
-    if team.conversations_enabled and not _conversations_domain_not_allowed(team, request):
+    # Conversations widget config (domains returned for SDK-side filtering)
+    if team.conversations_enabled:
         response["conversations"] = {
             "enabled": True,
             "greetingText": team.conversations_greeting_text or "Hey, how can I help you today?",
             "color": team.conversations_color or "#1d4aff",
             "token": team.conversations_public_token,
+            "domains": team.conversations_widget_domains or [],
         }
     else:
         response["conversations"] = False
@@ -573,12 +574,6 @@ def _record_feature_flag_metrics(
 
 def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> bool:
     return team.recording_domains and not on_permitted_recording_domain(team.recording_domains, request)
-
-
-def _conversations_domain_not_allowed(team: Team, request: HttpRequest) -> bool:
-    return team.conversations_widget_domains and not on_permitted_recording_domain(
-        team.conversations_widget_domains, request
-    )
 
 
 def _session_recording_config_response(request: HttpRequest, team: Team) -> Union[bool, dict[str, Any]]:

@@ -122,15 +122,14 @@ async fn apply_config_fields(
         Some(vec![])
     };
 
-    // Handle conversations widget config (requires headers for domain check)
-    response.config.conversations = if team.conversations_enabled.unwrap_or(false)
-        && !conversations_domain_not_allowed(team, &context.headers)
-    {
+    // Handle conversations widget config (domains returned for SDK-side filtering)
+    response.config.conversations = if team.conversations_enabled.unwrap_or(false) {
         Some(serde_json::json!({
             "enabled": true,
             "greetingText": team.conversations_greeting_text.as_deref().unwrap_or("Hey, how can I help you today?"),
             "color": team.conversations_color.as_deref().unwrap_or("#1d4aff"),
-            "token": team.conversations_public_token.as_deref()
+            "token": team.conversations_public_token.as_deref(),
+            "domains": team.conversations_widget_domains.as_deref().unwrap_or(&[])
         }))
     } else {
         Some(serde_json::json!(false))
@@ -168,10 +167,6 @@ async fn apply_config_fields(
     };
 
     Ok(())
-}
-
-fn conversations_domain_not_allowed(team: &Team, headers: &HeaderMap) -> bool {
-    matches!(&team.conversations_widget_domains, Some(domains) if !domains.is_empty() && !session_recording::on_permitted_domain(domains, headers))
 }
 
 /// Core config field logic that doesn't require async operations or external dependencies.
