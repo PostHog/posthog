@@ -191,9 +191,9 @@ describe('IngestionConsumer', () => {
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
-        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((hub, hogTransformer, personsStore) => {
+        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((...args) => {
             const original = jest.requireActual('./event-processing/event-pipeline-runner-v1-step')
-            return original.createEventPipelineRunnerV1Step(hub, hogTransformer, personsStore)
+            return original.createEventPipelineRunnerV1Step(...args)
         })
 
         ingester = await createIngestionConsumer(hub)

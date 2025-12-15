@@ -2,7 +2,10 @@ import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { EventHeaders, Hub, PipelineEvent, Team } from '../../types'
+import { EventHeaders, PipelineEvent, Team } from '../../types'
+import { TeamManager } from '../../utils/team-manager'
+import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { createCreateEventStep } from '../event-processing/create-event-step'
@@ -21,7 +24,12 @@ export interface EventSubpipelineInput {
 }
 
 export interface EventSubpipelineConfig {
-    hub: Hub
+    options: EventPipelineRunnerOptions & {
+        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+    }
+    teamManager: TeamManager
+    groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
     kafkaProducer: KafkaProducerWrapper
@@ -32,22 +40,31 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { hub, hogTransformer, personsStore, kafkaProducer, groupId } = config
+    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, kafkaProducer, groupId } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
-        .pipe(createEventPipelineRunnerV1Step(hub, hogTransformer, personsStore))
+        .pipe(
+            createEventPipelineRunnerV1Step(
+                options,
+                kafkaProducer,
+                teamManager,
+                groupTypeManager,
+                hogTransformer,
+                personsStore
+            )
+        )
         .pipe(
             createExtractHeatmapDataStep({
                 kafkaProducer,
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
             })
         )
         .pipe(createCreateEventStep())
         .pipe(
             createEmitEventStep({
                 kafkaProducer,
-                clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 groupId,
             })
         )

@@ -965,38 +965,9 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             {regularToolCalls.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                     {regularToolCalls.map((toolCall) => {
-                        const commentary = toolCall.args.commentary as string
                         const updates = toolCall.updates ?? []
                         const definition = getToolDefinitionFromToolCall(toolCall)
-                        let description = `Executing ${toolCall.name}`
-                        let widget: JSX.Element | null = null
-                        if (definition) {
-                            if (definition.displayFormatter) {
-                                const displayFormatterResult = definition.displayFormatter(toolCall, {
-                                    registeredToolMap,
-                                })
-                                if (typeof displayFormatterResult === 'string') {
-                                    description = displayFormatterResult
-                                } else {
-                                    description = displayFormatterResult[0]
-                                    switch (displayFormatterResult[1]?.widget) {
-                                        case 'recordings':
-                                            widget = (
-                                                <RecordingsWidget
-                                                    toolCallId={toolCall.id}
-                                                    filters={displayFormatterResult[1].args}
-                                                />
-                                            )
-                                            break
-                                        default:
-                                            break
-                                    }
-                                }
-                            }
-                            if (commentary) {
-                                description = commentary
-                            }
-                        }
+                        const [description, widget] = getToolCallDescriptionAndWidget(toolCall, registeredToolMap)
                         return (
                             <AssistantActionComponent
                                 key={toolCall.id}
@@ -1388,4 +1359,35 @@ function SuccessActions({
             )}
         </>
     )
+}
+
+export const getToolCallDescriptionAndWidget = (
+    toolCall: EnhancedToolCall,
+    registeredToolMap: Record<string, ToolRegistration>
+): [string, JSX.Element | null] => {
+    const commentary = toolCall.args.commentary as string
+    const definition = getToolDefinitionFromToolCall(toolCall)
+    let description = `Executing ${toolCall.name}`
+    let widget: JSX.Element | null = null
+    if (definition) {
+        if (definition.displayFormatter) {
+            const displayFormatterResult = definition.displayFormatter(toolCall, { registeredToolMap })
+            if (typeof displayFormatterResult === 'string') {
+                description = displayFormatterResult
+            } else {
+                description = displayFormatterResult[0]
+                switch (displayFormatterResult[1]?.widget) {
+                    case 'recordings':
+                        widget = <RecordingsWidget toolCallId={toolCall.id} filters={displayFormatterResult[1].args} />
+                        break
+                    default:
+                        break
+                }
+            }
+        }
+        if (commentary) {
+            description = commentary
+        }
+    }
+    return [description, widget]
 }

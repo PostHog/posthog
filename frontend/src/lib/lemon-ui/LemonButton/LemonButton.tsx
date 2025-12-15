@@ -6,6 +6,7 @@ import React, { useContext } from 'react'
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { INTERACTIVE_CLOSE_DELAY_MS } from '../LemonInput/LemonInput'
 import { Link } from '../Link'
 import { PopoverOverlayContext, PopoverReferenceContext } from '../Popover'
 import { Spinner } from '../Spinner/Spinner'
@@ -65,6 +66,8 @@ export interface LemonButtonPropsBase
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: React.ReactElement | string | null | false
+    /** Whether the disabled reason tooltip is interactive (e.g., contains a link) */
+    disabledReasonInteractive?: boolean
     noPadding?: boolean
     size?: 'xxsmall' | 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
@@ -134,6 +137,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 className,
                 disabled,
                 disabledReason,
+                disabledReasonInteractive,
                 loading,
                 type = 'tertiary',
                 status = 'default',
@@ -284,6 +288,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         arrowOffset={tooltipArrowOffset}
                         docLink={tooltipDocLink}
                         visible={tooltipForceMount}
+                        interactive={disabledReasonInteractive}
+                        closeDelayMs={disabledReasonInteractive ? INTERACTIVE_CLOSE_DELAY_MS : undefined}
                     >
                         {workingButton}
                     </Tooltip>

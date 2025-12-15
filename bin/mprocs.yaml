@@ -87,6 +87,10 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service batch-import-worker
 
+    llm-gateway:
+        shell: 'bin/check_postgres_up && bin/start-llm-gateway'
+        autostart: true
+
     # This takes ~10 s
     migrate-postgres:
         shell: 'bin/check_postgres_up && bin/check_ducklake_up && python manage.py migrate'
@@ -123,10 +127,6 @@ procs:
 
     hedgebox-dummy:
         shell: 'bin/check_postgres_up && cd hedgebox-dummy && pnpm install && pnpm run dev'
-        autostart: false
-
-    llm-gateway:
-        shell: 'bin/check_postgres_up && bin/start-llm-gateway'
         autostart: false
 
 mouse_scroll_speed: 1
