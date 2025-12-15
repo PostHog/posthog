@@ -34,6 +34,7 @@ import {
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 import { useChart } from 'lib/hooks/useChart'
+import { ClampedText } from 'lib/lemon-ui/ClampedText'
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { humanFriendlyNumber } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -64,6 +65,9 @@ const DEFAULT_CHART_HEIGHT = 200
 const MIN_RESIZABLE_HEIGHT = 140
 const MIN_SIDEBAR_WIDTH = 240
 const MIN_MAIN_WIDTH = 360
+const MAX_COLUMN_WIDTH = 320
+const MAX_CELL_LINES = 6
+const MIN_CHARS_TO_CLAMP = 120
 
 export function formatFilter(filter: BIQueryFilter): JSX.Element {
     return (
@@ -1007,26 +1011,11 @@ export function BIScene(): JSX.Element {
                                             ),
                                             dataIndex: alias,
                                             key: columnKey(column),
+                                            width: MAX_COLUMN_WIDTH,
+                                            className:
+                                                'align-top whitespace-pre-wrap break-words max-w-[20rem] text-left',
                                             render: function RenderCell(value) {
-                                                if (typeof value === 'number') {
-                                                    return humanFriendlyNumber(value)
-                                                }
-
-                                                if (value === null || value === undefined) {
-                                                    return '—'
-                                                }
-
-                                                if (typeof value === 'string') {
-                                                    const dayMatch = value.match(
-                                                        /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/
-                                                    )
-
-                                                    if (dayMatch) {
-                                                        return dayMatch[1]
-                                                    }
-                                                }
-
-                                                return String(value)
+                                                return <BIColumnValue value={value} />
                                             },
                                         }))}
                                     />
@@ -1050,6 +1039,40 @@ export function BIScene(): JSX.Element {
             </div>
         </div>
     )
+}
+
+function BIColumnValue({ value }: { value: unknown }): JSX.Element | string {
+    const renderText = (text: string): JSX.Element => {
+        const shouldClamp = text.length > MIN_CHARS_TO_CLAMP || text.includes('\n')
+
+        return (
+            <div className="break-words whitespace-pre-wrap">
+                {shouldClamp ? <ClampedText lines={MAX_CELL_LINES} text={text} /> : text}
+            </div>
+        )
+    }
+
+    if (typeof value === 'number') {
+        return humanFriendlyNumber(value)
+    }
+
+    if (value === null || value === undefined) {
+        return '—'
+    }
+
+    if (typeof value === 'string') {
+        const dayMatch = value.match(/^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/)
+
+        if (dayMatch) {
+            return dayMatch[1]
+        }
+
+        return renderText(value)
+    }
+
+    const stringValue = typeof value === 'object' ? JSON.stringify(value) || String(value) : String(value)
+
+    return renderText(stringValue)
 }
 
 function ColumnHeader({
