@@ -170,6 +170,10 @@ def process_scheduled_changes() -> None:
                             scheduled_change.save()
                     else:
                         # One-time schedule: mark as completed
+                        # Note: We intentionally don't set last_executed_at for one-time schedules
+                        # because executed_at already serves as the completion timestamp. last_executed_at
+                        # is an audit field for recurring schedules to track "when did the last recurrence run"
+                        # while executed_at=NULL (schedule still active).
                         scheduled_change.executed_at = timezone.now()
                         scheduled_change.save()
 
