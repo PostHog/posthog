@@ -1225,6 +1225,38 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertIsNotNone(scheduled_change.executed_at)
 
     @freeze_time("2024-01-15T09:00:00Z")
+    def test_paused_recurring_schedule_does_not_execute(self) -> None:
+        """Paused recurring schedules (is_recurring=False with interval) should be skipped."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Paused Flag",
+            key="paused-flag",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=False,  # Paused
+            recurrence_interval="daily",  # But has interval preserved
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        feature_flag.refresh_from_db()
+
+        # Should NOT have executed
+        self.assertIsNone(scheduled_change.executed_at)
+        self.assertIsNone(scheduled_change.last_executed_at)
+        self.assertEqual(feature_flag.active, True)  # Unchanged
+
+    @freeze_time("2024-01-15T09:00:00Z")
     def test_recurring_schedule_executes_multiple_times(self) -> None:
         """Recurring schedule should execute each time its scheduled_at is due."""
         feature_flag = FeatureFlag.objects.create(
