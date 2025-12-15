@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useState } from 'react'
-import { IconInfo, IconPlus } from '@posthog/icons'
+import { Form } from 'kea-forms'
+import { useState } from 'react'
+
+import { IconCheck, IconCircleDashed, IconInfo, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -373,16 +375,18 @@ function EventTriggerOptions(): JSX.Element | null {
 function Sampling(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const [value, setValue] = useState<number | undefined>(
+
+    const currentSampleRate =
         typeof currentTeam?.session_recording_sample_rate === 'string'
             ? Math.floor(parseFloat(currentTeam?.session_recording_sample_rate) * 100)
             : 100
-    )
 
-    const updateSampling = useCallback((): void => {
+    const [value, setValue] = useState<number | undefined>(currentSampleRate)
+
+    const updateSampling = (): void => {
         const returnRate = typeof value == 'number' ? value / 100 : 0
         updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
-    }, [])
+    }
 
     return (
         <>
@@ -405,7 +409,11 @@ function Sampling(): JSX.Element {
                             value={value}
                             onPressEnter={updateSampling}
                         />
-                        <LemonButton type="secondary" onClick={updateSampling}>
+                        <LemonButton
+                            type="primary"
+                            disabledReason={currentSampleRate === value && 'there was no change in sample rate'}
+                            onClick={updateSampling}
+                        >
                             Update
                         </LemonButton>
                     </div>
