@@ -43,7 +43,6 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
-import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
@@ -115,8 +114,6 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     playerKey: string
     sessionRecordingData?: SessionPlayerData
     matchingEventsMatchType?: MatchingEventsMatchType
-    /** @deprecated Use onRecordingDeleted callback instead */
-    playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
     onRecordingDeleted?: () => void
     autoPlay?: boolean
     noInspector?: boolean
@@ -124,6 +121,7 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean
     setPinned?: (pinned: boolean) => void
+    playNextRecording?: (automatic: boolean) => void
 }
 
 const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
@@ -686,7 +684,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // Prop references for use by other logics
         sessionRecordingId: [(_, p) => [p.sessionRecordingId], (sessionRecordingId) => sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
-        playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
+        playNextRecording: [
+            () => [(_, props) => props.playNextRecording],
+            (playNextRecording): ((automatic: boolean) => void) | undefined => playNextRecording,
+        ],
 
         hasSnapshots: [
             (s) => [s.sessionPlayerData],
@@ -1650,9 +1651,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (props.onRecordingDeleted) {
                 props.onRecordingDeleted()
-            } else if (props.playlistLogic) {
-                props.playlistLogic.actions.loadAllRecordings()
-                props.playlistLogic.actions.setSelectedRecordingId(null)
             } else if (router.values.location.pathname.includes('/replay')) {
                 router.actions.push(urls.replay())
             }

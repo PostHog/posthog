@@ -32,7 +32,12 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature, FlagRequestType
+from posthog.constants import (
+    PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
+    SURVEY_TARGETING_FLAG_PREFIX,
+    AvailableFeature,
+    FlagRequestType,
+)
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -1944,7 +1949,9 @@ class FeatureFlagViewSet(
 
             # Add request for analytics
             if len(flag_keys) > 0 and not all(
-                flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag_key in flag_keys
+                flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX)
+                or flag_key.startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+                for flag_key in flag_keys
             ):
                 increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
@@ -1972,9 +1979,11 @@ class FeatureFlagViewSet(
         if cached_response is None:
             return None
 
-        # Increment request count for analytics (exclude survey targeting flags)
+        # Increment request count for analytics (exclude survey and product tour targeting flags)
         if cached_response.get("flags") and not all(
-            flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in cached_response["flags"]
+            flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX)
+            or flag.get("key", "").startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+            for flag in cached_response["flags"]
         ):
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 

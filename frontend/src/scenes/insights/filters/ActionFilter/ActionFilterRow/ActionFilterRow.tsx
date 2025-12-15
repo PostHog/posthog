@@ -348,7 +348,9 @@ export function ActionFilterRow({
             placeholderClass=""
             disabled={disabled || readOnly}
             showNumericalPropsOnly={showNumericalPropsOnly}
-            dataWarehousePopoverFields={dataWarehousePopoverFields}
+            dataWarehousePopoverFields={
+                typeKey === 'plugin-filters' ? ([] as DataWarehousePopoverField[]) : dataWarehousePopoverFields
+            }
             excludedProperties={excludedProperties}
             allowNonCapturedEvents={allowNonCapturedEvents}
         />

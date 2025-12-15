@@ -322,6 +322,7 @@ class AssistantTool(StrEnum):
     FILTER_SESSION_RECORDINGS = "filter_session_recordings"
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
+    TASK = "task"
 
 
 class AssistantToolCall(BaseModel):
@@ -3222,6 +3223,15 @@ class StickinessOperator(StrEnum):
     EXACT = "exact"
 
 
+class SubagentUpdateEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: AssistantToolCall
+    id: str
+    tool_call_id: str
+
+
 class SubscriptionDropoffMode(StrEnum):
     LAST_EVENT = "last_event"
     AFTER_DROPOFF_PERIOD = "after_dropoff_period"
@@ -4862,6 +4872,7 @@ class LLMTrace(BaseModel):
     inputCost: float | None = None
     inputState: Any | None = None
     inputTokens: float | None = None
+    isSupportTrace: bool | None = None
     outputCost: float | None = None
     outputState: Any | None = None
     outputTokens: float | None = None
@@ -9285,6 +9296,9 @@ class EndpointRunRequest(BaseModel):
             ' {variable.from_date}) For example: {"from_date": "1970-01-01"}'
         ),
     )
+    version: int | None = Field(
+        default=None, description="Specific endpoint version to execute. If not provided, the latest version is used."
+    )
 
 
 class EntityNode(BaseModel):
@@ -12332,6 +12346,7 @@ class TracesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterSupportTraces: bool | None = None
     filterTestAccounts: bool | None = None
     groupKey: str | None = None
     groupTypeIndex: int | None = None

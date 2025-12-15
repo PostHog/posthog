@@ -1946,7 +1946,8 @@
                 "summarize_sessions",
                 "filter_session_recordings",
                 "create_insight",
-                "create_form"
+                "create_form",
+                "task"
             ],
             "type": "string"
         },
@@ -11419,6 +11420,10 @@
                 "variables": {
                     "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",
                     "type": "object"
+                },
+                "version": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Specific endpoint version to execute. If not provided, the latest version is used."
                 }
             },
             "type": "object"
@@ -17481,6 +17486,9 @@
                 "inputState": {},
                 "inputTokens": {
                     "type": "number"
+                },
+                "isSupportTrace": {
+                    "type": "boolean"
                 },
                 "outputCost": {
                     "type": "number"
@@ -28921,6 +28929,22 @@
             "required": ["results"],
             "type": "object"
         },
+        "SubagentUpdateEvent": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/AssistantToolCall"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "tool_call_id", "content"],
+            "type": "object"
+        },
         "SubscriptionDropoffMode": {
             "enum": ["last_event", "after_dropoff_period"],
             "type": "string"
@@ -29861,6 +29885,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterSupportTraces": {
+                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
