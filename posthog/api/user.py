@@ -122,6 +122,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_email_verified",
             "notification_settings",
             "anonymize_data",
+            "allow_impersonation",
             "toolbar_mode",
             "has_password",
             "id",

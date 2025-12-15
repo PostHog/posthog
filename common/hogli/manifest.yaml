@@ -116,6 +116,7 @@ core:
         steps:
             - docker:services:remove
             - docker:services:up
+            - setup:python
             - check:postgres
             - check:clickhouse
             - migrations:run
@@ -266,14 +267,6 @@ build:
     build:schema-latest-versions:
         bin_script: build-schema-latest-versions.py
         description: Extract latest schema versions and generate frontend JSON config
-    build:openapi-schema:
-        cmd: |
-            mkdir -p frontend/tmp
-            DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI schema written to frontend/tmp/openapi.json"
-        description: Generate OpenAPI schema from Django backend (writes to gitignored temp location)
-    build:openapi-types:
-        cmd: pnpm --filter=@posthog/frontend run openapi:types
-        description: Generate TypeScript API types from the backend OpenAPI schema
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
@@ -283,11 +276,6 @@ build:
             - build:schema-python
             - build:schema-latest-versions
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
-    build:openapi:
-        steps:
-            - build:openapi-schema
-            - build:openapi-types
-        description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (Python and C++)
@@ -366,13 +354,11 @@ docker:
         description: Set up Docker services and run evaluation scripts with cleanup
         hidden: true
 migrations:
-    db:migrate:
-        bin_script: migrate
-        description: Apply database migrations (Django and ClickHouse)
-        hidden: true
     migrations:run:
         bin_script: migrate
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
+        env:
+            DEBUG: '1'
     migrations:check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them
@@ -524,6 +510,19 @@ tools:
         description: 'TODO: add description for start-llm-gateway'
         hidden: true
 utilities:
+    nuke:
+        steps:
+            - name: announce
+              cmd: say -v 'Samantha' 'Nuclear launch detected' 2>/dev/null || true
+            - name: node_modules
+              cmd: rm -rf **/node_modules
+            - name: python venvs
+              cmd: rm -rf .venv .flox/cache/venv && uv sync --active
+            - name: rust builds
+              cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
+            - dev:reset
+        description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
+        destructive: true
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
@@ -557,3 +556,6 @@ environment:
         cmd: flox activate
         description: Enter Flox development environment shell.
         hidden: true
+    setup:python:
+        cmd: uv sync --active
+        description: Install Python dependencies to active virtual environment

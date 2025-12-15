@@ -98,6 +98,7 @@ import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
+import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
@@ -910,6 +911,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
                 hideOn: [Realm.Cloud],
+            },
+            {
+                id: 'allow-impersonation',
+                title: 'Support access',
+                component: <AllowImpersonation />,
             },
             {
                 id: 'hedgehog-mode',

@@ -204,7 +204,7 @@ export function Playlist({
         )
 
     return (
-        <div className="flex flex-col min-w-60 h-full overflow-hidden">
+        <div className="flex flex-col min-w-60 h-full">
             {!notebookNode && (
                 <DraggableToNotebook className="mb-2" href={urls.replay(ReplayTabs.Home, filters)}>
                     <RecordingsUniversalFiltersEmbedButton

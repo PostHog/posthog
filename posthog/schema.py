@@ -9295,6 +9295,9 @@ class EndpointRunRequest(BaseModel):
             ' {variable.from_date}) For example: {"from_date": "1970-01-01"}'
         ),
     )
+    version: int | None = Field(
+        default=None, description="Specific endpoint version to execute. If not provided, the latest version is used."
+    )
 
 
 class EntityNode(BaseModel):
