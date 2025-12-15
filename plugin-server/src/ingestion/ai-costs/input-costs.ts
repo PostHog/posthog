@@ -12,8 +12,18 @@ const matchProvider = (event: PluginEvent, provider: string): boolean => {
 
     const { $ai_provider: eventProvider, $ai_model: eventModel } = event.properties
     const normalizedProvider = provider.toLowerCase()
+    const normalizedModel = eventModel?.toLowerCase()
 
-    return eventProvider?.toLowerCase() === normalizedProvider || eventModel?.toLowerCase().includes(normalizedProvider)
+    if (eventProvider?.toLowerCase() === normalizedProvider || normalizedModel?.includes(normalizedProvider)) {
+        return true
+    }
+
+    // Claude models use Anthropic-style token counting regardless of provider (e.g., via Vertex)
+    if (normalizedProvider === 'anthropic' && normalizedModel?.startsWith('claude')) {
+        return true
+    }
+
+    return false
 }
 
 export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
