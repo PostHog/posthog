@@ -62,6 +62,8 @@ const DEFAULT_CHART_HEIGHT = 200
 const MIN_RESIZABLE_HEIGHT = 140
 const MIN_SIDEBAR_WIDTH = 240
 const MIN_MAIN_WIDTH = 360
+const COLLAPSIBLE_VALUE_LENGTH = 240
+const COLLAPSED_ROW_HEIGHT = 200
 
 export function formatFilter(filter: BIQueryFilter): JSX.Element {
     return (
@@ -343,6 +345,7 @@ export function BIScene(): JSX.Element {
     )
     const [chartHeight, setChartHeight] = useState(DEFAULT_CHART_HEIGHT)
     const [hogqlHeight, setHogqlHeight] = useState(180)
+    const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
     const tableTreeData = useMemo<TreeDataItem[]>(() => {
         const groupedTables: Record<string, TreeDataItem> = {}
@@ -464,6 +467,24 @@ export function BIScene(): JSX.Element {
         })
     }, [queryResponse, selectedFields, queryResponseLoading])
 
+    useEffect(() => {
+        setExpandedRows(new Set())
+    }, [rawRows])
+
+    const toggleRowExpansion = (rowIndex: number): void => {
+        setExpandedRows((currentExpandedRows) => {
+            const nextExpandedRows = new Set(currentExpandedRows)
+
+            if (nextExpandedRows.has(rowIndex)) {
+                nextExpandedRows.delete(rowIndex)
+            } else {
+                nextExpandedRows.add(rowIndex)
+            }
+
+            return nextExpandedRows
+        })
+    }
+
     const rows = useMemo(() => rawRows.slice(0, limit), [rawRows, limit])
     const hasMoreRows = rawRows.length > rows.length
 
@@ -539,6 +560,36 @@ export function BIScene(): JSX.Element {
     const availableChartTypes: Array<'pie' | 'line' | 'bar' | 'area'> = isTimeSeries
         ? ['line', 'bar', 'area']
         : ['pie', 'line', 'bar', 'area']
+
+    const formatCellValue = (value: any): string => {
+        if (typeof value === 'number') {
+            return humanFriendlyNumber(value)
+        }
+
+        if (value === null || value === undefined) {
+            return '-'
+        }
+
+        if (typeof value === 'string') {
+            const dayMatch = value.match(/^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/)
+
+            if (dayMatch) {
+                return dayMatch[1]
+            }
+
+            return value
+        }
+
+        try {
+            return JSON.stringify(value, null, 2)
+        } catch {
+            return String(value)
+        }
+    }
+
+    const isCollapsibleValue = (value: string): boolean => {
+        return value.length > COLLAPSIBLE_VALUE_LENGTH || value.includes('\n')
+    }
 
     const maxSidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, viewportWidth - MIN_MAIN_WIDTH)
     const maxChartHeight = Math.max(MIN_RESIZABLE_HEIGHT, viewportHeight - 240)
@@ -991,26 +1042,43 @@ export function BIScene(): JSX.Element {
                                             ),
                                             dataIndex: alias,
                                             key: columnKey(column),
-                                            render: function RenderCell(value) {
-                                                if (typeof value === 'number') {
-                                                    return humanFriendlyNumber(value)
+                                            render: function RenderCell(value, _record, recordIndex) {
+                                                const formattedValue = formatCellValue(value)
+                                                const collapsible = isCollapsibleValue(formattedValue)
+                                                const isExpanded = expandedRows.has(recordIndex)
+
+                                                const content = (
+                                                    <div
+                                                        className={clsx('whitespace-pre-wrap break-words', {
+                                                            'overflow-hidden': collapsible && !isExpanded,
+                                                        })}
+                                                        style={
+                                                            collapsible && !isExpanded
+                                                                ? { maxHeight: COLLAPSED_ROW_HEIGHT }
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        {formattedValue}
+                                                    </div>
+                                                )
+
+                                                if (!collapsible) {
+                                                    return content
                                                 }
 
-                                                if (value === null || value === undefined) {
-                                                    return '—'
-                                                }
-
-                                                if (typeof value === 'string') {
-                                                    const dayMatch = value.match(
-                                                        /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/
-                                                    )
-
-                                                    if (dayMatch) {
-                                                        return dayMatch[1]
-                                                    }
-                                                }
-
-                                                return String(value)
+                                                return (
+                                                    <div className="flex flex-col gap-1">
+                                                        {content}
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            size="xsmall"
+                                                            onClick={() => toggleRowExpansion(recordIndex)}
+                                                            className="self-start"
+                                                        >
+                                                            {isExpanded ? 'Show less' : 'Show more'}
+                                                        </LemonButton>
+                                                    </div>
+                                                )
                                             },
                                         }))}
                                     />
