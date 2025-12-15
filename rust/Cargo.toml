@@ -81,6 +81,7 @@ httpmock = "0.7.0"
 itoa = "1.0.15"
 metrics = "0.22.0"
 metrics-exporter-prometheus = "0.14.0"
+metrics-util = "0.16.0"
 once_cell = "1.18.0"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry-otlp = "0.15.0"
