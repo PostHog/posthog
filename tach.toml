@@ -167,6 +167,13 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
+path = "products.ai_visibility"
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
 path = "products.endpoints"
 depends_on = [
     "common.hogvm.python",
