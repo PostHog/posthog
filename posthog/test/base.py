@@ -6,7 +6,7 @@ import datetime as dt
 import resource
 import threading
 from collections.abc import Callable, Generator, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
 
@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.core.cache import cache
+from django.core.management import call_command
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
@@ -27,6 +28,15 @@ from django.test.utils import CaptureQueriesContext
 import pendulum  # noqa F401
 import sqlparse
 from rest_framework.test import APITestCase as DRFTestCase
+from syrupy.extensions.amber import AmberSnapshotExtension
+
+from posthog.hogql import (
+    ast,
+    query as hogql_query_module,
+)
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.visitor import clone_expr
 
 from posthog import rate_limit, redis
 from posthog.clickhouse.adhoc_events_deletion import (
@@ -51,18 +61,12 @@ from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_MV,
     QUERY_LOG_ARCHIVE_NEW_MV_SQL,
     QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
-from posthog.models.behavioral_cohorts.sql import (
-    BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
-    BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
-    BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
-    DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
-    DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
-    DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
-)
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -71,6 +75,16 @@ from posthog.models.channel_type.sql import (
     DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
+from posthog.models.cohortmembership.sql import (
+    COHORT_MEMBERSHIP_MV_SQL,
+    COHORT_MEMBERSHIP_TABLE_SQL,
+    COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
+    DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL,
+    DROP_COHORT_MEMBERSHIP_MV_SQL,
+    DROP_COHORT_MEMBERSHIP_TABLE_SQL,
+    DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
+    KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
+)
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
@@ -99,6 +113,16 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.precalculated_events.sql import (
+    DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
+    DROP_PRECALCULATED_EVENTS_MV_SQL,
+    DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
+    DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
+    KAFKA_PRECALCULATED_EVENTS_TABLE_SQL,
+    PRECALCULATED_EVENTS_MV_SQL,
+    PRECALCULATED_EVENTS_SHARDED_TABLE_SQL,
+    PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL,
+)
 from posthog.models.project import Project
 from posthog.models.property_definition import DROP_PROPERTY_DEFINITIONS_TABLE_SQL, PROPERTY_DEFINITIONS_TABLE_SQL
 from posthog.models.raw_sessions.sessions_v2 import (
@@ -116,11 +140,13 @@ from posthog.models.raw_sessions.sessions_v2 import (
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3,
     DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3,
+    DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3,
     DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3,
     DROP_RAW_SESSION_VIEW_SQL_V3,
     DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
+    RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3,
     RAW_SESSIONS_TABLE_MV_SQL_V3,
     SHARDED_RAW_SESSIONS_TABLE_SQL_V3,
     WRITABLE_RAW_SESSIONS_TABLE_SQL_V3,
@@ -189,6 +215,12 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query = re.sub(r"(\"?) = \d+", r"\1 = 99999", query)
         query = re.sub(r"(\"?) (in|IN) \(\d+(, ?\d+)*\)", r"\1 \2 (1, 2, 3, 4, 5 /* ... */)", query)
         query = re.sub(r"(\"?) (in|IN) \[\d+(, ?\d+)*\]", r"\1 \2 [1, 2, 3, 4, 5 /* ... */]", query)
+        # Handle nested tuples: IN ((1, 2), (3, 4)) -> IN ((1, 2) /* ... */)
+        query = re.sub(
+            r"(in|IN) \(\(\d+(, ?\d+)*\)(, ?\(\d+(, ?\d+)*\))*\)",
+            r"\1 ((1, 2) /* ... */)",
+            query,
+        )
         # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
         query = re.sub(
             r"\"uuid\" (in|IN) \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
@@ -218,6 +250,9 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+
+    # remove version suffix from funnel UDFs
+    query = re.sub(r"aggregate_funnel(_array|_trends)?_v\d+", r"aggregate_funnel\1", query)
 
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
@@ -279,7 +314,11 @@ def clean_varying_query_parts(query, replace_all_numbers):
 
     # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
     # replace all dates where the date is
-    if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
+    if (
+        "equals(argMax(person_distinct_id_overrides.is_deleted" in query
+        or "equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted" in query
+        or "INSERT INTO cohortpeople" in query
+    ):
         # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
         query = re.sub(
             r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d.\d+', 6, '(.+?)'\)",
@@ -579,6 +618,9 @@ class PostHogTestCase(SimpleTestCase):
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
 
+    # Allow tests to use the persons databases (for Person/PersonDistinctId models)
+    databases = {"default", "persons_db_writer", "persons_db_reader"}
+
     # Test data definition stubs
     organization: Organization = None
     project: Project = None
@@ -649,6 +691,59 @@ class PostHogTestCase(SimpleTestCase):
                     raise  # On last attempt, re-raise the assertion error
                 time.sleep(delay)  # Otherwise, wait before retrying
 
+    def assertNumQueries(self, num, func=None, *args, using="__all__", **kwargs):
+        """
+        Assert the number of queries executed across databases.
+
+        If using="__all__" (default), counts queries across all databases that the test uses.
+        Otherwise, delegates to Django's standard assertNumQueries for a single database.
+        """
+        if using != "__all__":
+            # Use Django's standard single-database assertion
+            return super().assertNumQueries(num, func, *args, using=using, **kwargs)  # type: ignore[misc]
+
+        # Multi-database query counting
+        from django.test.utils import CaptureQueriesContext
+
+        contexts = {db: CaptureQueriesContext(connections[db]) for db in self.databases}
+
+        if func is None:
+            # Return a context manager
+            class MultiDBQueryContext:
+                def __init__(ctx_self, expected_count, contexts_dict):
+                    ctx_self.expected_count = expected_count
+                    ctx_self.contexts = contexts_dict
+
+                def __enter__(ctx_self):
+                    for ctx in ctx_self.contexts.values():
+                        ctx.__enter__()
+                    return ctx_self
+
+                def __exit__(ctx_self, exc_type, exc_value, traceback):
+                    for ctx in ctx_self.contexts.values():
+                        ctx.__exit__(exc_type, exc_value, traceback)
+
+                    if exc_type is not None:
+                        return
+
+                    total_queries = sum(len(ctx.captured_queries) for ctx in ctx_self.contexts.values())
+                    if not (total_queries == ctx_self.expected_count):
+                        msg = f"{total_queries} queries executed, {ctx_self.expected_count} expected\n"
+                        msg += "Captured queries per database:\n"
+                        for db, ctx in ctx_self.contexts.items():
+                            if ctx.captured_queries:
+                                msg += f"\n{db} ({len(ctx.captured_queries)} queries):\n"
+                                for query in ctx.captured_queries:
+                                    sql = query.get("sql", "")
+                                    msg += f"  {sql[:100]}...\n" if len(sql) > 100 else f"  {sql}\n"
+                        raise AssertionError(msg)
+
+            return MultiDBQueryContext(num, contexts)
+        else:
+            # Execute function and assert
+            with self.assertNumQueries(num, using=using):
+                func(*args, **kwargs)
+
 
 class MemoryLeakTestMixin:
     MEMORY_INCREASE_PER_PARSE_LIMIT_B: int
@@ -681,7 +776,7 @@ class MemoryLeakTestMixin:
         self.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
         )
 
 
@@ -710,10 +805,25 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         # Override to use CASCADE when truncating tables.
         # Required when models are moved between Django apps, as PostgreSQL
         # needs CASCADE to handle FK constraints across app boundaries.
-        from django.core.management import call_command
-
         for db_name in self._databases_names(include_mirrors=False):
-            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+            if db_name in ("persons_db_writer", "persons_db_reader"):
+                # Manually truncate persons database tables
+                # Can't use Django's flush because it emits post_migrate signals that try to
+                # create contenttypes/permissions tables that don't exist in persons database
+                conn = connections[db_name]
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                        AND tablename NOT LIKE 'pg_%'
+                        AND tablename NOT LIKE '_sqlx_%'
+                        AND tablename NOT LIKE '_persons_migrations'
+                    """)
+                    tables = [row[0] for row in cursor.fetchall()]
+                    if tables:
+                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+            else:
+                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
@@ -994,7 +1104,10 @@ def snapshot_postgres_queries(fn):
 class BaseTestMigrations(QueryMatchingTest):
     @property
     def app(self) -> str:
-        return apps.get_containing_app_config(type(self).__module__).name
+        _app = apps.get_containing_app_config(type(self).__module__)
+        if not _app:
+            raise ValueError(f"Failed to retrieve app from module: {type(self).__module__}")
+        return _app.label
 
     migrate_from: str
     migrate_to: str
@@ -1231,6 +1344,7 @@ def reset_clickhouse_database() -> None:
         [
             DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
             DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3(),
+            DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3(),
             DROP_RAW_SESSION_VIEW_SQL(),
             DROP_RAW_SESSION_VIEW_SQL_V3(),
             DROP_SESSION_MATERIALIZED_VIEW_SQL(),
@@ -1267,9 +1381,14 @@ def reset_clickhouse_database() -> None:
             DROP_WEB_BOUNCES_HOURLY_SQL(),
             DROP_WEB_STATS_STAGING_SQL(),
             DROP_WEB_BOUNCES_STAGING_SQL(),
-            DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
-            DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
-            DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
+            DROP_COHORT_MEMBERSHIP_TABLE_SQL(),
+            DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
+            DROP_COHORT_MEMBERSHIP_KAFKA_TABLE_SQL(),
+            DROP_COHORT_MEMBERSHIP_MV_SQL(),
+            DROP_PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
+            DROP_PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
+            DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL(),
+            DROP_PRECALCULATED_EVENTS_MV_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
             TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
@@ -1305,7 +1424,11 @@ def reset_clickhouse_database() -> None:
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+                table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW()
+            ),
+            COHORT_MEMBERSHIP_TABLE_SQL(),
+            PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1324,9 +1447,10 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
-            BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
-            BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
-            BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
+            COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
+            KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
+            PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
+            KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1335,6 +1459,7 @@ def reset_clickhouse_database() -> None:
             EXCHANGE_RATE_DATA_BACKFILL_SQL(),
             RAW_SESSIONS_TABLE_MV_SQL(),
             RAW_SESSIONS_TABLE_MV_SQL_V3(),
+            RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3(),
             RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
             RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3(),
             SESSIONS_TABLE_MV_SQL(),
@@ -1343,6 +1468,8 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_VIEW(include_counters=True),
             WEB_STATS_COMBINED_VIEW_SQL(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
+            COHORT_MEMBERSHIP_MV_SQL(),
+            PRECALCULATED_EVENTS_MV_SQL(),
         ]
     )
 
@@ -1425,6 +1552,126 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
                 self.assertQueryMatchesSnapshot(query)
 
     return wrapped
+
+
+def snapshot_hogql_queries(fn_or_class):
+    """
+    Captures and snapshots HogQL queries from test using `syrupy` library.
+
+    This decorator captures queries at the point they are built (before resolution)
+    and converts them to simple HogQL syntax with virtual tables like session.$entry_pathname.
+
+    Snapshots are automatically saved in a __snapshot__/*.ambr file.
+    Update snapshots via --snapshot-update.
+
+    Example:
+        @snapshot_hogql_queries
+        def test_my_query(self):
+            # Your test code that executes HogQL queries
+            runner = WebOverviewQueryRunner(team=self.team, query=query)
+            runner.calculate()
+    """
+    # check if fn_or_class is a class
+    if inspect.isclass(fn_or_class):
+        # wrap every class method that starts with test_ with this decorator
+        for attr in dir(fn_or_class):
+            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
+                setattr(fn_or_class, attr, snapshot_hogql_queries(getattr(fn_or_class, attr)))
+        return fn_or_class
+
+    @wraps(fn_or_class)
+    def wrapped(self, *args, **kwargs):
+        captured_queries = []
+
+        # Patch the execute_hogql_query method on the paginator to capture queries before resolution
+        original_paginator_method = HogQLHasMorePaginator.execute_hogql_query
+
+        def capture_paginator_execute(paginator_self, query, **exec_kwargs):
+            # Capture the query AST before it gets resolved
+            if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
+                captured_queries.append(clone_expr(query))
+
+            return original_paginator_method(paginator_self, query=query, **exec_kwargs)
+
+        # Patch the module-level execute_hogql_query function for direct calls
+        # We need to patch it in modules that import it directly
+        original_module_function = hogql_query_module.execute_hogql_query
+
+        def capture_module_execute(*exec_args, **exec_kwargs):
+            # Extract the query parameter - it can be positional or keyword
+            query = exec_kwargs.get("query") if "query" in exec_kwargs else (exec_args[0] if exec_args else None)
+
+            # Capture the query AST before it gets resolved
+            if query and isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
+                captured_queries.append(clone_expr(query))
+
+            return original_module_function(*exec_args, **exec_kwargs)
+
+        # Import modules that use execute_hogql_query directly
+        patches = [
+            patch.object(HogQLHasMorePaginator, "execute_hogql_query", capture_paginator_execute),
+            patch.object(hogql_query_module, "execute_hogql_query", capture_module_execute),
+        ]
+
+        # Add patches for modules that import execute_hogql_query directly
+        try:
+            from posthog.hogql_queries.web_analytics import web_overview
+
+            if hasattr(web_overview, "execute_hogql_query"):
+                patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
+        except ImportError:
+            pass
+
+        try:
+            from posthog.hogql_queries.web_analytics import stats_table
+
+            if hasattr(stats_table, "execute_hogql_query"):
+                patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))
+        except ImportError:
+            pass
+
+        try:
+            from posthog.hogql_queries.insights.trends import trends_query_runner
+
+            if hasattr(trends_query_runner, "execute_hogql_query"):
+                patches.append(patch.object(trends_query_runner, "execute_hogql_query", capture_module_execute))
+        except ImportError:
+            pass
+
+        # Apply all patches
+        with ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+
+            fn_or_class(self, *args, **kwargs)
+
+        # Convert each captured query to HogQL and snapshot it
+        for query_ast in captured_queries:
+            # Use prepare_and_print_ast with hogql dialect to get the simple logical view
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+            hogql, _ = prepare_and_print_ast(query_ast, context=context, dialect="hogql")
+
+            # Format the HogQL query for better readability
+            formatted_hogql = hogql.strip()
+
+            # Use a custom snapshot with .hogql extension to separate from ClickHouse snapshots
+            # This creates a separate file like test_foo.hogql.ambr instead of test_foo.ambr
+            assert formatted_hogql == self.snapshot(extension_class=HogQLSnapshotExtension)
+
+    return wrapped
+
+
+class HogQLSnapshotExtension(AmberSnapshotExtension):
+    """Custom syrupy extension for HogQL snapshots to use separate files."""
+
+    _file_extension = "hogql.ambr"
+
+    @classmethod
+    def serialize(cls, data, **kwargs):
+        """Serialize the HogQL query."""
+        # Format the query for readability
+        formatted = sqlparse.format(data, reindent=True)
+        return f"'''\n{formatted}\n'''\n"
 
 
 def also_test_with_different_timezones(fn):

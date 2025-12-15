@@ -2,15 +2,15 @@ import { BuiltLogic } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
-import { CohortType, PropertyFilterType, PropertyOperator } from '~/types'
+import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CohortCountWarningLogicProps, cohortCountWarningLogic } from './cohortCountWarningLogic'
 import type { cohortCountWarningLogicType } from './cohortCountWarningLogicType'
 
-const createMockQuery = (cohortId: number): DataTableNode => ({
+const createMockQuery = (cohortId: number, overrides: Partial<ActorsQuery> = {}): DataTableNode => ({
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.ActorsQuery,
@@ -22,7 +22,8 @@ const createMockQuery = (cohortId: number): DataTableNode => ({
                 operator: PropertyOperator.Exact,
             },
         ],
-    },
+        ...overrides,
+    } as ActorsQuery,
     full: true,
     showPropertyFilter: false,
     showEventFilter: false,
@@ -208,6 +209,113 @@ describe('cohortCountWarningLogic', () => {
             })
 
             expect(logic.values.shouldShowCountWarning).toBe(true)
+        })
+
+        it('returns false when search is active', () => {
+            const cohort = createMockCohort({ count: 100 })
+            const query = createMockQuery(1, { search: 'test search' })
+            const logic = createLogicWithProps({ cohort, query })
+            logic.mount()
+
+            const mockDataNodeLogic = dataNodeLogic({
+                key: 'test-key',
+                query,
+            })
+            mockDataNodeLogic.mount()
+            mockDataNodeLogic.actions.loadDataSuccess({
+                results: new Array(50),
+                hasMore: false,
+            })
+
+            expect(logic.values.shouldShowCountWarning).toBe(false)
+        })
+
+        it('returns false when properties filter is active', () => {
+            const cohort = createMockCohort({ count: 100 })
+            const query = createMockQuery(1, {
+                properties: [
+                    {
+                        type: PropertyFilterType.Person,
+                        key: 'email',
+                        value: 'test@example.com',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            })
+            const logic = createLogicWithProps({ cohort, query })
+            logic.mount()
+
+            const mockDataNodeLogic = dataNodeLogic({
+                key: 'test-key',
+                query,
+            })
+            mockDataNodeLogic.mount()
+            mockDataNodeLogic.actions.loadDataSuccess({
+                results: new Array(50),
+                hasMore: false,
+            })
+
+            expect(logic.values.shouldShowCountWarning).toBe(false)
+        })
+
+        it('returns false when both search and properties filter are active', () => {
+            const cohort = createMockCohort({ count: 100 })
+            const query = createMockQuery(1, {
+                search: 'test search',
+                properties: [
+                    {
+                        type: PropertyFilterType.Person,
+                        key: 'email',
+                        value: 'test@example.com',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            })
+            const logic = createLogicWithProps({ cohort, query })
+            logic.mount()
+
+            const mockDataNodeLogic = dataNodeLogic({
+                key: 'test-key',
+                query,
+            })
+            mockDataNodeLogic.mount()
+            mockDataNodeLogic.actions.loadDataSuccess({
+                results: new Array(25),
+                hasMore: false,
+            })
+
+            expect(logic.values.shouldShowCountWarning).toBe(false)
+        })
+
+        it('returns false when PropertyGroupFilterValue with values is active', () => {
+            const cohort = createMockCohort({ count: 100 })
+            const query = createMockQuery(1, {
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: PropertyFilterType.Person,
+                            key: 'email',
+                            value: 'test@example.com',
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            })
+            const logic = createLogicWithProps({ cohort, query })
+            logic.mount()
+
+            const mockDataNodeLogic = dataNodeLogic({
+                key: 'test-key',
+                query,
+            })
+            mockDataNodeLogic.mount()
+            mockDataNodeLogic.actions.loadDataSuccess({
+                results: new Array(50),
+                hasMore: false,
+            })
+
+            expect(logic.values.shouldShowCountWarning).toBe(false)
         })
     })
 

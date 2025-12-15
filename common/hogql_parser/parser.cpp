@@ -1152,7 +1152,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!limit_expr_result) {
       throw ParsingError("Failed to parse limitExpr");
     }
-    
+
     PyObject* exprs = visitAsPyObject(ctx->columnExprList());
     if (!exprs) {
       Py_DECREF(limit_expr_result);
@@ -1161,7 +1161,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     PyObject* n = NULL;
     PyObject* offset_value = NULL;
-    
+
     // Check if it's a tuple
     if (PyTuple_Check(limit_expr_result)) {
       if (PyTuple_Size(limit_expr_result) >= 2) {
@@ -1180,7 +1180,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       n = limit_expr_result;
       offset_value = Py_NewRef(Py_None);
     }
-    
+
     // Create the LimitByExpr node (transfers ownership of n, offset_value, and exprs)
     RETURN_NEW_AST_NODE("LimitByExpr", "{s:N,s:N,s:N}",
                        "n", n,
@@ -1212,7 +1212,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(second);
       throw PyInternalError();
     }
-    
+
     if (ctx->COMMA()) {
       // For "LIMIT a, b" syntax: a is offset, b is limit
       // PyTuple_SET_ITEM steals references, so we don't need to DECREF after
@@ -2014,7 +2014,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     PyObject* ret = build_ast_node(
-      "Call", 
+      "Call",
       "{s:s,s:[O]}",  // s:[O] means "args" => [the single PyObject]
       "name", name.c_str(),
       "args", constant_count
@@ -2124,7 +2124,32 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N,s:O}", "array", object, "property", property, "nullish", Py_True);
   }
 
-  VISIT_UNSUPPORTED(ColumnExprBetween)
+  VISIT(ColumnExprBetween) {
+    PyObject* expr = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* low;
+    try {
+      low = visitAsPyObject(ctx->columnExpr(1));
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    PyObject* high;
+    try {
+      high = visitAsPyObject(ctx->columnExpr(2));
+    } catch (...) {
+      Py_DECREF(low);
+      Py_DECREF(expr);
+      throw;
+    }
+    RETURN_NEW_AST_NODE(
+        "BetweenExpr",
+        "{s:N,s:N,s:N,s:O}",
+        "expr", expr,
+        "low", low,
+        "high", high,
+        "negated", ctx->NOT() ? Py_True : Py_False
+    );
+  }
 
   VISIT(ColumnExprParens) { return visit(ctx->columnExpr()); }
 

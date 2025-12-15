@@ -73,7 +73,7 @@ describe('snapshotDataLogic', () => {
                 .toFinishAllListeners()
 
             const snapshotsBySources = logic.values.snapshotsBySources
-            expect(Object.keys(snapshotsBySources).length).toBe(2)
+            expect(Object.keys(snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1', '_count'])
         })
 
         it('fetch metadata success and snapshots error', async () => {
@@ -160,7 +160,7 @@ describe('snapshotDataLogic', () => {
                     texts: [{ id: 3, value: 'text' }],
                     attributes: [{ id: 4, attributes: { class: 'test' } }],
                 },
-                windowId: '1',
+                windowId: 1,
             }) as RecordingSnapshot
 
         it('does not chunk snapshots with adds below chunk size', () => {
@@ -232,7 +232,7 @@ describe('snapshotDataLogic', () => {
                     node: { type: NodeType.Document, id: 1, childNodes: [] },
                     initialOffset: { top: 0, left: 0 },
                 },
-                windowId: '1',
+                windowId: 1,
             }
             const chunks = chunkMutationSnapshot(snapshot)
             expect(chunks).toEqual([snapshot])

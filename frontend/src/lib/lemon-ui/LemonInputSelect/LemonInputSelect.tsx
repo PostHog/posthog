@@ -1,14 +1,20 @@
+import './LemonInputSelect.scss'
+
+import { DndContext, DragEndEvent, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
+import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
 import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List } from 'react-virtualized/dist/es/List'
 
-import { IconPencil } from '@posthog/icons'
+import { IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -55,6 +61,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     disablePrompting?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
+    /** Disable editing functionality (hides edit icons) while still allowing custom values */
+    disableEditing?: boolean
     emptyStateComponent?: React.ReactNode
     onChange?: (newValue: T[]) => void
     onBlur?: () => void
@@ -71,6 +79,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     disableCommaSplitting?: boolean
     action?: LemonInputSelectAction
     virtualized?: boolean
+    /** Enable drag-and-drop reordering of values */
+    sortable?: boolean
 }
 
 export function LemonInputSelect<T = string>({
@@ -90,6 +100,7 @@ export function LemonInputSelect<T = string>({
     disableFiltering = false,
     disablePrompting = false,
     allowCustomValues = false,
+    disableEditing = false,
     autoFocus = false,
     className,
     popoverClassName,
@@ -103,6 +114,7 @@ export function LemonInputSelect<T = string>({
     disableCommaSplitting = false,
     action,
     virtualized = false,
+    sortable = false,
 }: LemonInputSelectProps<T>): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -418,6 +430,23 @@ export function LemonInputSelect<T = string>({
         }
     }
 
+    const handleDragEnd = useCallback(
+        (event: DragEndEvent): void => {
+            const { active, over } = event
+
+            if (over && active.id !== over.id) {
+                const oldIndex = values.findIndex((val) => getStringKey(val) === active.id)
+                const newIndex = values.findIndex((val) => getStringKey(val) === over.id)
+
+                if (oldIndex !== -1 && newIndex !== -1) {
+                    const newValues = arrayMove(values, oldIndex, newIndex)
+                    onChange?.(newValues)
+                }
+            }
+        },
+        [values, getStringKey, onChange]
+    )
+
     const valuesPrefix = useMemo(() => {
         if (mode !== 'multiple' || values.length === 0 || displayMode !== 'snacks') {
             return null
@@ -432,13 +461,18 @@ export function LemonInputSelect<T = string>({
                     values={preInputValues.map(getStringKey)}
                     options={options}
                     onClose={(value) => _onActionItem(value, null)}
-                    onInitiateEdit={allowCustomValues ? (value) => _onActionItem(value, null, true) : null}
+                    onInitiateEdit={
+                        allowCustomValues && !disableEditing ? (value) => _onActionItem(value, null, true) : null
+                    }
+                    sortable={sortable}
+                    onDragEnd={handleDragEnd}
                 />
             </PopoverReferenceContext.Provider>
         )
     }, [
         allOptionsMap,
         allowCustomValues,
+        disableEditing,
         itemBeingEditedIndex,
         getStringKey,
         displayMode,
@@ -447,11 +481,14 @@ export function LemonInputSelect<T = string>({
         mode,
         options,
         _onActionItem,
+        sortable,
+        handleDragEnd,
     ])
 
     const valuesAndEditButtonSuffix = useMemo(() => {
         // The edit button only applies to single-select mode with custom values allowed, when in no-input state
-        const isEditButtonVisible = mode !== 'multiple' && allowCustomValues && values.length && !inputValue
+        const isEditButtonVisible =
+            mode !== 'multiple' && allowCustomValues && !disableEditing && values.length && !inputValue
 
         const postInputValues =
             displayMode === 'snacks' && itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
@@ -466,10 +503,19 @@ export function LemonInputSelect<T = string>({
                     values={postInputValues.map(getStringKey)}
                     options={options}
                     onClose={(value) => _onActionItem(value, null)}
-                    onInitiateEdit={allowCustomValues ? (value) => _onActionItem(value, null, true) : null}
+                    onInitiateEdit={
+                        allowCustomValues && !disableEditing ? (value) => _onActionItem(value, null, true) : null
+                    }
+                    sortable={sortable}
+                    onDragEnd={handleDragEnd}
                 />
                 {isEditButtonVisible && (
-                    <div className="grow flex flex-col items-end">
+                    <div
+                        className={clsx(
+                            'grow flex flex-col items-end LemonInputSelect__edit-button-wrapper',
+                            size && `LemonInputSelect__edit-button-wrapper--${size}`
+                        )}
+                    >
                         <LemonButton
                             icon={<IconPencil />}
                             onClick={() => {
@@ -488,6 +534,7 @@ export function LemonInputSelect<T = string>({
         mode,
         values,
         allowCustomValues,
+        disableEditing,
         itemBeingEditedIndex,
         inputValue,
         getStringKey,
@@ -496,6 +543,9 @@ export function LemonInputSelect<T = string>({
         _onFocus,
         options,
         setInputValue,
+        sortable,
+        handleDragEnd,
+        size,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
@@ -650,7 +700,7 @@ export function LemonInputSelect<T = string>({
                                                             ) : undefined
                                                         }
                                                         sideAction={
-                                                            !option.__isInput && allowCustomValues
+                                                            !option.__isInput && allowCustomValues && !disableEditing
                                                                 ? {
                                                                       // To reduce visual clutter we only show the icon on focus or hover,
                                                                       // but we do want it present to make sure the layout is stable
@@ -713,7 +763,7 @@ export function LemonInputSelect<T = string>({
                                             ) : undefined
                                         }
                                         sideAction={
-                                            !option.__isInput && allowCustomValues
+                                            !option.__isInput && allowCustomValues && !disableEditing
                                                 ? {
                                                       // To reduce visual clutter we only show the icon on focus or hover,
                                                       // but we do want it present to make sure the layout is stable
@@ -788,7 +838,7 @@ export function LemonInputSelect<T = string>({
                                 ? undefined
                                 : 'Pick value'
                 }
-                autoWidth={autoWidth}
+                autoWidth={fullWidth ? false : autoWidth}
                 fullWidth={fullWidth}
                 prefix={valuesPrefix}
                 suffix={
@@ -806,7 +856,7 @@ export function LemonInputSelect<T = string>({
                 autoFocus={autoFocus}
                 transparentBackground={transparentBackground}
                 className={clsx(
-                    '!h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
+                    '!h-auto leading-7 max-w-full w-full', // leading-7 means line height aligned with LemonSnack height
                     // Putting button-like text styling on the single-select unfocused placeholder
                     // NOTE: We need font-medium on both the input (for autosizing) and its placeholder (for display)
                     mode === 'multiple' && 'flex-wrap',
@@ -821,52 +871,160 @@ export function LemonInputSelect<T = string>({
     )
 }
 
+function DraggableValueSnack<T = string>({
+    value,
+    option,
+    onClose,
+    onInitiateEdit,
+}: {
+    value: string
+    option: LemonInputSelectOption<T>
+    onClose: (value: string) => void
+    onInitiateEdit: ((value: string) => void) | null
+}): JSX.Element {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+        id: value,
+    })
+
+    const style = {
+        transform: CSS.Translate.toString(transform),
+        transition,
+        zIndex: isDragging ? 1 : undefined,
+        opacity: isDragging ? 0.5 : undefined,
+    }
+
+    return (
+        <Tooltip
+            title={
+                <>
+                    <span>
+                        {onInitiateEdit && (
+                            <>
+                                Click on the text to edit.
+                                <br />
+                            </>
+                        )}
+                    </span>
+                    <span>Click on the X to remove.</span>
+                </>
+            }
+        >
+            <span
+                ref={setNodeRef}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={style}
+                {...attributes}
+                className="inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5 bg-accent-highlight-secondary rounded"
+            >
+                <span
+                    className="shrink-0 flex items-center pl-1 pr-0.5 cursor-grab active:cursor-grabbing"
+                    {...listeners}
+                >
+                    <SortableDragIcon className="text-muted-alt w-3.5" />
+                </span>
+                <span
+                    className="overflow-hidden text-ellipsis px-1 cursor-text"
+                    title={option?.label}
+                    onClick={onInitiateEdit ? () => onInitiateEdit(value) : undefined}
+                >
+                    {option?.labelComponent ?? option?.label}
+                </span>
+                <span className="shrink-0 mx-1">
+                    <LemonButton
+                        size="xsmall"
+                        noPadding
+                        icon={<IconX />}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onClose(value)
+                        }}
+                    />
+                </span>
+            </span>
+        </Tooltip>
+    )
+}
+
 function ValueSnacks<T = string>({
     values,
     options,
     onClose,
     onInitiateEdit,
+    sortable = false,
+    onDragEnd,
 }: {
     values: string[]
     options: LemonInputSelectOption<T>[]
     onClose: (value: string) => void
     onInitiateEdit: ((value: string) => void) | null
+    sortable?: boolean
+    onDragEnd?: (event: DragEndEvent) => void
 }): JSX.Element {
-    return (
-        <>
-            {values.map((value) => {
-                const option = options.find((option) => option.key === value) ?? {
-                    label: value,
-                    labelComponent: null,
-                }
-                return (
-                    <Tooltip
-                        key={value}
-                        title={
-                            <>
-                                <span>
-                                    {onInitiateEdit && (
-                                        <>
-                                            Click on the text to edit.
-                                            <br />
-                                        </>
-                                    )}
-                                </span>
-                                <span>Click on the X to remove.</span>
-                            </>
-                        }
-                    >
-                        <LemonSnack
-                            title={option?.label}
-                            onClose={() => onClose(value)}
-                            onClick={onInitiateEdit ? () => onInitiateEdit(value) : undefined}
-                            className="cursor-text"
-                        >
-                            {option?.labelComponent ?? option?.label}
-                        </LemonSnack>
-                    </Tooltip>
-                )
-            })}
-        </>
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        })
     )
+
+    const content = values.map((value) => {
+        const option: LemonInputSelectOption<T> = options.find((option) => option.key === value) ?? {
+            key: value,
+            label: value,
+            labelComponent: null,
+        }
+
+        if (sortable) {
+            return (
+                <DraggableValueSnack
+                    key={value}
+                    value={value}
+                    option={option}
+                    onClose={onClose}
+                    onInitiateEdit={onInitiateEdit}
+                />
+            )
+        }
+
+        return (
+            <Tooltip
+                key={value}
+                title={
+                    <>
+                        <span>
+                            {onInitiateEdit && (
+                                <>
+                                    Click on the text to edit.
+                                    <br />
+                                </>
+                            )}
+                        </span>
+                        <span>Click on the X to remove.</span>
+                    </>
+                }
+            >
+                <LemonSnack
+                    title={option?.label}
+                    onClose={() => onClose(value)}
+                    onClick={onInitiateEdit ? () => onInitiateEdit(value) : undefined}
+                    className="cursor-text"
+                >
+                    {option?.labelComponent ?? option?.label}
+                </LemonSnack>
+            </Tooltip>
+        )
+    })
+
+    if (sortable && onDragEnd) {
+        return (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                <SortableContext items={values} strategy={rectSortingStrategy}>
+                    {content}
+                </SortableContext>
+            </DndContext>
+        )
+    }
+
+    return <>{content}</>
 }

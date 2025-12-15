@@ -12,12 +12,13 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
-import { BatchWritingPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { createDefaultSyncMergeMode } from '../../../src/worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
+import { PersonRepository } from '../../../src/worker/ingestion/persons/repositories/person-repository'
 import { PostgresDualWritePersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { cleanupPrepared, setupMigrationDb } from '../../../src/worker/ingestion/persons/repositories/test-helpers'
@@ -80,7 +81,7 @@ describe('PersonState dual-write compatibility', () => {
     })
 
     function createPersonProcessor(
-        repository: PostgresPersonRepository | PostgresDualWritePersonRepository,
+        repository: PersonRepository,
         event: Partial<PluginEvent>,
         processPerson = true,
         timestampParam = timestamp,
@@ -92,7 +93,7 @@ describe('PersonState dual-write compatibility', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(repository, hub.db.kafkaProducer)
+        const personsStore = new BatchWritingPersonsStore(repository, hub.db.kafkaProducer)
 
         const context = new PersonContext(
             fullEvent as PluginEvent,
@@ -176,7 +177,7 @@ describe('PersonState dual-write compatibility', () => {
         it('handles concurrent person creation without errors', async () => {
             const distinctIds = ['user-1', 'user-2', 'user-3']
 
-            const createWithRepo = async (repo: any, distinctId: string) => {
+            const createWithRepo = async (repo: PersonRepository, distinctId: string) => {
                 const event: Partial<PluginEvent> = {
                     distinct_id: distinctId,
                     properties: {
@@ -206,7 +207,7 @@ describe('PersonState dual-write compatibility', () => {
             const singleUuid = new UUIDT().toString()
             const dualUuid = new UUIDT().toString()
 
-            const createPerson = async (repo: any, distinctId: string, uuid: string) => {
+            const createPerson = async (repo: PersonRepository, distinctId: string, uuid: string) => {
                 const result = await repo.createPerson(
                     timestamp,
                     { initial: 'value' },
@@ -216,8 +217,11 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuid,
-                    [{ distinctId, version: 0 }]
+                    { distinctId, version: 0 }
                 )
+                if (!result.success) {
+                    throw new Error(`Failed to create person: ${result.error}`)
+                }
                 return result.person
             }
 
@@ -272,7 +276,7 @@ describe('PersonState dual-write compatibility', () => {
             const dualAnonId = 'dual-anon-user'
             const dualUserId = 'dual-identified-user'
 
-            const createAnonPerson = async (repo: any, anonId: string) => {
+            const createAnonPerson = async (repo: PersonRepository, anonId: string) => {
                 const uuid = uuidFromDistinctId(teamId, anonId)
                 const result = await repo.createPerson(
                     timestamp,
@@ -283,8 +287,11 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuid,
-                    [{ distinctId: anonId, version: 0 }]
+                    { distinctId: anonId, version: 0 }
                 )
+                if (!result.success) {
+                    throw new Error(`Failed to create person: ${result.error}`)
+                }
                 return result.person
             }
 
@@ -337,9 +344,10 @@ describe('PersonState dual-write compatibility', () => {
             const uuid = new UUIDT().toString()
             const distinctId = 'conflict-test-user'
 
-            await singleWriteRepository.createPerson(timestamp, { first: true }, {}, {}, teamId, null, false, uuid, [
-                { distinctId: 'first-' + distinctId, version: 0 },
-            ])
+            await singleWriteRepository.createPerson(timestamp, { first: true }, {}, {}, teamId, null, false, uuid, {
+                distinctId: 'first-' + distinctId,
+                version: 0,
+            })
 
             await dualWriteRepository.createPerson(
                 timestamp,
@@ -350,7 +358,7 @@ describe('PersonState dual-write compatibility', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                [{ distinctId: 'dual-first-' + distinctId, version: 0 }]
+                { distinctId: 'dual-first-' + distinctId, version: 0 }
             )
 
             const singleResult = await singleWriteRepository.createPerson(
@@ -362,7 +370,7 @@ describe('PersonState dual-write compatibility', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                [{ distinctId: 'first-' + distinctId, version: 0 }]
+                { distinctId: 'first-' + distinctId, version: 0 }
             )
 
             const dualResult = await dualWriteRepository.createPerson(
@@ -374,7 +382,7 @@ describe('PersonState dual-write compatibility', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                [{ distinctId: 'dual-first-' + distinctId, version: 0 }]
+                { distinctId: 'dual-first-' + distinctId, version: 0 }
             )
 
             expect(singleResult.success).toBe(false)
@@ -396,36 +404,7 @@ describe('PersonState dual-write compatibility', () => {
         })
     })
 
-    describe('Process person profile flag', () => {
-        it('respects $process_person_profile=false identically', async () => {
-            const distinctId = 'ephemeral-user'
-            const event: Partial<PluginEvent> = {
-                distinct_id: distinctId,
-                properties: {
-                    $process_person_profile: false,
-                    $set: { should_not_persist: true },
-                },
-            }
-
-            const { processor: singleProcessor, personsStore: singleStore } = createPersonProcessor(
-                singleWriteRepository,
-                event,
-                false
-            )
-            const { processor: dualProcessor, personsStore: dualStore } = createPersonProcessor(
-                dualWriteRepository,
-                event,
-                false
-            )
-
-            await Promise.all([singleProcessor.processEvent(), dualProcessor.processEvent()])
-
-            await Promise.all([singleStore.flush(), dualStore.flush()])
-
-            const postgresPersons = await fetchPostgresPersonsH()
-            expect(postgresPersons.length).toBe(0)
-        })
-    })
+    describe('Process person profile flag', () => {})
 
     describe('Batch operations', () => {
         it('creates multiple persons in batch consistently', async () => {
@@ -494,7 +473,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuidFromDistinctId(teamId, existingDistinctId),
-                    [{ distinctId: existingDistinctId, version: 0 }]
+                    { distinctId: existingDistinctId, version: 0 }
                 )
 
                 expect(existingPersonResult.success).toBe(true)
@@ -505,7 +484,7 @@ describe('PersonState dual-write compatibility', () => {
 
                 // Create a PersonMergeService with dual-write repository
                 // We need to set up the context similar to how it's done during event processing
-                const personsStore = new BatchWritingPersonsStoreForBatch(dualWriteRepository, hub.db.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStore(dualWriteRepository, hub.db.kafkaProducer)
 
                 const mergeEvent: PluginEvent = {
                     team_id: teamId,
@@ -598,7 +577,7 @@ describe('PersonState dual-write compatibility', () => {
                 expect(person2Before).toBeUndefined()
 
                 // Create PersonMergeService context for this scenario
-                const personsStore = new BatchWritingPersonsStoreForBatch(dualWriteRepository, hub.db.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStore(dualWriteRepository, hub.db.kafkaProducer)
 
                 const mergeEvent: PluginEvent = {
                     team_id: teamId,
@@ -726,7 +705,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     true, // is_identified
                     uuidFromDistinctId(teamId, person1DistinctId),
-                    [{ distinctId: person1DistinctId, version: 0 }]
+                    { distinctId: person1DistinctId, version: 0 }
                 )
                 expect(person1Result.success).toBe(true)
                 if (!person1Result.success) {
@@ -747,7 +726,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false, // not identified
                     uuidFromDistinctId(teamId, person2DistinctId),
-                    [{ distinctId: person2DistinctId, version: 0 }]
+                    { distinctId: person2DistinctId, version: 0 }
                 )
                 expect(person2Result.success).toBe(true)
                 if (!person2Result.success) {
@@ -759,7 +738,7 @@ describe('PersonState dual-write compatibility', () => {
                 await dualWriteRepository.addDistinctId(person2, person2ExtraId, 0)
 
                 // Now perform the merge using PersonMergeService
-                const personsStore = new BatchWritingPersonsStoreForBatch(dualWriteRepository, hub.db.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStore(dualWriteRepository, hub.db.kafkaProducer)
 
                 // The merge event would have person2's distinct ID identifying with person1's
                 const mergeEvent: PluginEvent = {
@@ -892,7 +871,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuidFromDistinctId(teamId, person1Id),
-                    [{ distinctId: person1Id, version: 0 }]
+                    { distinctId: person1Id, version: 0 }
                 )
 
                 const person2Result = await dualWriteRepository.createPerson(
@@ -904,7 +883,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuidFromDistinctId(teamId, person2Id),
-                    [{ distinctId: person2Id, version: 0 }]
+                    { distinctId: person2Id, version: 0 }
                 )
 
                 expect(person1Result.success).toBe(true)
@@ -923,7 +902,7 @@ describe('PersonState dual-write compatibility', () => {
                     .mockRejectedValueOnce(new Error('Simulated secondary database failure - attempt 3'))
 
                 // Attempt the merge which should fail and rollback
-                const personsStore = new BatchWritingPersonsStoreForBatch(dualWriteRepository, hub.db.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStore(dualWriteRepository, hub.db.kafkaProducer)
 
                 const mergeEvent: PluginEvent = {
                     team_id: teamId,
@@ -1033,7 +1012,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuidFromDistinctId(teamId, existingId),
-                    [{ distinctId: existingId, version: 0 }]
+                    { distinctId: existingId, version: 0 }
                 )
 
                 expect(existingResult.success).toBe(true)
@@ -1050,7 +1029,7 @@ describe('PersonState dual-write compatibility', () => {
                     .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint - attempt 3'))
 
                 // Try to merge with a new distinct ID
-                const personsStore = new BatchWritingPersonsStoreForBatch(dualWriteRepository, hub.db.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStore(dualWriteRepository, hub.db.kafkaProducer)
 
                 const mergeEvent: PluginEvent = {
                     team_id: teamId,

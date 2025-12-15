@@ -20,10 +20,16 @@ export class Navigation {
     }
 
     async openHome(): Promise<void> {
-        await this.page.goto(urls.projectHomepage())
+        await this.page.goto(urls.projectRoot())
     }
 
     async openMenuItem(name: string): Promise<void> {
         await this.page.getByTestId(`menu-item-${name}`).click()
+        // Wait for navigation to complete and page to be ready
+        await this.page.waitForLoadState('domcontentloaded')
+        // Additional wait with timeout for network to settle (catches lazy-loaded components)
+        await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {
+            // Ignore timeout - networkidle may not occur with long-polling
+        })
     }
 }

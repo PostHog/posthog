@@ -23,7 +23,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
@@ -155,7 +154,6 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                         </>
                     }
                 />
-                <SceneDivider />
 
                 {isDataset(dataset) && (
                     <ScenePanel>

@@ -71,6 +71,8 @@ import {
     TeamType,
 } from '~/types'
 
+import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
+
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
@@ -297,6 +299,26 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (eventDefinition: Record<string, any>) =>
                             'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
                         ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Activity log properties',
+                        searchPlaceholder: 'activity log properties',
+                        type: TaxonomicFilterGroupType.ActivityLogProperties,
+                        options: getProductEventPropertyFilterOptions('activity-log').map((value) => ({
+                            name: value,
+                            value,
+                            group: TaxonomicFilterGroupType.EventProperties,
+                        })),
+                        getIcon: getPropertyDefinitionIcon,
+                        getPopoverHeader: () => 'Activity log properties',
+                    },
+                    {
+                        name: 'Workflow variables',
+                        searchPlaceholder: 'variable key',
+                        type: TaxonomicFilterGroupType.WorkflowVariables,
+                        categoryLabel: () => 'Workflow variables',
+                        render: HogFlowTaxonomicFilters,
+                        getPopoverHeader: () => 'Workflow variables',
                     },
                     {
                         name: 'Actions',
@@ -540,21 +562,57 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Revenue analytics properties',
                     },
                     {
-                        name: 'Log attributes',
+                        name: 'Logs',
                         searchPlaceholder: 'logs',
+                        type: TaxonomicFilterGroupType.Logs,
+                        options: [{ key: 'message', name: 'Message', propertyFilterType: 'log' }],
+                        localItemsSearch: (items: any[], q: string): any[] => {
+                            if (!q) {
+                                return items
+                            }
+                            return [
+                                {
+                                    key: 'message',
+                                    name: 'Search log message for "' + q + '"',
+                                    value: q,
+                                    propertyFilterType: 'log',
+                                },
+                            ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
+                        },
+                        getName: (option: { key: string; name: string }) => option.name,
+                        getValue: (option: { key: string; name: string }) => option.key,
+                        getPopoverHeader: () => 'Log attributes',
+                    },
+                    {
+                        name: 'Log attributes',
+                        searchPlaceholder: 'attributes',
                         type: TaxonomicFilterGroupType.LogAttributes,
-                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
-                            is_feature_flag: false,
-                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
-                            properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
-                                ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
-                                : undefined,
-                            exclude_hidden: true,
-                        }).url,
-                        valuesEndpoint: (key) => `api/environments/${projectId}/logs/values?key=` + key,
+                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, { attribute_type: 'log' })
+                            .url,
+                        valuesEndpoint: (key) =>
+                            combineUrl(`api/environments/${projectId}/logs/values`, {
+                                attribute_type: 'log',
+                                key: key,
+                            }).url,
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Log attributes',
+                    },
+                    {
+                        name: 'Resource attributes',
+                        searchPlaceholder: 'resources',
+                        type: TaxonomicFilterGroupType.LogResourceAttributes,
+                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
+                            attribute_type: 'resource',
+                        }).url,
+                        valuesEndpoint: (key) =>
+                            combineUrl(`api/environments/${projectId}/logs/values`, {
+                                attribute_type: 'resource',
+                                key: key,
+                            }).url,
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => 'Resource attributes',
                     },
                     {
                         name: 'Numerical event properties',

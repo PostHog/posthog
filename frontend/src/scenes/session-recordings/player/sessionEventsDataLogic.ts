@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
@@ -5,7 +6,6 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { objectsEqual } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { TimeTree } from 'lib/utils/time-tree'
 
@@ -230,7 +230,7 @@ AND properties.$lib != 'web'`
                 ...AIEvents,
                 ...exceptionEvents,
             ],
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
         eventViewportsItems: [
             (s) => [s.sessionEventsData],
@@ -258,7 +258,7 @@ AND properties.$lib != 'web'`
                 )
                 return viewportEvents
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
         viewportForTimestamp: [
             (s) => [s.eventViewportsItems],

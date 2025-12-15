@@ -1,11 +1,22 @@
+import string
+import secrets
 from datetime import timedelta
 
-from django.db import models
+from django.db import IntegrityError, models
 from django.utils import timezone
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
+
+
+def generate_short_id():
+    """Generate securely random 4 characters long alphanumeric ID.
+
+    With team-scoped uniqueness, 4 characters (62^4 = 14.7M combinations)
+    is sufficient to avoid collisions within a single team.
+    """
+    return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(4))
 
 
 class Conversation(UUIDTModel):
@@ -14,6 +25,13 @@ class Conversation(UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["updated_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "slack_thread_key"],
+                name="unique_team_slack_thread_key",
+                condition=models.Q(slack_thread_key__isnull=False),
+            )
         ]
 
     class Status(models.TextChoices):
@@ -25,6 +43,7 @@ class Conversation(UUIDTModel):
         ASSISTANT = "assistant", "Assistant"
         TOOL_CALL = "tool_call", "Tool call"
         DEEP_RESEARCH = "deep_research", "Deep research"
+        SLACK = "slack", "Slack"
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -33,6 +52,23 @@ class Conversation(UUIDTModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
     title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=TITLE_MAX_LENGTH)
+    is_internal = models.BooleanField(
+        null=True,
+        default=False,
+        help_text="Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.",
+    )
+    slack_thread_key = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        help_text="Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'",
+    )
+    slack_workspace_domain = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)",
+    )
 
 
 class ConversationCheckpoint(UUIDTModel):
@@ -119,14 +155,14 @@ class CoreMemory(UUIDTModel):
     scraping_status = models.CharField(max_length=20, choices=ScrapingStatus.choices, blank=True, null=True)
     scraping_started_at = models.DateTimeField(null=True)
 
-    def change_status_to_pending(self):
+    async def achange_status_to_pending(self):
         self.scraping_started_at = timezone.now()
         self.scraping_status = CoreMemory.ScrapingStatus.PENDING
-        self.save()
+        await self.asave()
 
-    def change_status_to_skipped(self):
+    async def achange_status_to_skipped(self):
         self.scraping_status = CoreMemory.ScrapingStatus.SKIPPED
-        self.save()
+        await self.asave()
 
     @property
     def is_scraping_pending(self) -> bool:
@@ -139,35 +175,35 @@ class CoreMemory(UUIDTModel):
     def is_scraping_finished(self) -> bool:
         return self.scraping_status in [CoreMemory.ScrapingStatus.COMPLETED, CoreMemory.ScrapingStatus.SKIPPED]
 
-    def append_question_to_initial_text(self, text: str):
+    async def aappend_question_to_initial_text(self, text: str):
         if self.initial_text != "":
             self.initial_text += "\n"
         self.initial_text += "Question: " + text + "\nAnswer:"
         self.initial_text = self.initial_text.strip()
-        self.save()
+        await self.asave()
 
-    def append_answer_to_initial_text(self, text: str):
+    async def aappend_answer_to_initial_text(self, text: str):
         self.initial_text += " " + text
         self.initial_text = self.initial_text.strip()
-        self.save()
+        await self.asave()
 
-    def set_core_memory(self, text: str):
+    async def aset_core_memory(self, text: str):
         self.text = text
         self.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
-        self.save()
+        await self.asave()
 
-    def append_core_memory(self, text: str):
+    async def aappend_core_memory(self, text: str):
         if self.text == "":
             self.text = text
         else:
             self.text = self.text + "\n" + text
-        self.save()
+        await self.asave()
 
-    def replace_core_memory(self, original_fragment: str, new_fragment: str):
+    async def areplace_core_memory(self, original_fragment: str, new_fragment: str):
         if original_fragment not in self.text:
             raise ValueError(f"Original fragment {original_fragment} not found in core memory")
         self.text = self.text.replace(original_fragment, new_fragment)
-        self.save()
+        await self.asave()
 
     @property
     def formatted_text(self) -> str:
@@ -183,3 +219,36 @@ class CoreMemory(UUIDTModel):
         if self.initial_text.endswith("\nAnswer:"):
             answers_given -= 1
         return MAX_ONBOARDING_QUESTIONS - answers_given
+
+
+class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
+    class Type(models.TextChoices):
+        VISUALIZATION = "visualization", "Visualization"
+        NOTEBOOK = "notebook", "Notebook"
+
+    short_id = models.CharField(max_length=4, default=generate_short_id)
+    name = models.CharField(max_length=400)
+    type = models.CharField(max_length=50, choices=Type.choices)
+    data = models.JSONField(help_text="Artifact content. Structure depends on artifact type.")
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="artifacts")
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "short_id"]),
+            models.Index(fields=["team", "conversation", "created_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "short_id"], name="unique_team_short_id"),
+        ]
+
+    def save(self, *args, **kwargs):
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                return super().save(*args, **kwargs)
+            except IntegrityError as e:
+                if "short_id" in str(e) and attempt < max_retries - 1:
+                    self.short_id = generate_short_id()
+                else:
+                    raise

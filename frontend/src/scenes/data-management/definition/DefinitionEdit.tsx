@@ -17,7 +17,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
@@ -98,7 +97,6 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                         </>
                     }
                 />
-                <SceneDivider />
 
                 {definitionLoading ? (
                     <div className="deprecated-space-y-4">

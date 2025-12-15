@@ -10,7 +10,6 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { ScenePin } from 'lib/components/Scenes/ScenePin'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { dayjs } from 'lib/dayjs'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -24,7 +23,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { isUniversalFilters } from '../utils'
@@ -177,7 +175,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         ) : undefined
                     }
                 />
-                <SceneDivider />
 
                 <SessionRecordingsPlaylist
                     logicKey={playlist.short_id}
@@ -190,9 +187,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     onFiltersChange={setFilters}
                     onPinnedChange={onPinnedChange}
                     pinnedRecordings={pinnedRecordings ?? []}
-                    canMixFiltersAndPinned={
-                        playlist.created_at ? dayjs(playlist.created_at).isBefore('2025-03-11') : false
-                    }
                     updateSearchParams={true}
                     type="collection"
                     isSynthetic={playlist.is_synthetic}

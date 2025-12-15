@@ -182,13 +182,6 @@
             "examples": ["{\"temperature\": 0.5, \"max_tokens\": 50}"],
             "label": "AI model parameters (LLM)"
         },
-        "$ai_output": {
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                "{\"choices\": [{\"text\": \"Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data.\"}]}"
-            ],
-            "label": "AI output (LLM)"
-        },
         "$ai_output_choices": {
             "description": "The output message choices JSON that was received from the LLM API.",
             "examples": [
@@ -671,10 +664,6 @@
             "description": "A source file included in the exception.",
             "label": "Exception source"
         },
-        "$exception_stack_trace_raw": {
-            "description": "The exceptions stack trace, as a string.",
-            "label": "Exception raw stack trace"
-        },
         "$exception_type": {
             "description": "Exception categorized into types.",
             "examples": ["Error"],
@@ -713,6 +702,13 @@
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
             "label": "Feature flag request ID"
+        },
+        "$feature_flag_evaluated_at": {
+          "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
+          "examples": [
+            "1732051200000"
+          ],
+          "label": "Feature flag evaluated at"
         },
         "$feature_flag_response": {
             "description": "What the call to feature flag responded with.",
@@ -1189,6 +1185,12 @@
             "type": "String",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_flushed_size": {
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "label": "Estimated bytes flushed",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
             "examples": ["100"],
@@ -1265,6 +1267,12 @@
             "description": "Direct link to the exception in Sentry",
             "examples": ["https://sentry.io/..."],
             "label": "Sentry URL"
+        },
+        "$sess_rec_flush_size": {
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "label": "Estimated bytes flushed",
+            "type": "Numeric",
+            "used_for_debug": true
         },
         "$session_entry__kx": {
             "description": "Klaviyo Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
@@ -1460,6 +1468,11 @@
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
             "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_remote_config": {
+            "description": "The remote config for session recording received from the server (or loaded from storage).",
+            "label": "Session recording remote config received",
             "used_for_debug": true
         },
         "$session_recording_start_reason": {
@@ -1733,6 +1746,18 @@
         "sccid": {
             "description": "Snapchat Click ID",
             "label": "sccid"
+        },
+        "sdk_debug_extensions_init_method": {
+            "description": "The method used to initialize PostHog.js extensions.",
+            "examples": ["deferred", "synchronous"],
+            "label": "PostHog.js extensions init method",
+            "used_for_debug": true
+        },
+        "sdk_debug_extensions_init_time_ms": {
+            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
+            "examples": ["150"],
+            "label": "PostHog.js extensions init time (ms)",
+            "used_for_debug": true
         },
         "token": {
             "description": "Token used for authentication.",
@@ -2128,13 +2153,6 @@
             "description": "The parameters used to configure the model in the LLM API, in JSON.",
             "examples": ["{\"temperature\": 0.5, \"max_tokens\": 50}"],
             "label": "AI model parameters (LLM)"
-        },
-        "$ai_output": {
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                "{\"choices\": [{\"text\": \"Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data.\"}]}"
-            ],
-            "label": "AI output (LLM)"
         },
         "$ai_output_choices": {
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -2617,10 +2635,6 @@
         "$exception_sources": {
             "description": "A source file included in the exception.",
             "label": "Exception source"
-        },
-        "$exception_stack_trace_raw": {
-            "description": "The exceptions stack trace, as a string.",
-            "label": "Exception raw stack trace"
         },
         "$exception_type": {
             "description": "Exception categorized into types.",
@@ -3428,6 +3442,12 @@
             "type": "String",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_flushed_size": {
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "label": "Estimated bytes flushed",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
             "examples": ["100"],
@@ -3504,6 +3524,12 @@
             "description": "Direct link to the exception in Sentry",
             "examples": ["https://sentry.io/..."],
             "label": "Sentry URL"
+        },
+        "$sess_rec_flush_size": {
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "label": "Estimated bytes flushed",
+            "type": "Numeric",
+            "used_for_debug": true
         },
         "$session_entry__kx": {
             "description": "Klaviyo Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
@@ -3699,6 +3725,11 @@
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
             "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_remote_config": {
+            "description": "The remote config for session recording received from the server (or loaded from storage).",
+            "label": "Session recording remote config received",
             "used_for_debug": true
         },
         "$session_recording_start_reason": {
@@ -4004,6 +4035,18 @@
         "sccid": {
             "description": "Snapchat Click ID Data from the last time this user was seen.",
             "label": "Latest sccid"
+        },
+        "sdk_debug_extensions_init_method": {
+            "description": "The method used to initialize PostHog.js extensions.",
+            "examples": ["deferred", "synchronous"],
+            "label": "PostHog.js extensions init method",
+            "used_for_debug": true
+        },
+        "sdk_debug_extensions_init_time_ms": {
+            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
+            "examples": ["150"],
+            "label": "PostHog.js extensions init time (ms)",
+            "used_for_debug": true
         },
         "token": {
             "description": "Token used for authentication.",

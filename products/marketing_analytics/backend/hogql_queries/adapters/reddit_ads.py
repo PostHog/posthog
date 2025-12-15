@@ -1,7 +1,10 @@
 # Reddit Ads Marketing Source Adapter
 
+from posthog.schema import NativeMarketingSource
+
 from posthog.hogql import ast
 
+from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, INTEGRATION_PRIMARY_SOURCE
 from .base import MarketingSourceAdapter, RedditAdsConfig, ValidationResult
 
 
@@ -13,10 +16,14 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    _source_type = NativeMarketingSource.REDDIT_ADS
+
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
         """Reddit Ads campaigns typically use 'reddit' as the UTM source"""
-        return {"reddit": ["reddit"]}
+        primary = INTEGRATION_PRIMARY_SOURCE[cls._source_type]
+        sources = INTEGRATION_DEFAULT_SOURCES[cls._source_type]
+        return {primary: list(sources)}
 
     def get_source_type(self) -> str:
         """Return unique identifier for this source type"""
@@ -45,31 +52,105 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
 
     def _get_campaign_name_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
-        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["name_field"]
+        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, field_name])])
+
+    def _get_campaign_id_field(self) -> ast.Expr:
+        campaign_table_name = self.config.campaign_table.name
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["id_field"]
+        field_expr = ast.Field(chain=[campaign_table_name, field_name])
+        return ast.Call(name="toString", args=[field_expr])
 
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "impressions"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "impressions"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_clicks_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "clicks"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "clicks"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "spend"])])
-        div = ast.ArithmeticOperation(left=sum, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000))
-        return ast.Call(name="toFloat", args=[div])
+        base_currency = self.context.base_currency
+
+        # Get cost in micros and convert to standard units
+        spend_field = ast.Field(chain=[stats_table_name, "spend"])
+        cost_standard = ast.ArithmeticOperation(
+            left=spend_field, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000)
+        )
+        cost_float = ast.Call(name="toFloat", args=[cost_standard])
+
+        # Check if currency column exists in campaign_report table
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "currency" in columns:
+                # Convert each row's cost, then sum
+                # Use coalesce to handle NULL currency values - fallback to base_currency
+                currency_field = ast.Field(chain=[stats_table_name, "currency"])
+                currency_with_fallback = ast.Call(
+                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
+                )
+                convert_currency = ast.Call(
+                    name="convertCurrency", args=[currency_with_fallback, ast.Constant(value=base_currency), cost_float]
+                )
+                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
+                return ast.Call(name="SUM", args=[convert_to_float])
+        except (TypeError, AttributeError, KeyError):
+            pass
+
+        # Currency column doesn't exist, return cost without conversion
+        return ast.Call(name="SUM", args=[cost_float])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
+        """Get conversion count (number of conversions)"""
         stats_table_name = self.config.stats_table.name
-        sum_signup = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion_signup_total_value"])])
-        sum_purchase = ast.Call(
-            name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion_purchase_total_items"])]
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "key_conversion_total_count"])]),
+                ast.Constant(value=0),
+            ],
         )
-        sum = ast.ArithmeticOperation(left=sum_signup, op=ast.ArithmeticOperationOp.Add, right=sum_purchase)
+        sum = ast.Call(name="SUM", args=[field_as_float])
+        return ast.Call(name="toFloat", args=[sum])
+
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        """Get conversion value (monetary value of conversions)"""
+        stats_table_name = self.config.stats_table.name
+        # Sum purchase value and signup value for total conversion value
+        purchase_field = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversion_purchase_total_value"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum_purchase = ast.Call(name="SUM", args=[purchase_field])
+        signup_field = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversion_signup_total_value"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum_signup = ast.Call(name="SUM", args=[signup_field])
+        sum = ast.ArithmeticOperation(left=sum_purchase, op=ast.ArithmeticOperationOp.Add, right=sum_signup)
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_from(self) -> ast.JoinExpr:
@@ -123,5 +204,5 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
         return conditions
 
     def _get_group_by(self) -> list[ast.Expr]:
-        """Build GROUP BY expressions"""
-        return [self._get_campaign_name_field()]
+        """Build GROUP BY expressions - group by both name and ID"""
+        return [self._get_campaign_name_field(), self._get_campaign_id_field()]

@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Any
 
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
 class MetaAdsResource(StrEnum):
@@ -77,7 +77,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "conversion_specs",
         ],
         "partition_mode": "datetime",
-        "partition_format": "month",
+        "partition_format": "week",
         "partition_keys": ["created_time"],
     },
     MetaAdsResource.AdStats: {
@@ -90,6 +90,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "field_names": [
             "ad_id",
             "account_id",
+            "account_currency",
             "adset_id",
             "campaign_id",
             "date_start",
@@ -119,7 +120,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "video_p100_watched_actions",
         ],
         "partition_mode": "datetime",
-        "partition_format": "month",
+        "partition_format": "week",
         "partition_keys": ["date_start"],
         "is_stats": True,
     },
@@ -149,7 +150,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "promoted_object",
         ],
         "partition_mode": "datetime",
-        "partition_format": "month",
+        "partition_format": "week",
         "partition_keys": ["created_time"],
     },
     MetaAdsResource.AdsetStats: {
@@ -162,6 +163,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "field_names": [
             "adset_id",
             "account_id",
+            "account_currency",
             "campaign_id",
             "date_start",
             "date_stop",
@@ -184,7 +186,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "action_values",
         ],
         "partition_mode": "datetime",
-        "partition_format": "month",
+        "partition_format": "week",
         "partition_keys": ["date_start"],
         "is_stats": True,
     },
@@ -211,7 +213,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "special_ad_categories",
         ],
         "partition_mode": "datetime",
-        "partition_format": "month",
+        "partition_format": "week",
         "partition_keys": ["created_time"],
     },
     MetaAdsResource.CampaignStats: {
@@ -224,6 +226,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "field_names": [
             "campaign_id",
             "account_id",
+            "account_currency",
             "date_start",
             "date_stop",
             "impressions",
@@ -245,7 +248,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "action_values",
         ],
         "partition_mode": "datetime",
-        "partition_format": "month",
+        "partition_format": "week",
         "partition_keys": ["date_start"],
         "is_stats": True,
     },

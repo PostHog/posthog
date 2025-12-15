@@ -851,7 +851,7 @@ class ActivityLogTestHelper(APILicensedTest):
 
         # Mock the Stripe validation to avoid needing real credentials
         with patch("posthog.temporal.data_imports.sources.stripe.stripe.validate_credentials", return_value=True):
-            with patch("posthog.warehouse.data_load.service.sync_external_data_job_workflow"):
+            with patch("products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"):
                 data = {
                     "source_type": source_type,
                     "payload": {

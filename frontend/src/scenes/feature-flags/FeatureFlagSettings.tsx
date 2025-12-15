@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconTrash } from '@posthog/icons'
+import { IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DefaultEvaluationEnvironments } from './DefaultEvaluationEnvironments'
+import { RequireEvaluationEnvironmentTags } from './RequireEvaluationEnvironmentTags'
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 export type FeatureFlagSettingsProps = {
@@ -109,6 +109,10 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
             </div>
 
             <div className="space-y-2">
+                <RequireEvaluationEnvironmentTags />
+            </div>
+
+            <div className="space-y-2">
                 <DefaultEvaluationEnvironments />
             </div>
 
@@ -181,14 +185,15 @@ export function FlagsSecureApiKeys(): JSX.Element {
             </h3>
             <CodeSnippet
                 actions={
-                    isTeamTokenResetAvailable ? (
-                        <LemonButton
-                            icon={<IconRefresh />}
-                            noPadding
-                            onClick={openResetDialog}
-                            tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
-                        />
-                    ) : undefined
+                    <LemonButton
+                        icon={<IconRefresh />}
+                        noPadding
+                        onClick={openResetDialog}
+                        disabledReason={
+                            !isTeamTokenResetAvailable ? 'You do not have permission to rotate this key' : undefined
+                        }
+                        tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
+                    />
                 }
                 className={currentTeam?.secret_api_token ? '' : 'text-muted'}
                 thing="Primary Feature Flags Secure API key"

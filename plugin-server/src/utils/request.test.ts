@@ -54,6 +54,7 @@ describe('fetch', () => {
         })
 
         it('should raise if the URL is unknown', async () => {
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
             await expect(fetch('http://unknown.domain.unknown')).rejects.toMatchInlineSnapshot(
                 `[ResolutionError: Invalid hostname]`
             )
@@ -86,6 +87,7 @@ describe('fetch', () => {
         ])('should block requests to %s (%s)', async (ip) => {
             jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 4 }] as any)
 
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
             await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
         })
     })

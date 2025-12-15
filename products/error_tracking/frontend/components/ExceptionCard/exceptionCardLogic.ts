@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers } from 'kea'
+import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 
 import type { exceptionCardLogicType } from './exceptionCardLogicType'
 
@@ -59,10 +59,14 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
             },
         ],
         currentTab: [
-            'stacktrace',
+            'stack_trace',
             {
                 setCurrentTab: (_, { tab }: { tab: string }) => tab,
             },
         ],
+    }),
+
+    selectors({
+        issueId: [(_, p) => [p.issueId], (issueId) => issueId],
     }),
 ])

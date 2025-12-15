@@ -1,6 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonInput,
+    LemonSkeleton,
+    LemonTable,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -9,14 +18,14 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 import { StatusTagSetting } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
-import FireSaleBanner from '../FireSaleBanner'
+import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
 import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
-    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
+    const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
         useValues(dataWarehouseSettingsLogic)
-    const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
+    const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(dataWarehouseSettingsLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
     if (availableSourcesLoading || !availableSources) {
@@ -24,11 +33,18 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
     }
 
     return (
-        <>
-            <FireSaleBanner />
+        <div>
+            <div className="flex gap-2 justify-between items-center mb-4">
+                <LemonInput
+                    type="search"
+                    placeholder="Search..."
+                    onChange={setManagedSearchTerm}
+                    value={managedSearchTerm}
+                />
+            </div>
             <LemonTable
                 id="managed-sources"
-                dataSource={dataWarehouseSources?.results ?? []}
+                dataSource={filteredManagedSources}
                 loading={dataWarehouseSourcesLoading}
                 disableTableWhileLoading={false}
                 pagination={{ pageSize: 10 }}
@@ -146,7 +162,8 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     },
                 ]}
             />
-        </>
+            <FreeHistoricalSyncsBanner />
+        </div>
     )
 }
 

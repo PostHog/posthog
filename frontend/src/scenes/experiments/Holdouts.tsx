@@ -222,6 +222,11 @@ export function Holdouts(): JSX.Element {
                     </div>
                 </div>
             </LemonBanner>
+            <div className="flex justify-end">
+                <LemonButton type="primary" onClick={openCreateModal} data-attr="add-holdout">
+                    New holdout
+                </LemonButton>
+            </div>
 
             <LemonTable
                 emptyState={
@@ -233,9 +238,6 @@ export function Holdouts(): JSX.Element {
                 dataSource={holdouts}
                 columns={columns as LemonTableColumns<ExperimentHoldoutType>}
             />
-            <LemonButton type="primary" onClick={openCreateModal} data-attr="add-holdout">
-                New holdout
-            </LemonButton>
         </div>
     )
 }

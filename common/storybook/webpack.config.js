@@ -70,10 +70,7 @@ function createEntry(entry) {
                 lib: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'scenes'),
                 '@posthog/lemon-ui': path.resolve(__dirname, '..', '..', 'frontend', '@posthog', 'lemon-ui', 'src'),
-                '@posthog/ee/exports': [
-                    path.resolve(__dirname, '..', '..', 'ee', 'frontend', 'exports'),
-                    path.resolve(__dirname, '..', '..', 'frontend', '@posthog', 'ee', 'exports'),
-                ],
+                '@posthog/shared-onboarding': path.resolve(__dirname, '..', '..', 'docs', 'onboarding'),
                 storybook: path.resolve(__dirname, '..', '..', 'frontend', '.storybook'),
                 types: path.resolve(__dirname, '..', '..', 'frontend', 'types'),
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
@@ -178,6 +175,11 @@ function createEntry(entry) {
                 {
                     test: /monaco-editor\/.*\.m?js/,
                     loader: 'babel-loader',
+                },
+                {
+                    // Apply rule for .sql files
+                    test: /\.sql$/,
+                    type: 'asset/source',
                 },
             ],
         },

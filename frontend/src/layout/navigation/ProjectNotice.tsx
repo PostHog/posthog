@@ -17,7 +17,8 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { OnboardingStepKey, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
 
 import { ProjectNoticeVariant, navigationLogic } from './navigationLogic'
 
@@ -81,7 +82,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                             {' '}
                             When you're ready, head on over to the{' '}
                             <Link
-                                to={urls.project(altTeamForIngestion.id, urls.products())}
+                                to={urls.project(altTeamForIngestion.id, urls.useCaseSelection())}
                                 data-attr="demo-project-alt-team-ingestion_link"
                             >
                                 onboarding wizard

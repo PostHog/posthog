@@ -1,37 +1,22 @@
-import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
-
 import { ApiClient } from '@/api/client'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
+import { hasScopes } from '@/lib/utils/api'
 import { MemoryCache } from '@/lib/utils/cache/MemoryCache'
 import { hash } from '@/lib/utils/helper-functions'
-import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
 
-import createFeatureFlag from './featureFlags/create'
-import deleteFeatureFlag from './featureFlags/delete'
-import getAllFeatureFlags from './featureFlags/getAll'
-// Feature Flags
-import getFeatureFlagDefinition from './featureFlags/getDefinition'
-import updateFeatureFlag from './featureFlags/update'
-
-import getOrganizationDetails from './organizations/getDetails'
-// Organizations
-import getOrganizations from './organizations/getOrganizations'
-import setActiveOrganization from './organizations/setActive'
-
-import eventDefinitions from './projects/eventDefinitions'
-// Projects
-import getProjects from './projects/getProjects'
-import getProperties from './projects/propertyDefinitions'
-import setActiveProject from './projects/setActive'
-
+// Dashboards
+import addInsightToDashboard from './dashboards/addInsight'
+import createDashboard from './dashboards/create'
+import deleteDashboard from './dashboards/delete'
+import getDashboard from './dashboards/get'
+import getAllDashboards from './dashboards/getAll'
+import updateDashboard from './dashboards/update'
 // Documentation
 import searchDocs from './documentation/searchDocs'
-
-import errorDetails from './errorTracking/errorDetails'
 // Error Tracking
+import errorDetails from './errorTracking/errorDetails'
 import listErrors from './errorTracking/listErrors'
-
 // Experiments
 import createExperiment from './experiments/create'
 import deleteExperiment from './experiments/delete'
@@ -39,32 +24,33 @@ import getExperiment from './experiments/get'
 import getAllExperiments from './experiments/getAll'
 import getExperimentResults from './experiments/getResults'
 import updateExperiment from './experiments/update'
-
+// Feature Flags
+import createFeatureFlag from './featureFlags/create'
+import deleteFeatureFlag from './featureFlags/delete'
+import getAllFeatureFlags from './featureFlags/getAll'
+import getFeatureFlagDefinition from './featureFlags/getDefinition'
+import updateFeatureFlag from './featureFlags/update'
+// Insights
 import createInsight from './insights/create'
 import deleteInsight from './insights/delete'
-
 import getInsight from './insights/get'
-// Insights
 import getAllInsights from './insights/getAll'
 import queryInsight from './insights/query'
 import updateInsight from './insights/update'
-
-import addInsightToDashboard from './dashboards/addInsight'
-import createDashboard from './dashboards/create'
-import deleteDashboard from './dashboards/delete'
-import getDashboard from './dashboards/get'
-
-// Dashboards
-import getAllDashboards from './dashboards/getAll'
-import updateDashboard from './dashboards/update'
-import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
-// Query
-import queryRun from './query/run'
-
-import { hasScopes } from '@/lib/utils/api'
 // LLM Observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-
+// Organizations
+import getOrganizationDetails from './organizations/getDetails'
+import getOrganizations from './organizations/getOrganizations'
+import setActiveOrganization from './organizations/setActive'
+// Projects
+import eventDefinitions from './projects/eventDefinitions'
+import getProjects from './projects/getProjects'
+import getProperties from './projects/propertyDefinitions'
+import setActiveProject from './projects/setActive'
+// Query
+import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
+import queryRun from './query/run'
 // Surveys
 import createSurvey from './surveys/create'
 import deleteSurvey from './surveys/delete'
@@ -73,6 +59,9 @@ import getAllSurveys from './surveys/getAll'
 import surveysGlobalStats from './surveys/global-stats'
 import surveyStats from './surveys/stats'
 import updateSurvey from './surveys/update'
+// Misc
+import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
+import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 
 // Map of tool names to tool factory functions
 const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -142,10 +131,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'survey-stats': surveyStats,
 }
 
-export const getToolsFromContext = async (
-    context: Context,
-    features?: string[]
-): Promise<Tool<ZodObjectAny>[]> => {
+export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {
     const allowedToolNames = getFilteredToolNames(features)
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
@@ -172,19 +158,10 @@ export const getToolsFromContext = async (
         }
     })
 
-    try {
-        const { scopes } = await context.stateManager.getApiKey()
+    const apiKey = await context.stateManager.getApiKey()
+    const scopes = apiKey?.scopes ?? []
 
-        const filteredTools = tools.filter((tool) => {
-            return hasScopes(scopes, tool.scopes)
-        })
-
-        return filteredTools
-    } catch (error) {
-        // OAuth tokens don't support /api/personal_api_keys/@current endpoint yet
-        // Return empty tool set until backend OAuth support is added
-        return []
-    }
+    return tools.filter((tool) => hasScopes(scopes, tool.scopes))
 }
 
 export type PostHogToolsOptions = {

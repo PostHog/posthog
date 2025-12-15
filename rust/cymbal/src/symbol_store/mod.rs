@@ -7,13 +7,19 @@ use reqwest::Url;
 use sourcemap::OwnedSourceMapCache;
 
 use crate::{
-    error::ResolveError, langs::hermes::HermesRef, symbol_store::hermesmap::ParsedHermesMap,
+    error::ResolveError,
+    langs::hermes::HermesRef,
+    symbol_store::{
+        hermesmap::ParsedHermesMap,
+        proguard::{FetchedMapping, ProguardRef},
+    },
 };
 
 pub mod caching;
 pub mod chunk_id;
 pub mod concurrency;
 pub mod hermesmap;
+pub mod proguard;
 pub mod saving;
 pub mod sourcemap;
 
@@ -62,16 +68,21 @@ pub struct Catalog {
     // Hermes map provider
     pub hmp:
         Box<dyn Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = ResolveError>>,
+    // Proguard map provider
+    pub pg:
+        Box<dyn Provider<Ref = OrChunkId<ProguardRef>, Set = FetchedMapping, Err = ResolveError>>,
 }
 
 impl Catalog {
     pub fn new(
         smp: impl Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = ResolveError>,
         hmp: impl Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = ResolveError>,
+        pg: impl Provider<Ref = OrChunkId<ProguardRef>, Set = FetchedMapping, Err = ResolveError>,
     ) -> Self {
         Self {
             smp: Box::new(smp),
             hmp: Box::new(hmp),
+            pg: Box::new(pg),
         }
     }
 }
@@ -103,6 +114,17 @@ impl SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap> for Catalog {
         r: OrChunkId<HermesRef>,
     ) -> Result<Arc<ParsedHermesMap>, ResolveError> {
         self.hmp.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<OrChunkId<ProguardRef>, FetchedMapping> for Catalog {
+    async fn lookup(
+        &self,
+        team_id: i32,
+        r: OrChunkId<ProguardRef>,
+    ) -> Result<Arc<FetchedMapping>, ResolveError> {
+        self.pg.lookup(team_id, r).await
     }
 }
 

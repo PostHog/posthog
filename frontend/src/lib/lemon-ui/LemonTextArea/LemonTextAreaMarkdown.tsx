@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { useCallback, useRef, useState } from 'react'
 
-import { IconImage } from '@posthog/icons'
+import { IconImage, IconMarkdownFilled } from '@posthog/icons'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
@@ -15,7 +15,6 @@ import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconMarkdown } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(
@@ -74,7 +73,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                         <>
                                             <Tooltip title="Markdown formatting supported">
                                                 <div>
-                                                    <IconMarkdown className="text-xl" />
+                                                    <IconMarkdownFilled className="text-xl" />
                                                 </div>
                                             </Tooltip>
                                         </>

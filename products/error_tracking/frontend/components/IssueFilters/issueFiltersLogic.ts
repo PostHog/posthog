@@ -1,13 +1,17 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, key, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { SelectedQuickFilter, quickFiltersSectionLogic } from 'lib/components/QuickFilters'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { DateRange, QuickFilterContext } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { syncSearchParams, updateSearchParams } from '../../utils'
+import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import type { issueFiltersLogicType } from './issueFiltersLogicType'
 
 const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
@@ -26,6 +30,20 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
     path(['products', 'error_tracking', 'components', 'IssueFilters', 'issueFiltersLogic']),
     props({} as IssueFiltersLogicProps),
     key(({ logicKey }) => logicKey),
+
+    connect(() => ({
+        values: [
+            quickFiltersSectionLogic({ context: QuickFilterContext.ErrorTrackingIssueFilters }),
+            ['selectedQuickFilters'],
+        ],
+        actions: [
+            taxonomicFilterLogic({
+                taxonomicFilterLogicKey: TAXONOMIC_FILTER_LOGIC_KEY,
+                taxonomicGroupTypes: TAXONOMIC_GROUP_TYPES,
+            }),
+            ['setSearchQuery as setTaxonomicSearchQuery'],
+        ],
+    })),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
@@ -62,6 +80,46 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
             },
         ],
     }),
+    selectors({
+        mergedFilterGroup: [
+            (s) => [s.filterGroup, s.selectedQuickFilters],
+            (
+                filterGroup: UniversalFiltersGroup,
+                selectedQuickFilters: Record<string, SelectedQuickFilter>
+            ): UniversalFiltersGroup => {
+                let omnisearchFilters: any[] = []
+                if (
+                    !!filterGroup.values &&
+                    Array.isArray(filterGroup.values) &&
+                    filterGroup.values.length > 0 &&
+                    isUniversalGroupFilterLike(filterGroup.values[0])
+                ) {
+                    omnisearchFilters = filterGroup.values[0].values
+                }
+
+                const filtersFromQuickFilters = Object.values(selectedQuickFilters).map((qf: SelectedQuickFilter) => {
+                    const filterValue = qf.value === null ? undefined : Array.isArray(qf.value) ? qf.value : [qf.value]
+
+                    return {
+                        type: PropertyFilterType.Event,
+                        key: qf.propertyName,
+                        operator: qf.operator,
+                        ...(filterValue !== undefined && { value: filterValue }),
+                    }
+                })
+
+                return {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [...omnisearchFilters, ...filtersFromQuickFilters],
+                        },
+                    ],
+                } as UniversalFiltersGroup
+            },
+        ],
+    }),
 
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
@@ -74,8 +132,10 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
             if (params.filterTestAccounts && !equal(params.filterTestAccounts, values.filterTestAccounts)) {
                 actions.setFilterTestAccounts(params.filterTestAccounts)
             }
-            if (params.searchQuery && !equal(params.searchQuery, values.searchQuery)) {
-                actions.setSearchQuery(params.searchQuery)
+            const newQuery = params.searchQuery ? params.searchQuery.toString() : null
+            if (newQuery && !equal(newQuery, values.searchQuery)) {
+                actions.setSearchQuery(newQuery)
+                actions.setTaxonomicSearchQuery(newQuery)
             }
         }
         return {

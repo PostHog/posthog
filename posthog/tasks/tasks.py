@@ -1,4 +1,5 @@
 import time
+import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -7,7 +8,6 @@ from django.db import connection
 from django.utils import timezone
 
 import requests
-import posthoganalytics
 from celery import shared_task
 from prometheus_client import Counter, Gauge
 from redis import Redis
@@ -16,7 +16,7 @@ from structlog import get_logger
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.metrics import pushed_metrics_registry
@@ -236,13 +236,14 @@ def ingestion_lag() -> None:
     FROM events
     WHERE team_id IN %(team_ids)s
         AND event IN %(events)s
-        AND timestamp > yesterday() AND timestamp < now() + toIntervalMinute(3)
+        AND timestamp > now() - interval 72 hours AND timestamp < now() + toIntervalMinute(3)
     GROUP BY event
     """
 
     team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
 
     try:
+        tag_queries(name="ingestion_lag")
         results = sync_execute(
             query,
             {
@@ -300,6 +301,8 @@ def replay_count_metrics() -> None:
         )
         --group by team_id
         """
+
+        tag_queries(product=Product.REPLAY, name="replay_count_metrics")
 
         results = sync_execute(
             query,
@@ -528,7 +531,7 @@ def clean_stale_partials() -> None:
     """Clean stale (meaning older than 7 days) partial social auth sessions."""
     from social_django.models import Partial
 
-    Partial.objects.filter(timestamp__lt=timezone.now() - timezone.timedelta(7)).delete()
+    Partial.objects.filter(timestamp__lt=timezone.now() - datetime.timedelta(7)).delete()
 
 
 @shared_task(ignore_result=True)
@@ -806,40 +809,16 @@ def check_flags_to_rollback() -> None:
         pass
 
 
-@shared_task(ignore_result=True)
-def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
-    try:
-        from ee.session_recordings.persistence_tasks import persist_single_recording_v2
-
-        persist_single_recording_v2(id, team_id)
-    except ImportError:
-        pass
-
-
-@shared_task(ignore_result=True)
-def ee_persist_finished_recordings_v2() -> None:
-    try:
-        from ee.session_recordings.persistence_tasks import persist_finished_recordings_v2
-    except ImportError:
-        pass
-    else:
-        persist_finished_recordings_v2()
-
-
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
 )
 def count_items_in_playlists() -> None:
-    try:
-        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-            enqueue_recordings_that_match_playlist_filters,
-        )
-    except ImportError as ie:
-        posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
-        logger.exception("Failed to import task to count items in playlists", error=ie)
-    else:
-        enqueue_recordings_that_match_playlist_filters()
+    from posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+        enqueue_recordings_that_match_playlist_filters,
+    )
+
+    enqueue_recordings_that_match_playlist_filters()
 
 
 @shared_task(ignore_result=True)
@@ -1000,6 +979,8 @@ def sync_feature_flag_last_called() -> None:
         return
 
     start_time = timezone.now()
+
+    tag_queries(product=Product.FEATURE_FLAGS, name="sync_feature_flag_last_called")
 
     try:
         redis_client = get_client()
@@ -1311,3 +1292,31 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
             f"[refresh_activity_log_fields_cache] completed flush and rebuild for "
             f"{processed_orgs}/{org_count} organizations"
         )
+
+
+@shared_task(ignore_result=True)
+def sync_user_product_lists_for_new_team(team_id: int) -> None:
+    """
+    Sync UserProductList for all users who have access to a new team.
+    Called during project creation to avoid request timeouts for large organizations.
+    """
+    from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
+    from posthog.models.team import Team
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.info("sync_user_product_lists_for_new_team: Team not found, skipping", team_id=team_id)
+        return
+
+    users = list(team.all_users_with_access())
+    logger.info(
+        "sync_user_product_lists_for_new_team: Starting sync",
+        team_id=team_id,
+        user_count=len(users),
+    )
+
+    for user in users:
+        backfill_user_product_list_for_new_user(user, team)
+
+    logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)

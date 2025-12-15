@@ -1,9 +1,12 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from typing import Any, Optional, TypeVar, Union, cast
+from uuid import uuid4
 
 from jsonref import replace_refs
 from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
@@ -13,7 +16,9 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantMessage,
+    AssistantMessageMetadata,
     AssistantRetentionQuery,
+    AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     CachedTeamTaxonomyQueryResponse,
@@ -25,7 +30,6 @@ from posthog.schema import (
     RetentionQuery,
     TeamTaxonomyQuery,
     TrendsQuery,
-    VisualizationMessage,
 )
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -33,7 +37,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
-from ee.hogai.utils.types import AssistantMessageUnion
+from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantDispatcherEvent, AssistantMessageUnion
 
 
 def remove_line_breaks(line: str) -> str:
@@ -44,7 +48,7 @@ def filter_and_merge_messages(
     messages: Sequence[AssistantMessageUnion],
     entity_filter: Union[tuple[type[AssistantMessageUnion], ...], type[AssistantMessageUnion]] = (
         AssistantMessage,
-        VisualizationMessage,
+        ArtifactRefMessage,
     ),
 ) -> list[AssistantMessageUnion]:
     """
@@ -114,16 +118,19 @@ def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str 
     return cast(HumanMessage, messages[index])
 
 
-def should_output_assistant_message(candidate_message: AssistantMessageUnion) -> bool:
+def should_output_assistant_message(candidate_message: Any) -> bool:
     """
     This is used to filter out messages that are not useful for the user.
-    Filter out tool calls without a UI payload and empty assistant messages.
+    Filter out empty assistant messages and context messages.
     """
-    if isinstance(candidate_message, AssistantToolCallMessage) and candidate_message.ui_payload is None:
-        return False
-
-    if isinstance(candidate_message, AssistantMessage) and not candidate_message.content:
-        return False
+    if isinstance(candidate_message, AssistantMessage):
+        if (
+            (candidate_message.tool_calls is None or len(candidate_message.tool_calls) == 0)
+            and len(candidate_message.content) == 0
+            and candidate_message.meta is None
+        ):
+            # Empty assistant message
+            return False
 
     # Filter out context messages
     if isinstance(candidate_message, ContextMessage):
@@ -234,6 +241,45 @@ def extract_content_from_ai_message(response: BaseMessage) -> str:
     return str(response.content)
 
 
+def extract_thinking_from_ai_message(response: BaseMessage) -> list[dict[str, Any]]:
+    thinking: list[dict[str, Any]] = []
+
+    for content in response.content:
+        # Anthropic style reasoning
+        if isinstance(content, dict) and "type" in content:
+            if content["type"] in ("thinking", "redacted_thinking"):
+                thinking.append(content)
+    if response.additional_kwargs.get("reasoning") and (
+        summary := response.additional_kwargs["reasoning"].get("summary")
+    ):
+        # OpenAI style reasoning
+        thinking.append(
+            {
+                "type": "thinking",
+                "thinking": summary[0]["text"],
+            }
+        )
+    return thinking
+
+
+def normalize_ai_message(message: AIMessage | AIMessageChunk) -> AssistantMessage:
+    message_id: str | None = None
+    if not isinstance(message, AIMessageChunk):
+        message_id = str(uuid4())
+    tool_calls = [
+        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"] or {})
+        for tool_call in message.tool_calls
+    ]
+    content = extract_content_from_ai_message(message)
+    thinking = extract_thinking_from_ai_message(message)
+    return AssistantMessage(
+        content=content,
+        id=message_id,
+        tool_calls=tool_calls,
+        meta=AssistantMessageMetadata(thinking=thinking) if thinking else None,
+    )
+
+
 def cast_assistant_query(
     query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery,
 ) -> TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery:
@@ -263,10 +309,14 @@ def build_dashboard_url(team: Team, id: int) -> str:
 
 
 def extract_stream_update(update: Any) -> Any:
+    # Handle old LangGraph tuple format
     if update[1] == "custom":
         # Custom streams come from a tool call
         # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
         update = update[2]
+
+    if isinstance(update, AssistantDispatcherEvent):
+        return update
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name
     return update
@@ -280,3 +330,70 @@ def insert_messages_before_start(
     # Insert context messages right before the start message
     start_idx = find_start_message_idx(messages, start_id)
     return [*messages[:start_idx], *new_messages, *messages[start_idx:]]
+
+
+def sort_schema_properties(
+    schema: dict, top_level_order: list[str], property_order_map: dict[str, list[str]] | None = None
+) -> dict:
+    """
+    Sorts properties in the JSON schema according to predefined order.
+    Uses startswith matching for schema names to handle variants.
+    Modifies the schema in place.
+    """
+    default_order_map = {
+        # Events and Actions nodes - prioritize kind and identifying field
+        "AssistantTrendsEventsNode": ["kind", "event"],
+        "AssistantTrendsActionsNode": ["kind", "id"],
+        # Generic property filters - type first for all variants
+        "AssistantGenericPropertyFilter": ["type", "key", "operator", "value"],
+        # Group property filters - type first for all variants
+        "AssistantGroupPropertyFilter": ["type", "key", "operator", "value", "group_type_index"],
+    }
+    full_order_map = {**default_order_map, **(property_order_map or {})}
+
+    def get_property_order(schema_name: str) -> list[str]:
+        """Get property order for a schema name using startswith matching."""
+        for prefix, order in full_order_map.items():
+            if schema_name.startswith(prefix):
+                return order
+        return []
+
+    def reorder_properties(obj: dict, order: list[str]) -> dict:
+        """Reorders properties dict according to the order list."""
+        if "properties" not in obj:
+            return obj
+
+        properties = obj["properties"]
+
+        if not order:
+            return obj
+
+        # Create new ordered dict
+        ordered_properties = {}
+
+        # Add properties in specified order
+        for key in order:
+            if key in properties:
+                ordered_properties[key] = properties[key]
+
+        # Add remaining properties not in the order list
+        for key, value in properties.items():
+            if key not in ordered_properties:
+                ordered_properties[key] = value
+
+        obj["properties"] = ordered_properties
+        return obj
+
+    # Reorder top-level properties using provided order
+    if "properties" in schema:
+        schema = reorder_properties(schema, top_level_order)
+
+    # Reorder properties in $defs
+    if "$defs" in schema:
+        defs = schema["$defs"]
+        for def_name in defs:
+            order = get_property_order(def_name)
+            if order:
+                defs[def_name] = reorder_properties(defs[def_name], order)
+
+    return schema

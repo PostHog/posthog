@@ -19,7 +19,8 @@ from posthog.schema import (
 
 from posthog.management.commands.generate_source_configs import SourceConfigGenerator
 from posthog.temporal.data_imports.sources.common.base import FieldType
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestSourceConfigGenerator(ClickhouseTestMixin):
@@ -393,7 +394,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         )
 
         output = self._run({ExternalDataSourceType.STRIPE: config})
-        assert "from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig" in output
+        assert "from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig" in output
         assert "ssh_tunnel: SSHTunnelConfig" in output
 
     def test_source_config_type_conversion(self):

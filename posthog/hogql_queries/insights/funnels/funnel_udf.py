@@ -28,9 +28,6 @@ HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
 class FunnelUDFMixin:
-    def _add_breakdown_attribution_subquery(self: FunnelProtocol, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        raise Exception("UDF doesn't use this")
-
     def _prop_vals(self: FunnelProtocol):
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
         if not breakdown:
@@ -52,7 +49,7 @@ class FunnelUDFMixin:
             self.context.breakdownAttributionType == BreakdownAttributionType.STEP
             and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
         ):
-            prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
+            prop = "prop"
         else:
             prop = "prop_basic"
         if self._query_has_array_breakdown():
@@ -90,17 +87,15 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         return ""
 
     def udf_event_array_filter(self):
-        return self._udf_event_array_filter(1, 3, 4)
+        return self.event_array_filter(1, 3, 4)
 
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
         if self.context.funnelsFilter.funnelOrderType == "strict":
-            inner_event_query = self._get_inner_event_query_for_udf(
-                entity_name="events", skip_step_filter=True, skip_entity_filter=True
-            )
+            inner_event_query = self._get_inner_event_query(skip_step_filter=True, skip_entity_filter=True)
         else:
-            inner_event_query = self._get_inner_event_query_for_udf(entity_name="events")
+            inner_event_query = self._get_inner_event_query()
 
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
@@ -208,8 +203,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
-        order_by = ",".join([f"step_{i+1} DESC" for i in reversed(range(self.context.max_steps))])
-
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
 
         use_breakdown_limit = self.context.breakdown and self.context.breakdownType in [
@@ -223,6 +216,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             if use_breakdown_limit
             else "breakdown"
         )
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
 
         s = parse_select(
             f"""
@@ -252,6 +246,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
         # Weird: unless you reference row_number in this outer block, it doesn't work correctly
         s = cast(
             ast.SelectQuery,
@@ -266,6 +261,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             FROM
                 {{s}}
             GROUP BY final_prop
+            ORDER BY {order_by}
             LIMIT {self.get_breakdown_limit() + 1 if use_breakdown_limit else DEFAULT_RETURNED_ROWS}
         """,
                 {"s": s},

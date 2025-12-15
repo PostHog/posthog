@@ -1,14 +1,15 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import { Hub } from '../../types'
+import { GeoIp } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
-import { CdpRedis, createCdpRedisPool } from '../redis'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
@@ -46,6 +47,11 @@ export const hogWatcherLatency = new Histogram({
     labelNames: ['operation'],
 })
 
+export const hogTransformationPendingInvocationResults = new Gauge({
+    name: 'hog_transformation_pending_invocation_results',
+    help: 'Number of invocation results accumulated and waiting to be processed. High values indicate memory accumulation.',
+})
+
 export interface TransformationResult {
     event: PluginEvent | null
     invocationResults: CyclotronJobInvocationResult[]
@@ -58,13 +64,15 @@ export class HogTransformerService {
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private hogWatcher: HogWatcherService
-    private redis: CdpRedis
+    private redis: RedisV2
     private cachedStates: Record<string, HogWatcherState> = {}
     private invocationResults: CyclotronJobInvocationResult[] = []
+    private cachedGeoIp?: GeoIp
+    private cachedTransformationFunctions?: ReturnType<typeof getTransformationFunctions>
 
     constructor(hub: Hub) {
         this.hub = hub
-        this.redis = createCdpRedisPool(hub)
+        this.redis = createRedisV2Pool(hub, 'cdp')
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
@@ -84,6 +92,7 @@ export class HogTransformerService {
     public async processInvocationResults(): Promise<void> {
         const results = [...this.invocationResults]
         this.invocationResults = []
+        hogTransformationPendingInvocationResults.set(0)
 
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
@@ -101,8 +110,11 @@ export class HogTransformerService {
     }
 
     private async getTransformationFunctions() {
-        const geoipLookup = await this.hub.geoipService.get()
-        return getTransformationFunctions(geoipLookup)
+        if (!this.cachedTransformationFunctions) {
+            this.cachedGeoIp = await this.hub.geoipService.get()
+            this.cachedTransformationFunctions = getTransformationFunctions(this.cachedGeoIp)
+        }
+        return this.cachedTransformationFunctions
     }
 
     private createInvocationGlobals(event: PluginEvent): HogFunctionInvocationGlobals {
@@ -137,6 +149,7 @@ export class HogTransformerService {
             for (const result of transformationResult.invocationResults) {
                 this.invocationResults.push(result)
             }
+            hogTransformationPendingInvocationResults.set(this.invocationResults.length)
 
             hogTransformationCompleted.inc({ type: 'with_messages' })
             return {
@@ -208,7 +221,7 @@ export class HogTransformerService {
                     }
                 }
 
-                const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
+                const result = await this.executeHogFunction(hogFunction, globals)
 
                 results.push(result)
 

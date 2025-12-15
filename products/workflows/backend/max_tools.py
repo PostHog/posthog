@@ -4,10 +4,10 @@ from typing import Any, Optional
 
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 
@@ -36,7 +36,6 @@ class TemplateOutput(BaseModel):
 class CreateMessageTemplateTool(MaxTool):
     name: str = "create_message_template"
     description: str = "Create a message template from a prompt, optionally using a URL to inform the content."
-    thinking_message: str = "Creating your template"
     args_schema: type[BaseModel] = CreateTemplateArgs
 
     def _run_impl(self, instructions: str) -> tuple[str, str]:
@@ -104,7 +103,15 @@ Now, create a template for these instructions: {instructions}
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
+            inject_context=False,
+        )
 
     def _parse_output(self, output: str) -> TemplateOutput:
         match = re.search(r"<template>(.*?)</template>", output, re.DOTALL)

@@ -3,7 +3,13 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
+import {
+    InternalPerson,
+    PersonUpdateFields,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+} from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { TransactionClient } from '../../../../utils/db/postgres'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
@@ -24,7 +30,8 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
         return await this.repository.createPerson(
             createdAt,
@@ -35,14 +42,15 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
             isUserId,
             isIdentified,
             uuid,
-            distinctIds,
+            primaryDistinctId,
+            extraDistinctIds,
             this.transaction
         )
     }
 
     async updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         return await this.repository.updatePerson(person, update, tag, this.transaction)

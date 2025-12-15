@@ -1,23 +1,57 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import api from 'lib/api'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { Breadcrumb, EndpointType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
 
+export function generateEndpointPayload(endpoint: EndpointType | null): Record<string, any> {
+    if (!endpoint) {
+        return {}
+    }
+
+    if (isInsightQueryNode(endpoint.query)) {
+        return {
+            query_override: {},
+            filters_override: {},
+        }
+    }
+    if (endpoint.query?.kind === NodeKind.HogQLQuery) {
+        const variables = endpoint.query?.variables || {}
+        const entries = Object.entries(variables)
+
+        if (entries.length === 0) {
+            return {}
+        }
+
+        const variablesValues: Record<string, any> = {}
+        entries.forEach(([_, value]: [string, any]) => {
+            variablesValues[value.code_name] = value.value
+        })
+
+        return { variables: variablesValues }
+    }
+    return {}
+}
+
+function generateInitialPayloadJson(endpoint: EndpointType | null): string {
+    return JSON.stringify(generateEndpointPayload(endpoint), null, 2)
+}
+
 export enum EndpointTab {
     QUERY = 'query',
-    CODE = 'code',
     CONFIGURATION = 'configuration',
-    USAGE = 'usage',
+    PLAYGROUND = 'playground',
     HISTORY = 'history',
 }
 
@@ -31,6 +65,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
     actions({
         setLocalQuery: (query: Node | null) => ({ query }),
         setActiveTab: (tab: EndpointTab) => ({ tab }),
+        setPayloadJson: (value: string) => ({ value }),
     }),
     reducers({
         localQuery: [
@@ -46,7 +81,36 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
+        payloadJson: [
+            '' as string,
+            {
+                setPayloadJson: (_, { value }) => value,
+            },
+        ],
     }),
+    loaders(() => ({
+        endpointResult: {
+            __default: null as string | null,
+            loadEndpointResult: async ({ name, data }: { name: string; data: EndpointRunRequest }) => {
+                try {
+                    const result = await api.endpoint.run(name, data)
+                    if (result && typeof result === 'object' && 'clickhouse' in result) {
+                        const { clickhouse, ...rest } = result as any
+                        return JSON.stringify(rest, null, 2)
+                    }
+                    return JSON.stringify(result, null, 2)
+                } catch (error: any) {
+                    const errorResponse = {
+                        error: true,
+                        message: error.message || 'Unknown error',
+                        status: error.status,
+                        detail: error.detail || error.data,
+                    }
+                    return JSON.stringify(errorResponse, null, 2)
+                }
+            },
+        },
+    })),
     selectors({
         currentQuery: [
             (s) => [s.localQuery, s.endpoint],
@@ -95,6 +159,12 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             ],
         ],
     }),
+    listeners(({ actions }) => ({
+        loadEndpointSuccess: ({ endpoint }: { endpoint: EndpointType | null; payload?: string }) => {
+            const initialPayload = generateInitialPayloadJson(endpoint)
+            actions.setPayloadJson(initialPayload)
+        },
+    })),
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.endpoint(':name')]: ({ name }: { name?: string }) => {
             const { searchParams } = router.values

@@ -14,6 +14,7 @@ import {
     selectors,
 } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
@@ -26,35 +27,45 @@ import { uuid } from 'lib/utils'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { openNotebook } from '~/models/notebooksModel'
 import {
+    AgentMode,
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
+    AssistantMessage,
     AssistantMessageType,
+    AssistantTool,
+    AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
-    ReasoningMessage,
     RootAssistantMessage,
+    SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { ToolRegistration } from './max-constants'
 import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
+import { RENDERABLE_UI_PAYLOAD_TOOLS } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import {
+    getAgentModeForScene,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isHumanMessage,
     isNotebookUpdateMessage,
-    isReasoningMessage,
-    isTaskExecutionMessage,
+    isSubagentUpdateEvent,
+    threadEndsWithMultiQuestionForm,
 } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
@@ -77,14 +88,14 @@ export interface MaxThreadLogicProps {
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
-    path(['scenes', 'max', 'maxThreadLogic']),
-
     key((props) => {
         if (!props.tabId) {
             throw new Error('Max thread logic must have a tabId prop')
         }
         return `${props.conversationId}-${props.tabId}`
     }),
+
+    path((key) => ['scenes', 'max', 'maxThreadLogic', key]),
 
     props({} as MaxThreadLogicProps),
 
@@ -109,15 +120,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     connect(({ tabId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'toolMap', 'tools'],
+            ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
             maxLogic({ tabId }),
-            ['question', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
+            ['question', 'autoRun', 'threadLogicKey as activeThreadKey', 'activeStreamingThreads'],
             maxContextLogic,
             ['compiledContext'],
             maxBillingContextLogic,
             ['billingContext'],
             featureFlagLogic,
             ['featureFlags'],
+            sceneLogic,
+            ['sceneId'],
         ],
         actions: [
             maxLogic({ tabId }),
@@ -132,6 +145,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'setAutoRun',
                 'loadConversationHistorySuccess',
             ],
+            maxGlobalLogic,
+            ['loadConversation'],
         ],
     })),
 
@@ -140,13 +155,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         reconnectToStream: true,
         streamConversation: (
             streamData: {
+                agent_mode: AgentMode | null
                 content: string | null
                 conversation?: string
                 contextual_tools?: Record<string, any>
                 ui_context?: any
             },
-            generationAttempt: number
-        ) => ({ streamData, generationAttempt }),
+            generationAttempt: number,
+            addToThread: boolean = true
+        ) => ({ streamData, generationAttempt, addToThread }),
         stopGeneration: true,
         completeThreadGeneration: true,
         addMessage: (message: ThreadMessage) => ({ message }),
@@ -154,14 +171,27 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setThread: (thread: ThreadMessage[]) => ({ thread }),
         setMessageStatus: (index: number, status: MessageStatus) => ({ index, status }),
         retryLastMessage: true,
+        resetRetryCount: true,
+        resetCancelCount: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
+        setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
+        syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
+        setSupportOverrideEnabled: (enabled: boolean) => ({ enabled }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
+        setToolCallUpdate: (
+            update: AssistantUpdateEvent | SubagentUpdateEvent,
+            toolMap: Record<string, ToolRegistration>
+        ) => ({
+            update,
+            toolMap,
+        }),
+        setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
     }),
 
     reducers(({ props }) => ({
@@ -195,7 +225,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // Specific case when the conversation is in progress on the backend, but the device doesn't have an open stream
         conversationLoading: [
-            false,
+            props.conversation?.status === ConversationStatus.InProgress,
             {
                 setConversation: (_, { conversation }) =>
                     conversation && conversation.status === ConversationStatus.InProgress,
@@ -223,6 +253,33 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        agentMode: [
+            null as AgentMode | null,
+            {
+                setAgentMode: (_, { agentMode }) => agentMode,
+                syncAgentModeFromConversation: (_, { agentMode }) => agentMode,
+            },
+        ],
+
+        // Tracks if user manually selected agent mode after submission - if true, don't sync from conversation
+        agentModeLockedByUser: [
+            false,
+            {
+                setAgentMode: () => true,
+                askMax: () => false,
+            },
+        ],
+
+        // Edge case, storing the prompt when askMax is called but AIConsent hasn't been given (yet)
+        pendingPrompt: [
+            null as string | null,
+            {
+                askMax: (_, { prompt }) => prompt,
+                completeThreadGeneration: () => null,
+                stopGeneration: () => null,
+            },
+        ],
+
         // Whether generation should be immediately continued due to tool execution
         isAnotherAgenticIterationScheduled: [
             false,
@@ -232,16 +289,86 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 completeThreadGeneration: () => false,
             },
         ],
+
+        toolCallUpdateMap: [
+            new Map<string, string[]>(),
+            {
+                setToolCallUpdate: (
+                    value,
+                    {
+                        update,
+                        toolMap,
+                    }: { update: AssistantUpdateEvent | SubagentUpdateEvent; toolMap: Record<string, ToolRegistration> }
+                ) => {
+                    const currentValue = value.get(update.tool_call_id) || []
+                    const newMap = new Map(value)
+                    let newValue: string
+                    if (isSubagentUpdateEvent(update)) {
+                        const [description, _] = getToolCallDescriptionAndWidget(
+                            update.content as unknown as EnhancedToolCall,
+                            toolMap
+                        )
+                        newValue = description
+                    } else {
+                        newValue = update.content
+                    }
+                    if (currentValue.includes(newValue) || newValue === '') {
+                        return value
+                    }
+                    newMap.set(update.tool_call_id, [...currentValue, newValue])
+                    return newMap
+                },
+            },
+        ],
+
+        cancelLoading: [
+            false,
+            {
+                stopGeneration: () => true,
+                setCancelLoading: (_, { cancelLoading }) => cancelLoading,
+            },
+        ],
+
+        retryCount: [
+            0,
+            {
+                retryLastMessage: (state) => state + 1,
+                resetThread: () => 0,
+                resetRetryCount: () => 0,
+            },
+        ],
+
+        cancelCount: [
+            0,
+            {
+                stopGeneration: (state) => state + 1,
+                resetThread: () => 0,
+                resetCancelCount: () => 0,
+            },
+        ],
+
+        // Whether support agents have explicitly acknowledged they want to use an existing conversation
+        supportOverrideEnabled: [
+            false,
+            {
+                setSupportOverrideEnabled: (_, { enabled }) => enabled,
+                // Reset when changing conversations
+                setConversation: () => false,
+            },
+        ],
     })),
 
     listeners((logic) => ({
-        streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
+        streamConversation: async (
+            { streamData: { agent_mode: agentMode, ...streamData }, generationAttempt, addToThread = true },
+            breakpoint
+        ) => {
             const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
             // Set active streaming threads, so we know streaming is active
             const releaseStreamingLock = mount() // lock the logic - don't unmount before we're done streaming
             actions.incrActiveStreamingThreads()
 
-            if (generationAttempt === 0 && streamData.content) {
+            if (generationAttempt === 0 && streamData.content && addToThread) {
                 const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
                     content: streamData.content,
@@ -269,6 +396,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.deep_research_mode = true
                 }
 
+                if (agentMode) {
+                    apiData.agent_mode = agentMode
+                }
+
                 const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
                 })
@@ -283,7 +414,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const parser = createParser({
                     onEvent: async ({ data, event }) => {
                         pendingEventHandlers.push(
-                            onEventImplementation(event as string, data, { actions, values, props })
+                            onEventImplementation(event as string, data, { actions, values, props, agentMode })
                         )
                     },
                 })
@@ -297,46 +428,99 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             } catch (e) {
-                actions.setForAnotherAgenticIteration(false) // Cancel any next iteration
-                if (!(e instanceof DOMException) || e.name !== 'AbortError') {
-                    const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
+                // Cancel any next iteration
+                actions.setForAnotherAgenticIteration(false)
 
-                    // Prevents parallel generation attempts. Total wait time is: 21 seconds.
-                    if (e instanceof ApiError) {
-                        if (e.status === 409 && generationAttempt < 6) {
-                            await breakpoint(1000 * (generationAttempt + 1))
-                            actions.streamConversation(
-                                {
-                                    content: streamData.content,
-                                    conversation: streamData.conversation,
-                                    contextual_tools: streamData.contextual_tools,
-                                    ui_context: streamData.ui_context,
-                                },
-                                generationAttempt + 1
-                            )
+                // Retry logic
+                async function retry(): Promise<void> {
+                    await breakpoint(1000 * (generationAttempt + 1))
+                    // Need to decrement the active streaming threads here, as we exit early.
+                    actions.decrActiveStreamingThreads()
+                    actions.streamConversation(
+                        {
+                            content: streamData.content,
+                            conversation: streamData.conversation,
+                            contextual_tools: streamData.contextual_tools,
+                            ui_context: streamData.ui_context,
+                            agent_mode: agentMode,
+                        },
+                        generationAttempt + 1
+                    )
+                }
+
+                if (!(e instanceof DOMException) || e.name !== 'AbortError') {
+                    let releaseException = true
+                    // Generic message by default
+                    const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() }
+                    const offlineMessage = 'You appear to be offline. Please check your internet connection.'
+
+                    // Network exception errors might be overwritten by the API wrapper, so we check for the generic Error type.
+                    if (e instanceof Error && e.message.toLowerCase().includes('failed to fetch')) {
+                        // Failed to fetch -> request failed to connect.
+                        // If the conversation is in progress, we retry up to 15 times.
+                        if (values.conversation?.status === ConversationStatus.InProgress) {
+                            if (generationAttempt > 15) {
+                                relevantErrorMessage.content = offlineMessage
+                            } else {
+                                await retry()
+                                return
+                            }
+                        } else {
+                            // No started conversation, show the offline message.
+                            relevantErrorMessage.content = offlineMessage
+                        }
+                    } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
+                        // Network error -> request failed in progress.
+                        if (generationAttempt > 15) {
+                            relevantErrorMessage.content = offlineMessage
+                        } else {
+                            await retry()
+                            return
+                        }
+                    } else if (e instanceof ApiError) {
+                        if (e.status === 400) {
+                            // Validation exception for non-retryable errors, such as idempotency conflict
+                            if (!e.data?.attr && e.data?.code === 'invalid_input') {
+                                releaseException = false
+                            }
+
+                            // Validation exception for the content length
+                            if (e.data?.attr === 'content') {
+                                relevantErrorMessage.content =
+                                    'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                            }
+                        }
+
+                        // Prevents parallel generation attempts. Total wait time is: 21 seconds.
+                        if (e.status === 409 && generationAttempt <= 5) {
+                            await retry()
                             return
                         }
 
                         if (e.status === 429) {
-                            relevantErrorMessage.content = `You've reached my usage limit for now. Please try again ${e.formattedRetryAfter}.`
+                            relevantErrorMessage.content = `You've reached PostHog AI's usage limit for the moment. Please try again ${e.formattedRetryAfter}.`
                         }
 
-                        if (e.status === 400 && e.data?.attr === 'content') {
+                        if (e.status === 402) {
                             relevantErrorMessage.content =
-                                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                                'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.'
                         }
-                    } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
-                        relevantErrorMessage.content =
-                            'Oops! You appear to be offline. Please check your internet connection.'
+
+                        if (e.status && e.status >= 500) {
+                            relevantErrorMessage.content =
+                                'Something is wrong with our servers. Please try again later.'
+                        }
                     } else {
                         posthog.captureException(e)
                         console.error(e)
                     }
 
-                    if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
-                        actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
-                    } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
-                        actions.addMessage(relevantErrorMessage)
+                    if (releaseException) {
+                        if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
+                            actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
+                        } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
+                            actions.addMessage(relevantErrorMessage)
+                        }
                     }
                 }
             }
@@ -353,10 +537,22 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
     })),
     listeners(({ actions, values, cache }) => ({
-        askMax: async ({ prompt }) => {
+        setConversation: ({ conversation }) => {
+            // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
+            if (!values.agentModeLockedByUser && conversation?.agent_mode) {
+                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
+            }
+        },
+        askMax: async ({ prompt, addToThread = true, uiContext }) => {
+            // Only process if this thread is the currently active one
+            if (values.conversationId !== values.activeThreadKey) {
+                return
+            }
             if (!values.dataProcessingAccepted) {
                 return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
             }
+            const agentMode = values.agentMode
+
             // Clear the question
             actions.setQuestion('')
             // For a new conversations, set the frontend conversation ID
@@ -365,6 +561,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } else {
                 const updatedConversation = {
                     ...values.conversation,
+                    agent_mode: agentMode || values.conversation?.agent_mode,
                     status: ConversationStatus.InProgress,
                     updated_at: dayjs().toISOString(),
                 }
@@ -374,18 +571,26 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.updateGlobalConversationCache(updatedConversation)
             }
 
+            // Merge the compiled context with any additional ui_context (e.g., form_answers)
+            const mergedUiContext = uiContext
+                ? { ...values.compiledContext, ...uiContext }
+                : values.compiledContext || undefined
+
             actions.streamConversation(
                 {
+                    agent_mode: agentMode,
                     content: prompt,
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
-                    ui_context: values.compiledContext || undefined,
+                    ui_context: mergedUiContext,
                     conversation: values.conversation?.id || values.conversationId,
                 },
-                0
+                0,
+                addToThread
             )
         },
         stopGeneration: async () => {
             if (!values.conversation?.id) {
+                actions.setCancelLoading(false)
                 return
             }
 
@@ -396,6 +601,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } catch (e: any) {
                 lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')
             }
+
+            try {
+                await actions.loadConversation(values.conversation.id)
+            } catch {}
+
+            actions.setCancelLoading(false)
         },
 
         reconnectToStream: () => {
@@ -407,7 +618,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (cache.generationController) {
                 return
             }
-            actions.streamConversation({ conversation: id, content: null }, 0)
+            actions.streamConversation({ conversation: id, content: null, agent_mode: values.agentMode }, 0)
         },
 
         retryLastMessage: () => {
@@ -434,7 +645,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.updateGlobalConversationCache(newConversation)
 
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
-            if (values.selectedConversationId !== values.conversationId && cache.unmount) {
+            if (values.activeThreadKey !== values.conversationId && cache.unmount) {
                 cache.unmount()
             }
         },
@@ -493,92 +704,124 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (conversation, propsConversationId) => conversation?.id || propsConversationId,
         ],
 
+        isSharedThread: [
+            (s) => [s.conversation, userLogic.selectors.user],
+            (conversation, user): boolean => !!conversation?.user && !!user && conversation.user.uuid !== user.uuid,
+        ],
+
+        // Whether the current user is impersonating and viewing an existing conversation
+        isImpersonatingExistingConversation: [
+            (s) => [s.conversation, s.supportOverrideEnabled, userLogic.selectors.user],
+            (conversation, supportOverrideEnabled, user): boolean => {
+                // Only when user is impersonating
+                if (!user?.is_impersonated) {
+                    return false
+                }
+                // If conversation was created during impersonation (is_internal), allow typing
+                if (conversation?.is_internal) {
+                    return false
+                }
+                // Only applies to existing conversations
+                if (!conversation?.title) {
+                    return false
+                }
+                // Support agent has explicitly acknowledged they want to continue
+                if (supportOverrideEnabled) {
+                    return false
+                }
+                return true
+            },
+        ],
+
         threadLoading: [
             (s) => [s.conversationLoading, s.streamingActive],
             (conversationLoading, streamingActive) => conversationLoading || streamingActive,
         ],
 
         threadGrouped: [
-            (s) => [s.threadRaw, s.threadLoading],
-            (thread, threadLoading): ThreadMessage[][] => {
-                const isHumanMessageType = (message?: ThreadMessage): boolean =>
-                    message?.type === AssistantMessageType.Human
-                const threadGrouped: ThreadMessage[][] = []
+            (s) => [s.threadRaw, s.threadLoading, s.toolCallUpdateMap],
+            (thread, threadLoading, toolCallUpdateMap): ThreadMessage[] => {
+                // Filter out messages that shouldn't be displayed
+                let processedThread: ThreadMessage[] = []
 
                 for (let i = 0; i < thread.length; i++) {
                     const currentMessage: ThreadMessage = thread[i]
-                    const previousMessage = thread[i - 1] as ThreadMessage | undefined
-
-                    if (currentMessage.type === AssistantMessageType.ToolCall && !currentMessage.visible) {
+                    // Skip AssistantToolCallMessage that don't have a renderable UI payload
+                    if (
+                        currentMessage.type === AssistantMessageType.ToolCall &&
+                        !Object.keys(currentMessage.ui_payload || {}).some((toolName) =>
+                            RENDERABLE_UI_PAYLOAD_TOOLS.includes(toolName as AssistantTool)
+                        )
+                    ) {
                         continue
                     }
-
-                    // Do not use the human message type guard here, as it incorrectly infers the type
-                    if (previousMessage && isHumanMessageType(currentMessage) === isHumanMessageType(previousMessage)) {
-                        const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
-                        if (
-                            currentMessage.id &&
-                            previousMessage &&
-                            previousMessage.type === AssistantMessageType.Reasoning
-                        ) {
-                            // Only preserve the latest reasoning message, and remove once reasoning is done
-                            lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
-                        } else if (lastThreadSoFar) {
-                            lastThreadSoFar.push(currentMessage)
-                        }
-                    } else {
-                        threadGrouped.push([currentMessage])
+                    // Skip empty assistant messages with no content, tool calls, or thinking
+                    if (
+                        currentMessage.type === AssistantMessageType.Assistant &&
+                        currentMessage.content.length === 0 &&
+                        (!currentMessage.tool_calls || currentMessage.tool_calls.length === 0) &&
+                        (!currentMessage.meta ||
+                            !currentMessage.meta.thinking ||
+                            currentMessage.meta.thinking.length === 0)
+                    ) {
+                        continue
                     }
+                    processedThread.push(currentMessage)
                 }
 
+                // Enhance messages with tool call status
+                processedThread = enhanceThreadToolCalls(processedThread, thread, threadLoading, toolCallUpdateMap)
+
+                // Add thinking message if loading
                 if (threadLoading) {
-                    const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
+                    const finalMessageSoFar = processedThread.at(-1)
 
-                    // Check if there's an active TaskExecutionMessage
-                    const hasActiveTaskExecution =
-                        isTaskExecutionMessage(finalMessageSoFar) &&
-                        finalMessageSoFar.tasks.some(
-                            (task) =>
-                                task.status === TaskExecutionStatus.Pending ||
-                                task.status === TaskExecutionStatus.InProgress
-                        )
+                    const thinkingMessage: AssistantMessage & ThreadMessage = {
+                        type: AssistantMessageType.Assistant,
+                        content: '',
+                        status: 'completed',
+                        id: 'loader',
+                        meta: {
+                            thinking: [
+                                {
+                                    type: 'thinking',
+                                    thinking: getRandomThinkingMessage(),
+                                },
+                            ],
+                        },
+                    }
 
-                    // Don't show thinking message if there's an active TaskExecutionMessage
-                    if (!hasActiveTaskExecution) {
-                        const thinkingMessage: ReasoningMessage & ThreadMessage = {
-                            type: AssistantMessageType.Reasoning,
-                            content: getRandomThinkingMessage(),
-                            status: 'completed',
-                            id: 'loader',
-                        }
+                    // Check if there are any tool calls in progress
+                    const toolCallsInProgress = processedThread
+                        .flatMap((message) => (isAssistantMessage(message) ? message.tool_calls : []))
+                        .filter((toolCall) => toolCall && (toolCall as any).status === TaskExecutionStatus.InProgress)
 
-                        if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
-                            // If now waiting for the current node to start streaming, add "Thinking" message
-                            // so that there's _some_ indication of processing
-                            if (finalMessageSoFar.type === AssistantMessageType.Human) {
-                                // If the last message was human, we need to add a new "ephemeral" AI group
-                                threadGrouped.push([thinkingMessage])
-                            } else {
-                                // Otherwise, add to the last group
-                                threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
-                            }
-                        }
+                    // Don't add thinking message if:
+                    // 1. There are tool calls in progress, OR
+                    // 2. The last message is a streaming ASSISTANT message (no id) - it will show its own thinking/content
+                    // Note: Human messages should always trigger thinking loader, only assistant messages can be "streaming"
+                    // Note: NotebookUpdateMessages do stream, but they are not added to the thread until they have an id
+                    const lastMessageIsStreamingAssistant =
+                        finalMessageSoFar && isAssistantMessage(finalMessageSoFar) && !finalMessageSoFar.id
+                    const shouldAddThinkingMessage =
+                        toolCallsInProgress.length === 0 && !lastMessageIsStreamingAssistant
 
-                        // Special case for the thread in progress
-                        if (threadGrouped.length === 0) {
-                            threadGrouped.push([thinkingMessage])
-                        }
+                    if (shouldAddThinkingMessage) {
+                        // Add thinking message to indicate processing
+                        processedThread.push(thinkingMessage)
+                    }
+
+                    // Special case for empty thread
+                    if (processedThread.length === 0) {
+                        processedThread.push(thinkingMessage)
                     }
                 }
 
-                return threadGrouped
+                return processedThread
             },
         ],
 
-        threadMessageCount: [
-            (s) => [s.threadRaw],
-            (threadRaw) => threadRaw.filter((message) => !isReasoningMessage(message)).length,
-        ],
+        threadMessageCount: [(s) => [s.threadRaw], (threadRaw) => threadRaw.length],
 
         formPending: [
             (s) => [s.threadRaw],
@@ -591,34 +834,84 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        multiQuestionFormPending: [
+            (s) => [s.threadRaw],
+            (threadRaw) => {
+                return threadEndsWithMultiQuestionForm(threadRaw)
+            },
+        ],
+
         inputDisabled: [
-            (s) => [s.formPending, s.threadLoading, s.dataProcessingAccepted],
-            (formPending, threadLoading, dataProcessingAccepted) =>
+            (s) => [
+                s.formPending,
+                s.multiQuestionFormPending,
+                s.threadLoading,
+                s.dataProcessingAccepted,
+                s.isSharedThread,
+                s.isImpersonatingExistingConversation,
+            ],
+            (
+                formPending,
+                multiQuestionFormPending,
+                threadLoading,
+                dataProcessingAccepted,
+                isSharedThread,
+                isImpersonatingExistingConversation
+            ) =>
                 // Input unavailable when:
                 // - Answer must be provided using a form returned by Max only
+                // - Answer must be provided using a multi-question form
                 // - We are awaiting user to approve or reject external AI processing data
-                formPending || (threadLoading && !dataProcessingAccepted),
+                // - Support agent is viewing an existing conversation without override
+                isSharedThread ||
+                formPending ||
+                multiQuestionFormPending ||
+                (threadLoading && !dataProcessingAccepted) ||
+                isImpersonatingExistingConversation,
         ],
 
         submissionDisabledReason: [
-            (s) => [s.formPending, s.question, s.threadLoading, s.activeStreamingThreads],
-            (formPending, question, threadLoading, activeStreamingThreads): string | undefined => {
+            (s) => [
+                s.formPending,
+                s.multiQuestionFormPending,
+                s.question,
+                s.threadLoading,
+                s.activeStreamingThreads,
+                s.isImpersonatingExistingConversation,
+            ],
+            (
+                formPending,
+                multiQuestionFormPending,
+                question,
+                threadLoading,
+                activeStreamingThreads,
+                isImpersonatingExistingConversation
+            ): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
+                }
+
+                // Support agents should create new conversations instead of using existing ones
+                if (isImpersonatingExistingConversation) {
+                    return 'You should create new conversations during impersonation. Use the checkbox to override.'
                 }
 
                 if (formPending) {
                     return 'Please choose one of the options above'
                 }
 
+                if (multiQuestionFormPending) {
+                    return 'Please answer the questions above'
+                }
+
                 if (!question) {
                     return 'I need some input first'
                 }
 
-                // Prevent submission if there are active streaming threads
-                if (activeStreamingThreads > 0) {
-                    return 'Please wait for one of the chats to finish'
+                // Prevent submission if too many active streaming threads (limit: 10)
+                if (activeStreamingThreads >= 10) {
+                    return 'You have too many chats running. Please wait for one to finish.'
                 }
 
                 return undefined
@@ -626,9 +919,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         filteredCommands: [
-            (s) => [s.question],
-            (question): SlashCommand[] =>
-                MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(question.toLowerCase())),
+            (s) => [s.question, s.featureFlags],
+            (question: string, featureFlags: Record<string, boolean | string>): SlashCommand[] =>
+                MAX_SLASH_COMMANDS.filter(
+                    (command) =>
+                        command.name.toLowerCase().startsWith(question.toLowerCase()) &&
+                        (!command.flag || featureFlags[command.flag])
+                ),
         ],
 
         showDeepResearchModeToggle: [
@@ -645,14 +942,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (s) => [s.conversation, s.featureFlags],
             (conversation, featureFlags) =>
                 featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH]
-                    ? conversation?.type !== ConversationType.DeepResearch &&
-                      conversation?.status !== ConversationStatus.InProgress
+                    ? conversation?.type !== ConversationType.DeepResearch
                     : true,
         ],
     }),
 
     afterMount((logic) => {
-        const { actions, values, props } = logic
+        const { actions, values, props, cache } = logic
         for (const l of maxThreadLogic.findAllMounted()) {
             if (l !== logic && l.props.conversationId === props.conversationId) {
                 // We found a logic with the same conversationId, but a different tabId
@@ -669,15 +965,120 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
+        } else if (
+            props.conversation?.status === ConversationStatus.InProgress &&
+            !values.streamingActive &&
+            !cache.generationController
+        ) {
+            // If the conversation is in progress and we don't have an active stream, reconnect
+            setTimeout(() => {
+                actions.reconnectToStream()
+            }, 0)
         }
     }),
+
+    subscriptions(({ actions, values }) => ({
+        sceneId: (sceneId: Scene | null) => {
+            // Only auto-set mode when the agent modes feature is enabled and no conversation is active
+            if (values.featureFlags[FEATURE_FLAGS.AGENT_MODES] && !values.conversation) {
+                const suggestedMode = getAgentModeForScene(sceneId)
+                if (suggestedMode !== values.agentMode) {
+                    // Use sync action to not lock - allows conversation to still update mode if agent changes it
+                    actions.syncAgentModeFromConversation(suggestedMode)
+                }
+            }
+        },
+    })),
 ])
+
+/**
+ * Enhances AssistantMessages with tool call completion status by matching
+ * AssistantToolCallMessage.tool_call_id with AssistantMessage.tool_calls[].id
+ * Also marks the last AssistantMessage with planning (todo_write tool calls)
+ */
+function enhanceThreadToolCalls(
+    group: ThreadMessage[],
+    fullThread: ThreadMessage[],
+    isLoading: boolean,
+    toolCallUpdateMap: Map<string, string[]>
+): ThreadMessage[] {
+    // Create a map of tool_call_id -> AssistantToolCallMessage for quick lookup
+    // Search in the full thread to find ToolCall messages (which are filtered from groups)
+    const toolCallCompletions = new Map<string, ThreadMessage>()
+
+    for (const message of fullThread) {
+        // Use simple type check instead of isAssistantToolCallMessage, which requires ui_payload
+        // This allows us to match tool call completions in stories/tests without ui_payload
+        if (message.type === AssistantMessageType.ToolCall && 'tool_call_id' in message) {
+            toolCallCompletions.set((message as any).tool_call_id, message)
+        }
+    }
+
+    // Find the last human message to determine the final group
+    let lastHumanMessageIndex = -1
+    for (let i = group.length - 1; i >= 0; i--) {
+        if (isHumanMessage(group[i])) {
+            lastHumanMessageIndex = i
+            break
+        }
+    }
+
+    // Find the last AssistantMessage that has todo_write tool calls (planning)
+    let lastPlanningMessageId: string | undefined
+    for (let i = group.length - 1; i >= 0; i--) {
+        const message = group[i]
+        if (
+            isAssistantMessage(message) &&
+            message.tool_calls &&
+            message.tool_calls.some((tc) => tc.name === 'todo_write')
+        ) {
+            lastPlanningMessageId = message.id
+            break
+        }
+    }
+
+    // Enhance assistant messages with tool call status
+    return group.map((message, index) => {
+        if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
+            // A message is in the final group if it comes after or is the last human message
+            const isFinalGroup = index >= lastHumanMessageIndex
+            const isLastPlanningMessage = message.id === lastPlanningMessageId
+            const enhancedToolCalls = message.tool_calls.map((toolCall) => {
+                const isCompleted = !!toolCallCompletions.get(toolCall.id)
+                const isFailed = !isCompleted && (!isFinalGroup || !isLoading)
+                return {
+                    ...toolCall,
+                    status: isFailed
+                        ? TaskExecutionStatus.Failed
+                        : isCompleted
+                          ? TaskExecutionStatus.Completed
+                          : TaskExecutionStatus.InProgress,
+                    isLastPlanningMessage: toolCall.name === 'todo_write' && isLastPlanningMessage,
+                    updates: toolCallUpdateMap.get(toolCall.id) ?? [],
+                }
+            })
+
+            return {
+                ...message,
+                tool_calls: enhancedToolCalls,
+            }
+        }
+        return message
+    })
+}
 
 /** Assistant streaming event handler. */
 async function onEventImplementation(
     event: string,
     data: string,
-    { actions, values, props }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'>
+    {
+        actions,
+        values,
+        props,
+        agentMode,
+    }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'> & {
+        agentMode: AgentMode | null
+    }
 ): Promise<void> {
     // A Conversation object is only received when the conversation is new
     if (event === AssistantEventType.Conversation) {
@@ -688,10 +1089,18 @@ async function onEventImplementation(
         const conversationWithTitle = {
             ...parsedResponse,
             title: parsedResponse.title || 'New chat',
+            agent_mode: agentMode,
         }
 
         actions.setConversation(conversationWithTitle)
         actions.updateGlobalConversationCache(conversationWithTitle)
+    } else if (event === AssistantEventType.Update) {
+        const parsedResponse = parseResponse<AssistantUpdateEvent | SubagentUpdateEvent>(data)
+        if (!parsedResponse) {
+            return
+        }
+        actions.setToolCallUpdate(parsedResponse, values.toolMap)
+        return
     } else if (event === AssistantEventType.Message) {
         const parsedResponse = parseResponse<RootAssistantMessage>(data)
         if (!parsedResponse) {
@@ -712,15 +1121,10 @@ async function onEventImplementation(
             }
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
-                await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
-                // The `navigate` tool is the only one doing client-side formatting currently
-                if (toolName === 'navigate') {
-                    parsedResponse.content = parsedResponse.content.replace(
-                        toolResult.page_key,
-                        breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
-                    )
-                    actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the navigate tool
+                if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
+                    continue // Static tools (mode-level) don't operate via ui_payload
                 }
+                await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
             }
             actions.addMessage({
                 ...parsedResponse,
@@ -732,6 +1136,15 @@ async function onEventImplementation(
                 if (!parsedResponse.id) {
                     // we do not want to show partial notebook update messages
                     return
+                }
+            }
+
+            if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {
+                for (const { name: toolName, args: toolResult } of parsedResponse.tool_calls) {
+                    if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
+                        continue // Non-static tools (contextual) operate via ui_payload instead
+                    }
+                    await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
                 }
             }
             // Check if a message with the same ID already exists

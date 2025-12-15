@@ -3,7 +3,9 @@ import { z } from 'zod'
 
 import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 
-import { HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
+import { UserBasicType } from '~/types'
+
+import { CyclotronJobInputSchemaTypeSchema, HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
 
 const HogFlowEdgeSchema = z.object({
     from: z.string(),
@@ -45,12 +47,15 @@ export const HogFlowSchema = z.object({
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
+    variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
     updated_at: z.string(),
     created_at: z.string(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen
-export interface HogFlow extends z.infer<typeof HogFlowSchema> {}
+export interface HogFlow extends z.infer<typeof HogFlowSchema> {
+    created_by?: UserBasicType | null
+}
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>
 export interface HogFlowActionNode extends Node<HogFlowAction> {}

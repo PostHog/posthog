@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 common-redis = { path = "../redis" }
+dashmap = "6.1"
 governor = { workspace = true }
 metrics = { workspace = true }
 rand = { workspace = true }

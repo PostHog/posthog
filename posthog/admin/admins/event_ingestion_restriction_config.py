@@ -1,35 +1,99 @@
+from django import forms
 from django.contrib import admin
 
-from posthog.models.event_ingestion_restriction_config import RestrictionType
+from posthog.models.event_ingestion_restriction_config import (
+    INGESTION_PIPELINES,
+    EventIngestionRestrictionConfig,
+    RestrictionType,
+)
+
+
+class EventIngestionRestrictionConfigForm(forms.ModelForm):
+    # Multi-select field for pipelines with checkboxes
+    pipelines = forms.MultipleChoiceField(
+        required=True,
+        widget=forms.CheckboxSelectMultiple,
+        choices=[(p["value"], p["label"]) for p in INGESTION_PIPELINES],
+        help_text="Select which ingestion pipelines this restriction applies to (at least one required)",
+        error_messages={"required": "Please select at least one pipeline"},
+    )
+
+    class Meta:
+        model = EventIngestionRestrictionConfig
+        fields = [
+            "token",
+            "restriction_type",
+            "note",
+            "pipelines",
+            "distinct_ids",
+            "session_ids",
+            "event_names",
+            "event_uuids",
+        ]
+        help_texts = {
+            "distinct_ids": (
+                "Optional: List of specific distinct IDs to restrict. "
+                "If all filter fields are empty, restriction applies to ALL events for this token. "
+                "If any field has values, restriction applies when the event matches ANY of the specified values (OR logic)."
+            ),
+            "session_ids": (
+                "Optional: List of specific session IDs to restrict. "
+                "If all filter fields are empty, restriction applies to ALL events for this token. "
+                "If any field has values, restriction applies when the event matches ANY of the specified values (OR logic)."
+            ),
+            "event_names": (
+                "Optional: List of specific event names to restrict (e.g., '$pageview', '$autocapture'). "
+                "If all filter fields are empty, restriction applies to ALL events for this token. "
+                "If any field has values, restriction applies when the event matches ANY of the specified values (OR logic)."
+            ),
+            "event_uuids": (
+                "Optional: List of specific event UUIDs to restrict. "
+                "If all filter fields are empty, restriction applies to ALL events for this token. "
+                "If any field has values, restriction applies when the event matches ANY of the specified values (OR logic)."
+            ),
+        }
 
 
 class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "token", "restriction_type", "has_distinct_ids")
-    list_filter = ("restriction_type",)
-    search_fields = ("token", "distinct_ids")
-    fieldsets = (
-        (None, {"fields": ("token", "restriction_type", "note")}),
-        (
-            "Distinct IDs",
-            {
-                "fields": ("distinct_ids",),
-                "description": "Optional list of distinct IDs. If not provided, the token itself will be used.",
-            },
-        ),
+    form = EventIngestionRestrictionConfigForm
+    list_display = (
+        "id",
+        "token",
+        "restriction_type",
+        "pipelines",
+        "has_distinct_ids",
+        "has_session_ids",
+        "has_event_names",
+        "has_event_uuids",
     )
+    list_filter = ("restriction_type",)
+    search_fields = ("token", "distinct_ids", "session_ids", "event_names", "event_uuids")
 
     @admin.display(boolean=True, description="Has Distinct IDs")
     def has_distinct_ids(self, obj):
         return bool(obj.distinct_ids)
+
+    @admin.display(boolean=True, description="Has Session IDs")
+    def has_session_ids(self, obj):
+        return bool(obj.session_ids)
+
+    @admin.display(boolean=True, description="Has Event Names")
+    def has_event_names(self, obj):
+        return bool(obj.event_names)
+
+    @admin.display(boolean=True, description="Has Event UUIDs")
+    def has_event_uuids(self, obj):
+        return bool(obj.event_uuids)
 
     def get_form(self, request, obj=None, change=False, **kwargs):
         form = super().get_form(request, obj, change, **kwargs)
         restriction_type_field = form.base_fields.get("restriction_type")
         if restriction_type_field:
             restriction_type_field.help_text = (
-                f"{RestrictionType.SKIP_PERSON_PROCESSING.label}: Skip person processing for specified tokens/distinct IDs. "
-                f"{RestrictionType.DROP_EVENT_FROM_INGESTION.label}: Drop events from ingestion for specified tokens/distinct IDs. "
-                f"{RestrictionType.FORCE_OVERFLOW_FROM_INGESTION.label}: Force overflow from ingestion for specified tokens/distinct IDs."
+                f"{RestrictionType.SKIP_PERSON_PROCESSING.label}: Skip person processing for specified filters. "
+                f"{RestrictionType.DROP_EVENT_FROM_INGESTION.label}: Drop events from ingestion for specified filters. "
+                f"{RestrictionType.FORCE_OVERFLOW_FROM_INGESTION.label}: Force overflow from ingestion for specified filters. "
+                f"{RestrictionType.REDIRECT_TO_DLQ.label}: Redirect events to dead letter queue for specified filters."
             )
 
         return form

@@ -3,7 +3,6 @@ from enum import Enum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 
-from django.contrib.auth.models import AnonymousUser
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
@@ -60,6 +59,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "survey",
     "experiment",
     "web_analytics",
+    "activity_log",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources
@@ -111,7 +111,6 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
     if resource in ["project", "organization"]:
         return list(ACCESS_CONTROL_LEVELS_MEMBER)
-
     return list(ACCESS_CONTROL_LEVELS_RESOURCE)
 
 
@@ -120,6 +119,8 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
         return "admin"
     if resource in ["organization"]:
         return "member"
+    if resource in ["activity_log"]:
+        return "viewer"
     return "editor"
 
 
@@ -131,6 +132,9 @@ def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
 
 
 def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    """Returns the highest allowed access level for a resource."""
+    if resource in ["activity_log"]:
+        return "viewer"
     return ordered_access_levels(resource)[-1]
 
 
@@ -877,6 +881,12 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
+        request = self.context.get("request")
+
+        # The user could be anonymous - if so there is no access control to be used
+        if request and request.user.is_anonymous:
+            return None
+
         # NOTE: The user_access_control is typically on the view but in specific cases,
         # such as rendering HTML (`render_template()`), it is set at the context level
         if "user_access_control" in self.context:
@@ -885,15 +895,8 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
         elif hasattr(self.context.get("view", None), "user_access_control"):
             # Otherwise from the view (the default case)
             return self.context["view"].user_access_control
-        elif "request" in self.context:
-            user = cast(User | AnonymousUser, self.context["request"].user)
-            # The user could be anonymous - if so there is no access control to be used
-
-            if user.is_anonymous:
-                return None
-
-            user = cast(User, user)
-
+        elif request:
+            user = cast(User, request.user)
             return UserAccessControl(user, organization_id=str(user.current_organization_id))
 
         return None

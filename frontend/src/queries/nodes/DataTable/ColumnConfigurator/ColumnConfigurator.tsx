@@ -27,6 +27,7 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 import {
     isEventsQuery,
     isGroupsQuery,
+    isSessionsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     trimQuotes,
@@ -52,7 +53,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         isPersistent: !!query.showPersistentColumnConfigurator,
         columns: columnsInQuery,
         setColumns: (columns: string[]) => {
-            if (isEventsQuery(query.source)) {
+            if (isEventsQuery(query.source) || isSessionsQuery(query.source)) {
                 let orderBy = query.source.orderBy
                 if (orderBy && orderBy.length > 0) {
                     const orderColumn = removeExpressionComment(
@@ -88,6 +89,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
             : isGroupsQuery(query.source)
               ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
               : { type: 'team_columns' },
+        contextKey: query.contextKey,
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
@@ -98,6 +100,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 data-attr="events-table-column-selector"
                 icon={<IconTuning />}
                 onClick={showModal}
+                size="small"
             >
                 Configure columns
             </LemonButton>
@@ -128,12 +131,19 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
               `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
               TaxonomicFilterGroupType.HogQLExpression,
           ]
-        : [
-              TaxonomicFilterGroupType.EventProperties,
-              TaxonomicFilterGroupType.EventFeatureFlags,
-              TaxonomicFilterGroupType.PersonProperties,
-              ...(isEventsQuery(query.source) ? [TaxonomicFilterGroupType.HogQLExpression] : []),
-          ]
+        : isSessionsQuery(query.source)
+          ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+          : [
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.PersonProperties,
+                ...(isEventsQuery(query.source)
+                    ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+                    : []),
+            ]
+
+    const showPersistedColumnReorder =
+        isEventsQuery(query.source) || isGroupsQuery(query.source) || isSessionsQuery(query.source)
 
     return (
         <LemonModal
@@ -193,7 +203,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     </div>
                     <div className="HalfColumn">
                         <h4 className="secondary uppercase text-secondary">Available columns</h4>
-                        <div className="h-[360px]">
+                        <div className="h-[min(480px,60vh)]">
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => (
                                     <TaxonomicFilter
@@ -217,24 +227,23 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </div>
                     </div>
                 </div>
-                {(isEventsQuery(query.source) || isGroupsQuery(query.source)) &&
-                    query.showPersistentColumnConfigurator && (
-                        <LemonCheckbox
-                            label={
-                                context?.type === 'groups'
-                                    ? 'Save as default columns for this group type'
-                                    : context?.type === 'event_definition'
-                                      ? 'Save as default columns for this event type'
-                                      : 'Save as default for all project members'
-                            }
-                            className="mt-2"
-                            data-attr="events-table-save-columns-as-default-toggle"
-                            bordered
-                            checked={saveAsDefault}
-                            onChange={toggleSaveAsDefault}
-                            disabledReason={restrictionReason}
-                        />
-                    )}
+                {showPersistedColumnReorder && query.showPersistentColumnConfigurator && (
+                    <LemonCheckbox
+                        label={
+                            context?.type === 'groups'
+                                ? 'Save as default columns for this group type'
+                                : context?.type === 'event_definition'
+                                  ? 'Save as default columns for this event type'
+                                  : 'Save as default for all project members'
+                        }
+                        className="mt-2"
+                        data-attr="events-table-save-columns-as-default-toggle"
+                        bordered
+                        checked={saveAsDefault}
+                        onChange={toggleSaveAsDefault}
+                        disabledReason={restrictionReason}
+                    />
+                )}
             </div>
         </LemonModal>
     )
@@ -264,6 +273,11 @@ const SelectedColumn = ({
     if (column.startsWith('properties.')) {
         columnType = PropertyFilterType.Event
         columnKey = column.substring(11)
+    }
+    if (column.startsWith('session.')) {
+        columnType = PropertyFilterType.Session
+        filterGroupType = TaxonomicFilterGroupType.SessionProperties
+        columnKey = column.substring(8)
     }
 
     columnKey = trimQuotes(extractExpressionComment(columnKey))

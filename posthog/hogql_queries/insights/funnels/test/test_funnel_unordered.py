@@ -41,7 +41,7 @@ def _create_action(**kwargs):
     return action
 
 
-class BaseTestFunnelUnorderedStepsBreakdown(
+class TestFunnelUnorderedStepsBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
@@ -50,7 +50,6 @@ class BaseTestFunnelUnorderedStepsBreakdown(
         _create_person,
     ),
 ):
-    __test__ = False
     maxDiff = None
 
     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
@@ -108,40 +107,6 @@ class BaseTestFunnelUnorderedStepsBreakdown(
                     "type": "events",
                     "average_conversion_time": None,
                     "median_conversion_time": None,
-                    "breakdown": ["Chrome"],
-                    "breakdown_value": ["Chrome"],
-                },
-                {
-                    "action_id": None,
-                    "name": "Completed 2 steps",
-                    "custom_name": None,
-                    "order": 1,
-                    "people": [],
-                    "count": 0,
-                    "type": "events",
-                    "average_conversion_time": None,
-                    "median_conversion_time": None,
-                    "breakdown": ["Chrome"],
-                    "breakdown_value": ["Chrome"],
-                },
-            ],
-        )
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Chrome"]), [person1.uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
-
-        assert_funnel_results_equal(
-            results[1],
-            [
-                {
-                    "action_id": None,
-                    "name": "Completed 1 step",
-                    "custom_name": None,
-                    "order": 0,
-                    "people": [],
-                    "count": 1,
-                    "type": "events",
-                    "average_conversion_time": None,
-                    "median_conversion_time": None,
                     "breakdown": ["Safari"],
                     "breakdown_value": ["Safari"],
                 },
@@ -162,6 +127,39 @@ class BaseTestFunnelUnorderedStepsBreakdown(
         )
         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Safari"]), [person1.uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [person1.uuid])
+        assert_funnel_results_equal(
+            results[1],
+            [
+                {
+                    "action_id": None,
+                    "name": "Completed 1 step",
+                    "custom_name": None,
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+                {
+                    "action_id": None,
+                    "name": "Completed 2 steps",
+                    "custom_name": None,
+                    "order": 1,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Chrome"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
 
     def test_funnel_step_breakdown_with_step_attribution(self):
         # overridden from factory, since with no order, step one is step zero, and vice versa
@@ -384,72 +382,13 @@ class BaseTestFunnelUnorderedStepsBreakdown(
                 },
             ],
         }
-        people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         runner = FunnelsQueryRunner(query=query, team=self.team)
         if isinstance(runner.funnel_class, FunnelUDF):
             # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
             self.assertRaises(ValidationError, runner.calculate)
-            return
-        results = runner.calculate().results
-        results = sorted(results, key=lambda res: res[0]["breakdown"])
-
-        # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-        self.assertEqual(len(results), 4)
-        # Chrome and Mac and Safari goes away
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[0],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=[""], count=1),
-                FunnelStepResult(
-                    name="Completed 2 steps",
-                    breakdown=[""],
-                    count=1,
-                    average_conversion_time=3600,
-                    median_conversion_time=3600,
-                ),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ""), [people["person1"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[1],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["0"], count=1),
-                FunnelStepResult(name="Completed 2 steps", breakdown=["0"], count=0),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[2],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["Chrome"], count=1),
-                FunnelStepResult(name="Completed 2 steps", breakdown=["Chrome"], count=0),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Chrome"), [people["person1"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[3],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["alakazam"], count=1),
-                FunnelStepResult(
-                    name="Completed 2 steps",
-                    breakdown=["alakazam"],
-                    count=1,
-                    average_conversion_time=3600,
-                    median_conversion_time=3600,
-                ),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "alakazam"), [people["person4"].uuid])
 
     def test_funnel_step_non_array_breakdown_with_step_one_attribution_incomplete_funnel(self):
         # overridden from factory, since with no order, step one is step zero, and vice versa
@@ -503,72 +442,13 @@ class BaseTestFunnelUnorderedStepsBreakdown(
                 },
             ],
         }
-        people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         runner = FunnelsQueryRunner(query=query, team=self.team)
         if isinstance(runner.funnel_class, FunnelUDF):
             # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
             self.assertRaises(ValidationError, runner.calculate)
-            return
-        results = runner.calculate().results
-        results = sorted(results, key=lambda res: res[0]["breakdown"])
-
-        # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-        self.assertEqual(len(results), 4)
-        # Chrome and Mac and Safari goes away
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[0],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=[""], count=1),
-                FunnelStepResult(
-                    name="Completed 2 steps",
-                    breakdown=[""],
-                    count=1,
-                    average_conversion_time=3600,
-                    median_conversion_time=3600,
-                ),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ""), [people["person1"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[1],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["0"], count=1),
-                FunnelStepResult(name="Completed 2 steps", breakdown=["0"], count=0),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[2],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["Chrome"], count=1),
-                FunnelStepResult(name="Completed 2 steps", breakdown=["Chrome"], count=0),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Chrome"), [people["person1"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[3],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["alakazam"], count=1),
-                FunnelStepResult(
-                    name="Completed 2 steps",
-                    breakdown=["alakazam"],
-                    count=1,
-                    average_conversion_time=3600,
-                    median_conversion_time=3600,
-                ),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "alakazam"), [people["person4"].uuid])
 
     @snapshot_clickhouse_queries
     def test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step(self):
@@ -653,31 +533,27 @@ class BaseTestFunnelUnorderedStepsBreakdown(
         self.assertCountEqual([res[0]["breakdown"] for res in results], [[""], ["Mac"], ["Safari"]])
 
 
-class TestUnorderedFunnelGroupBreakdown(
+class TestFunnelUnorderedGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
         PseudoFunnelActors,
     ),
 ):
-    pass
+    maxDiff = None
 
 
-class BaseTestFunnelUnorderedStepsConversionTime(
+class TestFunnelUnorderedStepsConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
         PseudoFunnelActors,
     ),
 ):
-    __test__ = False
     maxDiff = None
-    pass
 
 
-class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
-    __test__ = False
-
+class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
         filter = Filter(data=filter, team=self.team)
         person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
@@ -2178,15 +2054,3 @@ class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(trend_results[4]["timestamp"].strftime("%Y-%m-%d"), "2024-12-29")
         self.assertEqual(trend_results[4]["reached_from_step_count"], 5)
         self.assertEqual(trend_results[4]["reached_to_step_count"], 5)
-
-
-class TestFunnelUnorderedStepsBreakdown(BaseTestFunnelUnorderedStepsBreakdown):
-    __test__ = True
-
-
-class TestFunnelUnorderedStepsConversionTime(BaseTestFunnelUnorderedStepsConversionTime):
-    __test__ = True
-
-
-class TestFunnelUnorderedSteps(BaseTestFunnelUnorderedSteps):
-    __test__ = True

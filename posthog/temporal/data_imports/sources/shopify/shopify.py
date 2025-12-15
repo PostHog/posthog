@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Any, Optional
+from typing import Any
 
 import requests
 from requests import Session
@@ -8,15 +8,19 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.shopify.settings import INCREMENTAL_SETTINGS
+from posthog.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
+from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.shopify.utils import ShopifyGraphQLObject, safe_unwrap, unwrap
 
 from .constants import (
     SHOPIFY_ACCESS_TOKEN_CHECK,
+    SHOPIFY_ACCESS_TOKEN_GRANT,
+    SHOPIFY_ACCESS_TOKEN_URL,
     SHOPIFY_API_URL,
     SHOPIFY_API_VERSION,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
+    SHOPIFY_PAGE_SIZE_OVERRIDES,
 )
 
 
@@ -62,6 +66,8 @@ def _make_paginated_shopify_request(
     logger: FilteringBoundLogger,
     query: str | None = None,
 ):
+    endpoint_config = ENDPOINT_CONFIGS.get(graphql_object.name)
+
     @retry(
         retry=retry_if_exception_type(ShopifyRetryableError),
         stop=stop_after_attempt(5),
@@ -87,15 +93,22 @@ def _make_paginated_shopify_request(
         else:
             raise Exception(f"Unexpected graphql response format in Shopify rows read. Keys: {list(payload.keys())}")
 
-    vars: dict[str, Any] = {"pageSize": SHOPIFY_DEFAULT_PAGE_SIZE}
+    pageSize = SHOPIFY_PAGE_SIZE_OVERRIDES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
+    vars: dict[str, Any] = {"pageSize": pageSize}
+    logger.debug(f"Using page size {vars['pageSize']} for object {graphql_object.name}")
     if query:
         vars.update({"query": query})
     has_next_page = True
     while has_next_page:
         logger.debug(f"Querying shopify endpoint {graphql_object.name} with vars: {vars}")
         payload = execute(vars)
-        data_iter = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
-        yield data_iter
+        data = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
+        if endpoint_config is not None:
+            if endpoint_config.incremental_field_resolver:
+                data = [endpoint_config.incremental_field_resolver(row) for row in data if row.get("discount")]
+            if endpoint_config.partition_key_resolver:
+                data = [endpoint_config.partition_key_resolver(row) for row in data if row.get("discount")]
+        yield data
         page_info = unwrap(payload, path=f"data.{graphql_object.name}.pageInfo")
         has_next_page = page_info.get("hasNextPage", False)
         if has_next_page:
@@ -103,35 +116,52 @@ def _make_paginated_shopify_request(
             vars.update({"cursor": page_info["endCursor"]})
 
 
+def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> str:
+    access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(shopify_store_id)
+    access_data = {
+        "client_id": shopify_client_id,
+        "client_secret": shopify_client_secret,
+        "grant_type": SHOPIFY_ACCESS_TOKEN_GRANT,
+    }
+    access_res = requests.post(access_token_url, data=access_data)
+    if not access_res.ok:
+        raise Exception(f"Failed to retrieve Shopify access token: {access_res}")
+    return access_res.json()["access_token"]
+
+
 def shopify_source(
     shopify_store_id: str,
-    shopify_access_token: str,
+    shopify_client_id: str,
+    shopify_client_secret: str,
     graphql_object_name: str,
-    db_incremental_field_last_value: Optional[Any],
-    db_incremental_field_earliest_value: Optional[Any],
+    db_incremental_field_last_value: Any | None,
+    db_incremental_field_earliest_value: Any | None,
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
 ):
     api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
+    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
+    schema_name = resolve_schema_name(graphql_object_name)
 
     def get_rows():
         sess = requests.Session()
         sess.headers.update({"X-Shopify-Access-Token": shopify_access_token, "Content-Type": "application/json"})
-        graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(graphql_object_name)
+        graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(schema_name)
         if not graphql_object:
-            raise Exception(f"Shopify object does not exist: {graphql_object_name}")
+            raise Exception(f"Shopify object does not exist: {schema_name}")
 
-        logger.debug(f"Shopify: reading from resource {graphql_object_name}")
+        logger.debug(f"Shopify: reading from resource {schema_name}")
 
         if not should_use_incremental_field or (
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
-            logger.debug(f"Shopify: iterating all objects from source for {graphql_object_name}")
+            logger.debug(f"Shopify: iterating all objects from source for {schema_name}")
             yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
             return
 
-        incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
-        query_filter = incremental.query_filter if incremental else "created_at"
+        endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
+        # query_filer is ignored if the key isn't present in the endpoint's available query filters
+        query_filter = endpoint_config.query_filter if endpoint_config else "created_at"
 
         # check for any objects less than the minimum object we already have
         if db_incremental_field_earliest_value is not None:
@@ -149,22 +179,23 @@ def shopify_source(
             query = f"{query_filter}:>'{db_incremental_field_last_value}'"
             yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger, query=query)
 
-    incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
-    partition_key = incremental.partition_keys[0] if incremental and incremental.partition_keys else "created_at"
-
+    endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
+    if not endpoint_config:
+        raise ValueError(f"Endpoint {schema_name} has no config in shopify/settings.py")
     return SourceResponse(
-        items=get_rows(),
-        primary_keys=["id"],
+        items=get_rows,
+        primary_keys=[ID],
+        # intentionally left as the input object name as the response name needs to match the input name
         name=graphql_object_name,
-        partition_count=1,  # this enables partitioning
-        partition_size=1,  # this enables partitioning
-        partition_mode="datetime",
-        partition_format="month",
-        partition_keys=[partition_key],
+        partition_count=endpoint_config.partition_count,
+        partition_size=endpoint_config.partition_size,
+        partition_mode=endpoint_config.partition_mode,
+        partition_format=endpoint_config.partition_format,
+        partition_keys=endpoint_config.partition_keys,
     )
 
 
-def validate_credentials(shopify_store_id: str, shopify_access_token: str) -> bool:
+def validate_credentials(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> bool:
     """
     Validates Shopify API credentials and checks permissions for all required resources.
     This function will:
@@ -173,6 +204,7 @@ def validate_credentials(shopify_store_id: str, shopify_access_token: str) -> bo
     - Raise Exception if the access token is invalid or there's any other error
     """
     api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
+    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
     sess = requests.Session()
     sess.headers.update(
         {

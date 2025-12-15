@@ -89,6 +89,9 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
+  LIMIT 100
   '''
 # ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -186,6 +189,9 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
+  LIMIT 100
   '''
 # ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -277,5 +283,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
+  LIMIT 100
   '''
 # ---

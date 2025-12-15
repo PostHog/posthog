@@ -6,6 +6,7 @@ pub mod database;
 pub mod database_pools;
 pub mod db_monitor;
 pub mod flags;
+pub mod flags_read_through_cache;
 pub mod handler;
 pub mod metrics;
 pub mod properties;

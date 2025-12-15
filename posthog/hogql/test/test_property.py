@@ -22,7 +22,8 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
@@ -180,7 +181,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("ifNull(match(properties.a, '.*'), 0)"),
+            self._parse_expr("ifNull(match(toString(properties.a), '.*'), 0)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
@@ -266,7 +267,9 @@ class TestProperty(BaseTest):
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
             a,
-            self._parse_expr("ifNull(match(properties.a, 'b'), 0) or ifNull(match(properties.a, 'c'), 0)"),
+            self._parse_expr(
+                "ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)"
+            ),
         )
         # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
         self.assertIs(0, a.exprs[1].args[1].value)
@@ -444,7 +447,9 @@ class TestProperty(BaseTest):
                     "operator": "regex",
                 }
             ),
-            self._parse_expr("arrayExists(text -> ifNull(match(text, 'text-text.'), 0), elements_chain_texts)"),
+            self._parse_expr(
+                "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), 0), elements_chain_texts)"
+            ),
         )
 
     def test_property_groups(self):
@@ -967,3 +972,76 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 {"type": "event_metadata", "key": "$group_3", "operator": "exact", "value": ["1", "2"]}, scope="group"
             )
+
+    def test_property_to_expr_between_operator(self):
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
+            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
+            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
+            self._parse_expr("(properties.score < 0 OR properties.score > 100)"),
+        )
+
+    def test_property_to_expr_between_operator_validation(self):
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": 25})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 25, 65]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": 1})
+
+        with self.assertRaisesMessage(
+            QueryError, "between operator requires min value to be less than or equal to max value"
+        ):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [10, 1]})
+
+        with self.assertRaisesMessage(
+            QueryError, "not_between operator requires min value to be less than or equal to max value"
+        ):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": [10, 1]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": ["abc", "def"]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": ["xyz", "123"]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [None, 10]})
+
+    def test_property_to_expr_min_max_operators(self):
+        # Test MIN operator (alias for GTE)
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
+            self._parse_expr("properties.age >= 18"),
+        )
+
+        # Test MAX operator (alias for LTE)
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
+            self._parse_expr("properties.age <= 65"),
+        )
+
+        # Test MIN with person properties
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
+            self._parse_expr("person.properties.age >= 25"),
+        )
+
+        # Test MAX with person properties
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
+            self._parse_expr("person.properties.score <= 100"),
+        )

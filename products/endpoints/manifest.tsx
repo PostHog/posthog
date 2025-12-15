@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -32,19 +32,12 @@ export const manifest: ProductManifest = {
             name: 'Endpoint',
             activityScope: 'Endpoint',
         },
-        EndpointNew: {
-            import: () => import('./frontend/EndpointScene'),
-            projectBased: true,
-            name: 'EndpointNew',
-            activityScope: 'Endpoint',
-        },
     },
     routes: {
         '/endpoints': ['EndpointsScene', 'endpoints'],
         // EndpointsScene stays first as scene for Usage!
         '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
         '/endpoints/:name': ['EndpointScene', 'endpoint'],
-        '/endpoints/new': ['EndpointNew', 'endpointNew'],
     },
     urls: {
         endpoints: (): string => '/endpoints',
@@ -73,11 +66,12 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Endpoints',
+            intents: [ProductKey.ENDPOINTS],
             category: 'Unreleased',
             href: urls.endpoints(),
             type: 'endpoints',
             flag: FEATURE_FLAGS.ENDPOINTS,
-            tags: ['alpha'],
+            tags: ['beta'],
             iconType: 'endpoints',
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             sceneKey: 'EndpointsScene',
@@ -91,7 +85,8 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             href: urls.endpoints(),
             sceneKey: 'EndpointsScene',
-            tags: ['alpha'],
+            flag: FEATURE_FLAGS.ENDPOINTS,
+            tags: ['beta'],
         },
     ],
 }

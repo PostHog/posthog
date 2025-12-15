@@ -424,3 +424,70 @@ class TestProjectionPushdown(BaseTest):
         )
 
         assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_union_cte_with_select_star_and_order_by(self):
+        """Nested UNION in CTE with select * and order by - tests asterisk propagation to union branches"""
+        optimized = self._optimize("""
+            with us as (
+               select properties, timestamp from events limit 20
+            ),
+            eu as (
+               select properties, timestamp from events limit 20
+            ),
+            all_exports as (select * from us union all select * from eu)
+            select * from all_exports order by timestamp desc
+            limit 20
+        """)
+
+        # The all_exports CTE should be a union subquery
+        union_query = optimized.select_from.table
+        assert isinstance(union_query, ast.SelectSetQuery)
+
+        # Both branches should have properties and timestamp (not just timestamp)
+        first_branch = union_query.initial_select_query
+        assert isinstance(first_branch, ast.SelectQuery)
+        first_cols = {self._col_name(col) for col in first_branch.select}
+        assert first_cols == {"properties", "timestamp"}, f"Expected properties and timestamp but got {first_cols}"
+
+        second_branch = union_query.subsequent_select_queries[0].select_query
+        assert isinstance(second_branch, ast.SelectQuery)
+        second_cols = {self._col_name(col) for col in second_branch.select}
+        assert second_cols == {"properties", "timestamp"}, f"Expected properties and timestamp but got {second_cols}"
+
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_root_union_with_nested_union_cte(self):
+        """Root query is UNION with nested UNION CTEs - tests asterisk propagation through union branches"""
+        optimized = self._optimize("""
+            with us as (
+               select properties, timestamp from events limit 20
+            ),
+            eu as (
+               select properties, timestamp from events limit 20
+            ),
+            all_exports as (select * from us union all select * from eu)
+            select * from all_exports union all select * from all_exports order by timestamp desc
+        """)
+
+        # Both top-level branches should have subqueries selecting from all_exports
+        first_branch = optimized.initial_select_query
+        assert isinstance(first_branch, ast.SelectQuery)
+
+        assert first_branch.select_from is not None
+        all_exports_1 = first_branch.select_from.table
+        assert isinstance(all_exports_1, ast.SelectSetQuery)
+
+        # Check that both branches of all_exports in first branch have properties and timestamp
+        branch_1_1 = all_exports_1.initial_select_query
+        assert isinstance(branch_1_1, ast.SelectQuery)
+        cols_1_1 = {self._col_name(col) for col in branch_1_1.select}
+        assert cols_1_1 == {"properties", "timestamp"}, f"Expected properties and timestamp but got {cols_1_1}"
+
+        branch_1_2 = all_exports_1.subsequent_select_queries[0].select_query
+        assert isinstance(branch_1_2, ast.SelectQuery)
+        cols_1_2 = {self._col_name(col) for col in branch_1_2.select}
+        assert cols_1_2 == {"properties", "timestamp"}, f"Expected properties and timestamp but got {cols_1_2}"
+
+        assert optimized.to_hogql() == self.snapshot

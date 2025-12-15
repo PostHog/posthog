@@ -1,13 +1,14 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import {
-    validateEnvironmentVariables,
+    type CreatedResources,
+    TEST_ORG_ID,
+    TEST_PROJECT_ID,
+    cleanupResources,
     createTestClient,
     createTestContext,
     setActiveProjectAndOrg,
-    cleanupResources,
-    TEST_PROJECT_ID,
-    TEST_ORG_ID,
-    type CreatedResources,
+    validateEnvironmentVariables,
 } from '@/shared/test-utils'
 import searchDocsTool from '@/tools/documentation/searchDocs'
 import type { Context } from '@/tools/types'
@@ -54,7 +55,7 @@ describe('Documentation', { concurrent: false }, () => {
             })
 
             expect(result.content[0].type).toBe('text')
-            expect(result.content[0].text).toBeDefined()
+            expect(result.content[0].text).toBeTruthy()
             expect(result.content[0].text.length).toBeGreaterThan(0)
         })
 
@@ -64,7 +65,7 @@ describe('Documentation', { concurrent: false }, () => {
             })
 
             expect(result.content[0].type).toBe('text')
-            expect(result.content[0].text).toBeDefined()
+            expect(result.content[0].text).toBeTruthy()
             expect(result.content[0].text.length).toBeGreaterThan(0)
         })
 
@@ -74,7 +75,7 @@ describe('Documentation', { concurrent: false }, () => {
             })
 
             expect(result.content[0].type).toBe('text')
-            expect(result.content[0].text).toBeDefined()
+            expect(result.content[0].text).toBeTruthy()
         })
     })
 
@@ -86,7 +87,7 @@ describe('Documentation', { concurrent: false }, () => {
                 await searchTool.handler(context, { query: '' })
                 expect.fail('Should have thrown validation error')
             } catch (error) {
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
             }
         })
     })

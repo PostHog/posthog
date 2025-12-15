@@ -3,7 +3,14 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team, TeamId } from '../../../../types'
+import {
+    InternalPerson,
+    PersonUpdateFields,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+    TeamId,
+} from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { TransactionClient } from '../../../../utils/db/postgres'
 import { PersonUpdate } from '../person-update-batch'
@@ -17,7 +24,8 @@ export interface RawPostgresPersonRepository {
     ): Promise<InternalPerson | undefined>
 
     fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]>
 
     createPerson(
@@ -29,19 +37,24 @@ export interface RawPostgresPersonRepository {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[],
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient,
         forcedId?: number
     ): Promise<CreatePersonResult>
 
     updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]>
+
+    updatePersonsBatch(
+        personUpdates: PersonUpdate[]
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>>
 
     deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
 
@@ -63,7 +76,7 @@ export interface RawPostgresPersonRepository {
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
 
-    personPropertiesSize(personId: string): Promise<number>
+    personPropertiesSize(personId: string, teamId: number): Promise<number>
 
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],

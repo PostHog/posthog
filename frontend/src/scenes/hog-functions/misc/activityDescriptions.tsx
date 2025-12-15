@@ -11,8 +11,12 @@ import { Link } from 'lib/lemon-ui/Link'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { urls } from 'scenes/urls'
 
+import { HogFunctionTypeType } from '~/types'
+
+import { humanizeHogFunctionType } from '../hog-function-utils'
+
 const nameOrLinkToHogFunction = (id?: string | null, name?: string | null): string | JSX.Element => {
-    const displayName = name || '(empty string)'
+    const displayName = name?.trim() ? name : 'Untitled hog function'
     return id ? <Link to={urls.hogFunction(id)}>{displayName}</Link> : displayName
 }
 
@@ -78,13 +82,14 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         return { description: null }
     }
 
-    const objectNoun = logItem?.detail.type ?? 'hog function'
+    const rawType = logItem?.detail.type as HogFunctionTypeType | undefined
+    const objectNoun = rawType ? humanizeHogFunctionType(rawType) : 'hog function'
 
     if (logItem.activity == 'created') {
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the {objectNoun}:{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the {objectNoun}:{' '}
                     {nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -95,7 +100,21 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted the {objectNoun}: {logItem.detail.name}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the {objectNoun}:{' '}
+                    {logItem.detail.name}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'restored') {
+        const name = userNameForLogItem(logItem)
+        const functionName = nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)
+
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{name}</strong> restored the {objectNoun}: {functionName}
                 </>
             ),
         }
@@ -222,11 +241,12 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
             description:
                 changes.length == 1 ? (
                     <>
-                        <strong>{name}</strong> {changes[0].inline} the {objectNoun}: {functionName}
+                        <strong className="ph-no-capture">{name}</strong> {changes[0].inline} the {objectNoun}:{' '}
+                        {functionName}
                     </>
                 ) : (
                     <div>
-                        <strong>{name}</strong> updated the {objectNoun}: {functionName}
+                        <strong className="ph-no-capture">{name}</strong> updated the {objectNoun}: {functionName}
                         <ul className="ml-5 list-disc">
                             {changes.map((c, i) => (
                                 <li key={i}>{c.inlist}</li>
@@ -236,5 +256,5 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                 ),
         }
     }
-    return defaultDescriber(logItem, asNotification, nameOrLinkToHogFunction(logItem?.detail.short_id))
+    return defaultDescriber(logItem, asNotification, nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name))
 }

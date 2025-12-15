@@ -12,7 +12,8 @@ export function LemonTableLink({
     title,
     description,
     ...props
-}: Pick<LinkProps, 'to' | 'onClick' | 'target' | 'className'> & LemonTableLinkContentProps): JSX.Element {
+}: Pick<LinkProps, 'to' | 'onClick' | 'target' | 'className' | 'targetBlankIcon'> &
+    LemonTableLinkContentProps): JSX.Element {
     if (!props.to) {
         return <LemonTableLinkContent title={title} description={description} />
     }

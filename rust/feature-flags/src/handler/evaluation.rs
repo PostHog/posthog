@@ -12,7 +12,7 @@ pub async fn evaluate_feature_flags(
     context: FeatureFlagEvaluationContext,
     request_id: Uuid,
 ) -> FlagsResponse {
-    let group_type_mapping_cache = GroupTypeMappingCache::new(context.project_id);
+    let group_type_mapping_cache = GroupTypeMappingCache::new(context.team_id);
 
     // Create router from the context
     let router = PostgresRouter::new(
@@ -24,8 +24,8 @@ pub async fn evaluate_feature_flags(
 
     let mut matcher = FeatureFlagMatcher::new(
         context.distinct_id,
+        context.device_id,
         context.team_id,
-        context.project_id,
         router,
         context.cohort_cache,
         Some(group_type_mapping_cache),

@@ -1,4 +1,3 @@
-import fs from 'fs'
 import type { Config } from 'jest'
 
 process.env.TZ = process.env.TZ || 'UTC'
@@ -20,13 +19,8 @@ const esmModules = [
     'unist-util-visit-parents',
     'unist-util-is',
 ]
-const eeFolderExists = fs.existsSync('../ee/frontend/exports.ts')
 function rootDirectories(): string[] {
-    const rootDirectories = ['<rootDir>/src', '<rootDir>/../products']
-    if (eeFolderExists) {
-        rootDirectories.push('<rootDir>/../ee/frontend')
-    }
-    return rootDirectories
+    return ['<rootDir>/src', '<rootDir>/../products']
 }
 
 const config: Config = {
@@ -106,9 +100,9 @@ const config: Config = {
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
         '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/src/test/mocks/styleMock.js',
+        '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
-        '^@posthog/ee/exports': ['<rootDir>/../ee/frontend/exports', '<rootDir>/@posthog/ee/exports'],
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
         'monaco-editor': '<rootDir>/node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts',
         '^scenes/(.*)$': '<rootDir>/src/scenes/$1',

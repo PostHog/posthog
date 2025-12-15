@@ -10,7 +10,10 @@ import React from 'react'
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -33,7 +36,6 @@ interface QuestionInputProps {
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
     onSubmit?: () => void
-    showDeepResearchModeToggle?: boolean
 }
 
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
@@ -48,15 +50,30 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         textAreaRef,
         containerClassName,
         onSubmit,
-        showDeepResearchModeToggle,
     },
     ref
 ) {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
-    const { threadLoading, inputDisabled, submissionDisabledReason, deepResearchMode } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
+    const { user } = useValues(userLogic)
+    const {
+        conversation,
+        threadLoading,
+        inputDisabled,
+        submissionDisabledReason,
+        isSharedThread,
+        deepResearchMode,
+        cancelLoading,
+        pendingPrompt,
+        isImpersonatingExistingConversation,
+        supportOverrideEnabled,
+    } = useValues(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled } = useActions(maxThreadLogic)
+
+    // Show info banner for conversations created during impersonation (marked as internal)
+    const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -68,6 +85,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         }
         setShowAutocomplete(isSlashCommand)
     }, [question, showAutocomplete])
+
+    let disabledReason = threadLoading && !dataProcessingAccepted ? 'Pending approval' : submissionDisabledReason
+    if (cancelLoading) {
+        disabledReason = 'Cancelling...'
+    }
 
     return (
         <div
@@ -104,28 +126,32 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             }
                         }}
                     >
-                        <div className="pt-1">
-                            {!isThreadVisible ? (
-                                <div className="flex items-start justify-between">
+                        {!isSharedThread && (
+                            <div className="pt-2">
+                                {!isThreadVisible ? (
+                                    <div className="flex items-start justify-between">
+                                        <ContextDisplay size={contextDisplaySize} />
+                                        <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                                    </div>
+                                ) : (
                                     <ContextDisplay size={contextDisplaySize} />
-                                    <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
-                                </div>
-                            ) : (
-                                <ContextDisplay size={contextDisplaySize} />
-                            )}
-                        </div>
+                                )}
+                            </div>
+                        )}
 
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
                                 ref={textAreaRef}
-                                value={question}
-                                onChange={setQuestion}
+                                value={isSharedThread ? '' : question}
+                                onChange={(value) => setQuestion(value)}
                                 placeholder={
-                                    threadLoading
-                                        ? 'Thinking…'
-                                        : isThreadVisible
-                                          ? placeholder || 'Ask follow-up (/ for commands)'
-                                          : 'Ask away (/ for commands)'
+                                    conversation && isSharedThread
+                                        ? `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
+                                        : threadLoading
+                                          ? 'Thinking…'
+                                          : isThreadVisible
+                                            ? placeholder || 'Ask follow-up (/ for commands)'
+                                            : 'Ask away (/ for commands)'
                                 }
                                 onPressEnter={() => {
                                     if (question && !submissionDisabledReason && !threadLoading) {
@@ -136,21 +162,22 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 disabled={inputDisabled}
                                 minRows={1}
                                 maxRows={10}
-                                className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
-                                autoFocus
+                                className="!border-none !bg-transparent min-h-0 py-2 pl-2 pr-12"
+                                autoFocus="true-without-pulse"
                             />
                         </SlashCommandAutocomplete>
                     </div>
                     <div
                         className={clsx(
                             'absolute flex items-center',
+                            isSharedThread && 'hidden',
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
                             showArrow
-                            onApprove={() => askMax(question)}
+                            onApprove={() => askMax(pendingPrompt || question)}
                             onDismiss={() => completeThreadGeneration()}
                             middleware={[
                                 offset((state) => ({
@@ -178,11 +205,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     )
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
-                                disabledReason={
-                                    threadLoading && !dataProcessingAccepted
-                                        ? 'Pending approval'
-                                        : submissionDisabledReason
-                                }
+                                disabledReason={disabledReason}
                                 size="small"
                                 icon={
                                     threadLoading ? (
@@ -196,21 +219,29 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <ToolsDisplay
-                    isFloating={isThreadVisible}
-                    tools={tools}
-                    bottomActions={bottomActions}
-                    deepResearchMode={deepResearchMode}
-                />
-                {showDeepResearchModeToggle && (
-                    <div className="flex justify-end gap-1 w-full p-1">
+                {!isSharedThread && !featureFlags[FEATURE_FLAGS.AGENT_MODES] && (
+                    <ToolsDisplay
+                        isFloating={isThreadVisible}
+                        tools={tools}
+                        bottomActions={bottomActions}
+                        deepResearchMode={deepResearchMode}
+                    />
+                )}
+                {/* Info banner for conversations created during impersonation (marked as internal) */}
+                {isImpersonatedInternalConversation && (
+                    <div className="flex justify-start items-center gap-1 w-full px-2 py-1 bg-bg-light text-muted text-xs rounded-b-lg">
+                        Support agent session — this conversation won't be visible to the customer
+                    </div>
+                )}
+                {/* Override checkbox - shown when impersonating and viewing existing customer conversation (not internal) */}
+                {!conversation?.is_internal && (isImpersonatingExistingConversation || supportOverrideEnabled) && (
+                    <div className="flex justify-start gap-1 w-full p-1 bg-warning-highlight rounded-b-lg">
                         <LemonSwitch
-                            checked={deepResearchMode}
-                            label="Think harder"
-                            disabled={threadLoading}
-                            onChange={(checked) => setDeepResearchMode(checked)}
+                            checked={supportOverrideEnabled}
+                            label="I understand this will add to the customer's conversation"
+                            onChange={(checked: boolean) => setSupportOverrideEnabled(checked)}
                             size="xxsmall"
-                            tooltip="This will make PostHog AI think harder about your question"
+                            tooltip="Support agents should create new conversations instead of using existing ones. Check this to override."
                         />
                     </div>
                 )}

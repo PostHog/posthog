@@ -15,7 +15,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
-from posthog.warehouse.types import IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
@@ -259,4 +260,4 @@ def snowflake_source(
 
     name = NamingConvention().normalize_identifier(table_name)
 
-    return SourceResponse(name=name, items=get_rows(), primary_keys=primary_keys, rows_to_sync=rows_to_sync)
+    return SourceResponse(name=name, items=get_rows, primary_keys=primary_keys, rows_to_sync=rows_to_sync)

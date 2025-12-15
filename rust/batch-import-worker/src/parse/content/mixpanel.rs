@@ -9,6 +9,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::TransformContext;
+use crate::parse::format::{extract_between, extract_field_name, UserFacingParseError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -35,6 +36,52 @@ pub struct MixpanelProperties {
     distinct_id: Option<String>,
     #[serde(flatten)]
     other: HashMap<String, Value>,
+}
+
+/// Implement schema-specific error messages for MixpanelEvent
+/// That we can surface to the user to let them know what's wrong with the
+/// data set they are trying to import
+impl UserFacingParseError for MixpanelEvent {
+    fn user_facing_schema_error(err: &serde_json::Error) -> String {
+        let err_str = err.to_string();
+
+        if err_str.contains("missing field") {
+            if let Some(field_name) = extract_field_name(&err_str, "missing field `", "`") {
+                return match field_name.as_str() {
+                    "event" => "Missing required field 'event'. Each Mixpanel event must have an 'event' field with the event name (e.g., \"event\": \"page_view\").".to_string(),
+                    "properties" => "Missing required field 'properties'. Each Mixpanel event must have a 'properties' object containing at least the 'time' field.".to_string(),
+                    "time" => "Missing required field 'time' in 'properties'. Each Mixpanel event must have a timestamp (e.g., \"properties\": {\"time\": 1697379000}).".to_string(),
+                    _ => format!("Missing required field '{field_name}'. Please check that your Mixpanel export includes this field."),
+                };
+            }
+        }
+
+        if err_str.contains("invalid type:") {
+            let got = extract_between(&err_str, "invalid type: ", ", expected");
+            let expected = extract_between(&err_str, "expected ", " at line");
+
+            if let (Some(got), Some(expected)) = (got, expected) {
+                if err_str.contains("`event`") || (expected == "a string" && err.column() < 15) {
+                    return format!(
+                        "The 'event' field must be a string (e.g., \"event\": \"page_view\"), but got {got}."
+                    );
+                }
+                if err_str.contains("`time`") || expected.contains("i64") {
+                    return format!(
+                        "The 'time' field must be a Unix timestamp (integer), but got {got}. Use seconds since epoch (e.g., 1697379000)."
+                    );
+                }
+                if expected.contains("map") || expected.contains("struct") {
+                    return format!(
+                        "Expected an object/map but got {got}. The 'properties' field must be a JSON object like {{\"time\": 1697379000}}."
+                    );
+                }
+            }
+        }
+
+        // Fallback to generic message
+        "The JSON structure doesn't match the expected Mixpanel event format. Required fields: 'event' (string), 'properties' (object with 'time' as integer timestamp).".to_string()
+    }
 }
 
 // Based off sample data provided by customer.
@@ -99,12 +146,16 @@ impl MixpanelEvent {
                 let inner = CapturedEvent {
                     uuid: event_uuid,
                     distinct_id,
+                    session_id: None,
                     ip: "127.0.0.1".to_string(),
                     data: serde_json::to_string(&raw_event)?,
                     now: Utc::now().to_rfc3339(),
                     sent_at: None,
                     token,
+                    event: raw_event.event.clone(),
+                    timestamp,
                     is_cookieless_mode: false,
+                    historical_migration: true,
                 };
 
                 Ok(Some(InternallyCapturedEvent { team_id, inner }))
@@ -286,6 +337,67 @@ mod tests {
         assert_eq!(
             data.properties.get("analytics_source"),
             Some(&json!("mixpanel"))
+        );
+    }
+
+    #[test]
+    fn test_mixpanel_event_has_historical_migration_and_now_fields() {
+        let test_job_id = Uuid::now_v7();
+        let before_test = Utc::now();
+
+        let mx_event = MixpanelEvent {
+            event: "test_event".to_string(),
+            properties: MixpanelProperties {
+                timestamp: 1697379000,
+                distinct_id: Some("user123".to_string()),
+                other: HashMap::new(),
+            },
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: std::sync::Arc::new(crate::cache::MockIdentifyCache::new()),
+            group_cache: std::sync::Arc::new(crate::cache::MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser =
+            MixpanelEvent::parse_fn(context, false, Duration::seconds(0), identity_transform);
+        let result = parser(mx_event).unwrap().unwrap();
+
+        let after_test = Utc::now();
+
+        assert!(
+            result.inner.historical_migration,
+            "historical_migration field must be true for batch import events"
+        );
+
+        assert!(
+            !result.inner.now.is_empty(),
+            "now field must be set for events"
+        );
+
+        let now_timestamp = chrono::DateTime::parse_from_rfc3339(&result.inner.now)
+            .expect("now should be valid RFC3339 timestamp")
+            .with_timezone(&Utc);
+        assert!(
+            now_timestamp >= before_test && now_timestamp <= after_test,
+            "now timestamp should be current (between test start and end)"
+        );
+
+        let serialized = serde_json::to_value(&result.inner).unwrap();
+        assert_eq!(
+            serialized["historical_migration"],
+            json!(true),
+            "historical_migration must be in serialized output"
+        );
+        assert!(
+            serialized["now"].is_string(),
+            "now must be a string in serialized output"
         );
     }
 }

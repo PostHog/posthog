@@ -128,7 +128,7 @@ def reset_stuck_alerts_task() -> None:
 
     for alert in stuck_alerts:
         # we need to check the alert, reset is_calculating
-        logger.info(f"Alert {alert.id} is stuck in is_calculating for too long, resetting is_calculating")
+        logger.info("check_alert.reset_stuck_alert", alert_id=alert.id)
         alert.is_calculating = False
         alert.save()
 
@@ -236,7 +236,7 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             alert.state = AlertState.NOT_FIRING
 
     # we will attempt to check alert
-    logger.info(f"Checking alert id = {alert.id}")
+    logger.info("check_alert", alert_id=alert.id)
     alert.last_checked_at = datetime.now(UTC)
     alert.is_calculating = True
     alert.save()

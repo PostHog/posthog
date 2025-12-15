@@ -1,5 +1,5 @@
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Optional
 
 import posthoganalytics
@@ -7,7 +7,31 @@ from temporalio import activity, workflow
 
 from posthog.temporal.common.logger import get_logger
 
+from products.tasks.backend.models import LogLevel
+
 logger = get_logger(__name__)
+
+
+def emit_agent_log(run_id: str, level: LogLevel, message: str) -> None:
+    """Emit a console-style agent event for user-facing logs.
+
+    On activity retries (attempt > 1), debug logs are used regardless of the log level provided to avoid duplicate user-facing messages.
+    """
+    from products.tasks.backend.models import TaskRun
+
+    effective_level = level
+    if activity.in_activity():
+        info = activity.info()
+        if info.attempt > 1:
+            effective_level = "debug"
+
+    try:
+        task_run = TaskRun.objects.get(id=run_id)
+        task_run.emit_console_event(effective_level, message)
+    except TaskRun.DoesNotExist:
+        logger.warning("TaskRun not found for emit_agent_log", run_id=run_id)
+    except Exception:
+        logger.exception("Failed to emit agent log", run_id=run_id)
 
 
 def get_bound_logger(**context: Any):
@@ -42,12 +66,12 @@ def log_with_workflow_context(message: str, **extra_context: Any) -> None:
     bound_logger.info(message)
 
 
-@asynccontextmanager
-async def log_activity_execution(
+@contextmanager
+def log_activity_execution(
     activity_name: str,
     distinct_id: Optional[str] = None,
     **context: Any,
-) -> AsyncIterator[None]:
+) -> Iterator[None]:
     """Context manager for activity execution with automatic logging and analytics.
 
     Automatically tracks:

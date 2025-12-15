@@ -2,7 +2,6 @@ from typing import Any
 
 from langchain.schema import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -12,9 +11,10 @@ from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
-from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
+from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
+from ee.hogai.chat_agent.sql.toolkit import SQL_SCHEMA
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 _hogql_functions: str | None = None
@@ -181,7 +181,6 @@ def _get_user_prompt(schema_description: str) -> str:
 class HogQLQueryFixerTool(MaxTool):
     name: str = "fix_hogql_query"
     description: str = "Fixes any error in the current HogQL query"
-    thinking_message: str = "Fixing errors in the SQL query"
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self) -> tuple[str, str | None]:
@@ -235,7 +234,15 @@ The newly updated query gave us this error:
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0, disable_streaming=True).with_structured_output(
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
+            inject_context=False,
+        ).with_structured_output(
             SQL_SCHEMA,
             method="function_calling",
             include_raw=False,

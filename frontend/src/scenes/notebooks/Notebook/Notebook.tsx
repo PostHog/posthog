@@ -8,13 +8,13 @@ import { NotFound } from 'lib/components/NotFound'
 import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 
+import { AddInsightsToNotebookModal } from '../AddInsightsToNotebookModal/AddInsightsToNotebookModal'
 import { Editor } from './Editor'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { NotebookColumnRight } from './NotebookColumnRight'
@@ -49,16 +49,6 @@ export function Notebook({
         }
         // oxlint-disable-next-line exhaustive-deps
     }, [notebook])
-
-    useWhyDidIRender('Notebook', {
-        notebook,
-        notebookLoading,
-        editor,
-        conflictWarningVisible,
-        isEditable,
-        shortId,
-        initialAutofocus,
-    })
 
     useOnMountEffect(() => {
         if (!notebook && !notebookLoading) {
@@ -144,6 +134,7 @@ export function Notebook({
                     </div>
                 </div>
             )}
+            <AddInsightsToNotebookModal />
         </BindLogic>
     )
 }

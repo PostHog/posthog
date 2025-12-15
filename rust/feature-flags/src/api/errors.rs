@@ -344,8 +344,10 @@ impl From<CustomRedisError> for FlagError {
         match e {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
             CustomRedisError::ParseError(_) => FlagError::RedisDataParsingError,
-            CustomRedisError::Timeout => FlagError::TimeoutError(Some("redis_timeout".to_string())),
-            CustomRedisError::Other(_) => FlagError::RedisUnavailable,
+            CustomRedisError::Timeout => FlagError::TimeoutError(Some("Redis timeout".to_string())),
+            CustomRedisError::InvalidConfiguration(_) | CustomRedisError::Redis(_) => {
+                FlagError::RedisUnavailable
+            }
         }
     }
 }
@@ -487,10 +489,10 @@ mod tests {
 
     #[test]
     fn test_redis_timeout_conversion() {
-        // Test that Redis timeout errors include timeout type
+        // Test that Redis timeout errors are converted to FlagError::TimeoutError
         let redis_timeout: FlagError = CustomRedisError::Timeout.into();
         assert!(
-            matches!(redis_timeout, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "redis_timeout")
+            matches!(redis_timeout, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "Redis timeout")
         );
     }
 }

@@ -1,16 +1,14 @@
 import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import {
@@ -23,20 +21,18 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '~/queries/query'
 import {
     AnyEntityNode,
+    Breakdown,
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
@@ -51,13 +47,13 @@ import {
     FunnelsQuery,
     InsightVizNode,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
-    ActivityScope,
-    Breadcrumb,
     BreakdownAttributionType,
     BreakdownType,
     CohortType,
@@ -69,8 +65,6 @@ import {
     FunnelExperimentVariant,
     InsightType,
     MultivariateFlagVariant,
-    ProductKey,
-    ProjectTreeRef,
     PropertyMathType,
     TrendExperimentVariant,
 } from '~/types'
@@ -80,6 +74,7 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
+import { experimentSceneLogic } from './experimentSceneLogic'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
@@ -93,13 +88,14 @@ import { addExposureToMetric, compose, getInsight, getQuery } from './metricQuer
 import { modalsLogic } from './modalsLogic'
 import {
     featureFlagEligibleForExperiment,
+    getOrderedMetricsWithResults,
     initializeMetricOrdering,
     isLegacyExperiment,
     percentageDistribution,
     transformFiltersForWinningVariant,
 } from './utils'
 
-const NEW_EXPERIMENT: Experiment = {
+export const NEW_EXPERIMENT: Experiment = {
     id: 'new',
     name: '',
     type: 'product',
@@ -146,6 +142,7 @@ export type FormModes = (typeof FORM_MODES)[keyof typeof FORM_MODES]
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
     formMode?: FormModes
+    tabId?: string
 }
 
 interface MetricLoadingConfig {
@@ -288,7 +285,10 @@ function convertToTypedExperimentResponse(response: CachedExperimentQueryRespons
 
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
-    key((props) => props.experimentId || 'new'),
+    key((props) => {
+        const baseKey = props.experimentId ?? 'new'
+        return `${baseKey}${props.tabId ? `-${props.tabId}` : ''}`
+    }),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
         values: [
@@ -337,6 +337,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentMetricTimeout',
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
+                'reportExperimentAiSummaryRequested',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -388,6 +389,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setValidExistingFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
         setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
+        setHogfettiTrigger: (trigger: (() => void) | null) => ({ trigger }),
         // METRICS
         setMetric: ({
             uuid,
@@ -476,6 +478,8 @@ export const experimentLogic = kea<experimentLogicType>([
             isSecondary,
             newUuid,
         }),
+        updateMetricBreakdown: (uuid: string, breakdown: Breakdown) => ({ uuid, breakdown }),
+        removeMetricBreakdown: (uuid: string, index: number) => ({ uuid, index }),
         // METRICS RESULTS
         setLegacyPrimaryMetricsResults: (
             results: (
@@ -710,6 +714,62 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
+                updateMetricBreakdown: (state, { uuid, breakdown }) => {
+                    const metricsKey =
+                        (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
+                            ? 'metrics'
+                            : 'metrics_secondary'
+
+                    const metrics = [...(state?.[metricsKey] || [])]
+                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
+                    if (targetIndex === -1) {
+                        return state
+                    }
+
+                    const metric = metrics[targetIndex] as ExperimentMetric
+                    const breakdownFilter = {
+                        ...metric.breakdownFilter,
+                        breakdowns: [...(metric.breakdownFilter?.breakdowns || []), breakdown],
+                    }
+
+                    metrics[targetIndex] = {
+                        ...metric,
+                        breakdownFilter,
+                    } as ExperimentMetric
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
+                },
+                removeMetricBreakdown: (state, { uuid, index }) => {
+                    const metricsKey =
+                        (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
+                            ? 'metrics'
+                            : 'metrics_secondary'
+
+                    const metrics = [...(state?.[metricsKey] || [])]
+                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
+                    if (targetIndex === -1) {
+                        return state
+                    }
+
+                    const metric = metrics[targetIndex] as ExperimentMetric
+                    const breakdownFilter = {
+                        ...metric.breakdownFilter,
+                        breakdowns: (metric.breakdownFilter?.breakdowns || []).filter((_, i) => i !== index),
+                    }
+
+                    metrics[targetIndex] = {
+                        ...metric,
+                        breakdownFilter,
+                    } as ExperimentMetric
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
+                },
             },
         ],
         experimentMissing: [
@@ -841,8 +901,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 setCreateExperimentLoading: (_, { loading }) => loading,
             },
         ],
+        hogfettiTrigger: [
+            null as (() => void) | null,
+            {
+                setHogfettiTrigger: (_, { trigger }) => trigger,
+            },
+        ],
     }),
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, folder }) => {
             actions.setCreateExperimentLoading(true)
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
@@ -869,7 +935,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             let response: Experiment | null = null
-            const isUpdate = props.formMode === 'update'
+            const isUpdate = values.formMode === FORM_MODES.update
             try {
                 if (isUpdate) {
                     response = await api.update(
@@ -905,10 +971,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     // Make experiment eligible for timeseries
                     const statsConfig = {
                         ...values.experiment?.stats_config,
-                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && { timeseries: true }),
-                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_QUERY_BUILDER] && {
-                            use_new_query_builder: true,
-                        }),
+                        timeseries: true,
                     }
 
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
@@ -919,7 +982,7 @@ export const experimentLogic = kea<experimentLogicType>([
                              * the recommended running time. If we are duplicating we want to
                              * preserve this values.
                              */
-                            props.formMode === FORM_MODES.create
+                            values.formMode === FORM_MODES.create
                                 ? {
                                       ...values.experiment?.parameters,
                                       recommended_running_time: recommendedRunningTime,
@@ -952,14 +1015,22 @@ export const experimentLogic = kea<experimentLogicType>([
             if (response?.id) {
                 const experimentId = response.id
                 refreshTreeItem('experiment', String(experimentId))
-                router.actions.push(urls.experiment(experimentId))
+                const navigateToExperiment = (): void => {
+                    const tabId = values.props.tabId
+                    const scene = tabId ? experimentSceneLogic.findMounted({ tabId }) : null
+                    if (scene) {
+                        scene.actions.setSceneState(experimentId, FORM_MODES.update)
+                    } else {
+                        router.actions.push(urls.experiment(experimentId))
+                    }
+                }
+
+                navigateToExperiment()
                 actions.addToExperiments(response)
                 lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
                     button: {
                         label: 'View it',
-                        action: () => {
-                            router.actions.push(urls.experiment(experimentId))
-                        },
+                        action: navigateToExperiment,
                     },
                 })
             }
@@ -1061,7 +1132,12 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
-                const forceRefresh = payload?.start_date !== undefined || payload?.end_date !== undefined
+                // For running experiments, refresh results if any of these fields are updated
+                const forceRefresh =
+                    payload?.start_date !== undefined ||
+                    payload?.end_date !== undefined ||
+                    payload?.metrics !== undefined ||
+                    payload?.metrics_secondary !== undefined
                 actions.refreshExperimentResults(forceRefresh)
             }
         },
@@ -1086,7 +1162,11 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.reportExperimentVariantShipped(values.experiment)
 
-            actions.openStopExperimentModal()
+            // Trigger Hogfetti celebration with cascading delays
+            const trigger = values.hogfettiTrigger
+            if (trigger) {
+                ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
+            }
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)
@@ -1373,21 +1453,49 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
+        updateMetricBreakdown: async ({ uuid }) => {
+            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.updateExperiment({
+                metrics: values.experiment.metrics,
+                metrics_secondary: values.experiment.metrics_secondary,
+            })
+
+            if (isPrimary) {
+                actions.loadPrimaryMetricsResults(true)
+            } else {
+                actions.loadSecondaryMetricsResults(true)
+            }
+        },
+        removeMetricBreakdown: async ({ uuid }) => {
+            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.updateExperiment({
+                metrics: values.experiment.metrics,
+                metrics_secondary: values.experiment.metrics_secondary,
+            })
+
+            if (isPrimary) {
+                actions.loadPrimaryMetricsResults(true)
+            } else {
+                actions.loadSecondaryMetricsResults(true)
+            }
+        },
     })),
-    loaders(({ actions, props, values }) => ({
+    loaders(({ actions, values }) => ({
         experiment: {
             loadExperiment: async () => {
-                if (props.experimentId && props.experimentId !== 'new') {
+                if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(
-                            `api/projects/${values.currentProjectId}/experiments/${props.experimentId}`
+                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
                         )
 
                         /**
                          * if we are duplicating, we need to clear a lot of props to ensure that
                          * the experiment will be in draft mode and available for launch
                          */
-                        if (props.formMode === FORM_MODES.duplicate) {
+                        if (values.formMode === FORM_MODES.duplicate) {
                             response = {
                                 ...response,
                                 name: `${response.name} (duplicate)`,
@@ -1437,8 +1545,8 @@ export const experimentLogic = kea<experimentLogicType>([
             null as CohortType | null,
             {
                 createExposureCohort: async () => {
-                    if (props.experimentId && props.experimentId !== 'new' && props.experimentId !== 'web') {
-                        return (await api.experiments.createExposureCohort(props.experimentId)).cohort
+                    if (values.experimentId && values.experimentId !== 'new' && values.experimentId !== 'web') {
+                        return (await api.experiments.createExposureCohort(values.experimentId)).cohort
                     }
                     return null
                 },
@@ -1476,7 +1584,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     const query = setLatestVersionsOnQuery({
                         kind: NodeKind.ExperimentExposureQuery,
-                        experiment_id: props.experimentId,
+                        experiment_id: values.experimentId,
                         experiment_name: experiment.name,
                         exposure_criteria: experiment.exposure_criteria,
                         feature_flag: experiment.feature_flag,
@@ -1495,7 +1603,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
         ],
-        formMode: [() => [(_, props) => props.formMode], (action: FormModes) => action],
+        formMode: [() => [(_, props) => props.formMode ?? FORM_MODES.update], (formMode): FormModes => formMode],
         getInsightType: [
             () => [],
             () =>
@@ -1537,41 +1645,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
                     !experiment.archived
                 )
-            },
-        ],
-        breadcrumbs: [
-            (s) => [s.experiment, s.experimentId],
-            (experiment, experimentId): Breadcrumb[] => {
-                return [
-                    {
-                        key: Scene.Experiments,
-                        name: sceneConfigurations[Scene.Experiments].name || 'Experiments',
-                        path: urls.experiments(),
-                        iconType: sceneConfigurations[Scene.Experiments].iconType || 'default_icon_type',
-                    },
-                    {
-                        key: [Scene.Experiment, experimentId],
-                        name: experiment?.name || 'New Experiment',
-                        iconType: sceneConfigurations[Scene.Experiment].iconType || 'default_icon_type',
-                    },
-                ]
-            },
-        ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.experimentId],
-            (experimentId: Experiment['id']): SidePanelSceneContext | null => {
-                return experimentId && experimentId !== 'new'
-                    ? {
-                          activity_scope: ActivityScope.EXPERIMENT,
-                          activity_item_id: `${experimentId}`,
-                      }
-                    : null
-            },
-        ],
-        projectTreeRef: [
-            () => [(_, props: ExperimentLogicProps) => props.experimentId],
-            (experimentId): ProjectTreeRef => {
-                return { type: 'experiment', ref: experimentId === 'new' ? null : String(experimentId) }
             },
         ],
         variants: [
@@ -2013,44 +2086,38 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experiment.exposure_criteria
             },
         ],
-        getOrderedMetrics: [
-            (s) => [s.experiment],
-            (experiment: Experiment) =>
-                (isSecondary: boolean): ExperimentMetric[] => {
-                    if (!experiment) {
-                        return []
-                    }
-
-                    const metricType = isSecondary ? 'secondary' : 'primary'
-                    const regularMetrics = isSecondary
-                        ? ((experiment.metrics_secondary || []) as ExperimentMetric[])
-                        : ((experiment.metrics || []) as ExperimentMetric[])
-
-                    const sharedMetrics = (experiment.saved_metrics || [])
-                        .filter((sharedMetric) => sharedMetric.metadata.type === metricType)
-                        .map((sharedMetric) => ({
-                            ...sharedMetric.query,
-                            name: sharedMetric.name,
-                            sharedMetricId: sharedMetric.saved_metric,
-                            isSharedMetric: true,
-                        })) as ExperimentMetric[]
-
-                    const allMetrics = [...regularMetrics, ...sharedMetrics]
-
-                    const metricsMap = new Map()
-                    allMetrics.forEach((metric: any) => {
-                        const uuid = metric.uuid || metric.query?.uuid
-                        if (uuid) {
-                            metricsMap.set(uuid, metric)
-                        }
-                    })
-
-                    const orderedUuids = isSecondary
-                        ? experiment.secondary_metrics_ordered_uuids || []
-                        : experiment.primary_metrics_ordered_uuids || []
-
-                    return orderedUuids.map((uuid) => metricsMap.get(uuid)).filter(Boolean) as ExperimentMetric[]
-                },
+        getOrderedMetricsWithResults: [
+            (s) => [
+                s.experiment,
+                s.primaryMetricsResults,
+                s.primaryMetricsResultsErrors,
+                s.secondaryMetricsResults,
+                s.secondaryMetricsResultsErrors,
+            ],
+            (
+                    experiment,
+                    primaryMetricsResults,
+                    primaryMetricsResultsErrors,
+                    secondaryMetricsResults,
+                    secondaryMetricsResultsErrors
+                ) =>
+                (isSecondary: boolean) =>
+                    getOrderedMetricsWithResults(
+                        experiment,
+                        primaryMetricsResults,
+                        primaryMetricsResultsErrors,
+                        secondaryMetricsResults,
+                        secondaryMetricsResultsErrors,
+                        isSecondary
+                    ),
+        ],
+        orderedPrimaryMetricsWithResults: [
+            (s) => [s.getOrderedMetricsWithResults],
+            (getOrderedMetricsWithResults) => getOrderedMetricsWithResults(false),
+        ],
+        orderedSecondaryMetricsWithResults: [
+            (s) => [s.getOrderedMetricsWithResults],
+            (getOrderedMetricsWithResults) => getOrderedMetricsWithResults(true),
         ],
         statsMethod: [
             (s) => [s.experiment],
@@ -2059,7 +2126,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    forms(({ actions, values, props }) => ({
+    forms(({ actions, values }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
@@ -2077,44 +2144,13 @@ export const experimentLogic = kea<experimentLogicType>([
             submit: () => {
                 if (
                     values.experimentId &&
-                    ([FORM_MODES.create, FORM_MODES.duplicate] as FormModes[]).includes(props.formMode!)
+                    ([FORM_MODES.create, FORM_MODES.duplicate] as FormModes[]).includes(values.formMode)
                 ) {
                     actions.createExperiment(true)
                 } else {
                     actions.createExperiment(true, 'Unfiled/Experiments')
                 }
             },
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
-            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
-
-            actions.setEditExperiment(false)
-
-            if (id && didPathChange) {
-                const parsedId = id === 'new' ? 'new' : parseInt(id)
-                if (parsedId === 'new') {
-                    actions.resetExperiment({
-                        ...NEW_EXPERIMENT,
-                        metrics: query.metric ? [query.metric] : [],
-                        name: query.name ?? '',
-                    })
-                }
-                if (parsedId !== 'new' && parsedId === values.experimentId) {
-                    actions.loadExperiment()
-                    if (values.isExperimentRunning) {
-                        actions.loadExposures()
-                    }
-                }
-            }
-        },
-        '/experiments/:id/:formMode': ({ id }, _, __, currentLocation, previousLocation) => {
-            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
-
-            if (id && didPathChange) {
-                actions.loadExperiment()
-            }
         },
     })),
 ])

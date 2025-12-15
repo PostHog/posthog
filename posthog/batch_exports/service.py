@@ -5,6 +5,8 @@ import collections.abc
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 import temporalio
 import temporalio.common
@@ -25,7 +27,6 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -68,7 +69,7 @@ class BatchExportEventPropertyFilter:
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
-    filters: list[dict[str, str | list[str]]] | None = None
+    filters: list[dict[str, str | list[str] | None]] | None = None
 
 
 @dataclass
@@ -467,28 +468,56 @@ def unpause_batch_export(
     backfill_export(temporal, batch_export_id, batch_export.team_id, start_at, end_at)
 
 
-def disable_and_delete_export(instance: BatchExport):
-    """Mark a BatchExport as deleted and delete its Temporal Schedule (including backfills)."""
+def delete_batch_export(instance: BatchExport):
+    """Delete a batch export.
+
+    This process involves:
+    * First, pausing the batch export so no new runs are scheduled.
+    * Second, canceling any running backfills.
+    * Third, canceling any running runs.
+    * Fourth and finally, deleting the Temporal Schedule.
+
+    The first step is necessary to avoid new runs being scheduled while we execute all
+    other steps.
+    """
     temporal = sync_connect()
 
     instance.deleted = True
+
+    try:
+        pause_batch_export(temporal, instance.id, note=f"Pausing due to delete request by team {instance.team_id}")
+    except BatchExportServiceRPCError:
+        logger.exception(
+            "Failed to pause batch export before deletion",
+            batch_export_id=instance.id,
+        )
 
     for backfill in running_backfills_for_batch_export(instance.id):
         try:
             async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
         except Exception:
             logger.exception(
-                "Failed to delete backfill %s for batch export %s, but will continue on with delete",
-                backfill.id,
-                instance.id,
+                "Failed to cancel backfill",
+                backfill_id=backfill.id,
+                batch_export_id=instance.id,
+            )
+
+    for run in running_runs_for_batch_export(instance.id):
+        try:
+            cancel_running_batch_export_run(temporal, run)
+        except Exception:
+            logger.exception(
+                "Failed to cancel run",
+                run_id=run.id,
+                back_export_id=instance.id,
             )
 
     try:
         batch_export_delete_schedule(temporal, str(instance.pk))
     except BatchExportServiceScheduleNotFound as e:
         logger.warning(
-            "The Schedule %s could not be deleted as it was not found",
-            e.schedule_id,
+            "Schedule not found during delete",
+            schedule_id=e.schedule_id,
         )
 
     instance.save()
@@ -509,6 +538,13 @@ def running_backfills_for_batch_export(batch_export_id: UUID):
     """Return an iterator over running batch export backfills."""
     return BatchExportBackfill.objects.filter(
         batch_export_id=batch_export_id, status=BatchExportBackfill.Status.RUNNING
+    ).select_related("batch_export")
+
+
+def running_runs_for_batch_export(batch_export_id: UUID):
+    """Return an iterator over running batch export runs."""
+    return BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id, status=BatchExportRun.Status.RUNNING
     ).select_related("batch_export")
 
 
@@ -613,7 +649,7 @@ async def start_backfill_batch_export_workflow(
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        task_queue=BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id
@@ -735,7 +771,11 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
-    task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
+    task_queue = (
+        settings.SYNC_BATCH_EXPORTS_TASK_QUEUE
+        if batch_export.destination.type == "HTTP"
+        else settings.BATCH_EXPORTS_TASK_QUEUE
+    )
 
     context = HogQLContext(
         team_id=batch_export.team.id,

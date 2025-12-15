@@ -1,22 +1,23 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDropdown, Tooltip } from '@posthog/lemon-ui'
+import { LemonDropdown } from '@posthog/lemon-ui'
 
 import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { PathNodeCardButton } from './PathNodeCardButton'
 import { PathNodeCardMenu } from './PathNodeCardMenu'
-import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
-import { PathNodeData, isSelectedPathStartOrEnd, pageUrl } from './pathUtils'
+import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
+import { PathNodeData, calculatePathNodeCardTop, isSelectedPathStartOrEnd, pageUrl } from './pathUtils'
 import { pathsDataLogic } from './pathsDataLogic'
 
 export type PathNodeCardProps = {
     insightProps: InsightLogicProps
     node: PathNodeData
+    canvasHeight: number
 }
 
-export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Element | null {
+export function PathNodeCard({ insightProps, node, canvasHeight }: PathNodeCardProps): JSX.Element | null {
     const { pathsFilter: _pathsFilter, funnelPathsFilter: _funnelPathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsDataLogic(insightProps))
 
@@ -38,56 +39,53 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
         : null
 
     return (
-        <Tooltip title={pageUrl(node)} placement="right">
-            <LemonDropdown
-                overlay={
-                    <PathNodeCardMenu
-                        name={node.name}
-                        count={node.value}
-                        continuingCount={continuingCount}
-                        dropOffCount={dropOffCount}
-                        averageConversionTime={averageConversionTime}
-                        isPathStart={isPathStart}
-                        isPathEnd={isPathEnd}
-                        openPersonsModal={openPersonsModal}
-                    />
-                }
-                trigger="hover"
-                placement="bottom"
-                padded={false}
-                matchWidth
+        <LemonDropdown
+            overlay={
+                <PathNodeCardMenu
+                    name={node.name}
+                    count={node.value}
+                    continuingCount={continuingCount}
+                    dropOffCount={dropOffCount}
+                    averageConversionTime={averageConversionTime}
+                    isPathStart={isPathStart}
+                    isPathEnd={isPathEnd}
+                    openPersonsModal={openPersonsModal}
+                />
+            }
+            trigger="hover"
+            placement="bottom"
+            padded={false}
+            matchWidth
+        >
+            <div
+                className="absolute rounded bg-surface-primary p-1"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    width: PATH_NODE_CARD_WIDTH,
+                    left: !isPathEnd
+                        ? node.x0 + PATH_NODE_CARD_LEFT_OFFSET
+                        : node.x0 + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
+                    top: calculatePathNodeCardTop(node, canvasHeight),
+                    border: `1px solid ${
+                        isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
+                            ? 'purple'
+                            : 'var(--color-border-primary)'
+                    }`,
+                }}
+                data-attr="path-node-card-button"
             >
-                <div
-                    className="absolute rounded bg-surface-primary p-1"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        width: PATH_NODE_CARD_WIDTH,
-                        left: !isPathEnd
-                            ? node.x0 + PATH_NODE_CARD_LEFT_OFFSET
-                            : node.x0 + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
-                        top: !isPathEnd
-                            ? node.y0 + PATH_NODE_CARD_TOP_OFFSET
-                            : // use middle for end nodes
-                              node.y0 + (node.y1 - node.y0) / 2,
-                        border: `1px solid ${
-                            isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
-                                ? 'purple'
-                                : 'var(--color-border-primary)'
-                        }`,
-                    }}
-                    data-attr="path-node-card-button"
-                >
-                    <PathNodeCardButton
-                        name={node.name}
-                        count={node.value}
-                        node={node}
-                        viewPathToFunnel={viewPathToFunnel}
-                        openPersonsModal={openPersonsModal}
-                        setFilter={updateInsightFilter}
-                        filter={pathsFilter}
-                    />
-                </div>
-            </LemonDropdown>
-        </Tooltip>
+                <PathNodeCardButton
+                    name={node.name}
+                    count={node.value}
+                    node={node}
+                    viewPathToFunnel={viewPathToFunnel}
+                    openPersonsModal={openPersonsModal}
+                    setFilter={updateInsightFilter}
+                    filter={pathsFilter}
+                    showFullUrls={pathsFilter.showFullUrls}
+                    tooltipContent={pageUrl(node, true, true)}
+                />
+            </div>
+        </LemonDropdown>
     )
 }

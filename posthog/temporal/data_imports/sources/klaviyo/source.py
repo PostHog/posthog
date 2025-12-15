@@ -5,14 +5,15 @@ from posthog.schema import (
     SourceConfig,
 )
 
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.generated_configs import KlaviyoSourceConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class KlaviyoSource(BaseSource[KlaviyoSourceConfig]):
+class KlaviyoSource(SimpleSource[KlaviyoSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.KLAVIYO

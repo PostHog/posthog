@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconApps } from '@posthog/icons'
+import { IconApps, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TagSelect } from 'lib/components/TagSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -13,6 +15,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -21,7 +24,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventDefinition, EventDefinitionType, FilterLogicalOperator, ReplayTabs } from '~/types'
 
@@ -43,6 +45,7 @@ export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -71,7 +74,7 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'last_seen_at',
             className: 'definition-column-last_seen_at',
             render: function Render(_, definition: EventDefinition) {
-                return definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : null
+                return definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : <span>-</span>
             },
             sorter: true,
         },
@@ -139,7 +142,6 @@ export function EventDefinitionsTable(): JSX.Element {
                     forceIcon: <IconApps />,
                 }}
             />
-            <SceneDivider />
             <LemonBanner type="info">
                 Looking for{' '}
                 {filters.event_type === 'event_custom'
@@ -168,14 +170,29 @@ export function EventDefinitionsTable(): JSX.Element {
                 </Link>
             </LemonBanner>
 
-            <div className={cn('flex justify-between items-center gap-2')}>
+            <div className={cn('flex flex-wrap justify-between items-center gap-2')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for events"
                     onChange={(v) => setFilters({ event: v || '' })}
                     value={filters.event}
+                    className="flex-1 min-w-60"
                 />
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    {hasTagging && (
+                        <>
+                            <span>Tags:</span>
+                            <TagSelect
+                                defaultLabel="Any tags"
+                                value={filters.tags || []}
+                                onChange={(tags) => {
+                                    setFilters({ tags })
+                                }}
+                                data-attr="event-tags-filter"
+                                size="small"
+                            />
+                        </>
+                    )}
                     <span>Type:</span>
                     <LemonSelect
                         value={filters.event_type}
@@ -187,8 +204,18 @@ export function EventDefinitionsTable(): JSX.Element {
                         }}
                         size="small"
                     />
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        onClick={() => setIsCreateModalOpen(true)}
+                        data-attr="create-event-definition-button"
+                    >
+                        Create event
+                    </LemonButton>
                 </div>
             </div>
+
+            <EventDefinitionModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} />
 
             <LemonTable
                 columns={columns}

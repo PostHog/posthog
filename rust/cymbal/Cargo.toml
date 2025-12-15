@@ -14,12 +14,13 @@ axum = { workspace = true }
 metrics = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
 common-redis = { path = "../common/redis" }
 limiters = { path = "../common/limiters" }
-posthog-symbol-data = "0.2.0"
+posthog-symbol-data = "0.3.0"
 common-geoip = { path = "../common/geoip" }
 hogvm = { path = "../common/hogvm" }
 thiserror = { workspace = true }
@@ -27,7 +28,8 @@ sqlx = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"
-symbolic = { version = "12.12.1", features = ["sourcemapcache"] }
+symbolic = { version = "12.17.0", features = ["sourcemapcache"] }
+proguard = "5.6.2"
 reqwest = { workspace = true }
 sha2 = "0.10.8"
 aws-config = { workspace = true }

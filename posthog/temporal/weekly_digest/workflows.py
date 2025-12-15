@@ -1,8 +1,9 @@
 import os
-import json
 import asyncio
 import itertools
 from datetime import UTC, datetime, timedelta
+
+from django.conf import settings
 
 from temporalio import common, workflow
 
@@ -16,7 +17,9 @@ from posthog.temporal.weekly_digest.activities import (
     generate_experiment_launched_lookup,
     generate_external_data_source_lookup,
     generate_feature_flag_lookup,
+    generate_filter_lookup,
     generate_organization_digest_batch,
+    generate_recording_lookup,
     generate_survey_lookup,
     generate_user_notification_lookup,
     send_weekly_digest_batch,
@@ -37,8 +40,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> WeeklyDigestInput:
         """Parse input from the management command CLI."""
-        loaded = json.loads(input[0])
-        return WeeklyDigestInput(**loaded)
+        return WeeklyDigestInput.model_validate_json(input[0]) if input else WeeklyDigestInput()
 
     @workflow.run
     async def run(self, input: WeeklyDigestInput) -> None:
@@ -48,35 +50,40 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
         if input.common.redis_port is None:
             input.common.redis_port = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
 
+        if input.common.django_redis_url is None:
+            input.common.django_redis_url = settings.REDIS_URL
+
         year, week, _ = datetime.now().isocalendar()
         period_end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         period_start = period_end - timedelta(days=7)
 
         digest = Digest(
-            key=f"weekly-digest-{year}-{week}",
+            key=input.digest_key_override or f"weekly-digest-{year}-{week}",
             period_start=period_start,
             period_end=period_end,
         )
 
-        await workflow.execute_child_workflow(
-            GenerateDigestDataWorkflow.run,
-            GenerateDigestDataInput(
-                digest=digest,
-                common=input.common,
-            ),
-            parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-            execution_timeout=timedelta(hours=15),
-            run_timeout=timedelta(hours=6),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=10),
-            ),
-        )
+        if not input.skip_generate:
+            await workflow.execute_child_workflow(
+                GenerateDigestDataWorkflow.run,
+                GenerateDigestDataInput(
+                    digest=digest,
+                    common=input.common,
+                ),
+                parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
+                execution_timeout=timedelta(hours=15),
+                run_timeout=timedelta(hours=6),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=10),
+                ),
+            )
 
         await workflow.execute_child_workflow(
             SendWeeklyDigestWorkflow.run,
             SendWeeklyDigestInput(
                 dry_run=input.dry_run,
+                allow_already_sent=input.allow_already_sent,
                 digest=digest,
                 common=input.common,
             ),
@@ -95,8 +102,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> GenerateDigestDataInput:
         """Parse input from the management command CLI."""
-        loaded = json.loads(input[0])
-        return GenerateDigestDataInput(**loaded)
+        return GenerateDigestDataInput.model_validate_json(input[0])
 
     @workflow.run
     async def run(self, input: GenerateDigestDataInput) -> None:
@@ -123,6 +129,8 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
             generate_survey_lookup,
             generate_feature_flag_lookup,
             generate_user_notification_lookup,
+            generate_filter_lookup,
+            generate_recording_lookup,
         ]
 
         await asyncio.gather(
@@ -134,7 +142,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                         digest=input.digest,
                         common=input.common,
                     ),
-                    start_to_close_timeout=timedelta(minutes=30),
+                    start_to_close_timeout=timedelta(hours=1),
                     retry_policy=common.RetryPolicy(
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),
@@ -183,8 +191,7 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> SendWeeklyDigestInput:
         """Parse input from the management command CLI."""
-        loaded = json.loads(input[0])
-        return SendWeeklyDigestInput(**loaded)
+        return SendWeeklyDigestInput.model_validate_json(input[0])
 
     @workflow.run
     async def run(self, input: SendWeeklyDigestInput) -> None:
@@ -206,7 +213,11 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                 workflow.execute_activity(
                     send_weekly_digest_batch,
                     SendWeeklyDigestBatchInput(
-                        batch=batch, dry_run=input.dry_run, digest=input.digest, common=input.common
+                        batch=batch,
+                        dry_run=input.dry_run,
+                        allow_already_sent=input.allow_already_sent,
+                        digest=input.digest,
+                        common=input.common,
                     ),
                     start_to_close_timeout=timedelta(minutes=30),
                     retry_policy=common.RetryPolicy(

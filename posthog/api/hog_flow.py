@@ -54,6 +54,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
     type = serializers.CharField(max_length=100)
     config = serializers.JSONField()
+    output_variable = serializers.JSONField(required=False, allow_null=True)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -63,7 +64,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     def validate(self, data):
         trigger_is_function = False
         if data.get("type") == "trigger":
-            if data.get("config", {}).get("type") in ["webhook", "tracking_pixel"]:
+            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel", "schedule"]:
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
@@ -95,7 +96,47 @@ class HogFlowActionSerializer(serializers.Serializer):
 
             data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
 
+        conditions = data.get("config", {}).get("conditions", [])
+
+        single_condition = data.get("config", {}).get("condition", None)
+        if conditions and single_condition:
+            raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
+        if single_condition:
+            conditions = [single_condition]
+
+        if conditions:
+            for condition in conditions:
+                filters = condition.get("filters")
+                if filters is not None:
+                    if "events" in filters:
+                        raise serializers.ValidationError("Event filters are not allowed in conditionals")
+
+                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    serializer.is_valid(raise_exception=True)
+                    condition["filters"] = serializer.validated_data
+
         return data
+
+
+class HogFlowVariableSerializer(serializers.ListSerializer):
+    child = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+    )
+
+    def validate(self, attrs):
+        # Make sure the keys are unique
+        keys = [item.get("key") for item in attrs]
+        if len(keys) != len(set(keys)):
+            raise serializers.ValidationError("Variable keys must be unique")
+
+        # Make sure entire variables definition is less than 1KB
+        # This is just a check for massive keys / default values, we also have a check for dynamically
+        # set variables during execution
+        total_size = sum(len(json.dumps(item)) for item in attrs)
+        if total_size > 1024:
+            raise serializers.ValidationError("Total size of variables definition must be less than 1KB")
+
+        return super().validate(attrs)
 
 
 class HogFlowMaskingSerializer(serializers.Serializer):
@@ -131,6 +172,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "edges",
             "actions",
             "abort_action",
+            "variables",
         ]
         read_only_fields = fields
 
@@ -138,6 +180,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 class HogFlowSerializer(HogFlowMinimalSerializer):
     actions = serializers.ListField(child=HogFlowActionSerializer(), required=True)
     trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
+    variables = HogFlowVariableSerializer(required=False)
 
     class Meta:
         model = HogFlow
@@ -157,6 +200,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "edges",
             "actions",
             "abort_action",
+            "variables",
         ]
         read_only_fields = [
             "id",

@@ -147,6 +147,12 @@ class ThemeMode(models.TextChoices):
     SYSTEM = "system", "System"
 
 
+class ShortcutPosition(models.TextChoices):
+    ABOVE = "above", "Above"
+    BELOW = "below", "Below"
+    HIDDEN = "hidden", "Hidden"
+
+
 class User(AbstractUser, UUIDTClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: list[str] = []
@@ -182,8 +188,13 @@ class User(AbstractUser, UUIDTClassicModel):
     # These override the notification settings
     partial_notification_settings = models.JSONField(null=True, blank=True)
     anonymize_data = models.BooleanField(default=False, null=True, blank=True)
+    allow_impersonation = models.BooleanField(default=True, null=True, blank=True)
     toolbar_mode = models.CharField(max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR)
     hedgehog_config = models.JSONField(null=True, blank=True)
+    allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
+    shortcut_position = models.CharField(
+        max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
+    )
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)
@@ -378,7 +389,7 @@ class User(AbstractUser, UUIDTClassicModel):
         from ee.billing.billing_manager import BillingManager  # avoid circular import
 
         if is_cloud() and get_cached_instance_license() is not None:
-            BillingManager(get_cached_instance_license()).update_billing_organization_users(organization)
+            BillingManager(get_cached_instance_license(), self).update_billing_organization_users(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (

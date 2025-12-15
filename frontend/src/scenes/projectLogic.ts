@@ -29,6 +29,7 @@ export const projectLogic = kea<projectLogicType>([
             organizationLogic,
             ['loadCurrentOrganization'],
         ],
+        values: [userLogic, ['otherOrganizations']],
     })),
     reducers({
         projectBeingDeleted: [
@@ -113,6 +114,13 @@ export const projectLogic = kea<projectLogicType>([
     })),
     selectors({
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
+        moveProjectDisabledReason: [
+            (s) => [s.otherOrganizations],
+            (otherOrganizations) =>
+                otherOrganizations.length === 0
+                    ? "You can't move the project because you aren't a member of another organization"
+                    : null,
+        ],
     }),
     listeners(({ actions }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
@@ -134,7 +142,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                actions.switchTeam(currentProject.id, urls.products())
+                actions.switchTeam(currentProject.id, urls.useCaseSelection())
             }
         },
 

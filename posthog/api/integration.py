@@ -40,7 +40,7 @@ from posthog.models.integration import (
 class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField()
-    provider = serializers.ChoiceField(choices=["ses", "mailjet", "maildev"] if settings.DEBUG else ["ses", "mailjet"])
+    provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -73,10 +73,16 @@ class IntegrationSerializer(serializers.ModelSerializer):
             serializer = NativeEmailIntegrationSerializer(data=config)
             serializer.is_valid(raise_exception=True)
 
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
             instance = EmailIntegration.create_native_integration(
                 serializer.validated_data,
-                team_id,
-                request.user,
+                team_id=team_id,
+                organization_id=organization_id,
+                created_by=request.user,
             )
             return instance
 

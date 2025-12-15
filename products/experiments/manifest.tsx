@@ -1,7 +1,7 @@
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -40,17 +40,20 @@ export const manifest: ProductManifest = {
             href: urls.experiment('new'),
             iconType: 'experiment',
             iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
+            sceneKeys: ['Experiments', 'Experiment'],
         },
     ],
     treeItemsProducts: [
         {
             path: `Experiments`,
+            intents: [ProductKey.EXPERIMENTS],
             category: 'Features',
             type: 'experiment',
             href: urls.experiments(),
             iconType: 'experiment',
             iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
             sceneKey: 'Experiments',
+            sceneKeys: ['Experiments', 'Experiment'],
         },
     ],
 }

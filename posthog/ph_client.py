@@ -15,7 +15,7 @@ PH_EU_HOST = "https://eu.i.posthog.com"
 logger = structlog.get_logger(__name__)
 
 
-def get_regional_ph_client():
+def get_regional_ph_client(**kwargs: Any):
     if not is_cloud():
         return
 
@@ -25,7 +25,7 @@ def get_regional_ph_client():
     if not region:
         return
 
-    return get_client(region)
+    return get_client(region, **kwargs)
 
 
 @contextmanager
@@ -41,7 +41,7 @@ def ph_scoped_capture():
     ph_client.shutdown()
 
 
-def get_client(region: str = "US"):
+def get_client(region: str = "US", **kwargs: Any):
     from posthoganalytics import Posthog
 
     api_key = None
@@ -55,4 +55,4 @@ def get_client(region: str = "US"):
     else:
         return
 
-    return Posthog(api_key, host=host, super_properties={"region": region})
+    return Posthog(api_key, host=host, super_properties={"region": region}, **kwargs)

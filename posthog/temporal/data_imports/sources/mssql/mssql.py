@@ -23,7 +23,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
-from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 if typing.TYPE_CHECKING:
     from pymssql import Cursor
@@ -98,7 +99,11 @@ def _build_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     query = base_query.format(top="TOP 100" if add_limit else "", schema=schema, table_name=table_name)
-    query = f"{query} WHERE [{incremental_field}] > %(incremental_value)s ORDER BY [{incremental_field}] ASC"
+    query = f"{query} WHERE [{incremental_field}] > %(incremental_value)s"
+    # it is only safe to have this order by nested in a CTE if TOP is also specified
+    # ordering for incremental sync purposes where TOP is not specified is handled in get_rows()
+    if add_limit:
+        query = f"{query} ORDER BY [{incremental_field}] ASC"
 
     return query, {
         "incremental_value": db_incremental_field_last_value,
@@ -339,11 +344,11 @@ def _get_table_chunk_size(
         return DEFAULT_CHUNK_SIZE
 
     chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-    min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
+
     logger.debug(
-        f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
+        f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
     )
-    return min_chunk_size
+    return chunk_size
 
 
 def _get_table_stats(cursor: Cursor, schema: str, table_name: str) -> tuple[int, float]:
@@ -528,6 +533,9 @@ def mssql_source(
                         incremental_field_type,
                         db_incremental_field_last_value,
                     )
+                    if incremental_field:
+                        query = f"{query} ORDER BY [{incremental_field}] ASC"
+
                     logger.debug(f"MS SQL query: {query.format(args)}")
 
                     cursor.execute(query, args)
@@ -545,7 +553,7 @@ def mssql_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(),
+        items=get_rows,
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,

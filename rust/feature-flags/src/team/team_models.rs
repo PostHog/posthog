@@ -1,4 +1,4 @@
-use common_types::{ProjectId, TeamId, TeamIdentifier};
+use common_types::{TeamId, TeamIdentifier};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::{Json, Uuid};
@@ -10,11 +10,6 @@ pub struct Team {
     pub id: TeamId,
     pub name: String,
     pub api_token: String,
-    /// Project ID. This field is not present in Redis cache before Dec 2025, but this is not a problem at all,
-    /// because we know all Teams created before Dec 2025 have `project_id` = `id`. To handle this case gracefully,
-    /// we use 0 as a fallback value in deserialization here, and handle this in `Team::from_redis`.
-    /// Thanks to this default-base approach, we avoid invalidating the whole cache needlessly.
-    pub project_id: ProjectId,
     pub uuid: Uuid,
     pub organization_id: Option<Uuid>,
     pub autocapture_opt_out: Option<bool>,
@@ -38,13 +33,14 @@ pub struct Team {
     pub session_recording_masking_config: Option<Json<serde_json::Value>>,
     pub session_replay_config: Option<Json<serde_json::Value>>,
     pub survey_config: Option<Json<serde_json::Value>>,
+    pub extra_settings: Option<Json<serde_json::Value>>,
     pub session_recording_url_trigger_config: Option<Vec<Json<serde_json::Value>>>, // jsonb[] in postgres
     pub session_recording_url_blocklist_config: Option<Vec<Json<serde_json::Value>>>, // jsonb[] in postgres
     pub session_recording_event_trigger_config: Option<Vec<Option<String>>>, // text[] in postgres. NB: this also contains NULL entries along with strings.
     pub session_recording_trigger_match_type_config: Option<String>, // character varying(24) in postgres
     pub recording_domains: Option<Vec<String>>, // character varying(200)[] in postgres
     #[serde(with = "option_i16_as_i16")]
-    pub cookieless_server_hash_mode: i16,
+    pub cookieless_server_hash_mode: Option<i16>,
     #[serde(default = "default_timezone")]
     pub timezone: String,
 }
@@ -56,18 +52,18 @@ fn default_timezone() -> String {
 mod option_i16_as_i16 {
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(value: &i16, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(value: &Option<i16>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_i16(*value)
+        serializer.serialize_i16(value.unwrap_or(0))
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<i16, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<i16>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        Option::<i16>::deserialize(deserializer).map(|opt| opt.unwrap_or(0))
+        Option::<i16>::deserialize(deserializer)
     }
 }
 

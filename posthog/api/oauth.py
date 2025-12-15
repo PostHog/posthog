@@ -1,20 +1,25 @@
 import json
 import uuid
+import hashlib
+import calendar
 from datetime import timedelta
 from typing import TypedDict, cast
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from oauth2_provider.compat import login_not_required
 from oauth2_provider.exceptions import OAuthToolkitError
 from oauth2_provider.http import OAuth2ResponseRedirect
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.views import (
+    ClientProtectedScopedResourceView,
     ConnectDiscoveryInfoView,
-    IntrospectTokenView,
     JwksInfoView,
     RevokeTokenView,
     TokenView,
@@ -428,8 +433,69 @@ class OAuthRevokeTokenView(RevokeTokenView):
     pass
 
 
-class OAuthIntrospectTokenView(IntrospectTokenView):
-    pass
+@method_decorator(csrf_exempt, name="dispatch")
+@method_decorator(login_not_required, name="dispatch")
+class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
+    """
+    Implements an endpoint for token introspection based
+    on RFC 7662 https://rfc-editor.org/rfc/rfc7662.html
+
+    To access this view the request must pass a OAuth2 Bearer Token
+    which is allowed to access the scope `introspection`. Alternatively,
+    if the client_id and client_secret are provided, the request is
+    authenticated using client credentials and does not require the `introspection` scope.
+    """
+
+    required_scopes = ["introspection"]
+
+    @staticmethod
+    def get_token_response(token_value=None):
+        if not token_value:
+            return JsonResponse({"active": False}, status=200)
+
+        try:
+            token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
+            token = OAuthAccessToken.objects.get(token_checksum=token_checksum) or OAuthRefreshToken.objects.get(
+                token_checksum=token_checksum
+            )
+        except ObjectDoesNotExist:
+            return JsonResponse({"active": False}, status=200)
+
+        if token.is_valid():
+            data = {
+                "active": True,
+                "scope": token.scope,
+                "scoped_teams": token.scoped_teams or [],
+                "scoped_organizations": token.scoped_organizations or [],
+                "exp": int(calendar.timegm(token.expires.timetuple())),
+            }
+            if token.application:
+                data["client_id"] = token.application.client_id
+            return JsonResponse(data)
+        else:
+            return JsonResponse({"active": False}, status=200)
+
+    def get(self, request, *args, **kwargs):
+        """
+        Get the token from the URL parameters.
+        URL: https://example.com/introspect?token=mF_9.B5f-4.1JqM
+        """
+        return self.get_token_response(request.GET.get("token", None))
+
+    def post(self, request, *args, **kwargs):
+        """
+        Get the token from the body (supports both form-urlencoded and JSON).
+        Form: token=mF_9.B5f-4.1JqM
+        JSON: {"token": "mF_9.B5f-4.1JqM"}
+        """
+        token = request.POST.get("token")
+        if not token and request.content_type == "application/json" and request.body:
+            try:
+                json_data = json.loads(request.body)
+                token = json_data.get("token")
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return self.get_token_response(token)
 
 
 class OAuthConnectDiscoveryInfoView(ConnectDiscoveryInfoView):

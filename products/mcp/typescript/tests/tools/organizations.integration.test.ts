@@ -1,3 +1,5 @@
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -13,7 +15,6 @@ import getOrganizationDetailsTool from '@/tools/organizations/getDetails'
 import getOrganizationsTool from '@/tools/organizations/getOrganizations'
 import setActiveOrganizationTool from '@/tools/organizations/setActive'
 import type { Context } from '@/tools/types'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 describe.skip('Organizations', { concurrent: false }, () => {
     let context: Context
@@ -55,7 +56,7 @@ describe.skip('Organizations', { concurrent: false }, () => {
             const orgs = parseToolResponse(result)
 
             const testOrg = orgs.find((org: any) => org.id === TEST_ORG_ID)
-            expect(testOrg).toBeDefined()
+            expect(testOrg).toBeTruthy()
             expect(testOrg.id).toBe(TEST_ORG_ID)
         })
     })
@@ -80,7 +81,7 @@ describe.skip('Organizations', { concurrent: false }, () => {
                 await setTool.handler(context, { orgId: 'invalid-org-id-12345' })
                 expect.fail('Should have thrown an error')
             } catch (error) {
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
             }
         })
     })
@@ -102,7 +103,7 @@ describe.skip('Organizations', { concurrent: false }, () => {
             const result = await getDetailsTool.handler(context, {})
             const orgDetails = parseToolResponse(result)
 
-            expect(orgDetails.projects).toBeDefined()
+            expect(orgDetails.projects).toBeTruthy()
             expect(Array.isArray(orgDetails.projects)).toBe(true)
 
             if (orgDetails.projects.length > 0) {
@@ -111,10 +112,8 @@ describe.skip('Organizations', { concurrent: false }, () => {
                 expect(project).toHaveProperty('name')
             }
 
-            const testProject = orgDetails.projects.find(
-                (p: any) => p.id === Number(TEST_PROJECT_ID)
-            )
-            expect(testProject).toBeDefined()
+            const testProject = orgDetails.projects.find((p: any) => p.id === Number(TEST_PROJECT_ID))
+            expect(testProject).toBeTruthy()
         })
     })
 

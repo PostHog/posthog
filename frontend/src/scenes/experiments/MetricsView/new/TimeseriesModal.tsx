@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { VariantTag } from '../../ExperimentView/components'
@@ -32,7 +33,7 @@ export function TimeseriesModal({
     variantResult,
     experiment,
 }: TimeseriesModalProps): JSX.Element {
-    const logic = experimentTimeseriesLogic({ experimentId: experiment.id, metric: isOpen ? metric : undefined })
+    const logic = experimentTimeseriesLogic({ experiment, metric: isOpen ? metric : undefined })
     const { chartData, progressMessage, hasTimeseriesData, timeseriesLoading, isRecalculating, timeseries } =
         useValues(logic)
     const { recalculateTimeseries, loadTimeseries } = useActions(logic)
@@ -84,7 +85,7 @@ export function TimeseriesModal({
                     </div>
                     <LemonDivider vertical className="h-4 self-stretch" />
                     <div className="flex items-center">
-                        <VariantTag experimentId={experiment.id} variantKey={variantResult.key} />
+                        <VariantTag variantKey={variantResult.key} />
                     </div>
                 </div>
             }
@@ -146,7 +147,14 @@ export function TimeseriesModal({
                             </div>
                         )}
                         <div className="flex justify-between items-center mt-2 mb-4">
-                            <div className="text-xs text-muted">{progressMessage || ''}</div>
+                            <div className="flex items-center gap-1">
+                                <div className="text-xs text-muted">{progressMessage || ''}</div>
+                                {progressMessage && (
+                                    <Tooltip title="The chart displays data starting from the first day with meaningful results. Earlier days without sufficient data are excluded from the visualization.">
+                                        <IconInfo className="text-muted text-base" />
+                                    </Tooltip>
+                                )}
+                            </div>
                             <More
                                 overlay={
                                     <>
@@ -157,7 +165,10 @@ export function TimeseriesModal({
                         </div>
                         {hasTimeseriesData ? (
                             processedChartData ? (
-                                <VariantTimeseriesChart chartData={processedChartData} />
+                                <VariantTimeseriesChart
+                                    chartData={processedChartData}
+                                    isRatioMetric={isExperimentRatioMetric(metric)}
+                                />
                             ) : (
                                 <div className="p-10 text-center text-muted">
                                     No timeseries data available for this variant

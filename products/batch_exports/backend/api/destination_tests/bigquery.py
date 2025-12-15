@@ -58,12 +58,12 @@ class BigQueryProjectTestStep(DestinationTestStep):
         assert self.project_id is not None
 
         client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
-        projects = {p.project_id for p in client.list_projects()}
+        projects = {p.project_id for p in client.sync_client.list_projects()}
 
         if self.project_id in projects:
             return DestinationTestStepResult(status=Status.PASSED)
 
-        dataset_projects = {d.project for d in client.list_datasets()}
+        dataset_projects = {d.project for d in client.sync_client.list_datasets()}
 
         if self.project_id in dataset_projects:
             return DestinationTestStepResult(status=Status.PASSED)
@@ -133,7 +133,7 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
 
         try:
-            _ = client.get_dataset(self.dataset_id)
+            _ = client.sync_client.get_dataset(self.dataset_id)
         except NotFound:
             return DestinationTestStepResult(
                 status=Status.FAILED,
@@ -214,7 +214,7 @@ class BigQueryTableTestStep(DestinationTestStep):
         table = bigquery.Table(fully_qualified_name, schema=[bigquery.SchemaField(name="event", field_type="STRING")])
 
         try:
-            _ = client.get_table(table)
+            _ = client.sync_client.get_table(table)
         except NotFound:
             try:
                 # Since permissions to create are not table specific, we can test creating
@@ -226,7 +226,7 @@ class BigQueryTableTestStep(DestinationTestStep):
                     fully_qualified_name, schema=[bigquery.SchemaField(name="event", field_type="STRING")]
                 )
 
-                _ = client.create_table(table, exists_ok=True)
+                _ = client.sync_client.create_table(table, exists_ok=True)
             except BadRequest as err:
                 return DestinationTestStepResult(
                     status=Status.FAILED,
@@ -234,7 +234,7 @@ class BigQueryTableTestStep(DestinationTestStep):
                 )
             else:
                 try:
-                    client.delete_table(table, not_found_ok=True)
+                    client.sync_client.delete_table(table, not_found_ok=True)
                 except BadRequest as err:
                     return DestinationTestStepResult(
                         status=Status.FAILED,

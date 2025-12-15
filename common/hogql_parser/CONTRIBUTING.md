@@ -19,13 +19,13 @@ Key takeaways:
 Key takeaways:
 
 1. If a Python exception has been raised, the module method that was called from Python must stop execution and return `NULL` immediately.
-    > In `HogQLParseTreeConverter`, we are able to use C++ exceptions: throwing `SyntaxException`,
-    > `NotImplementedException`, or `ParsingException` results in the same exception being raised in Python as
-    > expected. Note that if a `visitAsFoo` call throws an exception and there are `PyObject*`s in scope, we have to
-    > remember about cleaning up their refcounts. At such call sites, a `try {} catch (...) {}` block is appropriate.
+   > In `HogQLParseTreeConverter`, we are able to use C++ exceptions: throwing `SyntaxException`,
+   > `NotImplementedException`, or `ParsingException` results in the same exception being raised in Python as
+   > expected. Note that if a `visitAsFoo` call throws an exception and there are `PyObject*`s in scope, we have to
+   > remember about cleaning up their refcounts. At such call sites, a `try {} catch (...) {}` block is appropriate.
 1. For all Python/C API calls returning `PyObject*`, make sure `NULL` wasn't returned - if it was, then something failed and the Python runtime has already set an exception (e.g. a `MemoryError`). The same applies to calls returning `int` - there the error value is `-1`. Exception: in `PyArg_Foo` functions failure is signaled by `0` and success by `1`.
-    > In `HogQLParseTreeConverter`, these internal Python failures are handled simply by throwing
-    > `PyInternalException`.
+   > In `HogQLParseTreeConverter`, these internal Python failures are handled simply by throwing
+   > `PyInternalException`.
 
 ### [Building Values](https://docs.python.org/3/c-api/arg.html#building-values)
 
@@ -48,26 +48,26 @@ Key takeaways:
 
 1. Install libraries:
 
-    ```bash
-    brew install boost antlr4-cpp-runtime
-    ```
+   ```bash
+   brew install boost antlr4-cpp-runtime
+   ```
 
 1. Install `hogql_parser` by building from local sources:
 
-    ```bash
-    pip install ./common/hogql_parser
-    ```
+   ```bash
+   pip install ./common/hogql_parser
+   ```
 
-    > If you're getting compilation errors like this on macOS Sonoma:  
-    > `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/cstring:66:5: error: <cstring> tried including <string.h> but didn't find libc++'s <string.h> header.`  
-    > Then you may need to remove Xcode Command Line Tools:  
-    > `sudo rm -rf /Library/Developer/CommandLineTools`
+   > If you're getting compilation errors like this on macOS Sonoma:  
+   > `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/cstring:66:5: error: <cstring> tried including <string.h> but didn't find libc++'s <string.h> header.`  
+   > Then you may need to remove Xcode Command Line Tools:  
+   > `sudo rm -rf /Library/Developer/CommandLineTools`
 
 1. If you now run tests, the locally-built version of `hogql_parser` will be used:
 
-    ```bash
-    pytest posthog/hogql/
-    ```
+   ```bash
+   pytest posthog/hogql/
+   ```
 
 ## How to install dependencies on Ubuntu
 

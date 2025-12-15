@@ -93,9 +93,12 @@ async fn process_request_inner(
 
     let result = async {
         let flag_service = FlagService::new(
-            context.state.redis_reader.clone(),
-            context.state.redis_writer.clone(),
+            context.state.redis_client.clone(),
+            context.state.dedicated_redis_client.clone(),
             context.state.database_pools.non_persons_reader.clone(),
+            context.state.config.team_cache_ttl_seconds,
+            context.state.config.flags_cache_ttl_seconds,
+            context.state.config.clone(),
         );
 
         let (original_distinct_id, verified_token, request) =
@@ -117,11 +120,7 @@ async fn process_request_inner(
         metrics_data.team_id = Some(team.id);
         metrics_data.flags_disabled = Some(request.is_flags_disabled());
 
-        tracing::debug!(
-            "Team fetched: team_id={}, project_id={}",
-            team.id,
-            team.project_id
-        );
+        tracing::debug!("Team fetched: team_id={}", team.id);
 
         // Early exit if flags are disabled
         let flags_response = if request.is_flags_disabled() {
@@ -143,9 +142,9 @@ async fn process_request_inner(
 
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
-            let (filtered_flags, had_flag_errors) = flags::fetch_and_filter(
+            let filtered_flags = flags::fetch_and_filter(
                 &flag_service,
-                team.project_id,
+                team.id,
                 &context.meta,
                 &context.headers,
                 request.evaluation_runtime,
@@ -158,11 +157,11 @@ async fn process_request_inner(
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 
             // Evaluate flags (this will return empty if is_flags_disabled is true)
-            let mut response = flags::evaluate_for_request(
+            let response = flags::evaluate_for_request(
                 &context.state,
                 team.id,
-                team.project_id,
                 distinct_id.clone(),
+                request.device_id.clone(),
                 filtered_flags.clone(),
                 property_overrides.person_properties,
                 property_overrides.group_properties,
@@ -173,11 +172,6 @@ async fn process_request_inner(
                 request.flag_keys.clone(),
             )
             .await;
-
-            // Set error flag if there were deserialization errors
-            if had_flag_errors {
-                response.errors_while_computing_flags = true;
-            }
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {
@@ -197,7 +191,6 @@ async fn process_request_inner(
             request_id = %context.request_id,
             distinct_id = %distinct_id_for_logging,
             team_id = team.id,
-            project_id = team.project_id,
             flags_count = response.flags.len(),
             flags_disabled = request.is_flags_disabled(),
             quota_limited = response.quota_limited.is_some(),

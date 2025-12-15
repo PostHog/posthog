@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, key, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog, { Properties } from 'posthog-js'
 
 import { Params } from 'scenes/sceneTypes'
 
@@ -16,7 +17,15 @@ export type ErrorTrackingQueryRevenueEntity = ErrorTrackingQuery['revenueEntity'
 export type ErrorTrackingQueryAssignee = ErrorTrackingQuery['assignee']
 export type ErrorTrackingQueryStatus = ErrorTrackingQuery['status']
 
-const DEFAULT_ORDER_BY = 'last_seen'
+export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
+    last_seen: 'Last seen',
+    first_seen: 'First seen',
+    occurrences: 'Occurrences',
+    users: 'Users',
+    sessions: 'Sessions',
+    revenue: 'Revenue',
+}
+const DEFAULT_ORDER_BY: ErrorTrackingQueryOrderBy = 'last_seen'
 const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_REVENUE_PERIOD = 'last_30_days'
 const DEFAULT_REVENUE_ENTITY = 'person'
@@ -86,6 +95,21 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         ],
     }),
 
+    listeners(({ values }) => ({
+        setOrderBy: ({ orderBy }) => {
+            posthog.capture(
+                'error_tracking_issues_sorted',
+                issueSortedCaptureProperties(orderBy, values.orderDirection, values.revenueEntity)
+            )
+        },
+        setOrderDirection: ({ orderDirection }) => {
+            posthog.capture(
+                'error_tracking_issues_sorted',
+                issueSortedCaptureProperties(values.orderBy, orderDirection, values.revenueEntity)
+            )
+        },
+    })),
+
     actionToUrl(({ values }) => {
         const buildURL = (): [
             string,
@@ -119,7 +143,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
-                actions.setOrderBy(params.orderBy)
+                if (params.orderBy in ORDER_BY_OPTIONS) {
+                    actions.setOrderBy(params.orderBy)
+                }
             }
             if (params.status && !equal(params.status, values.status)) {
                 actions.setStatus(params.status)
@@ -142,3 +168,16 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         }
     }),
 ])
+
+function issueSortedCaptureProperties(orderBy: any, orderDirection: any, revenueEntity: any): Properties {
+    const properties: Properties = {
+        sort_by: orderBy,
+        sort_direction: orderDirection,
+    }
+
+    if (orderBy === 'revenue') {
+        properties.revenue_entity = revenueEntity
+    }
+
+    return properties
+}

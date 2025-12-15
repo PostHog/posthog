@@ -1,9 +1,13 @@
+import { z } from 'zod'
+
 import { ErrorCode } from '@/lib/errors'
-import { withPagination } from '@/lib/utils/api'
 import { getSearchParamsFromRecord } from '@/lib/utils/helper-functions'
 import {
     type ApiEventDefinition,
     ApiEventDefinitionSchema,
+    ApiListResponseSchema,
+    type ApiOAuthIntrospection,
+    ApiOAuthIntrospectionSchema,
     type ApiPropertyDefinition,
     ApiPropertyDefinitionSchema,
     type ApiRedactedPersonalApiKey,
@@ -51,7 +55,7 @@ import { type Organization, OrganizationSchema } from '@/schema/orgs'
 import { type Project, ProjectSchema } from '@/schema/projects'
 import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
-import { z } from 'zod'
+
 import type {
     CreateSurveyInput,
     GetSurveySpecificStatsInput,
@@ -81,9 +85,12 @@ export interface ApiConfig {
     apiToken: string
     baseUrl: string
 }
+
+type Endpoint = Record<string, any>
+
 export class ApiClient {
-    private config: ApiConfig
-    private baseUrl: string
+    public config: ApiConfig
+    public baseUrl: string
     // NOTE: The OpenAPI schema for the generated client is not always accurate
     public generated: ReturnType<typeof createApiClient>
 
@@ -93,14 +100,15 @@ export class ApiClient {
 
         this.generated = createApiClient(buildApiFetcher(this.config), this.baseUrl)
     }
-    private buildHeaders() {
+
+    private buildHeaders(): Record<string, string> {
         return {
             Authorization: `Bearer ${this.config.apiToken}`,
             'Content-Type': 'application/json',
         }
     }
 
-    getProjectBaseUrl(projectId: string) {
+    getProjectBaseUrl(projectId: string): string {
         if (projectId === '@current') {
             return this.baseUrl
         }
@@ -108,11 +116,7 @@ export class ApiClient {
         return `${this.baseUrl}/project/${projectId}`
     }
 
-    private async fetchWithSchema<T>(
-        url: string,
-        schema: z.ZodType<T>,
-        options?: RequestInit
-    ): Promise<Result<T>> {
+    private async fetchWithSchema<T>(url: string, schema: z.ZodType<T>, options?: RequestInit): Promise<Result<T>> {
         try {
             const response = await fetch(url, {
                 ...options,
@@ -158,17 +162,14 @@ export class ApiClient {
         }
     }
 
-    organizations() {
+    organizations(): Endpoint {
         return {
             list: async (): Promise<Result<Organization[]>> => {
                 const responseSchema = z.object({
                     results: z.array(OrganizationSchema),
                 })
 
-                const result = await this.fetchWithSchema(
-                    `${this.baseUrl}/api/organizations/`,
-                    responseSchema
-                )
+                const result = await this.fetchWithSchema(`${this.baseUrl}/api/organizations/`, responseSchema)
 
                 if (result.success) {
                     return { success: true, data: result.data.results }
@@ -177,10 +178,7 @@ export class ApiClient {
             },
 
             get: async ({ orgId }: { orgId: string }): Promise<Result<Organization>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/organizations/${orgId}/`,
-                    OrganizationSchema
-                )
+                return this.fetchWithSchema(`${this.baseUrl}/api/organizations/${orgId}/`, OrganizationSchema)
             },
 
             projects: ({ orgId }: { orgId: string }) => {
@@ -205,7 +203,7 @@ export class ApiClient {
         }
     }
 
-    apiKeys() {
+    apiKeys(): Endpoint {
         return {
             current: async (): Promise<Result<ApiRedactedPersonalApiKey>> => {
                 return this.fetchWithSchema(
@@ -216,13 +214,25 @@ export class ApiClient {
         }
     }
 
-    projects() {
+    oauth(): Endpoint {
+        return {
+            introspect: async ({ token }: { token: string }): Promise<Result<ApiOAuthIntrospection>> => {
+                return this.fetchWithSchema(`${this.baseUrl}/oauth/introspect`, ApiOAuthIntrospectionSchema, {
+                    method: 'POST',
+                    body: JSON.stringify({ token }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
+                })
+            },
+        }
+    }
+
+    projects(): Endpoint {
         return {
             get: async ({ projectId }: { projectId: string }): Promise<Result<Project>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/`,
-                    ProjectSchema
-                )
+                return this.fetchWithSchema(`${this.baseUrl}/api/projects/${projectId}/`, ProjectSchema)
             },
 
             propertyDefinitions: async ({
@@ -250,7 +260,7 @@ export class ApiClient {
                         exclude_core_properties: excludeCoreProperties,
                         filter_by_event_names: filterByEventNames,
                         is_feature_flag: isFeatureFlag,
-                        limit: limit ?? 100,
+                        limit: limit ?? 50,
                         offset: offset ?? 0,
                         type: type ?? 'event',
                         exclude_hidden: true,
@@ -258,18 +268,24 @@ export class ApiClient {
 
                     const searchParams = getSearchParamsFromRecord(params)
 
-                    const url = `${this.baseUrl}/api/projects/${projectId}/property_definitions/${
-                        searchParams.toString() ? `?${searchParams}` : ''
-                    }`
+                    const url = `${this.baseUrl}/api/projects/${projectId}/property_definitions/?${searchParams}`
 
-                    const propertyDefinitions = await withPagination(
-                        url,
-                        this.config.apiToken,
-                        ApiPropertyDefinitionSchema
-                    )
+                    const response = await fetch(url, {
+                        headers: {
+                            Authorization: `Bearer ${this.config.apiToken}`,
+                        },
+                    })
 
-                    const propertyDefinitionsWithoutHidden = propertyDefinitions.filter(
-                        (def) => !def.hidden
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch property definitions: ${response.statusText}`)
+                    }
+
+                    const data = await response.json()
+                    const responseSchema = ApiListResponseSchema(ApiPropertyDefinitionSchema)
+                    const parsedData = responseSchema.parse(data)
+
+                    const propertyDefinitionsWithoutHidden = parsedData.results.filter(
+                        (def: ApiPropertyDefinition) => !def.hidden
                     )
 
                     return { success: true, data: propertyDefinitionsWithoutHidden }
@@ -281,22 +297,38 @@ export class ApiClient {
             eventDefinitions: async ({
                 projectId,
                 search,
+                limit,
+                offset,
             }: {
                 projectId: string
                 search?: string | undefined
+                limit?: number
+                offset?: number
             }): Promise<Result<ApiEventDefinition[]>> => {
                 try {
-                    const searchParams = getSearchParamsFromRecord({ search })
+                    const searchParams = getSearchParamsFromRecord({
+                        search,
+                        limit: limit ?? 50,
+                        offset: offset ?? 0,
+                    })
 
-                    const requestUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${searchParams.toString() ? `?${searchParams}` : ''}`
+                    const requestUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/?${searchParams}`
 
-                    const eventDefinitions = await withPagination(
-                        requestUrl,
-                        this.config.apiToken,
-                        ApiEventDefinitionSchema
-                    )
+                    const response = await fetch(requestUrl, {
+                        headers: {
+                            Authorization: `Bearer ${this.config.apiToken}`,
+                        },
+                    })
 
-                    return { success: true, data: eventDefinitions }
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch event definitions: ${response.statusText}`)
+                    }
+
+                    const data = await response.json()
+                    const responseSchema = ApiListResponseSchema(ApiEventDefinitionSchema)
+                    const parsedData = responseSchema.parse(data)
+
+                    return { success: true, data: parsedData.results }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -304,27 +336,27 @@ export class ApiClient {
         }
     }
 
-    experiments({ projectId }: { projectId: string }) {
+    experiments({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async (): Promise<Result<Experiment[]>> => {
+            list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
+                Result<Experiment[]>
+            > => {
                 try {
-                    const response = await withPagination(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/`,
-                        this.config.apiToken,
-                        ExperimentSchema
-                    )
+                    const limit = params?.limit ?? 50
+                    const offset = params?.offset ?? 0
 
-                    return { success: true, data: response }
+                    const response = await this.generated.get('/api/projects/{project_id}/experiments/', {
+                        path: { project_id: projectId },
+                        query: { limit, offset },
+                    })
+
+                    return { success: true, data: response.results as Experiment[] }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
             },
 
-            get: async ({
-                experimentId,
-            }: {
-                experimentId: number
-            }): Promise<Result<Experiment>> => {
+            get: async ({ experimentId }: { experimentId: number }): Promise<Result<Experiment>> => {
                 return this.fetchWithSchema(
                     `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
                     ExperimentSchema
@@ -467,17 +499,14 @@ export class ApiClient {
 
                 // Prepare metrics queries
                 const sharedPrimaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }) => metadata.type === 'primary')
-                    .map(({ query }) => query)
+                    .filter(({ metadata }: any) => metadata.type === 'primary')
+                    .map(({ query }: any) => query)
                 const allPrimaryMetrics = [...(experiment.metrics || []), ...sharedPrimaryMetrics]
 
                 const sharedSecondaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }) => metadata.type === 'secondary')
-                    .map(({ query }) => query)
-                const allSecondaryMetrics = [
-                    ...(experiment.metrics_secondary || []),
-                    ...sharedSecondaryMetrics,
-                ]
+                    .filter(({ metadata }: any) => metadata.type === 'secondary')
+                    .map(({ query }: any) => query)
+                const allSecondaryMetrics = [...(experiment.metrics_secondary || []), ...sharedSecondaryMetrics]
 
                 // Execute queries for primary metrics
                 const primaryResults = await Promise.all(
@@ -504,7 +533,7 @@ export class ApiClient {
                             )
 
                             return result.success ? result.data : null
-                        } catch (error) {
+                        } catch {
                             return null
                         }
                     })
@@ -535,7 +564,7 @@ export class ApiClient {
                             )
 
                             return result.success ? result.data : null
-                        } catch (error) {
+                        } catch {
                             return null
                         }
                     })
@@ -552,9 +581,7 @@ export class ApiClient {
                 }
             },
 
-            create: async (
-                experimentData: z.infer<typeof ExperimentCreateSchema>
-            ): Promise<Result<Experiment>> => {
+            create: async (experimentData: z.infer<typeof ExperimentCreateSchema>): Promise<Result<Experiment>> => {
                 // Transform agent input to API payload
                 const createBody = ExperimentCreatePayloadSchema.parse(experimentData)
 
@@ -624,33 +651,28 @@ export class ApiClient {
         }
     }
 
-    featureFlags({ projectId }: { projectId: string }) {
+    featureFlags({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async (): Promise<
+            list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
                 Result<Array<{ id: number; key: string; name: string; active: boolean }>>
             > => {
                 try {
-                    const schema = FeatureFlagSchema.pick({
-                        id: true,
-                        key: true,
-                        name: true,
-                        active: true,
-                    })
+                    const limit = params?.limit ?? 50
+                    const offset = params?.offset ?? 0
 
-                    const response = await withPagination(
-                        `${this.baseUrl}/api/projects/${projectId}/feature_flags/`,
-                        this.config.apiToken,
-                        schema
-                    )
+                    const response = await this.generated.get('/api/projects/{project_id}/feature_flags/', {
+                        path: { project_id: projectId },
+                        query: { limit, offset },
+                    })
 
                     return {
                         success: true,
-                        data: response as Array<{
-                            id: number
-                            key: string
-                            name: string
-                            active: boolean
-                        }>,
+                        data: response.results.map((f) => ({
+                            id: f.id,
+                            key: f.key,
+                            name: f.name ?? '',
+                            active: f.active ?? false,
+                        })),
                     }
                 } catch (error) {
                     return { success: false, error: error as Error }
@@ -680,16 +702,16 @@ export class ApiClient {
                 key,
             }: {
                 key: string
-            }): Promise<
-                Result<{ id: number; key: string; name: string; active: boolean } | undefined>
-            > => {
+            }): Promise<Result<{ id: number; key: string; name: string; active: boolean } | undefined>> => {
                 const listResult = await this.featureFlags({ projectId }).list()
 
                 if (!listResult.success) {
                     return { success: false, error: listResult.error }
                 }
 
-                const found = listResult.data.find((f) => f.key === key)
+                const found = listResult.data.find(
+                    (f: { id: number; key: string; name: string; active: boolean }) => f.key === key
+                )
 
                 if (!found) {
                     return { success: true, data: undefined }
@@ -768,20 +790,13 @@ export class ApiClient {
                 )
             },
 
-            delete: async ({
-                flagId,
-            }: {
-                flagId: number
-            }): Promise<Result<{ success: boolean; message: string }>> => {
+            delete: async ({ flagId }: { flagId: number }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`,
-                        {
-                            method: 'PATCH',
-                            headers: this.buildHeaders(),
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
+                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`, {
+                        method: 'PATCH',
+                        headers: this.buildHeaders(),
+                        body: JSON.stringify({ deleted: true }),
+                    })
 
                     if (!response.ok) {
                         throw new Error(`Failed to delete feature flag: ${response.statusText}`)
@@ -801,26 +816,21 @@ export class ApiClient {
         }
     }
 
-    insights({ projectId }: { projectId: string }) {
+    insights({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListInsightsData } = {}): Promise<
-                Result<Array<Schemas.Insight>>
-            > => {
+            list: async ({ params }: { params?: ListInsightsData } = {}): Promise<Result<Array<Schemas.Insight>>> => {
                 try {
-                    const response = await this.generated.get(
-                        '/api/projects/{project_id}/insights/',
-                        {
-                            path: { project_id: projectId },
-                            query: params
-                                ? {
-                                      limit: params.limit,
-                                      offset: params.offset,
-                                      //@ts-expect-error search is not implemented as a query parameter
-                                      search: params.search,
-                                  }
-                                : {},
-                        }
-                    )
+                    const response = await this.generated.get('/api/projects/{project_id}/insights/', {
+                        path: { project_id: projectId },
+                        query: params
+                            ? {
+                                  limit: params.limit,
+                                  offset: params.offset,
+                                  //@ts-expect-error search is not implemented as a query parameter
+                                  search: params.search,
+                              }
+                            : {},
+                    })
 
                     return { success: true, data: response.results }
                 } catch (error) {
@@ -828,11 +838,7 @@ export class ApiClient {
                 }
             },
 
-            create: async ({
-                data,
-            }: {
-                data: CreateInsightInput
-            }): Promise<Result<SimpleInsight>> => {
+            create: async ({ data }: { data: CreateInsightInput }): Promise<Result<SimpleInsight>> => {
                 const validatedInput = CreateInsightInputSchema.parse(data)
 
                 return this.fetchWithSchema(
@@ -881,13 +887,7 @@ export class ApiClient {
                 )
             },
 
-            update: async ({
-                insightId,
-                data,
-            }: {
-                insightId: number
-                data: any
-            }): Promise<Result<SimpleInsight>> => {
+            update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<SimpleInsight>> => {
                 return this.fetchWithSchema(
                     `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
                     SimpleInsightSchema,
@@ -904,14 +904,11 @@ export class ApiClient {
                 insightId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
-                        {
-                            method: 'PATCH',
-                            headers: this.buildHeaders(),
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
+                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`, {
+                        method: 'PATCH',
+                        headers: this.buildHeaders(),
+                        body: JSON.stringify({ deleted: true }),
+                    })
 
                     if (!response.ok) {
                         throw new Error(`Failed to delete insight: ${response.statusText}`)
@@ -976,7 +973,7 @@ export class ApiClient {
         }
     }
 
-    dashboards({ projectId }: { projectId: string }) {
+    dashboards({ projectId }: { projectId: string }): Endpoint {
         return {
             list: async ({ params }: { params?: ListDashboardsData } = {}): Promise<
                 Result<
@@ -1021,22 +1018,14 @@ export class ApiClient {
                 return result
             },
 
-            get: async ({
-                dashboardId,
-            }: {
-                dashboardId: number
-            }): Promise<Result<SimpleDashboard>> => {
+            get: async ({ dashboardId }: { dashboardId: number }): Promise<Result<SimpleDashboard>> => {
                 return this.fetchWithSchema(
                     `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
                     SimpleDashboardSchema
                 )
             },
 
-            create: async ({
-                data,
-            }: {
-                data: CreateDashboardInput
-            }): Promise<Result<{ id: number; name: string }>> => {
+            create: async ({ data }: { data: CreateDashboardInput }): Promise<Result<{ id: number; name: string }>> => {
                 const validatedInput = CreateDashboardInputSchema.parse(data)
 
                 const createResponseSchema = z.object({
@@ -1124,36 +1113,25 @@ export class ApiClient {
         }
     }
 
-    query({ projectId }: { projectId: string }) {
+    query({ projectId }: { projectId: string }): Endpoint {
         return {
-            execute: async ({
-                queryBody,
-            }: {
-                queryBody: any
-            }): Promise<Result<{ results: any[] }>> => {
+            execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
                 const responseSchema = z.object({
                     results: z.array(z.any()),
                 })
 
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/environments/${projectId}/query/`,
-                    responseSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify({ query: queryBody }),
-                    }
-                )
+                return this.fetchWithSchema(`${this.baseUrl}/api/environments/${projectId}/query/`, responseSchema, {
+                    method: 'POST',
+                    body: JSON.stringify({ query: queryBody }),
+                })
             },
         }
     }
 
-    users() {
+    users(): Endpoint {
         return {
             me: async (): Promise<Result<ApiUser>> => {
-                const result = await this.fetchWithSchema(
-                    `${this.baseUrl}/api/users/@me/`,
-                    ApiUserSchema
-                )
+                const result = await this.fetchWithSchema(`${this.baseUrl}/api/users/@me/`, ApiUserSchema)
 
                 if (!result.success) {
                     return result
@@ -1167,7 +1145,7 @@ export class ApiClient {
         }
     }
 
-    surveys({ projectId }: { projectId: string }) {
+    surveys({ projectId }: { projectId: string }): Endpoint {
         return {
             list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<
                 Result<Array<SurveyListItemOutput>>
@@ -1207,21 +1185,13 @@ export class ApiClient {
                 )
             },
 
-            create: async ({
-                data,
-            }: {
-                data: CreateSurveyInput
-            }): Promise<Result<SurveyOutput>> => {
+            create: async ({ data }: { data: CreateSurveyInput }): Promise<Result<SurveyOutput>> => {
                 const validatedInput = CreateSurveyInputSchema.parse(data)
 
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/surveys/`,
-                    SurveyOutputSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(validatedInput),
-                    }
-                )
+                return this.fetchWithSchema(`${this.baseUrl}/api/projects/${projectId}/surveys/`, SurveyOutputSchema, {
+                    method: 'POST',
+                    body: JSON.stringify(validatedInput),
+                })
             },
 
             update: async ({
@@ -1266,9 +1236,7 @@ export class ApiClient {
                     )
 
                     if (!response.ok) {
-                        throw new Error(
-                            `Failed to ${softDelete ? 'archive' : 'delete'} survey: ${response.statusText}`
-                        )
+                        throw new Error(`Failed to ${softDelete ? 'archive' : 'delete'} survey: ${response.statusText}`)
                     }
 
                     return {
@@ -1295,9 +1263,7 @@ export class ApiClient {
                 return this.fetchWithSchema(url, SurveyResponseStatsOutputSchema)
             },
 
-            stats: async (
-                params: GetSurveySpecificStatsInput
-            ): Promise<Result<SurveyResponseStatsOutput>> => {
+            stats: async (params: GetSurveySpecificStatsInput): Promise<Result<SurveyResponseStatsOutput>> => {
                 const validatedParams = GetSurveySpecificStatsInputSchema.parse(params)
 
                 const searchParams = getSearchParamsFromRecord(validatedParams)

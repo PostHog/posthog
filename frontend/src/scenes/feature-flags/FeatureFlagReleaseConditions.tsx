@@ -115,6 +115,7 @@ export function FeatureFlagReleaseConditions({
         filtersTaxonomicOptions,
         aggregationTargetName,
         properties,
+        filterGroups,
     } = useValues(releaseConditionsLogic)
 
     const {
@@ -135,7 +136,6 @@ export function FeatureFlagReleaseConditions({
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
-    const filterGroups: FeatureFlagGroupType[] = (isSuper ? filters?.super_groups : filters?.groups) || []
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption()
 

@@ -1,18 +1,17 @@
 // Flag evaluation counters
 pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_total";
-pub const FLAG_CACHE_HIT_COUNTER: &str = "flags_flag_cache_hit_total";
-pub const FLAG_CACHE_ERRORS_COUNTER: &str = "flags_flag_cache_errors_total";
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
 pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
 pub const TEAM_CACHE_ERRORS_COUNTER: &str = "flags_team_cache_errors_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
 pub const TOKEN_VALIDATION_ERRORS_COUNTER: &str = "flags_token_validation_errors_total";
-pub const DB_FLAG_READS_COUNTER: &str = "flags_db_flag_reads_total";
 pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
 pub const DB_COHORT_ERRORS_COUNTER: &str = "flags_db_cohort_errors_total";
 pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
+pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
+pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
 pub const PROPERTY_CACHE_HITS_COUNTER: &str = "flags_property_cache_hits_total";
 pub const PROPERTY_CACHE_MISSES_COUNTER: &str = "flags_property_cache_misses_total";
 pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
@@ -64,3 +63,7 @@ pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 
 // Error classification
 pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
+
+// Tombstone metric for tracking "impossible" failures that should never happen in production
+// Different failure types are tracked via the "failure_type" label
+pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";

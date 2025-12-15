@@ -28,8 +28,22 @@ GRANULARITY 1
 """
 
 operations = [
-    run_sql_with_exceptions(ADD_COLUMN_SHARDED_EVENTS, node_roles=[NodeRole.DATA], sharded=True),
-    run_sql_with_exceptions(ADD_COLUMN_EVENTS, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
-    run_sql_with_exceptions(ADD_BLOOM_FILTER_INDEX_SHARDED_EVENTS, node_roles=[NodeRole.DATA], sharded=True),
-    run_sql_with_exceptions(ADD_MINMAX_INDEX_SHARDED_EVENTS, node_roles=[NodeRole.DATA], sharded=True),
+    run_sql_with_exceptions(
+        ADD_COLUMN_SHARDED_EVENTS, node_roles=[NodeRole.DATA], sharded=True, is_alter_on_replicated_table=True
+    ),
+    run_sql_with_exceptions(
+        ADD_COLUMN_EVENTS,
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        sharded=False,
+        is_alter_on_replicated_table=False,
+    ),
+    run_sql_with_exceptions(
+        ADD_BLOOM_FILTER_INDEX_SHARDED_EVENTS,
+        node_roles=[NodeRole.DATA],
+        sharded=True,
+        is_alter_on_replicated_table=True,
+    ),
+    run_sql_with_exceptions(
+        ADD_MINMAX_INDEX_SHARDED_EVENTS, node_roles=[NodeRole.DATA], sharded=True, is_alter_on_replicated_table=True
+    ),
 ]

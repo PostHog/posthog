@@ -1,7 +1,10 @@
 import uuid
+from datetime import datetime
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.conf import settings
 
 from rest_framework import status
 
@@ -21,8 +24,9 @@ class TestEvaluationRunViewSet(APIBaseTest):
             enabled=True,
         )
 
+    @patch("products.llm_analytics.backend.api.evaluation_runs.query_with_columns")
     @patch("products.llm_analytics.backend.api.evaluation_runs.sync_connect")
-    def test_create_evaluation_run_success(self, mock_connect):
+    def test_create_evaluation_run_success(self, mock_connect, mock_query):
         """Test successfully creating an evaluation run"""
         # Mock Temporal client
         mock_client = MagicMock()
@@ -30,12 +34,31 @@ class TestEvaluationRunViewSet(APIBaseTest):
         mock_connect.return_value = mock_client
 
         target_event_id = str(uuid.uuid4())
+        timestamp = datetime.now()
+
+        # Mock ClickHouse query to return event data
+        mock_query.return_value = [
+            {
+                "uuid": target_event_id.replace("-", ""),
+                "event": "$ai_generation",
+                "properties": '{"$ai_input": "test input", "$ai_output": "test output"}',
+                "timestamp": timestamp,
+                "team_id": self.team.id,
+                "distinct_id": "test_user",
+                "elements_chain": "",
+                "created_at": timestamp,
+                "person_id": str(uuid.uuid4()),
+            }
+        ]
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluation_runs/",
             {
                 "evaluation_id": str(self.evaluation.id),
                 "target_event_id": target_event_id,
+                "timestamp": timestamp.isoformat(),
+                "event": "$ai_generation",
+                "distinct_id": "test_user",
             },
         )
 
@@ -52,7 +75,13 @@ class TestEvaluationRunViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
 
         assert call_args[0][0] == "run-evaluation"  # workflow name
-        assert call_args[1]["task_queue"] == "general-purpose-task-queue"
+        assert call_args[1]["task_queue"] == settings.GENERAL_PURPOSE_TASK_QUEUE
+
+        # Verify the workflow inputs contain event data
+        workflow_inputs = call_args[0][1]
+        assert workflow_inputs.evaluation_id == str(self.evaluation.id)
+        assert workflow_inputs.event_data is not None
+        assert workflow_inputs.event_data["uuid"] == target_event_id.replace("-", "")
 
     def test_create_evaluation_run_invalid_evaluation(self):
         """Test creating evaluation run with non-existent evaluation"""
@@ -61,6 +90,9 @@ class TestEvaluationRunViewSet(APIBaseTest):
             {
                 "evaluation_id": str(uuid.uuid4()),
                 "target_event_id": str(uuid.uuid4()),
+                "timestamp": datetime.now().isoformat(),
+                "event": "$ai_generation",
+                # distinct_id is optional, testing without it
             },
         )
 
@@ -95,6 +127,9 @@ class TestEvaluationRunViewSet(APIBaseTest):
             {
                 "evaluation_id": str(other_evaluation.id),
                 "target_event_id": str(uuid.uuid4()),
+                "timestamp": datetime.now().isoformat(),
+                "event": "$ai_generation",
+                "distinct_id": "test_user",
             },
         )
 

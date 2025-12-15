@@ -4,17 +4,18 @@ import { cloneObject } from '~/utils/utils'
 
 import { InternalPerson } from '../../../types'
 import { logger } from '../../../utils/logger'
+import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from './metrics'
 import {
-    personProfileIgnoredPropertiesCounter,
-    personProfileUpdateOutcomeCounter,
-    personPropertyKeyUpdateCounter,
-} from './metrics'
-import { eventToPersonProperties, initialEventToPersonProperties } from './person-property-utils'
+    eventToPersonProperties,
+    initialEventToPersonProperties,
+    isFilteredPersonUpdateProperty,
+} from './person-property-utils'
 
 export interface PropertyUpdates {
     toSet: Properties
     toUnset: string[]
     hasChanges: boolean
+    shouldForceUpdate: boolean // True for PERSON_EVENTS ($identify, $set, etc.) to bypass batch-level filtering
 }
 
 // These events are processed in a separate pipeline, so we don't allow person property updates
@@ -24,7 +25,7 @@ const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously
 
 // For tracking what property keys cause us to update persons
 // tracking all properties we add from the event, 'geoip' for '$geoip_*' or '$initial_geoip_*' and 'other' for anything outside of those
-function getMetricKey(key: string): string {
+export function getMetricKey(key: string): string {
     if (key.startsWith('$geoip_') || key.startsWith('$initial_geoip_')) {
         return 'geoIP'
     }
@@ -41,13 +42,22 @@ function getMetricKey(key: string): string {
  * Computes property changes from an event without modifying personProperties
  * @param event The event to extract property changes from
  * @param personProperties Current person properties (not modified)
+ * @param updateAllProperties When true, all property changes trigger updates (no filtering)
  * @returns Object with properties to set, unset, and whether there are changes
  */
-export function computeEventPropertyUpdates(event: PluginEvent, personProperties: Properties): PropertyUpdates {
+export function computeEventPropertyUpdates(
+    event: PluginEvent,
+    personProperties: Properties,
+    updateAllProperties: boolean = false
+): PropertyUpdates {
     if (NO_PERSON_UPDATE_EVENTS.has(event.event)) {
         personProfileUpdateOutcomeCounter.labels({ outcome: 'unsupported' }).inc()
-        return { hasChanges: false, toSet: {}, toUnset: [] }
+        return { hasChanges: false, toSet: {}, toUnset: [], shouldForceUpdate: false }
     }
+
+    // Check if this is a PERSON_EVENT that should bypass batch-level filtering
+    // Also force update when updateAllProperties is enabled
+    const shouldForceUpdate = PERSON_EVENTS.has(event.event) || updateAllProperties
 
     const properties: Properties = event.properties!['$set'] || {}
     const propertiesOnce: Properties = event.properties!['$set_once'] || {}
@@ -55,49 +65,75 @@ export function computeEventPropertyUpdates(event: PluginEvent, personProperties
     const unsetProperties: Array<string> = Array.isArray(unsetProps) ? unsetProps : Object.keys(unsetProps || {}) || []
 
     let hasChanges = false
+    let hasNonFilteredChanges = false
     const toSet: Properties = {}
     const toUnset: string[] = []
+    const ignoredProperties: string[] = []
 
     Object.entries(propertiesOnce).forEach(([key, value]) => {
         if (typeof personProperties[key] === 'undefined') {
             hasChanges = true
             toSet[key] = value
+            if (shouldUpdatePersonIfOnlyChange(event, key, updateAllProperties)) {
+                hasNonFilteredChanges = true
+            }
         }
     })
 
+    // First pass: detect if any property would trigger an update
+    // If so, all changed properties in this $set should be updated together
+    let anyPropertyTriggersUpdate = false
+    const changedProperties: Array<[string, unknown]> = []
+
     Object.entries(properties).forEach(([key, value]) => {
         if (personProperties[key] !== value) {
-            if (typeof personProperties[key] === 'undefined' || shouldUpdatePersonIfOnlyChange(event, key)) {
-                hasChanges = true
+            changedProperties.push([key, value])
+            const isNewProperty = typeof personProperties[key] === 'undefined'
+            if (isNewProperty || shouldUpdatePersonIfOnlyChange(event, key, updateAllProperties)) {
+                anyPropertyTriggersUpdate = true
             }
-            toSet[key] = value
         }
+    })
+
+    // Second pass: apply changes - if any property triggers update, all do
+    changedProperties.forEach(([key, value]) => {
+        hasChanges = true
+        if (anyPropertyTriggersUpdate) {
+            hasNonFilteredChanges = true
+        } else {
+            ignoredProperties.push(key)
+        }
+        toSet[key] = value
     })
 
     unsetProperties.forEach((propertyKey) => {
         if (propertyKey in personProperties) {
             if (typeof propertyKey === 'string') {
                 hasChanges = true
+                hasNonFilteredChanges = true
                 toUnset.push(propertyKey)
             }
         }
     })
 
-    // Track person profile update outcomes
-    const hasPropertyChanges = Object.keys(toSet).length > 0 || toUnset.length > 0
-    if (hasChanges) {
-        personProfileUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc()
-    } else if (hasPropertyChanges) {
-        personProfileUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc()
-        // Track which specific properties were ignored
-        Object.keys(toSet).forEach((propertyName) => {
-            personProfileIgnoredPropertiesCounter.labels({ property: propertyName }).inc()
-        })
-    } else {
-        personProfileUpdateOutcomeCounter.labels({ outcome: 'no_change' }).inc()
+    // Track person profile update outcomes at event level (skip when updateAllProperties is enabled)
+    if (!updateAllProperties) {
+        const hasPropertyChanges = Object.keys(toSet).length > 0 || toUnset.length > 0
+        if (hasPropertyChanges) {
+            if (hasNonFilteredChanges) {
+                personProfileUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc()
+            } else {
+                personProfileUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc()
+                ignoredProperties.forEach((property) => {
+                    personProfileIgnoredPropertiesCounter.labels({ property }).inc()
+                })
+            }
+        } else {
+            personProfileUpdateOutcomeCounter.labels({ outcome: 'no_change' }).inc()
+        }
     }
 
-    return { hasChanges, toSet, toUnset }
+    return { hasChanges, toSet, toUnset, shouldForceUpdate }
 }
 
 /**
@@ -110,7 +146,6 @@ export function applyEventPropertyUpdates(
     person: InternalPerson
 ): [InternalPerson, boolean] {
     let updated = false
-    const metricsKeys = new Set<string>()
 
     // Create a copy of the person with copied properties
     const updatedPerson = cloneObject(person)
@@ -120,7 +155,6 @@ export function applyEventPropertyUpdates(
         if (updatedPerson.properties[key] !== value) {
             updated = true
         }
-        metricsKeys.add(getMetricKey(key))
         updatedPerson.properties[key] = value
     })
 
@@ -132,29 +166,23 @@ export function applyEventPropertyUpdates(
                 return
             }
             updated = true
-            metricsKeys.add(getMetricKey(propertyKey))
             delete updatedPerson.properties[propertyKey]
         }
     })
 
-    metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
     return [updatedPerson, updated]
 }
 
 // Minimize useless person updates by not overriding properties if it's not a person event and we added from the event
 // They will still show up for PoE as it's not removed from the event, we just don't update the person in PG anymore
-function shouldUpdatePersonIfOnlyChange(event: PluginEvent, key: string): boolean {
+function shouldUpdatePersonIfOnlyChange(event: PluginEvent, key: string, updateAllProperties: boolean): boolean {
+    if (updateAllProperties) {
+        // When flag is enabled, all property changes trigger updates
+        return true
+    }
     if (PERSON_EVENTS.has(event.event)) {
         // for person events always update everything
         return true
     }
-    // These are properties we add from the event and some change often, it's useless to update person always
-    if (eventToPersonProperties.has(key)) {
-        return false
-    }
-    // same as above, coming from GeoIP plugin
-    if (key.startsWith('$geoip_')) {
-        return false
-    }
-    return true
+    return !isFilteredPersonUpdateProperty(key)
 }

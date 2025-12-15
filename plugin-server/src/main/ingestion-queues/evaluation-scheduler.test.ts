@@ -112,25 +112,25 @@ describe('Evaluation Scheduler', () => {
 
     describe('checkRolloutPercentage', () => {
         it('always includes when rollout is 100%', () => {
-            expect(checkRolloutPercentage('user-1', 100)).toBe(true)
-            expect(checkRolloutPercentage('user-2', 100)).toBe(true)
-            expect(checkRolloutPercentage('any-user', 100)).toBe(true)
+            expect(checkRolloutPercentage('event-1', 100)).toBe(true)
+            expect(checkRolloutPercentage('event-2', 100)).toBe(true)
+            expect(checkRolloutPercentage('any-event', 100)).toBe(true)
         })
 
-        it('is deterministic for same distinct_id', () => {
-            const result1 = checkRolloutPercentage('user-123', 50)
-            const result2 = checkRolloutPercentage('user-123', 50)
+        it('is deterministic for same event id', () => {
+            const result1 = checkRolloutPercentage('event-123', 50)
+            const result2 = checkRolloutPercentage('event-123', 50)
             expect(result1).toBe(result2)
         })
 
-        it('excludes some users at 0% rollout', () => {
-            expect(checkRolloutPercentage('user-1', 0)).toBe(false)
-            expect(checkRolloutPercentage('user-2', 0)).toBe(false)
+        it('excludes some events at 0% rollout', () => {
+            expect(checkRolloutPercentage('event-1', 0)).toBe(false)
+            expect(checkRolloutPercentage('event-2', 0)).toBe(false)
         })
 
-        it('includes roughly correct percentage of users', () => {
-            const testUsers = Array.from({ length: 1000 }, (_, i) => `user-${i}`)
-            const included = testUsers.filter((user) => checkRolloutPercentage(user, 30))
+        it('includes roughly correct percentage of events', () => {
+            const testEventIds = Array.from({ length: 1000 }, (_, i) => `event-${i}`)
+            const included = testEventIds.filter((eventId) => checkRolloutPercentage(eventId, 30))
 
             // Should be roughly 30%, allow 5% variance
             expect(included.length).toBeGreaterThan(250)
@@ -240,7 +240,7 @@ describe('Evaluation Scheduler', () => {
             })
 
             // Test with 0% rollout - should never match due to sampling
-            const event = createAiGenerationEvent(teamId, { distinct_id: 'user-test' })
+            const event = createAiGenerationEvent(teamId, { uuid: 'event-test-uuid' })
             const evaluation = createEvaluation({
                 enabled: true,
                 conditions: [createEvaluationCondition({ rollout_percentage: 0, bytecode: ['_H', 1, 32, true] })],

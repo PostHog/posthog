@@ -2,8 +2,17 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconMinusSmall, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    IconClock,
+    IconCopy,
+    IconMinusSmall,
+    IconPlusSmall,
+    IconRefresh,
+    IconTrash,
+    IconUpload,
+    IconWarning,
+} from '@posthog/icons'
+import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -15,7 +24,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconErrorOutline, IconRefresh, IconUploadFile } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -26,6 +34,7 @@ import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -39,7 +48,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { QueryContext } from '~/queries/types'
-import { CohortType } from '~/types'
+import { CohortType, SidePanelTab } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
@@ -93,6 +102,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         canRemovePersonFromCohort,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
@@ -136,6 +146,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
             },
         },
         showOpenEditorButton: false,
+        emptyStateHeading: 'There are no persons matching your search',
+        emptyStateDetail: 'Try adjusting your search to see more results.',
     }
 
     if (cohortMissing) {
@@ -197,7 +209,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             onClick={() => duplicateCohort(true)}
                             disabledReasons={{
                                 'Save the cohort first': isNewCohort,
-                                'Cohort must be dynamic to duplicate': cohort.is_static === true,
                                 'Cohort is still calculating': cohort.is_calculating ?? false,
                             }}
                             menuItem
@@ -223,7 +234,21 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        deleteCohort()
+                                        LemonDialog.open({
+                                            title: 'Delete cohort?',
+                                            description: `Are you sure you want to delete "${cohort.name}"?`,
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => deleteCohort(),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
                                     }}
                                     variant="danger"
                                     menuItem
@@ -239,7 +264,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
 
                 <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                     <SceneContent>
-                        <LemonField name="name">
+                        <LemonField name="name" className="contents">
                             <SceneTitleSection
                                 name={cohort.name}
                                 description={cohort.description || ''}
@@ -286,8 +311,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             />
                         </LemonField>
 
-                        <SceneDivider />
-
                         <SceneSection
                             title="Type"
                             description="Static cohorts are created once and never updated, while dynamic cohorts are recalculated based on the latest data."
@@ -316,7 +339,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     </LemonField>
 
                                     {!isNewCohort && !cohort?.is_static && (
-                                        <div className="max-w-70 w-fit">
+                                        <div className="flex flex-col gap-y-2">
                                             <p className="flex items-center gap-x-1 my-0">
                                                 <strong>Last calculated:</strong>
                                                 {cohort.is_calculating ? (
@@ -329,15 +352,18 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             </p>
 
                                             {cohort.errors_calculating ? (
-                                                <Tooltip
-                                                    title={
-                                                        "The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation."
-                                                    }
+                                                <LemonBanner
+                                                    type="error"
+                                                    action={{
+                                                        onClick: () =>
+                                                            openSidePanel(SidePanelTab.Support, 'bug:cohorts::true'),
+                                                        children: 'Contact support',
+                                                    }}
                                                 >
-                                                    <div className="text-danger">
-                                                        <IconErrorOutline className="text-danger text-xl shrink-0" />
-                                                    </div>
-                                                </Tooltip>
+                                                    <strong>Calculation failed:</strong>{' '}
+                                                    {cohort.last_error_message ||
+                                                        'Unable to calculate this cohort. Please check your matching criteria and try again.'}
+                                                </LemonBanner>
                                             ) : null}
                                         </div>
                                     )}
@@ -392,7 +418,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                     >
                                                         {cohort.csv ? (
                                                             <>
-                                                                <IconUploadFile
+                                                                <IconUpload
                                                                     style={{
                                                                         fontSize: '3rem',
                                                                         color: 'var(--color-text-primary)',
@@ -402,7 +428,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                             </>
                                                         ) : (
                                                             <>
-                                                                <IconUploadFile
+                                                                <IconUpload
                                                                     style={{
                                                                         fontSize: '3rem',
                                                                         color: 'var(--color-text-primary)',
@@ -529,6 +555,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 context={{
                                                     refresh: 'force_blocking',
                                                     fileNameForExport: cohort.name,
+                                                    cohortId: cohortId,
                                                     dataNodeLogicKey: dataNodeLogicKey,
                                                     columns: canRemovePersonFromCohort
                                                         ? {
@@ -537,6 +564,9 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                               },
                                                           }
                                                         : undefined,
+                                                    emptyStateHeading: 'There are no matching persons for this cohort',
+                                                    emptyStateDetail:
+                                                        'Try adjusting your matching criteria or search to see more results.',
                                                 }}
                                             />
                                         )}

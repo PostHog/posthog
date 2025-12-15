@@ -93,7 +93,9 @@ export function Paths(): JSX.Element {
                 {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
                 {!insightDataError &&
                     nodeCards &&
-                    nodeCards.map((node, idx) => <PathNodeCard key={idx} node={node} insightProps={insightProps} />)}
+                    nodeCards.map((node, idx) => (
+                        <PathNodeCard key={idx} node={node} insightProps={insightProps} canvasHeight={canvasHeight} />
+                    ))}
             </div>
         </div>
     )

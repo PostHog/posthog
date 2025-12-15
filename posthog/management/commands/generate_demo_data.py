@@ -1,5 +1,7 @@
 # ruff: noqa: T201 allow print statements
 
+import os
+import sys
 import logging
 import secrets
 import datetime as dt
@@ -9,15 +11,15 @@ from typing import Optional
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
-from dagster_graphql import DagsterGraphQLClient
-
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
+from posthog.models import User
+from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
-from posthog.settings import DAGSTER_UI_HOST, DAGSTER_UI_PORT
+from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
@@ -91,16 +93,22 @@ class Command(BaseCommand):
             help="Skip materializing common columns after data generation",
         )
         parser.add_argument(
-            "--skip-dagster",
-            action="store_true",
-            default=False,
-            help="Skip running dagster materializations after data generation",
-        )
-        parser.add_argument(
             "--skip-flag-sync",
             action="store_true",
             default=False,
             help="Skip syncing feature flags from API after data generation",
+        )
+        parser.add_argument(
+            "--skip-user-product-list",
+            action="store_true",
+            default=False,
+            help="Skip creating UserProductList entries after data generation",
+        )
+        parser.add_argument(
+            "--say-on-complete",
+            action="store_true",
+            default=sys.platform == "darwin",
+            help="Use text-to-speech to say when the process is complete",
         )
 
     def handle(self, *args, **options):
@@ -145,6 +153,9 @@ class Command(BaseCommand):
             email = options["email"]
             password = options["password"]
             matrix_manager = MatrixManager(matrix, print_steps=True)
+            team: Optional[Team] = None
+            user = None
+
             try:
                 if existing_team_id is not None:
                     if existing_team_id == 0:
@@ -154,7 +165,7 @@ class Command(BaseCommand):
                         user = team.organization.members.first()
                         matrix_manager.run_on_team(team, user)
                 else:
-                    organization, team, user = matrix_manager.ensure_account_and_save(
+                    _organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
                         "Hedgebox Inc.",
@@ -162,6 +173,7 @@ class Command(BaseCommand):
                         password=password,
                         email_collision_handling="disambiguate",
                     )
+
                     # Optionally generate demo issues for issue tracker if extension is available
                     gen_issues = getattr(self, "generate_demo_issues", None)
                     team_for_issues = getattr(matrix_manager, "team", None)
@@ -169,17 +181,12 @@ class Command(BaseCommand):
                         gen_issues(team_for_issues)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
+
             if not options.get("skip_materialization"):
                 print("Materializing common columns...")
                 self.materialize_common_columns(options["days_past"])
             else:
                 print("Skipping materialization of common columns.")
-
-            if not options.get("skip_dagster"):
-                print("Running dagster materializations...")
-                self.initialize_dagster_materialization(options["days_past"])
-            else:
-                print("Skipping dagster materializations.")
 
             if not options.get("skip_flag_sync"):
                 print("Syncing feature flags from API...")
@@ -190,6 +197,16 @@ class Command(BaseCommand):
                     print("Continuing anyway...")
             else:
                 print("Skipping feature flag sync.")
+
+            if not options.get("skip_user_product_list"):
+                # Create UserProductList entries for all products
+                # Skip if existing_team_id == 0 (master project reset)
+                if existing_team_id != 0 and team and user:
+                    print("Creating UserProductList entries for all products...")
+                    self.create_default_user_product_list(team, user)
+            else:
+                print("Skipping UserProductList creation.")
+
             print(
                 "\nMaster project reset!\n"
                 if existing_team_id == 0
@@ -204,8 +221,13 @@ class Command(BaseCommand):
                     f"http://localhost:8010/signup?email={user.email}\n"
                 )
             )
+
+            if options["say_on_complete"]:
+                os.system('say "initiating self destruct sequence" || true')
         else:
             print("Dry run - not saving results.")
+            if options["say_on_complete"]:
+                os.system('say "demo data dry run completed" || true')
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
@@ -328,83 +350,20 @@ class Command(BaseCommand):
             backfill_period_days=backfill_days,
         )
 
-    def initialize_dagster_materialization(self, backfill_days: int):
-        # Use GraphQL to connect to dagster development server.
-        # I tried some other approaches, i.e. CLI and python client, but these were both extremely slow and spun
-        # up a new instance of the Dagster code server for each request, which is not what we want. This API returns
-        # immediately and is non-blocking.
-        client = DagsterGraphQLClient(DAGSTER_UI_HOST, port_number=DAGSTER_UI_PORT)
-
-        # Launch the hourly job (non-partitioned)
-        client.submit_job_execution(
-            job_name="web_pre_aggregate_current_day_hourly_job",
-            repository_location_name="dags.locations.web_analytics",
-            repository_name="__repository__",
-        )
-
-        # Submit partitioned runs for daily jobs.
-        # DagsterGraphQLClient doesn't provide a nice way to do this, so we have to use the raw GraphQL mutation.
-        end_date = dt.datetime.now()
-        partition_list = [
-            (end_date - dt.timedelta(days=backfill_days - i)).strftime("%Y-%m-%d") for i in range(backfill_days + 1)
-        ]
-
-        asset_names = ["web_pre_aggregated_stats", "web_pre_aggregated_bounces"]
-        result = client._execute(
-            self.backfill_mutation_gql(),
-            {
-                "backfillParams": {
-                    "tags": [{"key": "generate_demo_data", "value": "true"}],
-                    "assetSelection": [{"path": [asset_name]} for asset_name in asset_names],
-                    "partitionNames": partition_list,
-                    "fromFailure": False,
-                }
-            },
-        )
-
-        backfill_result = result["launchPartitionBackfill"]
-        if backfill_result["__typename"] != "LaunchBackfillSuccess":
-            raise Exception(backfill_result)
-
-    def backfill_mutation_gql(self):
-        # this comes straight out of the network tab, sadly not supported by the client SDK
-        return """
-            mutation LaunchPartitionBackfill($backfillParams: LaunchBackfillParams!) {
-                launchPartitionBackfill(backfillParams: $backfillParams) {
-                    ... on LaunchBackfillSuccess {
-                        backfillId
-                        __typename
-                    }
-                    ... on PartitionSetNotFoundError {
-                        message
-                        __typename
-                    }
-                    ... on PartitionKeysNotFoundError {
-                        message
-                        __typename
-                    }
-                    ...PythonErrorFragment
-                    __typename
-                }
-            }
-
-            fragment PythonErrorFragment on PythonError {
-                message
-                stack
-                errorChain {
-                    ...PythonErrorChain
-                    __typename
-                }
-                __typename
-            }
-
-            fragment PythonErrorChain on ErrorChainLink {
-                isExplicitLink
-                error {
-                    message
-                    stack
-                    __typename
-                }
-                __typename
-            }
-    """
+    def create_default_user_product_list(self, team: Team, user: User) -> None:
+        """Create UserProductList entries for all default sidebar products."""
+        product_paths = Products.get_product_paths()
+        created_count = 0
+        for product_path in product_paths:
+            _, created = UserProductList.objects.get_or_create(
+                team=team,
+                user=user,
+                product_path=product_path,
+                defaults={
+                    "enabled": True,
+                    "reason": None,
+                },
+            )
+            if created:
+                created_count += 1
+        print(f"Created {created_count} UserProductList entries for {len(product_paths)} products.")

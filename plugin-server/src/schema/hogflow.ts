@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CyclotronInputSchema } from './cyclotron'
+import { CyclotronInputMappingSchema, CyclotronInputSchema, CyclotronJobInputSchemaTypeSchema } from './cyclotron'
 
 const _commonActionFields = {
     id: z.string(),
@@ -10,6 +10,13 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
+    output_variable: z // The Hogflow-level variable to store the output of this action into
+        .object({
+            key: z.string(),
+            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+        })
+        .optional()
+        .nullable(),
 }
 
 const HogFlowTriggerSchema = z.discriminatedUnion('type', [
@@ -28,10 +35,24 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         inputs: z.record(CyclotronInputSchema),
     }),
     z.object({
+        type: z.literal('manual'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
+    z.object({
         type: z.literal('tracking_pixel'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
+    }),
+    z.object({
+        type: z.literal('schedule'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
+        // Future: recurring schedule fields can be added here
     }),
 ])
 
@@ -51,6 +72,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             conditions: z.array(
                 z.object({
                     filters: z.any(), // type this stronger
+                    name: z.string().optional(), // Custom name for the condition
                 })
             ),
             delay_duration: z.string().optional(),
@@ -63,6 +85,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             cohorts: z.array(
                 z.object({
                     percentage: z.number(),
+                    name: z.string().optional(), // Custom name for the cohort
                 })
             ),
         }),
@@ -82,6 +105,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             condition: z.object({
                 filters: z.any(), // type this stronger
+                name: z.string().optional(), // Custom name for the condition
             }),
             max_wait_duration: z.string(),
         }),
@@ -116,6 +140,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
 
@@ -127,6 +152,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
             inputs: z.record(CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
     z.object({
@@ -137,6 +163,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
             inputs: z.record(CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
     // Exit
@@ -188,6 +215,7 @@ export const HogFlowSchema = z.object({
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
+    variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

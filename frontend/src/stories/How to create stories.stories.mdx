@@ -46,42 +46,38 @@ import { LemonSwitch, LemonSwitchProps } from './LemonSwitch'
 
 type Story = StoryObj<typeof LemonSwitch>
 const meta: Meta<typeof LemonSwitch> = {
-    title: 'Lemon UI/Lemon Switch',
-    component: LemonSwitch,
-    argTypes: {
-        loading: {
-            control: {
-                type: 'boolean',
-            },
-        },
-        label: {
-            name: 'label',
-            type: { name: 'string', required: false },
-            defaultValue: 'Hello',
-            description: 'demo description',
-            table: {
-                type: { summary: 'string' },
-                defaultValue: { summary: 'Hello' },
-            },
-            control: {
-                type: 'text',
-            },
-        },
+  title: 'Lemon UI/Lemon Switch',
+  component: LemonSwitch,
+  argTypes: {
+    loading: {
+      control: {
+        type: 'boolean',
+      },
     },
-    tags: ['autodocs'],
+    label: {
+      name: 'label',
+      type: { name: 'string', required: false },
+      defaultValue: 'Hello',
+      description: 'demo description',
+      table: {
+        type: { summary: 'string' },
+        defaultValue: { summary: 'Hello' },
+      },
+      control: {
+        type: 'text',
+      },
+    },
+  },
+  tags: ['autodocs'],
 }
 export default meta
 
 export function LemonSwitch_(props: LemonSwitchProps): JSX.Element {
-    const [isChecked, setIsChecked] = useState(false)
+  const [isChecked, setIsChecked] = useState(false)
 
-    return (
-        <LemonSwitch
-            {...props}
-            checked={props.checked !== undefined ? props.checked : isChecked}
-            onChange={setIsChecked}
-        />
-    )
+  return (
+    <LemonSwitch {...props} checked={props.checked !== undefined ? props.checked : isChecked} onChange={setIsChecked} />
+  )
 }
 ```
 

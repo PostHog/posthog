@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api, { ApiConfig } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -30,6 +30,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'default_experiment_stats_method'
         | 'allow_publicly_shared_resources'
         | 'default_role_id'
+        | 'default_anonymize_ips'
     >
 >
 
@@ -41,7 +42,7 @@ export const organizationLogic = kea<organizationLogicType>([
             redirectPath,
         }),
         deleteOrganizationSuccess: ({ redirectPath }: { redirectPath?: string }) => ({ redirectPath }),
-        deleteOrganizationFailure: true,
+        deleteOrganizationFailure: (error: string) => ({ error }),
     }),
     connect([userLogic]),
     reducers({
@@ -144,7 +145,7 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
-            window.location.href = urls.products()
+            window.location.href = urls.useCaseSelection()
         },
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')
@@ -153,8 +154,9 @@ export const organizationLogic = kea<organizationLogicType>([
             try {
                 await api.delete(`api/organizations/${organizationId}`)
                 actions.deleteOrganizationSuccess({ redirectPath })
-            } catch {
-                actions.deleteOrganizationFailure()
+            } catch (e) {
+                const apiError = e as ApiError
+                actions.deleteOrganizationFailure(apiError.detail || 'Error deleting organization')
             }
         },
         deleteOrganizationSuccess: ({ redirectPath }) => {
@@ -168,8 +170,8 @@ export const organizationLogic = kea<organizationLogicType>([
             })
             location.reload()
         },
-        deleteOrganizationFailure: () => {
-            lemonToast.error('Error deleting organization', {
+        deleteOrganizationFailure: ({ error }) => {
+            lemonToast.error(error, {
                 toastId: 'deleteOrganization',
             })
         },

@@ -123,7 +123,7 @@ describe('incoming webhook template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(true)
-        expect(response.execResult).toBeNull()
+        expect(response.execResult).toBeUndefined()
     })
 
     it('should print the request body if debug is true', async () => {

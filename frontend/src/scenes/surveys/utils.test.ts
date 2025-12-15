@@ -12,9 +12,11 @@ import {
 } from '~/types'
 
 import {
+    buildPartialResponsesFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
+    getResolvedSurveyDateRange,
     getSurveyEndDateForQuery,
     getSurveyResponse,
     getSurveyStartDateForQuery,
@@ -550,7 +552,7 @@ describe('survey utils', () => {
             const result = buildSurveyTimestampFilter(survey)
 
             expect(result).toBe(`AND timestamp >= '2024-08-27T00:00:00'
-        AND timestamp <= '2024-08-30T23:59:59'`)
+    AND timestamp <= '2024-08-30T23:59:59'`)
         })
 
         it('respects user date range when provided', () => {
@@ -562,12 +564,14 @@ describe('survey utils', () => {
     AND timestamp <= '2024-08-29T23:59:59'`)
         })
 
-        it('enforces survey creation date as minimum even with earlier user date', () => {
+        it('uses user dates even when before survey creation (no clamping)', () => {
             const survey = { created_at: '2024-08-27T15:30:00Z', end_date: null }
             const dateRange = { date_from: '2024-08-25', date_to: '2024-08-29' } // Earlier than survey creation
             const result = buildSurveyTimestampFilter(survey, dateRange)
 
-            expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`) // Should use survey start, not user's earlier date
+            // User's dates are used directly - query will return empty results if no data exists
+            expect(result).toContain(`timestamp >= '2024-08-25T00:00:00'`)
+            expect(result).toContain(`timestamp <= '2024-08-29T23:59:59'`)
         })
 
         it('handles timezone consistency across different user timezones', () => {
@@ -589,6 +593,69 @@ describe('survey utils', () => {
                     Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
                 }
             })
+        })
+
+        it('handles date_to with time component from date picker', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            // Date picker provides date_to with T23:59:59
+            const dateRange = { date_from: '2024-08-28', date_to: '2024-08-28T23:59:59' }
+            const result = buildSurveyTimestampFilter(survey, dateRange)
+
+            expect(result).toContain(`timestamp >= '2024-08-28T00:00:00'`)
+            expect(result).toContain(`timestamp <= '2024-08-28T23:59:59'`)
+        })
+
+        it('uses survey defaults when only date_from provided', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            const dateRange = { date_from: '2024-08-28', date_to: null }
+            const result = buildSurveyTimestampFilter(survey, dateRange)
+
+            expect(result).toContain(`timestamp >= '2024-08-28T00:00:00'`)
+            expect(result).toContain(`timestamp <= '2024-08-30T23:59:59'`) // Survey end date
+        })
+
+        it('ignores date_to when date_from not provided (avoids impossible ranges)', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            const dateRange = { date_from: null, date_to: '2024-08-29' }
+            const result = buildSurveyTimestampFilter(survey, dateRange)
+
+            // Uses survey defaults since date_to only could create impossible range
+            expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`) // Survey start date
+            expect(result).toContain(`timestamp <= '2024-08-30T23:59:59'`) // Survey end date
+        })
+    })
+
+    describe('getResolvedSurveyDateRange', () => {
+        it('does not shift dates due to timezone conversion', () => {
+            const survey = { created_at: '2024-11-19T00:00:00Z', end_date: '2024-11-25T00:00:00Z' }
+            // This datetime should NOT be shifted to Nov 21 due to local timezone conversion
+            const dateRange = { date_from: '2024-11-20', date_to: '2024-11-20T23:59:59' }
+
+            const result = getResolvedSurveyDateRange(survey, dateRange)
+
+            expect(result.fromDate).toBe('2024-11-20T00:00:00')
+            expect(result.toDate).toBe('2024-11-20T23:59:59')
+        })
+    })
+
+    describe('buildPartialResponsesFilter', () => {
+        it('uses same date bounds as buildSurveyTimestampFilter', () => {
+            const survey = {
+                id: 'test-survey-id',
+                created_at: '2024-11-19T00:00:00Z',
+                end_date: '2024-11-25T00:00:00Z',
+                enable_partial_responses: true,
+            } as Survey
+            const dateRange = { date_from: '2024-11-20', date_to: '2024-11-22' }
+
+            const timestampFilter = buildSurveyTimestampFilter(survey, dateRange)
+            const partialFilter = buildPartialResponsesFilter(survey, dateRange)
+
+            const fromMatch = timestampFilter.match(/timestamp >= '([^']+)'/)
+            const toMatch = timestampFilter.match(/timestamp <= '([^']+)'/)
+
+            expect(partialFilter).toContain(`greaterOrEquals(timestamp, '${fromMatch?.[1]}')`)
+            expect(partialFilter).toContain(`lessOrEquals(timestamp, '${toMatch?.[1]}')`)
         })
     })
 })

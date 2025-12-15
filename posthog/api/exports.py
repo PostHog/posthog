@@ -2,6 +2,7 @@ import threading
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.utils.timezone import now
 
@@ -16,7 +17,6 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
 from posthog.event_usage import groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -33,8 +33,6 @@ VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent vide
 FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
 
 logger = structlog.get_logger(__name__)
-
-SIX_MONTHS = timedelta(weeks=26)
 
 
 class ExportedAssetSerializer(serializers.ModelSerializer):
@@ -54,7 +52,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "expires_after",
             "exception",
         ]
-        read_only_fields = ["id", "created_at", "has_content", "filename", "exception"]
+        read_only_fields = ["id", "created_at", "has_content", "filename", "expires_after", "exception"]
 
     def to_representation(self, instance):
         """Override to show stuck exports as having an exception."""
@@ -129,8 +127,6 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     }
                 )
 
-        data["expires_after"] = data.get("expires_after", (now() + SIX_MONTHS).date())
-
         data["team_id"] = self.context["team_id"]
         return data
 
@@ -188,7 +184,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         VideoExportWorkflow.run,
                         VideoExportInputs(exported_asset_id=instance.id),
                         id=f"export-video-{instance.id}",
-                        task_queue=VIDEO_EXPORT_TASK_QUEUE,
+                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     )

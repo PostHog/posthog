@@ -10,19 +10,23 @@ import {
     IconCheck,
     IconCursorClick,
     IconDay,
+    IconEye,
+    IconHide,
     IconLive,
-    IconLogomark,
     IconNight,
     IconPieChart,
     IconQuestion,
     IconSearch,
+    IconSpotlight,
     IconStethoscope,
     IconTestTube,
     IconToggle,
+    IconWarning,
     IconX,
 } from '@posthog/icons'
 import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
+import { AnimatedLogomark } from 'lib/brand/AnimatedLogomark'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
@@ -30,10 +34,15 @@ import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
+import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
+import { ProductToursEditingBar } from '~/toolbar/product-tours/ProductToursEditingBar'
+import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
+import { TourGoalModal } from '~/toolbar/product-tours/TourGoalModal'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
@@ -52,7 +61,11 @@ function EnabledStatusItem({ label, value }: { label: string; value: boolean }):
     )
 }
 
-function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surveysCount: number): LemonMenuItem {
+function postHogDebugInfoMenuItem(
+    posthog: PostHog | null,
+    loadingSurveys: boolean,
+    surveysCount: number
+): LemonMenuItem {
     const isAutocaptureEnabled = posthog?.autocapture?.isEnabled
 
     return {
@@ -133,15 +146,75 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
     }
 }
 
+function piiMaskingMenuItem(
+    piiMaskingEnabled: boolean,
+    piiMaskingColor: string,
+    togglePiiMasking: () => void,
+    setPiiMaskingColor: (color: string) => void,
+    piiWarning: string[] | null
+): LemonMenuItem[] {
+    return [
+        {
+            icon: piiMaskingEnabled ? <IconEye /> : <IconHide />,
+            label: piiMaskingEnabled ? 'Show PII' : 'Hide PII',
+            sideIcon: piiWarning && piiWarning.length > 0 ? <IconWarning className="text-warning" /> : undefined,
+            tooltip: piiWarning && piiWarning.length > 0 ? piiWarning.join('\n') : undefined,
+            onClick: (e: React.MouseEvent) => {
+                e.preventDefault()
+                e.stopPropagation()
+                togglePiiMasking()
+            },
+            custom: true,
+        },
+        piiMaskingEnabled
+            ? {
+                  icon: (
+                      <div
+                          className="w-4 h-4 rounded border"
+                          // eslint-disable-next-line react/forbid-dom-props
+                          style={{ backgroundColor: piiMaskingColor }}
+                      />
+                  ),
+                  label: 'PII masking color',
+                  placement: 'right',
+                  disabled: !piiMaskingEnabled,
+                  items: PII_MASKING_PRESET_COLORS.map((preset) => ({
+                      icon: (
+                          <div
+                              className="w-4 h-4 rounded border"
+                              // eslint-disable-next-line react/forbid-dom-props
+                              style={{ backgroundColor: preset.value }}
+                          />
+                      ),
+                      label: preset.label,
+                      onClick: () => {
+                          setPiiMaskingColor(preset.value)
+                      },
+                      active: piiMaskingColor === preset.value,
+                      custom: true,
+                  })),
+              }
+            : undefined,
+    ].filter(Boolean) as LemonMenuItem[]
+}
+
 function MoreMenu(): JSX.Element {
-    const { hedgehogModeEnabled, theme, posthog } = useValues(toolbarLogic)
-    const { setHedgehogModeEnabled, toggleTheme, openHedgehogOptions } = useActions(toolbarLogic)
+    const { hedgehogModeEnabled, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } =
+        useValues(toolbarLogic)
+    const {
+        setHedgehogModeEnabled,
+        toggleTheme,
+        togglePiiMasking,
+        setPiiMaskingColor,
+        startGracefulExit,
+        openHedgehogOptions,
+    } = useActions(toolbarLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
     const [surveysCount, setSurveysCount] = useState(0)
 
     useEffect(() => {
-        posthog?.surveys?.getSurveys((surveys) => {
+        posthog?.surveys?.getSurveys((surveys: any[]) => {
             setSurveysCount(surveys.length)
             setLoadingSurveys(false)
         }, false)
@@ -149,8 +222,6 @@ function MoreMenu(): JSX.Element {
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
-
-    const { logout } = useActions(toolbarConfigLogic)
 
     return (
         <LemonMenu
@@ -177,7 +248,14 @@ function MoreMenu(): JSX.Element {
                         label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
                         onClick: () => toggleTheme(),
                     },
-                    postHogDebugInfo(posthog, loadingSurveys, surveysCount),
+                    ...piiMaskingMenuItem(
+                        piiMaskingEnabled,
+                        piiMaskingColor,
+                        togglePiiMasking,
+                        setPiiMaskingColor,
+                        piiWarning
+                    ),
+                    postHogDebugInfoMenuItem(posthog, loadingSurveys, surveysCount),
                     {
                         icon: <IconQuestion />,
                         label: 'Help',
@@ -185,7 +263,7 @@ function MoreMenu(): JSX.Element {
                             window.open(HELP_URL, '_blank')?.focus()
                         },
                     },
-                    { icon: <IconX />, label: 'Close toolbar', onClick: logout },
+                    { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
                 ].filter(Boolean) as LemonMenuItems
             }
             maxContentWidth={true}
@@ -207,6 +285,9 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
 
+    const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
+    const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
+
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -219,6 +300,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <WebVitalsToolbarMenu />
     ) : visibleMenu === 'experiments' && showExperiments ? (
         <ExperimentsToolbarMenu />
+    ) : visibleMenu === 'product-tours' && showProductTours ? (
+        <ProductToursToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -260,13 +343,19 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
-    const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
+    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isLoading, isExiting } =
+        useValues(toolbarLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
+        useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
+    const { selectedTourId } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
+
+    const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
+    const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
 
     useEffect(() => {
         setElement(ref.current)
@@ -298,8 +387,12 @@ export function Toolbar(): JSX.Element | null {
         return null
     }
 
+    const showEditingBar = selectedTourId !== null
+
     return (
         <>
+            <TourGoalModal />
+            {showEditingBar && <ProductToursEditingBar />}
             <ToolbarInfoMenu />
             <div
                 ref={ref}
@@ -307,7 +400,8 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--with-experiments': showExperiments,
+                    'Toolbar--extra-buttons-1': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 1,
+                    'Toolbar--extra-buttons-2': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 2,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -325,7 +419,11 @@ export function Toolbar(): JSX.Element | null {
                     title={isAuthenticated ? 'Minimize' : 'Authenticate the PostHog Toolbar'}
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 >
-                    <IconLogomark />
+                    <AnimatedLogomark
+                        animate={isLoading}
+                        animateOnce={isExiting ? completeGracefulExit : undefined}
+                        className="Toolbar__logomark"
+                    />
                 </ToolbarButton>
                 {isAuthenticated ? (
                     <>
@@ -350,6 +448,11 @@ export function Toolbar(): JSX.Element | null {
                         {showExperiments && (
                             <ToolbarButton menuId="experiments" title="Experiments">
                                 <IconTestTube />
+                            </ToolbarButton>
+                        )}
+                        {showProductTours && (
+                            <ToolbarButton menuId="product-tours" title="Product tours">
+                                <IconSpotlight />
                             </ToolbarButton>
                         )}
                     </>

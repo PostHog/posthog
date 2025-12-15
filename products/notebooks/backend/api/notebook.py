@@ -56,7 +56,6 @@ def log_notebook_activity(
     changes: Optional[list[Change]] = None,
 ) -> None:
     short_id = str(notebook.short_id)
-
     log_activity(
         organization_id=organization_id,
         team_id=team_id,
@@ -166,8 +165,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 
+        activity = "updated"
+        if changes:
+            deleted_change = next((change for change in changes if change.field == "deleted"), None)
+            if deleted_change:
+                activity = "restored" if deleted_change.after is False else "deleted"
+
         log_notebook_activity(
-            activity="updated",
+            activity=activity,
             notebook=updated_notebook,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
@@ -189,7 +194,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             OpenApiParameter("short_id", exclude=True),
             OpenApiParameter(
                 "created_by",
-                OpenApiTypes.INT,
+                OpenApiTypes.UUID,
                 description="The UUID of the Notebook's creator",
                 required=False,
             ),

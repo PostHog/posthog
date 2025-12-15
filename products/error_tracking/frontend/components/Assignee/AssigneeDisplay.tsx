@@ -93,7 +93,7 @@ export const AssigneeLabelDisplay = ({
         >
             {match(assignee)
                 .with({ type: 'role' }, ({ role }) => role.name)
-                .with({ type: 'user' }, ({ user }) => fullName(user))
+                .with({ type: 'user' }, ({ user }) => <span className="ph-no-capture">{fullName(user)}</span>)
                 .otherwise(() => placeholder || 'Unassigned')}
         </span>
     )

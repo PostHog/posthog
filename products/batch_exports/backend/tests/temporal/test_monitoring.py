@@ -5,11 +5,13 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
+import pytest_asyncio
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import afetch_batch_export_runs_in_range
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
@@ -39,19 +41,19 @@ GENERATE_TEST_DATA_END = NOW.replace(minute=0, second=0, microsecond=0, tzinfo=d
 GENERATE_TEST_DATA_START = GENERATE_TEST_DATA_END - dt.timedelta(hours=1)
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="module")
 async def clickhouse_db_setup(clickhouse_client):
     await create_clickhouse_tables_and_views(clickhouse_client)
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def truncate(clickhouse_client):
     """Fixture to automatically truncate sharded_events after a test."""
     yield
     await truncate_events(clickhouse_client)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def batch_export(ateam, temporal_client):
     """Provide a batch export for tests, not intended to be used."""
     destination_data = {
@@ -83,7 +85,7 @@ async def batch_export(ateam, temporal_client):
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def generate_batch_export_runs(
     generate_test_data,
     data_interval_start: dt.datetime,
@@ -133,7 +135,7 @@ async def _run_workflow(batch_export):
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[BatchExportMonitoringWorkflow],
             activities=[
                 get_batch_export,
@@ -148,7 +150,7 @@ async def _run_workflow(batch_export):
                 BatchExportMonitoringWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )

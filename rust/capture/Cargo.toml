@@ -18,6 +18,7 @@ envconfig = { workspace = true }
 flate2 = { workspace = true }
 health = { path = "../common/health" }
 common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 limiters = { path = "../common/limiters" }
@@ -28,11 +29,7 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
-redis = { version = "0.23.3", features = [
-    "tokio-comp",
-    "cluster",
-    "cluster-async",
-] }
+redis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
@@ -48,15 +45,13 @@ uuid = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true }
-jiff = "0.1"
-dateparser = "0.2"
 lz-str = { workspace = true }
-regex = { workspace = true }
 multer = "3.0"
 futures = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
 futures = { workspace = true }

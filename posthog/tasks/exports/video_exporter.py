@@ -4,7 +4,9 @@ import uuid
 import shutil
 import tempfile
 import subprocess
+from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import structlog
 import posthoganalytics
@@ -22,6 +24,28 @@ logger = structlog.get_logger(__name__)
 
 HEIGHT_OFFSET = 85
 PLAYBACK_SPEED_MULTIPLIER = 4  # Speed up playback during recording for long videos
+
+
+@dataclass(frozen=True)
+class RecordReplayToFileOptions:
+    image_path: str
+    url_to_render: str
+    wait_for_css_selector: str
+    # Recording duration in seconds.
+    recording_duration: int
+    screenshot_width: Optional[int] = None
+    screenshot_height: Optional[int] = None
+    playback_speed: int = 1
+
+    def __post_init__(self) -> None:
+        if self.recording_duration <= 0:
+            raise ValueError("recording_duration must be positive")
+        if self.screenshot_width is not None and self.screenshot_width <= 0:
+            raise ValueError("screenshot_width must be positive")
+        if self.screenshot_height is not None and self.screenshot_height <= 0:
+            raise ValueError("screenshot_height must be positive")
+        if not (1 <= self.playback_speed <= 360):
+            raise ValueError(f"playback_speed must be between 1 and 360, got {self.playback_speed}")
 
 
 def _wait_for_page_ready(page: Page, url_to_render: str, wait_for_css_selector: str) -> None:
@@ -72,6 +96,45 @@ def _convert_to_mp4(
         "+faststart",
         "-f",
         "mp4",
+    ]
+    if video_filter:
+        cmd.extend(["-vf", video_filter])
+    cmd.append(image_path)
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        error_msg = f"ffmpeg failed with exit code {e.returncode}"
+        if e.stderr:
+            error_msg += f": {e.stderr.strip()}"
+        raise RuntimeError(error_msg) from e
+
+
+def _process_webm(
+    tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, playback_speed: int
+) -> None:
+    """Process WebM with speed correction using ffmpeg."""
+    video_filter = f"setpts={playback_speed}*PTS" if playback_speed > 1.0 else None
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        f"{pre_roll:.2f}",
+        "-i",
+        tmp_webm,
+        "-t",
+        f"{float(recording_duration):.2f}",
+        "-c:v",
+        "libvpx-vp9",
+        "-crf",
+        "30",
+        "-b:v",
+        "0",
+        "-f",
+        "webm",
     ]
     if video_filter:
         cmd.extend(["-vf", video_filter])
@@ -205,24 +268,24 @@ def detect_recording_resolution(
         logger.info("video_exporter.resolution_detection_complete")
 
 
-def record_replay_to_file(
-    image_path: str,
-    url_to_render: str,
-    screenshot_width: Optional[int],
-    wait_for_css_selector: str,
-    screenshot_height: Optional[int],
-    recording_duration: int = 5,  # Duration in seconds
-) -> None:
-    # Input validation
-    if recording_duration <= 0:
-        raise ValueError("recording_duration must be positive")
-    if screenshot_width is not None and screenshot_width <= 0:
-        raise ValueError("screenshot_width must be positive")
-    if screenshot_height is not None and screenshot_height <= 0:
-        raise ValueError("screenshot_height must be positive")
+def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
+    """
+    the export function might choose to change the playback speed
+    and so needs to update the URL to let the UI know what playback speed
+    to use when rendering the video.
+    """
+    parsed_url = urlparse(url_to_render)
+    query_params = parse_qs(parsed_url.query)
+    query_params["playerSpeed"] = [str(playback_speed)]
+    new_query = urlencode(query_params, doseq=True)
+    return str(urlunparse(parsed_url._replace(query=new_query)))
 
+
+def record_replay_to_file(
+    opts: RecordReplayToFileOptions,
+) -> None:
     # Check if ffmpeg is available for video conversion
-    ext = os.path.splitext(image_path)[1].lower()
+    ext = os.path.splitext(opts.image_path)[1].lower()
     if ext in [".mp4", ".gif"] and not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg is required for MP4 and GIF exports but was not found in PATH")
 
@@ -245,10 +308,10 @@ def record_replay_to_file(
             )
 
             # Check if dimensions were provided or need to be detected
-            if screenshot_width is not None and screenshot_height is not None:
+            if opts.screenshot_width is not None and opts.screenshot_height is not None:
                 # Use provided dimensions
-                width = screenshot_width
-                height = screenshot_height
+                width = opts.screenshot_width
+                height = opts.screenshot_height
                 logger.info("video_exporter.using_provided_dimensions", width=width, height=height)
             else:
                 # Phase 1: Detect actual recording resolution
@@ -257,8 +320,8 @@ def record_replay_to_file(
 
                 width, height = detect_recording_resolution(
                     browser=browser,
-                    url_to_render=url_to_render,
-                    wait_for_css_selector=wait_for_css_selector,
+                    url_to_render=opts.url_to_render,
+                    wait_for_css_selector=opts.wait_for_css_selector,
                     default_width=default_width,
                     default_height=default_height,
                 )
@@ -277,8 +340,19 @@ def record_replay_to_file(
             record_started = time.monotonic()
             logger.info("video_exporter.recording_context_created", width=width, height=height)
 
+            # Speed up playback for long MP4 recordings to reduce recording time
+            ext = os.path.splitext(opts.image_path)[1].lower()
+            # if playback speed is the default value for webm or mp4 then we speed it up, otherwise we respect user choice
+            playback_speed = (
+                PLAYBACK_SPEED_MULTIPLIER
+                if (ext in [".mp4", ".webm"] and opts.recording_duration > 5 and opts.playback_speed == 1)
+                else opts.playback_speed
+            )
+
             # Navigate with correct dimensions
-            _wait_for_page_ready(page, url_to_render, wait_for_css_selector)
+            _wait_for_page_ready(
+                page, ensure_playback_speed(opts.url_to_render, playback_speed), opts.wait_for_css_selector
+            )
             measured_width: Optional[int] = None
             try:
                 dimensions = page.evaluate("""
@@ -308,12 +382,8 @@ def record_replay_to_file(
             ready_at = time.monotonic()
             page.wait_for_timeout(500)
 
-            # Speed up playback for long MP4 recordings to reduce recording time
-            ext = os.path.splitext(image_path)[1].lower()
-            playback_speed = PLAYBACK_SPEED_MULTIPLIER if (ext == ".mp4" and recording_duration > 5) else 1
-
             # Record for actual_duration (shorter if sped up)
-            actual_duration = recording_duration / playback_speed
+            actual_duration = opts.recording_duration / playback_speed
             page.wait_for_timeout(int(actual_duration * 1000))
             video = page.video
             page.close()
@@ -331,11 +401,16 @@ def record_replay_to_file(
                 shutil.move(src, tmp_webm)
             try:
                 if ext == ".mp4":
-                    _convert_to_mp4(tmp_webm, image_path, pre_roll, recording_duration, playback_speed)
+                    _convert_to_mp4(tmp_webm, opts.image_path, pre_roll, opts.recording_duration, playback_speed)
                 elif ext == ".gif":
-                    _convert_to_gif(tmp_webm, image_path, pre_roll, recording_duration, measured_width)
+                    _convert_to_gif(tmp_webm, opts.image_path, pre_roll, opts.recording_duration, measured_width)
+                elif ext == ".webm":
+                    if playback_speed > 1:
+                        _process_webm(tmp_webm, opts.image_path, pre_roll, opts.recording_duration, playback_speed)
+                    else:
+                        shutil.move(tmp_webm, opts.image_path)
                 else:
-                    shutil.move(tmp_webm, image_path)
+                    shutil.move(tmp_webm, opts.image_path)
             finally:
                 try:
                     context.close()
@@ -344,8 +419,8 @@ def record_replay_to_file(
                     pass
     except Exception as e:
         with posthoganalytics.new_context():
-            posthoganalytics.tag("url_to_render", url_to_render)
-            posthoganalytics.tag("video_target_path", image_path)
+            posthoganalytics.tag("url_to_render", opts.url_to_render)
+            posthoganalytics.tag("video_target_path", opts.image_path)
             capture_exception(e)
         raise
     finally:

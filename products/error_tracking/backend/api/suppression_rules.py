@@ -1,10 +1,12 @@
 from typing import override
 
 import structlog
+import posthoganalytics
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
@@ -53,6 +55,11 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
             team=self.team,
             filters=filters,
             order_key=0,
+        )
+
+        posthoganalytics.capture(
+            "error_tracking_suppression_rule_created",
+            groups=groups(self.team.organization, self.team),
         )
 
         serializer = ErrorTrackingSuppressionRuleSerializer(suppression_rule)

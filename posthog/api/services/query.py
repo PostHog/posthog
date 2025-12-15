@@ -32,7 +32,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.warehouse.models import DataWarehouseJoin
+
+from products.data_warehouse.backend.models import DataWarehouseJoin
 
 from common.hogvm.python.debugger import color_bytecode
 

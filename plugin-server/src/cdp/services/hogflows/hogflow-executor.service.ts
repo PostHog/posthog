@@ -1,3 +1,4 @@
+import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
@@ -27,7 +28,13 @@ import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
-import { actionIdForLogging, ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
+import {
+    actionIdForLogging,
+    ensureCurrentAction,
+    findContinueAction,
+    shouldSkipAction,
+    trackE2eLag,
+} from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
@@ -36,11 +43,27 @@ export function createHogFlowInvocation(
     hogFlow: HogFlow,
     filterGlobals: HogFunctionFilterGlobals
 ): CyclotronJobInvocationHogFlow {
+    // Build default variables from hogFlow, then merge in any provided in globals.variables
+    const defaultVariables =
+        hogFlow.variables?.reduce(
+            (acc, variable) => {
+                acc[variable.key] = variable.default || null
+                return acc
+            },
+            {} as Record<string, any>
+        ) || {}
+
+    const mergedVariables = {
+        ...defaultVariables,
+        ...(globals.variables || {}),
+    }
+
     return {
         id: new UUIDT().toString(),
         state: {
             event: globals.event,
             actionStepCount: 0,
+            variables: mergedVariables,
         },
         teamId: hogFlow.team_id,
         functionId: hogFlow.id, // TODO: Include version?
@@ -132,13 +155,7 @@ export class HogFlowExecutorService {
             return earlyExitResult
         }
 
-        const hasCurrentAction = Boolean(invocation.state.currentAction)
-        const currentAction = hasCurrentAction ? `[Action:${invocation.state.currentAction!.id}]` : 'trigger'
-        logs.push({
-            level: 'debug',
-            message: `${hasCurrentAction ? 'Resuming' : 'Starting'} workflow execution at ${currentAction}`,
-            timestamp: DateTime.now(),
-        })
+        logs.push(this.logExecutionTriggerInfo(invocation))
 
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
@@ -152,6 +169,8 @@ export class HogFlowExecutorService {
                 } else {
                     this.log(result, 'info', `Workflow completed`)
                 }
+
+                trackE2eLag(result)
             }
 
             logs.push(...result.logs)
@@ -181,12 +200,13 @@ export class HogFlowExecutorService {
         if (result.error) {
             const lastExecutedActionId = result.invocation.state.currentAction?.id
             const lastExecutedAction = result.invocation.hogFlow.actions.find((a) => a.id === lastExecutedActionId)
+
             if (lastExecutedAction?.on_error === 'abort') {
                 shouldAbortAfterError = true
                 logs.push({
                     level: 'info',
                     timestamp: DateTime.now(),
-                    message: `Workflow is aborting due to the action's error handling setting (on_error: 'abort')`,
+                    message: `Workflow is aborting due to ${actionIdForLogging(lastExecutedAction)} error handling setting being set to abort on error`,
                 })
             }
         }
@@ -322,6 +342,14 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
+                if (handlerResult.error) {
+                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
+                }
+
+                if (handlerResult.result) {
+                    this.trackActionResult(result, currentAction, handlerResult.result)
+                }
+
                 if (handlerResult.finished) {
                     result.finished = true
                     // Special case for exit - we just track a success metric
@@ -402,7 +430,7 @@ export class HogFlowExecutorService {
                         result,
                         currentAction,
                         'info',
-                        `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
+                        `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to error handling setting being set to continue on error`
                     )
 
                     /**
@@ -470,5 +498,71 @@ export class HogFlowExecutorService {
             metric_name: metricName,
             count: 1,
         })
+    }
+
+    private trackActionResult(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: HogFlowAction,
+        actionResult: unknown
+    ): void {
+        if (action.output_variable?.key) {
+            if (!actionResult) {
+                this.log(
+                    result,
+                    'warn',
+                    `An output variable was specified for [Action:${action.id}], but no output was returned.`
+                )
+                return
+            }
+
+            if (!result.invocation.state.variables) {
+                result.invocation.state.variables = {}
+            }
+
+            result.invocation.state.variables[action.output_variable.key] = action.output_variable?.result_path
+                ? get(actionResult, action.output_variable.result_path)
+                : actionResult
+
+            // Check that result to be stored is below 1kb
+            const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
+            if (resultSize > 1024) {
+                this.log(
+                    result,
+                    'warn',
+                    `Total variable size after updating '${action.output_variable.key}' is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
+                )
+                delete result.invocation.state.variables[action.output_variable.key]
+                return
+            }
+
+            this.log(
+                result,
+                'debug',
+                `Stored action result in variable '${action.output_variable.key}': ${JSON.stringify(result.invocation.state.variables[action.output_variable.key])}`
+            )
+        }
+    }
+
+    private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {
+        const hasCurrentAction = Boolean(invocation.state.currentAction)
+        const currentAction = hasCurrentAction ? `[Action:${invocation.state.currentAction!.id}]` : 'trigger'
+
+        const hasAssociatedPerson = Boolean(invocation.person)
+        const isWebhookTriggered = invocation.hogFlow.trigger.type !== 'event'
+
+        let triggeredFor = ''
+        if (!hasCurrentAction) {
+            triggeredFor = isWebhookTriggered
+                ? ` at request of [Actor:${invocation.state.event?.distinct_id || 'unknown'}]`
+                : hasAssociatedPerson
+                  ? ` for [Person:${invocation.person?.id}|${invocation.person?.name}]`
+                  : ''
+        }
+
+        return {
+            level: 'debug',
+            message: `${hasCurrentAction ? 'Resuming' : 'Starting'} workflow execution at ${currentAction}${triggeredFor}`,
+            timestamp: DateTime.now(),
+        }
     }
 }

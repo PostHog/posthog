@@ -1,7 +1,15 @@
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 
-import { QuerySchema } from '~/queries/schema/schema-general'
+import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
+
+/**
+ * Converts a NodeKind query type to a user-friendly display name by removing the 'Query' suffix.
+ * Examples: 'HogQLQuery' -> 'HogQL', 'TrendsQuery' -> 'Trends', 'FunnelsQuery' -> 'Funnels'
+ */
+export function humanizeQueryKind(kind: NodeKind | string): string {
+    return kind.endsWith('Query') ? kind.slice(0, -5) : kind
+}
 
 export const INITIAL_DATE_FROM = '-7d' as string
 export const INITIAL_DATE_TO = null as string | null

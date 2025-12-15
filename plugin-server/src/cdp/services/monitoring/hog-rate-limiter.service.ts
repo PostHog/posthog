@@ -1,5 +1,6 @@
+import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+
 import { Hub } from '../../../types'
-import { CdpRedis, getRedisPipelineResults } from '../../redis'
 
 export const BASE_REDIS_KEY =
     process.env.NODE_ENV == 'test' ? '@posthog-test/hog-rate-limiter' : '@posthog/hog-rate-limiter'
@@ -13,7 +14,7 @@ export type HogRateLimit = {
 export class HogRateLimiterService {
     constructor(
         private hub: Hub,
-        private redis: CdpRedis
+        private redis: RedisV2
     ) {}
 
     private rateLimitArgs(id: string, cost: number): [string, number, number, number, number, number] {

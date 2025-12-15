@@ -4,9 +4,9 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.db.models import QuerySet
-from django.db.models.signals import pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from dateutil.rrule import DAILY, rrule
@@ -16,6 +16,7 @@ from posthog.models import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.storage.hypercache import HyperCache
 
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value
@@ -69,6 +70,16 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         on_delete=models.SET_NULL,
         related_name="surveys_targeting_flag",
         related_query_name="survey_targeting_flag",
+    )
+    linked_insight = models.ForeignKey(
+        "posthog.Insight",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="surveys_linked_insight",
+        related_query_name="survey_linked_insight",
+        db_index=True,
+        db_constraint=True,
     )
     internal_targeting_flag = models.ForeignKey(
         "posthog.FeatureFlag",
@@ -127,6 +138,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
@@ -226,6 +238,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         blank=True,
     )
     enable_partial_responses = models.BooleanField(default=False, null=True)
+
+    # AI-generated headline summary
+    headline_summary = models.TextField(blank=True, null=True)
+    headline_response_count = models.PositiveIntegerField(null=True, blank=True)
+
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(
         models.BooleanField(
@@ -356,3 +373,26 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
     if iteration_count > 0 and (instance.current_iteration is None or instance.current_iteration == 0):
         instance.current_iteration = 1
         instance.current_iteration_start_date = instance.start_date
+
+
+def _get_surveys_response(team: "Team") -> dict:
+    from posthog.api.survey import get_surveys_response
+
+    return get_surveys_response(team)
+
+
+surveys_hypercache = HyperCache(
+    namespace="surveys",
+    value="surveys.json",
+    load_fn=lambda key: _get_surveys_response(HyperCache.team_from_key(key)),
+    token_based=True,
+)
+
+
+@receiver(post_save, sender=Survey)
+@receiver(post_delete, sender=Survey)
+def survey_changed(sender, instance: "Survey", **kwargs):
+    from posthog.tasks.surveys import update_team_surveys_cache
+
+    # Defer task execution until after the transaction commits
+    transaction.on_commit(lambda: update_team_surveys_cache.delay(instance.team_id))

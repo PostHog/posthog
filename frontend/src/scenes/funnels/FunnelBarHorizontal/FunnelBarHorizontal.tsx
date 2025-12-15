@@ -3,9 +3,11 @@ import './FunnelBarHorizontal.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { IconInfinity } from '@posthog/icons'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { IconInfinity, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
@@ -133,11 +135,15 @@ export function FunnelBarHorizontal({
                                     })}
                                     <div
                                         className="funnel-bar-empty-space"
-                                        onClick={() => openPersonsModalForStep({ step, converted: false })} // dropoff value for steps is negative
+                                        onClick={
+                                            showPersonsModal
+                                                ? () => openPersonsModalForStep({ step, converted: false }) // dropoff value for steps is negative
+                                                : undefined
+                                        }
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
                                             flex: `${1 - breakdownSum / basisStep.count} 1 0`,
-                                            cursor: `${!inCardView ? 'pointer' : ''}`,
+                                            cursor: `${showPersonsModal && !inCardView ? 'pointer' : ''}`,
                                         }}
                                     >
                                         {isBreakdown && (
@@ -161,11 +167,15 @@ export function FunnelBarHorizontal({
                                     />
                                     <div
                                         className="funnel-bar-empty-space"
-                                        onClick={() => openPersonsModalForStep({ step, converted: false })} // dropoff value for steps is negative
+                                        onClick={
+                                            showPersonsModal
+                                                ? () => openPersonsModalForStep({ step, converted: false }) // dropoff value for steps is negative
+                                                : undefined
+                                        }
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
                                             flex: `${1 - step.conversionRates.fromBasisStep} 1 0`,
-                                            cursor: `${!inCardView ? 'pointer' : ''}`,
+                                            cursor: `${showPersonsModal && !inCardView ? 'pointer' : ''}`,
                                         }}
                                     />
                                 </>

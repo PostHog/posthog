@@ -164,14 +164,20 @@ export enum TaxonomicFilterGroupType {
     Notebooks = 'notebooks',
     LogEntries = 'log_entries',
     ErrorTrackingIssues = 'error_tracking_issues',
+    Logs = 'logs',
     LogAttributes = 'log_attributes',
+    LogResourceAttributes = 'log_resource_attributes',
     // Misc
     Replay = 'replay',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
+    ActivityLogProperties = 'activity_log_properties',
     // Max AI Context
     MaxAIContext = 'max_ai_context',
+    // Workflows execution variables
+    WorkflowVariables = 'workflow_variables',
+    Empty = 'empty',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

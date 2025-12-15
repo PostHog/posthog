@@ -13,7 +13,7 @@ from posthog.hogql.database.models import (
     Table,
 )
 
-from products.error_tracking.backend.embedding import DOCUMENT_EMBEDDINGS
+from products.error_tracking.backend.embedding import DISTRIBUTED_DOCUMENT_EMBEDDINGS
 
 DOCUMENT_EMBEDDINGS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -24,6 +24,7 @@ DOCUMENT_EMBEDDINGS_FIELDS: dict[str, FieldOrTable] = {
     "document_id": StringDatabaseField(name="document_id", nullable=False),
     "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
     "inserted_at": DateTimeDatabaseField(name="inserted_at", nullable=False),
+    "content": StringDatabaseField(name="content", nullable=False),
     "embedding": FloatArrayDatabaseField(name="embedding", nullable=False),
 }
 
@@ -48,7 +49,7 @@ class RawDocumentEmbeddingsTable(Table):
     fields: dict[str, FieldOrTable] = DOCUMENT_EMBEDDINGS_FIELDS
 
     def to_printed_clickhouse(self, context):
-        return DOCUMENT_EMBEDDINGS
+        return DISTRIBUTED_DOCUMENT_EMBEDDINGS
 
     def to_printed_hogql(self):
         return f"raw_document_embeddings"
@@ -66,7 +67,7 @@ class DocumentEmbeddingsTable(LazyTable):
         return select_from_embeddings_table(table_to_add.fields_accessed)
 
     def to_printed_clickhouse(self, context):
-        return DOCUMENT_EMBEDDINGS
+        return DISTRIBUTED_DOCUMENT_EMBEDDINGS
 
     def to_printed_hogql(self):
         return "document_embeddings"

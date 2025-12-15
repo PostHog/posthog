@@ -7,7 +7,7 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
 import { METRIC_CONTEXTS } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../../experimentLogic'
 import { modalsLogic } from '../../modalsLogic'
@@ -20,11 +20,8 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const {
         experiment,
         getInsightType,
-        getOrderedMetrics,
-        primaryMetricsResults,
-        secondaryMetricsResults,
-        secondaryMetricsResultsErrors,
-        primaryMetricsResultsErrors,
+        orderedPrimaryMetricsWithResults,
+        orderedSecondaryMetricsWithResults,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
@@ -35,39 +32,17 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         return null
     }
 
-    const unorderedResults = isSecondary ? secondaryMetricsResults : primaryMetricsResults
-    const unorderedErrors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
+    const metricsWithResults = isSecondary ? orderedSecondaryMetricsWithResults : orderedPrimaryMetricsWithResults
 
-    const metrics = getOrderedMetrics(!!isSecondary)
-
-    // Create maps of UUID -> result/error from original arrays
-    const resultsMap = new Map()
-    const errorsMap = new Map()
-
-    // Get original metrics in their original order
-    const originalMetrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
-    const sharedMetrics = (experiment.saved_metrics || [])
-        .filter((sharedMetric) => sharedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary'))
-        .map((sharedMetric) => sharedMetric.query)
-    const allOriginalMetrics = [...originalMetrics, ...sharedMetrics]
-
-    // Map results and errors by UUID
-    allOriginalMetrics.forEach((metric, index) => {
-        const uuid = metric.uuid || metric.query?.uuid
-        if (uuid) {
-            resultsMap.set(uuid, unorderedResults[index])
-            errorsMap.set(uuid, unorderedErrors[index])
-        }
-    })
-
-    // Reorder results and errors to match the ordered metrics
-    const results = metrics.map((metric) => resultsMap.get(metric.uuid))
-    const errors = metrics.map((metric) => errorsMap.get(metric.uuid))
+    const metrics = metricsWithResults.map(({ metric }: { metric: ExperimentMetric }) => metric)
+    const results = metricsWithResults.map(({ result }: { result: CachedNewExperimentQueryResponse }) => result)
+    const errors = metricsWithResults.map(({ error }: { error: any }) => error)
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
     const hasSomeResults =
-        results?.some((result) => result?.variant_results && result.variant_results.length > 0) &&
-        hasMinimumExposureForResults
+        results?.some(
+            (result: CachedNewExperimentQueryResponse) => result?.variant_results && result.variant_results.length > 0
+        ) && hasMinimumExposureForResults
 
     return (
         <div className="mb-4 -mt-2">
@@ -137,10 +112,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         <div className="mt-4">
                             <ResultDetails
                                 metric={metrics[0] as ExperimentMetric}
-                                result={{
-                                    ...results[0],
-                                    metric: metrics[0] as ExperimentMetric,
-                                }}
+                                result={results[0]}
                                 experiment={experiment}
                             />
                         </div>

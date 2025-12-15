@@ -1,12 +1,12 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import { LemonModal, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { SimilarIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionCard } from '../../../components/ExceptionCard'
@@ -16,8 +16,9 @@ import { useErrorTagRenderer } from '../../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 export const SimilarIssuesList = (): JSX.Element => {
-    const { issue, similarIssues, similarIssuesLoading } = useValues(errorTrackingIssueSceneLogic)
-    const { loadSimilarIssues } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, similarIssues, similarIssuesLoading, similarIssuesMaxDistance } =
+        useValues(errorTrackingIssueSceneLogic)
+    const { loadSimilarIssues, setSimilarIssuesMaxDistance } = useActions(errorTrackingIssueSceneLogic)
     const { mergeIssues } = useAsyncActions(issueActionsLogic)
     const [selectedIssue, setSelectedIssue] = useState<SimilarIssue | null>(null)
 
@@ -25,28 +26,34 @@ export const SimilarIssuesList = (): JSX.Element => {
         loadSimilarIssues()
     }, [loadSimilarIssues])
 
-    const handleMerge = async (relatedIssueId: string): Promise<void> => {
+    const handleMerge = async (relatedIssueId: string, maxDistance: number): Promise<void> => {
         if (issue) {
             await mergeIssues([issue.id, relatedIssueId])
+            posthog.capture('similar_issue_merged', { maxDistance: maxDistance })
             loadSimilarIssues(true)
         }
     }
 
+    const increaseMaxDistance = (): void => {
+        setSimilarIssuesMaxDistance(similarIssuesMaxDistance + 0.1)
+    }
+
     return (
-        <ScenePanelLabel title="Similar issues">
+        <>
             {similarIssuesLoading ? (
                 <Spinner />
             ) : similarIssues.length > 0 ? (
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 divide-y">
                     {similarIssues.map((similarIssue: SimilarIssue) => {
                         return (
                             <SimilarIssueCard
+                                key={similarIssue.id}
                                 issue={similarIssue}
                                 onClick={() => setSelectedIssue(similarIssue)}
                                 actions={
                                     <ButtonPrimitive
                                         size="xxs"
-                                        onClick={() => handleMerge(similarIssue.id)}
+                                        onClick={() => handleMerge(similarIssue.id, similarIssuesMaxDistance)}
                                         className="shrink-0 px-2 py-3 h-full"
                                     >
                                         Merge
@@ -57,7 +64,11 @@ export const SimilarIssuesList = (): JSX.Element => {
                     })}
                 </div>
             ) : (
-                <div className="text-sm text-gray-500">No similar issues found</div>
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <LemonButton size="small" onClick={increaseMaxDistance} className="w-fit" type="primary">
+                        No similar issues found. Search further?
+                    </LemonButton>
+                </div>
             )}
 
             {/* Issue Detail Modal */}
@@ -69,25 +80,22 @@ export const SimilarIssuesList = (): JSX.Element => {
                     {selectedIssue && <IssueModalContent issueId={selectedIssue.id} />}
                 </LemonModalContent>
             </LemonModal>
-        </ScenePanelLabel>
+        </>
     )
 }
 
 const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
     const logicProps: ErrorTrackingIssueSceneLogicProps = { id: issueId }
-    const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(
-        errorTrackingIssueSceneLogic(logicProps)
-    )
+    const { issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic(logicProps))
     const tagRenderer = useErrorTagRenderer()
 
     return (
         <div className="ErrorTrackingIssue">
             <div className="space-y-2">
                 <ExceptionCard
-                    issue={issue ?? undefined}
-                    issueLoading={issueLoading}
+                    issueId={issueId}
+                    loading={issueLoading || initialEventLoading}
                     event={selectedEvent ?? undefined}
-                    eventLoading={initialEventLoading}
                     label={tagRenderer(selectedEvent)}
                 />
             </div>

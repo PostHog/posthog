@@ -1,6 +1,7 @@
+import { useValues } from 'kea'
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
-import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconSearch, IconX } from '@posthog/icons'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -18,10 +19,16 @@ import { TextInputPrimitive, textInputVariants } from 'lib/ui/TextInputPrimitive
 import { cn } from 'lib/utils/css-classes'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 
 export interface SearchInputCommand<T = string> {
     value: T
     displayName: string
+}
+
+export interface SearchInputBreadcrumb {
+    label: string
+    path: string
 }
 
 interface SearchInputProps<T = string> {
@@ -34,11 +41,15 @@ interface SearchInputProps<T = string> {
     onSelectedCommandsChange?: (commands: SearchInputCommand<T>[]) => void
     activeCommands?: T[]
     onClearAll?: () => void
+    explorerBreadcrumbs?: SearchInputBreadcrumb[] | null
+    onExplorerBreadcrumbClick?: (path: string) => void
+    onExitExplorer?: () => void
 }
 
 export interface SearchInputHandle {
     focus: () => void
     getInputRef: () => React.RefObject<HTMLInputElement>
+    triggerPulse: () => void
 }
 
 export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(function SearchInput<T = string>(
@@ -52,6 +63,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
         onSelectedCommandsChange,
         activeCommands = [],
         onClearAll,
+        explorerBreadcrumbs = null,
+        onExplorerBreadcrumbClick,
+        onExitExplorer,
     }: SearchInputProps<T>,
     ref: React.Ref<SearchInputHandle>
 ) {
@@ -61,6 +75,10 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const inputRef = useRef<HTMLInputElement>(null)
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
     const [expandedTags, setExpandedTags] = useState(false)
+    const [isFocused, setIsFocused] = useState(false)
+    const [pulseKey, setPulseKey] = useState(0)
+    const isExplorerActive = !!explorerBreadcrumbs?.length && !!onExitExplorer
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
     useImperativeHandle(
         ref,
@@ -72,6 +90,12 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
             },
             getInputRef: () => inputRef,
+            triggerPulse: () => {
+                setPulseKey((prev) => prev + 1)
+                if (inputRef.current) {
+                    inputRef.current.focus()
+                }
+            },
         }),
         []
     )
@@ -140,6 +164,28 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     }
 
     const handleKeyDown = (e: React.KeyboardEvent): void => {
+        const currentInputValue = inputRef.current?.value ?? inputValue
+
+        if (e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+            if (currentInputValue === '') {
+                e.preventDefault()
+                e.stopPropagation()
+                if (e.key === 'ArrowLeft') {
+                    window.history.back()
+                } else {
+                    window.history.forward()
+                }
+            }
+            return
+        }
+
+        const isModKeyPressed = e.metaKey || e.ctrlKey
+
+        // Allow browser navigation keys with modifier
+        if (isModKeyPressed) {
+            return
+        }
+
         switch (e.key) {
             case '/':
                 if (!showDropdown && inputValue === '') {
@@ -152,6 +198,18 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 // If input already has content, let the '/' be typed normally
                 break
             case 'Backspace':
+                if (inputValue === '' && isExplorerActive) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (explorerBreadcrumbs.length > 1) {
+                        const parentCrumb = explorerBreadcrumbs[explorerBreadcrumbs.length - 2]
+                        onExplorerBreadcrumbClick?.(parentCrumb.path)
+                    } else {
+                        onExitExplorer?.()
+                        inputRef.current?.focus()
+                    }
+                    return
+                }
                 if (inputValue === '') {
                     e.preventDefault()
                     e.stopPropagation() // Prevent parent ListBox from handling this event
@@ -179,6 +237,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 if (inputValue === '') {
                     e.preventDefault()
                     e.stopPropagation() // Prevent parent ListBox from handling this event
+                    if (isExplorerActive) {
+                        return
+                    }
                     if (selectedCommands.length === 0) {
                         // No filters selected (showing "all"): open dropdown
                         setShowDropdown(true)
@@ -258,107 +319,167 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
 
     return (
         <div className="relative w-full">
-            <div
+            <label
+                htmlFor="command-input"
+                key={`search-input-${pulseKey}`}
                 className={cn(
                     textInputVariants({
                         variant: 'default',
                         size: 'lg',
+                        showFocusPulse: isFocused,
                     }),
-                    'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg'
+                    'flex flex-wrap gap-1 focus-within:border-secondary items-center rounded-lg py-1'
                 )}
             >
-                <DropdownMenu
-                    open={showDropdown}
-                    onOpenChange={(open) => {
-                        setShowDropdown(open)
-                    }}
-                >
-                    <DropdownMenuTrigger asChild>
+                {onExitExplorer ? (
+                    <>
                         <ButtonPrimitive
-                            variant="outline"
-                            className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
-                            iconOnly
                             size="sm"
-                            tooltip={
-                                <>
-                                    Click to show commands/filters, or type <KeyboardShortcut forwardslash />
-                                </>
-                            }
-                            tooltipPlacement="bottom"
+                            variant="outline"
+                            className="gap-1 ml-1.5"
+                            onClick={() => {
+                                onExitExplorer()
+                                inputRef.current?.focus()
+                            }}
                         >
-                            /
+                            <IconSearch className="size-4" />
                         </ButtonPrimitive>
-                    </DropdownMenuTrigger>
+                        <IconChevronRight className="size-3 text-tertiary" />
+                    </>
+                ) : (
+                    <div className={cn('relative')}>
+                        <DropdownMenu
+                            open={showDropdown}
+                            onOpenChange={(open) => {
+                                setShowDropdown(open)
+                            }}
+                        >
+                            <div className="relative">
+                                <DropdownMenuTrigger asChild>
+                                    <ButtonPrimitive
+                                        variant="outline"
+                                        className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary hover:border-secondary data-[state=open]:border-secondary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
+                                        iconOnly
+                                        size="sm"
+                                        tooltip={
+                                            <>
+                                                Click to show commands/filters, or type{' '}
+                                                <KeyboardShortcut forwardslash />
+                                            </>
+                                        }
+                                        tooltipPlacement="bottom"
+                                        tooltipCloseDelayMs={0}
+                                        tabIndex={-1}
+                                    >
+                                        /
+                                    </ButtonPrimitive>
+                                </DropdownMenuTrigger>
 
-                    <DropdownMenuContent
-                        align="start"
-                        className="min-w-[200px]"
-                        onCloseAutoFocus={(e) => {
-                            e.preventDefault()
+                                {/* Mobile layout: show a small dot on the top right of the dropdown button if there are selected commands */}
+                                {isMobileLayout && (selectedCommands.length === 1 || expandedTags) && (
+                                    <div className="absolute -top-0.5 -right-0.5 size-2 bg-accent rounded-full pointer-events-none" />
+                                )}
+                            </div>
 
-                            setTimeout(() => {
-                                if (inputRef.current) {
-                                    inputRef.current.focus()
-                                }
-                            }, 100)
-                        }}
-                    >
-                        <DropdownMenuGroup>
-                            <Label intent="menu" className="px-2">
-                                Filters
-                            </Label>
-                            <DropdownMenuSeparator />
-                            {filteredCommands.map((command) => {
-                                const isActive = activeCommands.includes(command.value)
-                                return (
-                                    <DropdownMenuItem asChild>
-                                        <ButtonPrimitive
-                                            key={command.value as string}
-                                            className="group flex items-center text-left"
-                                            onClick={() => selectCommand(command)}
-                                            fullWidth
-                                            menuItem
-                                        >
-                                            <div className="flex items-center justify-center">
-                                                <IconCheck
-                                                    className={cn(
-                                                        'hidden size-4 group-hover:block group-hover:opacity-10',
-                                                        {
-                                                            'opacity-10': !isActive,
-                                                            'block text-success group-hover:opacity-100': isActive,
-                                                        }
-                                                    )}
-                                                />
-                                                <IconBlank
-                                                    className={cn('hidden size-4 group-hover:hidden', {
-                                                        block: !isActive,
-                                                    })}
-                                                />
-                                            </div>
+                            <DropdownMenuContent
+                                align="start"
+                                className="min-w-[200px]"
+                                onCloseAutoFocus={(e) => {
+                                    e.preventDefault()
 
-                                            <div className="font-medium text-primary">{command.displayName}</div>
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                )
-                            })}
-                        </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                                    setTimeout(() => {
+                                        if (inputRef.current) {
+                                            inputRef.current.focus()
+                                        }
+                                    }, 100)
+                                }}
+                            >
+                                <DropdownMenuGroup>
+                                    <Label intent="menu" className="px-2">
+                                        Filters
+                                    </Label>
+                                    <DropdownMenuSeparator />
+                                    {filteredCommands.map((command) => {
+                                        const isActive = activeCommands.includes(command.value)
+                                        return (
+                                            <DropdownMenuItem key={command.value as string} asChild>
+                                                <ButtonPrimitive
+                                                    className="group flex items-center text-left"
+                                                    onClick={() => selectCommand(command)}
+                                                    fullWidth
+                                                    menuItem
+                                                >
+                                                    <div className="flex items-center justify-center">
+                                                        <IconCheck
+                                                            className={cn(
+                                                                'hidden size-4 group-hover:block group-hover:opacity-10',
+                                                                {
+                                                                    'opacity-10': !isActive,
+                                                                    'block text-success group-hover:opacity-100':
+                                                                        isActive,
+                                                                }
+                                                            )}
+                                                        />
+                                                        <IconBlank
+                                                            className={cn('hidden size-4 group-hover:hidden', {
+                                                                block: !isActive,
+                                                            })}
+                                                        />
+                                                    </div>
+
+                                                    <div className="font-medium text-primary">
+                                                        {command.displayName}
+                                                    </div>
+                                                </ButtonPrimitive>
+                                            </DropdownMenuItem>
+                                        )
+                                    })}
+                                </DropdownMenuGroup>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                )}
+
+                {explorerBreadcrumbs?.length ? (
+                    <div className="flex flex-wrap items-center gap-1 pr-1 text-xs font-medium text-primary">
+                        {explorerBreadcrumbs.map((crumb, index) => (
+                            <React.Fragment key={`${crumb.path}-${index}`}>
+                                <ButtonPrimitive
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-primary max-w-[150px] truncate"
+                                    onClick={() => onExplorerBreadcrumbClick?.(crumb.path)}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                >
+                                    {crumb.label || 'Untitled'}
+                                </ButtonPrimitive>
+                                {index < explorerBreadcrumbs.length - 1 && (
+                                    <IconChevronRight className="size-3 text-tertiary" />
+                                )}
+                            </React.Fragment>
+                        ))}
+                    </div>
+                ) : null}
 
                 {/* Selected inline tags */}
-                {selectedCommands.length === 0 ? null : selectedCommands.length === 1 || expandedTags ? (
+                {/* for mobile we hide this and show the dot on the top right of the dropdown button above */}
+                {selectedCommands.length === 0 || isMobileLayout ? null : selectedCommands.length === 1 ||
+                  expandedTags ? (
                     selectedCommands.map((command, index) => (
                         <ButtonPrimitive
                             key={command.value as string}
                             className={`text-primary ${focusedTagIndex === index ? 'ring-2 ring-accent' : ''}`}
                             size="sm"
                             variant="outline"
-                            onClick={() => {
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
                                 selectCommand(command)
                                 setShowDropdown(false)
                                 setExpandedTags(false)
                                 setFocusedTagIndex(null)
                             }}
+                            tabIndex={-1}
                         >
                             {command.displayName}
                             <IconX className="size-3 ml-1 text-tertiary" />
@@ -386,7 +507,13 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     placeholder={placeholder}
                     autoFocus
                     autoComplete="off"
-                    className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg"
+                    className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg shadow-none"
+                    onFocus={() => {
+                        setIsFocused(true)
+                    }}
+                    onBlur={() => {
+                        setIsFocused(false)
+                    }}
                     size="lg"
                     suffix={
                         (inputValue !== '' || selectedCommands.length > 0) && (
@@ -413,7 +540,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         )
                     }
                 />
-            </div>
+            </label>
         </div>
     )
 })

@@ -1,3 +1,6 @@
+import { type Tool as VercelTool, tool } from 'ai'
+import type { z } from 'zod'
+
 import { ApiClient } from '@/api/client'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
@@ -5,8 +8,6 @@ import { MemoryCache } from '@/lib/utils/cache/MemoryCache'
 import { hash } from '@/lib/utils/helper-functions'
 import { getToolsFromContext } from '@/tools'
 import type { Context } from '@/tools/types'
-import { type Tool as VercelTool, tool } from 'ai'
-import type { z } from 'zod'
 
 /**
  * Options for the PostHog Agent Toolkit

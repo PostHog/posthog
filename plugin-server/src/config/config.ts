@@ -21,6 +21,9 @@ export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
 export function getDefaultConfig(): PluginsServerConfig {
     return {
+        CONTINUOUS_PROFILING_ENABLED: false,
+        PYROSCOPE_SERVER_ADDRESS: '',
+        PYROSCOPE_APPLICATION_NAME: '',
         INSTRUMENT_THREAD_PERFORMANCE: false,
         OTEL_EXPORTER_OTLP_ENDPOINT: isDevEnv() ? 'http://localhost:4317' : '',
         OTEL_SDK_DISABLED: isDevEnv() ? false : true,
@@ -93,6 +96,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
+        // ok to connect to localhost over plaintext
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
         REDIS_URL: 'redis://127.0.0.1',
         INGESTION_REDIS_HOST: '',
         INGESTION_REDIS_PORT: 6379,
@@ -118,7 +123,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_PROPERTY_LRU_SIZE: 10000,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: isDevEnv() ? 'http://localhost:8000' : '',
-        TEMPORAL_HOST: 'localhost:7233',
+        TEMPORAL_HOST: 'localhost',
+        TEMPORAL_PORT: '7233',
         TEMPORAL_NAMESPACE: 'default',
         TEMPORAL_CLIENT_ROOT_CA: undefined,
         TEMPORAL_CLIENT_CERT: undefined,
@@ -128,12 +134,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
-        OBJECT_STORAGE_ENABLED: true,
-        OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
-        OBJECT_STORAGE_REGION: 'us-east-1',
-        OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
-        OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
-        OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
@@ -210,7 +210,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
-        CDP_REDIS_HOST: '',
+        CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
@@ -275,15 +275,15 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
 
         // Session recording V2
-        SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
+        SESSION_RECORDING_MAX_BATCH_SIZE_KB: isDevEnv() ? 2 * 1024 : 100 * 1024, // 2MB on dev, 100MB on prod and test
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
         SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
         SESSION_RECORDING_V2_S3_PREFIX: 'session_recordings',
-        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:19000',
+        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:8333',
         SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
-        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
-        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
-        SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
+        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any',
+        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any',
+        SESSION_RECORDING_V2_S3_TIMEOUT_MS: isDevEnv() ? 120000 : 30000,
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
@@ -298,11 +298,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DISABLED: false,
         COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000, // 1 hour
-        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * 24, // 24 hours
-        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * 24, // 24 hours
+        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * (72 + 24), // 96 hours (72 ingestion lag + 24 validity)
+        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * (72 + 24), // 96 hours (72 ingestion lag + 24 validity)
         COOKIELESS_SESSION_INACTIVITY_MS: 30 * 60 * 1000, // 30 minutes
         COOKIELESS_IDENTIFIES_TTL_SECONDS:
-            (24 + // max supported ingestion lag
+            (72 + // max supported ingestion lag in hours
                 12 + // max negative timezone in the world*/
                 14 + // max positive timezone in the world */
                 24) * // amount of time salt is valid in one timezone
@@ -324,6 +324,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: 655360,
         // Trim target is the customer-facing limit (512kb)
         PERSON_PROPERTIES_TRIM_TARGET_BYTES: 512 * 1024,
+        // When true, all property changes trigger person updates (disables filtering)
+        PERSON_PROPERTIES_UPDATE_ALL: false,
         // Limit per merge for moving distinct IDs. 0 disables limiting (move all)
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
         // Topic for async person merge processing
@@ -338,15 +340,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSONS_DUAL_WRITE_ENABLED: false,
         PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
+        PERSONS_PREFETCH_ENABLED: false,
         GROUPS_DUAL_WRITE_ENABLED: false,
         GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
-        // Workflows
-        MAILJET_PUBLIC_KEY: '',
-        MAILJET_SECRET_KEY: '',
-
-        // SES
+        // SES (Workflows email sending)
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
@@ -363,6 +362,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_LOGS_INGESTION_OVERFLOW,
         LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
         LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_LOGS_CLICKHOUSE,
+        LOGS_REDIS_HOST: '127.0.0.1',
+        LOGS_REDIS_PORT: 6479,
+        LOGS_REDIS_PASSWORD: '',
+        LOGS_REDIS_TLS: isProdEnv() ? true : false,
+        LOGS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        LOGS_LIMITER_DISABLED_FOR_TEAMS: '',
+        LOGS_LIMITER_BUCKET_SIZE_KB: 10000, // 10MB burst
+        LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: 1000, // 1MB/second refill rate
+        LOGS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
+        LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
+        LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
     }
 }
 

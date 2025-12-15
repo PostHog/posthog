@@ -45,7 +45,7 @@ export type HogFunctionMasking = {
 }
 
 export interface HogFunctionFilters {
-    source?: 'events' | 'person-updates' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'person-updates' | 'data-warehouse-table' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     properties?: Record<string, any>[] // Global property filters that apply to all events
@@ -86,6 +86,7 @@ export type HogFunctionInvocationGlobals = {
         properties: Record<string, unknown>
         elements_chain: string
         timestamp: string
+        captured_at?: string | null
 
         /* Special fields in Hog */
         url: string
@@ -104,6 +105,23 @@ export type HogFunctionInvocationGlobals = {
     }
 
     unsubscribe_url?: string // For email actions, the unsubscribe URL to use
+
+    actions?: HogFunctionInvocationActionVariables
+    variables?: Record<string, any> // For HogFlows, workflow-level variables
+}
+
+/**
+ * A map of key value variables that persist across actions in a flow
+ * These variables can be used to store loop state or pass data between actions
+ *
+ * Action's can read and write to these variables. Any value stored in the variables
+ * map must be JSON serializable, and limited to 1KB in size.
+ *
+ * After execution, every action will have a corresponding entry in the map with
+ * the key `$action/{actionId}` containing the result of the action.
+ */
+export type HogFunctionInvocationActionVariables = {
+    [key: string]: { result: any; error?: any }
 }
 
 export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {
@@ -159,6 +177,8 @@ export type HogFunctionFilterGlobals = {
     group_4: {
         properties: Record<string, any>
     }
+
+    variables: Record<string, any> | undefined // For HogFlows, workflow-level variables
 }
 
 export type MetricLogSource = 'hog_function' | 'hog_flow'
@@ -233,6 +253,7 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
     'delay10m',
     'delay60m',
     'delay24h',
+    'datawarehouse_table',
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
@@ -292,12 +313,12 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     actionStepCount: number
-    // variables: Record<string, any> // NOTE: not used yet but
     currentAction?: {
         id: string
         startedAtTimestamp: number
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
     }
+    variables?: Record<string, any>
 }
 
 // Mostly copied from frontend types

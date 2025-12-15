@@ -1,9 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCollapse, LemonDivider, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { IconExternal, IconPlus } from '@posthog/icons'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonCollapse,
+    LemonDivider,
+    LemonInput,
+    LemonLabel,
+    LemonSelect,
+} from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { urls } from 'scenes/urls'
 
 import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySelect'
@@ -15,8 +24,8 @@ import { isOptOutEligibleAction } from '../steps/types'
 import { HogFlowAction } from '../types'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
-    const { selectedNode, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
-    const { setWorkflowAction } = useActions(hogFlowEditorLogic)
+    const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
+    const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
 
     const Step = useHogFlowStep(selectedNode?.data)
 
@@ -87,6 +96,69 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             embedded
                             panels={[
                                 {
+                                    key: 'outputs',
+                                    header: {
+                                        children: (
+                                            <>
+                                                <span className="flex-1">Output variable</span>
+                                            </>
+                                        ),
+                                    },
+                                    content: (
+                                        <div className="flex flex-col items-start gap-2">
+                                            <LemonField.Pure label="Select a workflow variable to store the output of this step">
+                                                <LemonSelect
+                                                    options={[
+                                                        { value: null, label: 'Do not store' },
+                                                        ...(workflow.variables || []).map(({ key }) => ({
+                                                            value: key,
+                                                            label: key,
+                                                        })),
+                                                    ]}
+                                                    value={action.output_variable?.key || null}
+                                                    onChange={(value) =>
+                                                        setWorkflowAction(action.id, {
+                                                            ...action,
+                                                            output_variable: value
+                                                                ? { key: value, result_path: null }
+                                                                : null,
+                                                        })
+                                                    }
+                                                />
+                                            </LemonField.Pure>
+                                            <LemonField.Pure
+                                                label="Result path (optional)"
+                                                info="Specify a path within the step result to store. For example, to store the user ID from a response, use 'response.user.id'. To store the entire result, leave this blank."
+                                            >
+                                                <LemonInput
+                                                    type="text"
+                                                    prefix={<span>result.</span>}
+                                                    value={action.output_variable?.result_path || ''}
+                                                    onChange={(value) =>
+                                                        setWorkflowAction(action.id, {
+                                                            ...action,
+                                                            output_variable: {
+                                                                key: action.output_variable?.key || '',
+                                                                result_path: value || null,
+                                                            },
+                                                        })
+                                                    }
+                                                    placeholder="response.user.id"
+                                                />
+                                            </LemonField.Pure>
+                                            <LemonButton
+                                                icon={<IconPlus />}
+                                                sideIcon={<IconExternal />}
+                                                size="small"
+                                                type="secondary"
+                                                onClick={() => setMode('variables')}
+                                            >
+                                                New variable
+                                            </LemonButton>
+                                        </div>
+                                    ),
+                                },
+                                {
                                     key: 'filters',
                                     header: {
                                         children: (
@@ -98,20 +170,18 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                     },
                                     content: (
                                         <div>
-                                            <>
-                                                <p className="mb-0">
-                                                    Add conditions to the step. If these conditions aren't met, the user
-                                                    will skip this step and continue to the next one.
-                                                </p>
-                                                <HogFlowPropertyFilters
-                                                    actionId={action.id}
-                                                    filters={action.filters ?? {}}
-                                                    setFilters={(filters) =>
-                                                        setWorkflowAction(action.id, { ...action, filters })
-                                                    }
-                                                    buttonCopy="Add filter conditions"
-                                                />
-                                            </>
+                                            <p>
+                                                Add conditions to the step. If these conditions aren't met, the user
+                                                will skip this step and continue to the next one.
+                                            </p>
+                                            <HogFlowPropertyFilters
+                                                actionId={action.id}
+                                                filters={action.filters ?? {}}
+                                                setFilters={(filters) =>
+                                                    setWorkflowAction(action.id, { ...action, filters })
+                                                }
+                                                buttonCopy="Add filter conditions"
+                                            />
                                         </div>
                                     ),
                                 },
@@ -126,25 +196,23 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                     },
                                     content: (
                                         <div>
-                                            <>
-                                                <p>
-                                                    What to do if this step fails (e.g. message could not be sent). By
-                                                    default, the user will continue to the next step.
-                                                </p>
-                                                <LemonSelect
-                                                    options={[
-                                                        { value: 'continue', label: 'Continue to next step' },
-                                                        { value: 'abort', label: 'Exit the workflow' },
-                                                    ]}
-                                                    value={action.on_error || 'continue'}
-                                                    onChange={(value) =>
-                                                        setWorkflowAction(action.id, {
-                                                            ...action,
-                                                            on_error: value,
-                                                        })
-                                                    }
-                                                />
-                                            </>
+                                            <p>
+                                                What to do if this step fails (e.g. message could not be sent). By
+                                                default, the user will continue to the next step.
+                                            </p>
+                                            <LemonSelect
+                                                options={[
+                                                    { value: 'continue', label: 'Continue to next step' },
+                                                    { value: 'abort', label: 'Exit the workflow' },
+                                                ]}
+                                                value={action.on_error || 'continue'}
+                                                onChange={(value) =>
+                                                    setWorkflowAction(action.id, {
+                                                        ...action,
+                                                        on_error: value,
+                                                    })
+                                                }
+                                            />
                                         </div>
                                     ),
                                 },

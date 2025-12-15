@@ -8,9 +8,9 @@ The primary function is to help manage and connect to PostHog toolbox pods in a 
 2. Clone this repository or download `toolbox.py`
 3. Make the script executable (Unix-based systems):
 
-    ```bash
-    chmod +x toolbox.py
-    ```
+   ```bash
+   chmod +x toolbox.py
+   ```
 
 ## Requirements
 

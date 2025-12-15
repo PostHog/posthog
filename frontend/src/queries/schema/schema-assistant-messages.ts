@@ -48,15 +48,34 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     MultiVisualization = 'ai/multi_viz',
+    Artifact = 'ai/artifact',
     Failure = 'ai/failure',
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
     TaskExecution = 'ai/task_execution',
 }
 
+/** Source of artifact - determines which model to fetch from */
+export enum ArtifactSource {
+    /** Artifact created by the agent (stored in AgentArtifact) */
+    Artifact = 'artifact',
+    /** Reference to a saved insight (stored in Insight model) */
+    Insight = 'insight',
+    /** Legacy visualization message converted to artifact (content stored inline in state) */
+    State = 'state',
+}
+
+/** Type of artifact content */
+export enum ArtifactContentType {
+    /** Visualization artifact (chart, graph, etc.) */
+    Visualization = 'visualization',
+    /** Notebook */
+    Notebook = 'notebook',
+}
+
 export interface BaseAssistantMessage {
     id?: string
-    visible?: boolean
+    parent_tool_call_id?: string
 }
 
 export interface HumanMessage extends BaseAssistantMessage {
@@ -66,12 +85,37 @@ export interface HumanMessage extends BaseAssistantMessage {
 }
 
 export interface AssistantFormOption {
+    /** Button label, which is also the message that gets sent on click. */
     value: string
+    /** 'primary', 'secondary', or 'tertiary' - default 'secondary' */
     variant?: string
+    /** When href is set, the button opens the link rather than sending an AI message. */
+    href?: string
 }
 
 export interface AssistantForm {
     options: AssistantFormOption[]
+}
+
+export interface MultiQuestionFormQuestionOption {
+    /** The value to use when this option is selected */
+    value: string
+}
+
+export interface MultiQuestionFormQuestion {
+    /** Unique identifier for this question */
+    id: string
+    /** The question text to display */
+    question: string
+    /** Available answer options */
+    options: MultiQuestionFormQuestionOption[]
+    /** Whether to show a "Type your answer" option (default: true) */
+    allow_custom_answer?: boolean
+}
+
+export interface MultiQuestionForm {
+    /** The questions to ask */
+    questions: MultiQuestionFormQuestion[]
 }
 
 export interface AssistantMessageMetadata {
@@ -98,14 +142,25 @@ export interface AssistantMessage extends BaseAssistantMessage {
 }
 
 export interface ReasoningMessage extends BaseAssistantMessage {
+    /**
+     * @deprecated The model should not be used
+     */
     type: AssistantMessageType.Reasoning
     content: string
     substeps?: string[]
 }
 
+export interface ModeContext {
+    type: 'mode'
+    mode: AgentMode
+}
+
+export type ContextMessageMetadata = ModeContext | null
+
 export interface ContextMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Context
     content: string
+    meta?: ContextMessageMetadata
 }
 
 /**
@@ -165,11 +220,17 @@ export enum PlanningStepStatus {
 }
 
 export interface PlanningStep {
+    /**
+     * @deprecated The class should not be used
+     */
     description: string
     status: PlanningStepStatus
 }
 
 export interface PlanningMessage extends BaseAssistantMessage {
+    /**
+     * @deprecated The class should not be used
+     */
     type: AssistantMessageType.Planning
     steps: PlanningStep[]
 }
@@ -182,6 +243,9 @@ export enum TaskExecutionStatus {
 }
 
 export interface TaskExecutionItem {
+    /**
+     * @deprecated The class should not be used
+     */
     id: string
     description: string
     prompt: string
@@ -192,6 +256,9 @@ export interface TaskExecutionItem {
 }
 
 export interface TaskExecutionMessage extends BaseAssistantMessage {
+    /**
+     * @deprecated The class should not be used
+     */
     type: AssistantMessageType.TaskExecution
     tasks: TaskExecutionItem[]
 }
@@ -202,9 +269,34 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
     commentary?: string
 }
 
+export interface VisualizationArtifactContent {
+    content_type: ArtifactContentType.Visualization
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    name?: string | null
+    description?: string | null
+}
+
+export interface NotebookArtifactContent {
+    content_type: ArtifactContentType.Notebook
+}
+
+export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
+
+/** Frontend artifact message containing enriched content field. Do not use in the backend. */
+export interface ArtifactMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Artifact
+    /** The ID of the artifact (short_id for both drafts and saved insights) */
+    artifact_id: string
+    /** Source of artifact - determines which model to fetch from */
+    source: ArtifactSource
+    /** Content of artifact */
+    content: ArtifactContent
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
     | MultiVisualizationMessage
+    | ArtifactMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
@@ -212,13 +304,26 @@ export type RootAssistantMessage =
     | NotebookUpdateMessage
     | PlanningMessage
     | TaskExecutionMessage
-    | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
+    | AssistantToolCallMessage
 
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
     Conversation = 'conversation',
     Notebook = 'notebook',
+    Update = 'update',
+}
+
+export interface AssistantUpdateEvent {
+    id: string
+    tool_call_id: string
+    content: string
+}
+
+export interface SubagentUpdateEvent {
+    id: string
+    tool_call_id: string
+    content: AssistantToolCall
 }
 
 export enum AssistantGenerationStatusType {
@@ -241,7 +346,7 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
-export type AssistantContextualTool =
+export type AssistantTool =
     | 'search_session_recordings'
     | 'generate_hogql_query'
     | 'fix_hogql_query'
@@ -251,14 +356,12 @@ export type AssistantContextualTool =
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'create_message_template'
-    | 'navigate'
     | 'filter_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
+    | 'error_tracking_explain_issue'
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'search_docs'
-    | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
     | 'edit_current_dashboard'
@@ -267,6 +370,37 @@ export type AssistantContextualTool =
     | 'read_data'
     | 'todo_write'
     | 'filter_revenue_analytics'
+    | 'filter_web_analytics'
+    | 'create_feature_flag'
+    | 'create_experiment'
+    | 'create_task'
+    | 'run_task'
+    | 'get_task_run'
+    | 'get_task_run_logs'
+    | 'list_tasks'
+    | 'list_task_runs'
+    | 'list_repositories'
+    // Below are modes-only
+    | 'execute_sql'
+    | 'switch_mode'
+    | 'summarize_sessions'
+    | 'filter_session_recordings'
+    | 'create_insight'
+    | 'create_form'
+    | 'task'
+
+export enum AgentMode {
+    ProductAnalytics = 'product_analytics',
+    SQL = 'sql',
+    SessionReplay = 'session_replay',
+}
+
+export enum SlashCommandName {
+    SlashInit = '/init',
+    SlashRemember = '/remember',
+    SlashUsage = '/usage',
+    SlashFeedback = '/feedback',
+}
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
@@ -312,6 +446,7 @@ export enum AssistantNavigateUrl {
     ToolbarLaunch = 'toolbarLaunch',
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
+    WebAnalyticsHealth = 'webAnalyticsHealth',
     Persons = 'persons',
 }
 

@@ -1,65 +1,109 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
-import { IconInfo, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-
-import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
-import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
-import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { cn } from 'lib/utils/css-classes'
 import {
-    NEW_TAB_CATEGORY_ITEMS,
     NEW_TAB_COMMANDS,
     NEW_TAB_COMMANDS_ITEMS,
+    getNewTabProjectTreeLogicProps,
     newTabSceneLogic,
 } from 'scenes/new-tab/newTabSceneLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { joinPath, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { Results } from './components/Results'
-import { SearchHints } from './components/SearchHints'
-import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
+import { SearchInput, SearchInputBreadcrumb, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 
 export const scene: SceneExport = {
     component: NewTabScene,
     logic: newTabSceneLogic,
 }
 
-export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
+export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
-    const inputRef = useRef<HTMLInputElement>(null)
-    const { filteredItemsGrid, search, categories, selectedCategory, newTabSceneDataInclude, isSearching } = useValues(
-        newTabSceneLogic({ tabId })
-    )
-    const { mobileLayout } = useValues(navigationLogic)
-    const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude, refreshDataAfterToggle } = useActions(
-        newTabSceneLogic({ tabId })
-    )
-    const { showSceneDashboardChoiceModal } = useActions(
-        sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
-    )
-    const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
+    const {
+        search,
+        newTabSceneDataInclude,
+        activeExplorerFolderPath,
+        explorerExpandedFolders,
+        projectExplorerEnabled,
+    } = useValues(newTabSceneLogic({ tabId }))
+    const {
+        setSearch,
+        toggleNewTabSceneDataInclude,
+        refreshDataAfterToggle,
+        setNewTabSearchInputRef,
+        setActiveExplorerFolderPath,
+        toggleExplorerFolderExpansion,
+    } = useActions(newTabSceneLogic({ tabId }))
+    const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [tabId])
+    useMountedLogic(projectTreeLogic(projectTreeLogicProps))
+    const { loadFolder } = useActions(projectTreeLogic(projectTreeLogicProps))
+    const trimmedSearch = search.trim()
 
-    const focusSearchInput = (): void => {
-        commandInputRef.current?.focus()
-    }
+    const handleListBoxFinishedKeyDown = useCallback(
+        ({ e, activeElement }: { e: ReactKeyboardEvent; activeElement: HTMLElement | null }) => {
+            const isSpaceKey = e.key === ' ' || e.code === 'Space' || e.key === 'Spacebar'
+            if (!isSpaceKey) {
+                return
+            }
+
+            if (!projectExplorerEnabled || activeExplorerFolderPath === null || trimmedSearch !== '') {
+                return
+            }
+
+            const target = activeElement
+            const entryPath = target?.getAttribute('data-explorer-entry-path')
+            const entryType = target?.getAttribute('data-explorer-entry-type')
+            const isExpandable = target?.getAttribute('data-explorer-entry-expandable') === 'true'
+            const focusKey = target?.getAttribute('data-focus-key') ?? null
+
+            e.preventDefault()
+            e.stopPropagation()
+
+            if (entryPath && (entryType === 'folder' || isExpandable)) {
+                const wasExpanded = !!explorerExpandedFolders[entryPath]
+                toggleExplorerFolderExpansion(entryPath)
+                if (!wasExpanded) {
+                    loadFolder(entryPath)
+                }
+            }
+
+            if (focusKey) {
+                requestAnimationFrame(() => {
+                    listboxRef.current?.focusItemByKey(focusKey)
+                })
+            }
+        },
+        [
+            activeExplorerFolderPath,
+            trimmedSearch,
+            explorerExpandedFolders,
+            toggleExplorerFolderExpansion,
+            loadFolder,
+            listboxRef,
+            projectExplorerEnabled,
+        ]
+    )
 
     const handleAskAi = (question?: string): void => {
         const nextQuestion = (question ?? search).trim()
-        router.actions.push(urls.max(undefined, nextQuestion))
+        router.actions.push(urls.ai(undefined, nextQuestion))
     }
 
     // The active commands are just the items in newTabSceneDataInclude
-    const activeCommands: NEW_TAB_COMMANDS[] = newTabSceneDataInclude
+    const filteredActiveCommands: NEW_TAB_COMMANDS[] = projectExplorerEnabled
+        ? newTabSceneDataInclude
+        : newTabSceneDataInclude.filter((command) => command !== 'folders')
+    const activeCommands: NEW_TAB_COMMANDS[] = filteredActiveCommands
 
     // Convert active commands to selected commands for the SearchInput
     // Filter out 'all' since that represents the default state (no specific filters)
@@ -70,6 +114,96 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             return commandInfo || { value: commandValue, displayName: commandValue }
         })
 
+    const explorerBreadcrumbs: SearchInputBreadcrumb[] | null =
+        projectExplorerEnabled && activeExplorerFolderPath !== null
+            ? [
+                  { label: 'Project root', path: '' },
+                  ...splitPath(activeExplorerFolderPath).map((segment, index, arr) => ({
+                      label: segment,
+                      path: joinPath(arr.slice(0, index + 1)),
+                  })),
+              ]
+            : null
+
+    const searchCommands = projectExplorerEnabled
+        ? NEW_TAB_COMMANDS_ITEMS
+        : NEW_TAB_COMMANDS_ITEMS.filter((command) => command.value !== 'folders')
+
+    const isExplorerActive = projectExplorerEnabled && activeExplorerFolderPath !== null
+    const explorerHeaderName = !isExplorerActive
+        ? null
+        : activeExplorerFolderPath === ''
+          ? 'Project root'
+          : unescapePath(activeExplorerFolderPath)
+
+    // Set the ref in the logic so it can be accessed from other components
+    useEffect(() => {
+        setNewTabSearchInputRef(commandInputRef)
+    }, [setNewTabSearchInputRef])
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent): void => {
+            const inputHandle = commandInputRef.current
+            const inputRef = inputHandle?.getInputRef().current
+            if (!inputRef) {
+                return
+            }
+
+            const target = event.target as HTMLElement | null
+            const isEditableTarget = target?.closest(
+                'input, textarea, select, [contenteditable=""], [contenteditable="true"]'
+            )
+            if (isEditableTarget || document.activeElement === inputRef) {
+                return
+            }
+
+            const isCharacterKey = event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey
+            const isArrowKey = event.key === 'ArrowUp' || event.key === 'ArrowDown'
+            const isBackspace = event.key === 'Backspace'
+
+            if (!isCharacterKey && !isArrowKey && !isBackspace) {
+                return
+            }
+
+            event.preventDefault()
+            event.stopPropagation()
+
+            inputHandle.focus()
+
+            if (isArrowKey || isBackspace) {
+                const syntheticEvent = new KeyboardEvent('keydown', {
+                    key: event.key,
+                    code: event.code,
+                    shiftKey: event.shiftKey,
+                    metaKey: event.metaKey,
+                    ctrlKey: event.ctrlKey,
+                    altKey: event.altKey,
+                    bubbles: true,
+                    cancelable: true,
+                })
+                inputRef.dispatchEvent(syntheticEvent)
+                return
+            }
+
+            const selectionStart = inputRef.selectionStart ?? inputRef.value.length
+            const selectionEnd = inputRef.selectionEnd ?? selectionStart
+            if (typeof inputRef.setRangeText === 'function') {
+                inputRef.setRangeText(event.key, selectionStart, selectionEnd, 'end')
+            } else {
+                const newValue =
+                    inputRef.value.slice(0, selectionStart) + event.key + inputRef.value.slice(selectionEnd)
+                inputRef.value = newValue
+                inputRef.setSelectionRange(newValue.length, newValue.length)
+            }
+            inputRef.dispatchEvent(new Event('input', { bubbles: true }))
+        }
+
+        document.addEventListener('keydown', handleKeyDown)
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [])
+
     return (
         <>
             <ListBox
@@ -77,6 +211,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
                 virtualFocus
                 autoSelectFirst
+                onFinishedKeyDown={handleListBoxFinishedKeyDown}
             >
                 <div className="sr-only">
                     <p>
@@ -84,197 +219,73 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         interactive elements with the keyboard
                     </p>
                 </div>
-                <div className="flex flex-col gap-2">
-                    <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
-                        {!newTabSceneData ? (
-                            <LemonInput
-                                inputRef={inputRef}
-                                value={search}
-                                onChange={(value) => setSearch(value)}
-                                prefix={<IconSearch />}
-                                className="w-full"
-                                placeholder="Search..."
-                                autoFocus
-                                allowClear
-                                aria-controls="combobox-listbox"
-                                aria-label="Search for a person, event, property, or app, you can navigate all interactive elements with the keyboard"
-                            />
-                        ) : (
-                            <SearchInput
-                                ref={commandInputRef}
-                                commands={NEW_TAB_COMMANDS_ITEMS}
-                                value={search}
-                                onChange={(value) => {
-                                    // Only prevent setting search if the entire value is just "/" (command mode)
-                                    // Allow "/" characters in other positions for normal search
-                                    if (value !== '/') {
-                                        setSearch(value)
-                                    }
-                                }}
-                                placeholder="Search or ask an AI question"
-                                activeCommands={activeCommands}
-                                selectedCommands={selectedCommands}
-                                onCommandSelect={(command) => {
-                                    if (command.value === 'all') {
-                                        // Check if "all" is currently selected
-                                        if (newTabSceneDataInclude.includes('all')) {
-                                            // If "all" is on, turn off everything (clear all filters)
-                                            newTabSceneDataInclude.forEach((selectedCommand) => {
-                                                toggleNewTabSceneDataInclude(selectedCommand)
-                                            })
-                                        } else {
-                                            // If "all" is off, turn it on (which will show all filters)
-                                            toggleNewTabSceneDataInclude('all')
-                                        }
+                <SceneStickyBar hasSceneTitleSection={false} className="border-b">
+                    <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:py-4 mx-auto w-full max-w-[1200px]">
+                        <SearchInput
+                            ref={commandInputRef}
+                            commands={searchCommands}
+                            value={search}
+                            onChange={(value) => {
+                                // Only prevent setting search if the entire value is just "/" (command mode)
+                                // Allow "/" characters in other positions for normal search
+                                if (value !== '/') {
+                                    setSearch(value)
+                                }
+                            }}
+                            placeholder={isExplorerActive ? 'Search in folder...' : 'Search or ask an AI question'}
+                            activeCommands={activeCommands}
+                            selectedCommands={selectedCommands}
+                            onCommandSelect={(command) => {
+                                if (command.value === 'all') {
+                                    // Check if "all" is currently selected
+                                    if (newTabSceneDataInclude.includes('all')) {
+                                        // If "all" is on, turn off everything (clear all filters)
+                                        newTabSceneDataInclude.forEach((selectedCommand) => {
+                                            toggleNewTabSceneDataInclude(selectedCommand)
+                                        })
                                     } else {
-                                        toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
+                                        // If "all" is off, turn it on (which will show all filters)
+                                        toggleNewTabSceneDataInclude('all')
                                     }
-                                    // Refresh data after toggle
-                                    refreshDataAfterToggle()
-                                }}
-                                onClearAll={() => {
-                                    // Clear all filters by removing all items from newTabSceneDataInclude
-                                    newTabSceneDataInclude.forEach((command) => {
-                                        toggleNewTabSceneDataInclude(command)
-                                    })
-                                    refreshDataAfterToggle()
-                                }}
-                            />
-                        )}
-
-                        {!newTabSceneData && (
-                            <div className="mx-1.5">
-                                <SearchHints
-                                    filteredItemsGridLength={filteredItemsGrid.length}
-                                    focusSearchInput={focusSearchInput}
-                                    tabId={tabId || ''}
-                                    handleAskAi={handleAskAi}
-                                />
-                            </div>
-                        )}
+                                } else {
+                                    toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
+                                }
+                                // Refresh data after toggle
+                                refreshDataAfterToggle()
+                            }}
+                            onClearAll={() => {
+                                // Clear all filters by removing all items from newTabSceneDataInclude
+                                newTabSceneDataInclude.forEach((command) => {
+                                    toggleNewTabSceneDataInclude(command)
+                                })
+                                refreshDataAfterToggle()
+                            }}
+                            explorerBreadcrumbs={explorerBreadcrumbs}
+                            onExplorerBreadcrumbClick={
+                                projectExplorerEnabled ? (path) => setActiveExplorerFolderPath(path) : undefined
+                            }
+                            onExitExplorer={isExplorerActive ? () => setActiveExplorerFolderPath(null) : undefined}
+                        />
                     </div>
-                    {!newTabSceneData ? (
-                        <TabsPrimitive
-                            value={selectedCategory}
-                            onValueChange={(value) => setSelectedCategory(value as NEW_TAB_CATEGORY_ITEMS)}
-                        >
-                            <TabsPrimitiveList className="border-b">
-                                <div className="max-w-[1200px] mx-auto w-full px-1 @lg/main-content:px-8 flex">
-                                    {categories.map((category) => (
-                                        <TabsPrimitiveTrigger
-                                            value={category.key}
-                                            className="px-2 py-1 cursor-pointer"
-                                            key={category.key}
-                                            onClick={() => {
-                                                if (!mobileLayout) {
-                                                    // If not mobile, we want to re-focus the input if we trigger the tabs (which filter)
-                                                    focusSearchInput()
-                                                    // Reset listbox focus on first item
-                                                    listboxRef.current?.focusFirstItem()
-                                                }
-                                            }}
-                                        >
-                                            {category.label}
-                                        </TabsPrimitiveTrigger>
-                                    ))}
-                                    {source === 'homepage' ? (
-                                        <>
-                                            <LemonButton
-                                                type="tertiary"
-                                                size="small"
-                                                data-attr="project-home-customize-homepage"
-                                                className="ml-auto"
-                                                onClick={showSceneDashboardChoiceModal}
-                                            >
-                                                Customize homepage
-                                            </LemonButton>
-                                            <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
-                                        </>
-                                    ) : null}
-                                </div>
-                            </TabsPrimitiveList>
-                        </TabsPrimitive>
-                    ) : (
-                        <div className="border-b">
-                            <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
-                                <div className="flex items-center gap-x-2 gap-y-2 flex-wrap">
-                                    {source === 'homepage' ? (
-                                        <>
-                                            <ButtonPrimitive
-                                                size="xxs"
-                                                data-attr="project-home-customize-homepage"
-                                                className="ml-auto text-xs"
-                                                onClick={showSceneDashboardChoiceModal}
-                                            >
-                                                Customize homepage
-                                            </ButtonPrimitive>
-                                            <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
-                                        </>
-                                    ) : null}
-                                </div>
-                            </div>
+                    {isExplorerActive && (
+                        <div className="px-4 @lg/main-content:px-8 mx-auto w-full max-w-[1200px]">
+                            <SceneTitleSection
+                                name={explorerHeaderName}
+                                description={null}
+                                resourceType={{ type: 'folder' }}
+                                canEdit={false}
+                                forceEdit={false}
+                                noBorder
+                            />
                         </div>
                     )}
-                </div>
+                </SceneStickyBar>
 
-                <ScrollableShadows
-                    direction="vertical"
-                    className="flex flex-col gap-4 overflow-auto h-full"
-                    innerClassName={cn('pt-6', { 'pt-4': newTabSceneData })}
-                    styledScrollbars
-                >
-                    <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 group/colorful-product-icons colorful-product-icons-true">
-                        {!newTabSceneData && filteredItemsGrid.length === 0 && !isSearching ? (
-                            <div className="flex flex-col gap-4 px-2 py-2 bg-glass-bg-3000 rounded-lg">
-                                <div className="flex flex-col gap-1">
-                                    <p className="text-tertiary mb-2">
-                                        <IconInfo /> No results found
-                                    </p>
-                                    <div className="flex gap-1">
-                                        <ListBox.Item asChild className="list-none">
-                                            <ButtonPrimitive size="sm" onClick={() => setSearch('')} variant="panel">
-                                                Clear search
-                                            </ButtonPrimitive>{' '}
-                                        </ListBox.Item>
-                                        or{' '}
-                                        <ListBox.Item asChild>
-                                            <ButtonPrimitive size="sm" onClick={() => handleAskAi()} variant="panel">
-                                                Ask Posthog AI
-                                            </ButtonPrimitive>
-                                        </ListBox.Item>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <div
-                                className={cn({
-                                    'grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4':
-                                        !newTabSceneData,
-                                    'flex flex-col gap-2 mb-32': newTabSceneData,
-                                })}
-                            >
-                                {/* TODO: Remove this once we're done testing */}
-                                {newTabSceneData && (
-                                    <div className="col-span-full border border-primary border-px rounded-md p-2 mb-2">
-                                        <p className="flex flex-col items-center @md/main-content:flex-row gap-1 m-0 text-sm text-tertiary">
-                                            <IconInfo className="size-4 text-accent" /> You're trying out the new tab UX
-                                            with the flag:{' '}
-                                            <span className="font-mono border border-primary border-px rounded-md px-1 mb-0">
-                                                data-in-new-tab-scene
-                                            </span>
-                                        </p>
-                                    </div>
-                                )}
-                                <Results
-                                    tabId={tabId || ''}
-                                    searchInputRef={commandInputRef.current?.getInputRef() || { current: null }}
-                                    listboxRef={listboxRef}
-                                    handleAskAi={handleAskAi}
-                                />
-                            </div>
-                        )}
+                <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 pt-4 group/colorful-product-icons colorful-product-icons-true">
+                    <div className="flex flex-col gap-2 mb-32">
+                        <Results tabId={tabId || ''} listboxRef={listboxRef} handleAskAi={handleAskAi} />
                     </div>
-                </ScrollableShadows>
+                </div>
             </ListBox>
         </>
     )

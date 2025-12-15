@@ -14,7 +14,8 @@ from fastavro import reader
 from pydantic_avro import AvroBase
 
 from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
-from posthog.warehouse.models.table import DataWarehouseTable
+
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 from ee.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,

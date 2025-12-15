@@ -18,7 +18,7 @@ import {
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { fullName } from 'lib/utils'
-import { getMinimumAccessLevel, pluralizeResource } from 'lib/utils/accessControlUtils'
+import { getMaximumAccessLevel, getMinimumAccessLevel, pluralizeResource } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
@@ -514,10 +514,12 @@ function ResourceAccessControlModal(props: {
         resource: APIScopeObject
     ): { value: AccessControlLevel | null; label: string; disabledReason?: string }[] => {
         const minimumLevel = getMinimumAccessLevel(resource)
+        const maxLevel = getMaximumAccessLevel(resource)
         const options: { value: AccessControlLevel | null; label: string; disabledReason?: string }[] =
             availableLevels.map((level) => {
                 const isDisabled =
-                    minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)
+                    (minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)) ||
+                    (maxLevel && availableLevels.indexOf(level) > availableLevels.indexOf(maxLevel))
                 return {
                     value: level as AccessControlLevel,
                     label: capitalizeFirstLetter(level ?? ''),
@@ -679,10 +681,12 @@ function DefaultResourceAccessControlModal(props: {
         resource: APIScopeObject
     ): { value: AccessControlLevel | null; label: string; disabledReason?: string }[] => {
         const minimumLevel = getMinimumAccessLevel(resource)
+        const maxLevel = getMaximumAccessLevel(resource)
         const options: { value: AccessControlLevel | null; label: string; disabledReason?: string }[] =
             availableLevels.map((level) => {
                 const isDisabled =
-                    minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)
+                    (minimumLevel && availableLevels.indexOf(level) < availableLevels.indexOf(minimumLevel)) ||
+                    (maxLevel && availableLevels.indexOf(level) > availableLevels.indexOf(maxLevel))
                 return {
                     value: level as AccessControlLevel,
                     label: capitalizeFirstLetter(level ?? ''),

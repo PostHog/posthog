@@ -20,7 +20,7 @@ use dashmap::DashMap;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 pub enum CheckpointStatus {
     // the partition requesting a checkpoint attempt has acquired
@@ -275,10 +275,13 @@ impl CheckpointManager {
                                         "success"
                                     },
                                     Ok(None) => "skipped",
-                                    Err(_) => "error",
+                                    Err(e) => {
+                                        error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {}", e);
+                                        "error"
+                                    },
                                 };
                                 info!(worker_task_id, partition = partition_tag, result = status,
-                                    "Checkpoint worker thread: checkpoint attempt completed");
+                                    "Checkpoint worker thread: attempt completed");
 
                                 // release the in-flight lock regardless of outcome to free the slot
                                 {

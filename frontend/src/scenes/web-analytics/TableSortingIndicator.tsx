@@ -1,10 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
+import { IconSort, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { IconSort } from 'lib/lemon-ui/icons'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
@@ -15,6 +14,7 @@ const SORT_BY_TO_LABEL: Record<WebAnalyticsOrderByFields, string> = {
     [WebAnalyticsOrderByFields.Visitors]: 'Visitors',
     [WebAnalyticsOrderByFields.Views]: 'Views',
     [WebAnalyticsOrderByFields.Clicks]: 'Clicks',
+    [WebAnalyticsOrderByFields.AvgTimeOnPage]: 'Avg time on page',
     [WebAnalyticsOrderByFields.BounceRate]: 'Bounce rate',
     [WebAnalyticsOrderByFields.AverageScrollPercentage]: 'Average scroll percentage',
     [WebAnalyticsOrderByFields.ScrollGt80Percentage]: 'Scroll > 80%',

@@ -40,4 +40,8 @@ For your team sprint planning copy this template into a comment below for each t
 ### Low priority / side quests
 
 -
+
+### Are any other teams impacted by this plan? If so, tag them here
+
+-
 ```

@@ -3,7 +3,7 @@ use std::{future::ready, sync::Arc};
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
-    http::Method,
+    http::{Method, StatusCode},
     routing::{any, get},
     Router,
 };
@@ -34,8 +34,13 @@ use crate::{
 
 #[derive(Clone)]
 pub struct State {
-    pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
-    pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    // Shared Redis for non-critical path (analytics counters, billing limits)
+    // ReadWriteClient automatically routes reads to replica and writes to primary
+    pub redis_client: Arc<dyn RedisClient + Send + Sync>,
+    // Dedicated Redis for flags cache (critical path isolation)
+    // None if not configured (falls back to shared Redis)
+    // ReadWriteClient automatically routes reads to replica and writes to primary
+    pub dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     pub database_pools: Arc<DatabasePools>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
@@ -50,9 +55,9 @@ pub struct State {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn router<RR, RW>(
-    redis_reader: Arc<RR>,
-    redis_writer: Arc<RW>,
+pub fn router(
+    redis_client: Arc<dyn RedisClient + Send + Sync>,
+    dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
     database_pools: Arc<DatabasePools>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
@@ -61,11 +66,7 @@ pub fn router<RR, RW>(
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
     config: Config,
-) -> Router
-where
-    RR: RedisClient + Send + Sync + 'static,
-    RW: RedisClient + Send + Sync + 'static,
-{
+) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
@@ -103,9 +104,12 @@ where
         )
     });
 
+    // Clone database_pools for readiness check before moving into State
+    let db_pools_for_readiness = database_pools.clone();
+
     let state = State {
-        redis_reader,
-        redis_writer,
+        redis_client,
+        dedicated_redis_client,
         database_pools,
         cohort_cache_manager: cohort_cache,
         geoip,
@@ -130,7 +134,10 @@ where
     // liveness/readiness checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(index))
+        .route(
+            "/_readiness",
+            get(move || readiness(db_pools_for_readiness.clone())),
+        )
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     // flags endpoint
@@ -168,6 +175,42 @@ where
     } else {
         router
     }
+}
+
+pub async fn readiness(
+    database_pools: Arc<DatabasePools>,
+) -> Result<&'static str, (StatusCode, String)> {
+    // Check all pools and collect errors
+    let pools = [
+        ("non_persons_reader", &database_pools.non_persons_reader),
+        ("non_persons_writer", &database_pools.non_persons_writer),
+        ("persons_reader", &database_pools.persons_reader),
+        ("persons_writer", &database_pools.persons_writer),
+    ];
+
+    for (name, pool) in pools {
+        let mut conn = pool.acquire().await.map_err(|e| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("{name} pool unavailable: {e}"),
+            )
+        })?;
+
+        // If test_before_acquire is false, explicitly test the connection
+        if !database_pools.test_before_acquire {
+            sqlx::query("SELECT 1")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        format!("{name} connection test failed: {e}"),
+                    )
+                })?;
+        }
+    }
+
+    Ok("ready")
 }
 
 pub async fn index() -> &'static str {

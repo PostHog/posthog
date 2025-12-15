@@ -11,7 +11,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
@@ -23,11 +23,12 @@ from posthog.temporal.data_imports.sources.vitally.vitally import (
     validate_credentials as validate_vitally_credentials,
     vitally_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class VitallySource(BaseSource[VitallySourceConfig]):
+class VitallySource(SimpleSource[VitallySourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VITALLY
@@ -70,12 +71,12 @@ class VitallySource(BaseSource[VitallySourceConfig]):
 
         return SourceResponse(
             name=inputs.schema_name,
-            items=items,
+            items=lambda: items,
             primary_keys=["id"],
             partition_count=1,  # this enables partitioning
             partition_size=1,  # this enables partitioning
             partition_mode="datetime",
-            partition_format="month",
+            partition_format="week",
             partition_keys=["created_at"],
             sort_mode="desc" if inputs.schema_name == "Messages" else "asc",
         )

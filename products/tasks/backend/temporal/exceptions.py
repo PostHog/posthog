@@ -1,26 +1,34 @@
-from typing import Optional
+from typing import Any, Optional
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.exceptions_capture import capture_exception
+
 
 class ProcessTaskError(ApplicationError):
-    def __init__(self, message: str, context: Optional[dict] = None, **kwargs):
+    def __init__(self, message: str, context: dict[str, Any], cause: Exception, **kwargs):
         self.context = context or {}
+        if "team" not in self.context:
+            self.context["team"] = "array"
+
+        if cause is not None:
+            capture_exception(cause, self.context)
+
         super().__init__(message, self.context, **kwargs)
 
 
 class ProcessTaskFatalError(ProcessTaskError):
     """Fatal errors that should not be retried."""
 
-    def __init__(self, message: str, context: Optional[dict] = None):
-        super().__init__(message, context, non_retryable=True)
+    def __init__(self, message: str, context: dict[str, Any], cause: Exception, **kwargs):
+        super().__init__(message, context, cause, non_retryable=True, **kwargs)
 
 
 class ProcessTaskTransientError(ProcessTaskError):
     """Transient errors that may succeed on retry."""
 
-    def __init__(self, message: str, context: Optional[dict] = None):
-        super().__init__(message, context, non_retryable=False)
+    def __init__(self, message: str, context: dict[str, Any], cause: Exception, **kwargs):
+        super().__init__(message, context, cause, non_retryable=False, **kwargs)
 
 
 class TaskNotFoundError(ProcessTaskFatalError):
@@ -85,7 +93,7 @@ class RepositoryCloneError(ProcessTaskTransientError):
     pass
 
 
-class RepositorySetupError(ProcessTaskTransientError):
+class RetryableRepositorySetupError(ProcessTaskTransientError):
     """Failed to setup repository (install dependencies, etc)."""
 
     pass
@@ -109,6 +117,12 @@ class PersonalAPIKeyError(ProcessTaskTransientError):
     pass
 
 
+class OAuthTokenError(ProcessTaskTransientError):
+    """Failed to create OAuth access token."""
+
+    pass
+
+
 class TaskExecutionFailedError(ProcessTaskError):
     """Task execution completed but with non-zero exit code."""
 
@@ -118,10 +132,13 @@ class TaskExecutionFailedError(ProcessTaskError):
         exit_code: int,
         stdout: str = "",
         stderr: str = "",
-        context: Optional[dict] = None,
+        context: Optional[dict[str, Any]] = None,
+        cause: Optional[Exception] = None,
         non_retryable: bool = False,
     ):
         self.exit_code = exit_code
         self.stdout = stdout
         self.stderr = stderr
-        super().__init__(message, context, non_retryable=non_retryable)
+        if cause is None:
+            cause = RuntimeError(f"Task failed with exit code {exit_code}")
+        super().__init__(message, context or {}, cause, non_retryable=non_retryable)

@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -24,6 +24,13 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics trace',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/traces',
+        },
+        LLMAnalyticsSession: {
+            import: () => import('./frontend/LLMAnalyticsSessionScene'),
+            projectBased: true,
+            name: 'LLM analytics session',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/sessions',
         },
         LLMAnalyticsUsers: {
             import: () => import('./frontend/LLMAnalyticsUsers'),
@@ -69,6 +76,14 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
         },
+        LLMAnalyticsEvaluationTemplates: {
+            import: () => import('./frontend/evaluations/EvaluationTemplates'),
+            projectBased: true,
+            name: 'LLM analytics evaluation templates',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
     },
     routes: {
         '/llm-analytics': ['LLMAnalytics', 'llmAnalytics'],
@@ -77,11 +92,16 @@ export const manifest: ProductManifest = {
         '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
+        '/llm-analytics/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
+        '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
+        '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
         '/llm-analytics/datasets': ['LLMAnalytics', 'llmAnalyticsDatasets'],
         '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
         '/llm-analytics/evaluations': ['LLMAnalytics', 'llmAnalyticsEvaluations'],
+        '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
         '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
+        '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
     },
     redirects: {
         '/llm-observability': (_params, searchParams, hashParams) =>
@@ -110,6 +130,7 @@ export const manifest: ProductManifest = {
                 timestamp?: string
                 exception_ts?: string
                 search?: string
+                tab?: string
             }
         ): string => {
             const queryParams = new URLSearchParams(params)
@@ -117,18 +138,33 @@ export const manifest: ProductManifest = {
             return `/llm-analytics/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
+        llmAnalyticsErrors: (): string => '/llm-analytics/errors',
+        llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
+        llmAnalyticsSession: (
+            id: string,
+            params?: {
+                timestamp?: string
+            }
+        ): string => {
+            const queryParams = new URLSearchParams(params)
+            const stringifiedParams = queryParams.toString()
+            return `/llm-analytics/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        },
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
         llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
             combineUrl(`/llm-analytics/datasets/${id}`, params).url,
         llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
+        llmAnalyticsEvaluationTemplates: (): string => '/llm-analytics/evaluations/templates',
         llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
+        llmAnalyticsSettings: (): string => '/llm-analytics/settings',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'LLM analytics',
+            intents: [ProductKey.LLM_ANALYTICS],
             category: 'Analytics',
             iconType: 'llm_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,

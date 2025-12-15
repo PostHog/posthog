@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
 import { deterministicRandom } from 'lib/utils/random'
@@ -11,58 +12,68 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
+import { PropertyFilterType } from '~/types'
 
 const delayIfNotTestRunner = async (): Promise<void> => {
     await new Promise((resolve) => setTimeout(resolve, inStorybookTestRunner() ? 0 : 200 + Math.random() * 1000))
 }
 
-const keysAndValues: Record<string, string[]> = {
-    'service.name': [
-        'posthog-web',
-        'posthog-feature-flags',
-        'posthog-surveys',
-        'posthog-web-django',
-        'cdp-behavioural-events-consumer',
-        'cdp-events-consumer',
-        'cdp-legacy-events-consumer',
-        'capture',
-    ],
-    'k8s.namespace.name': ['posthog', 'internal', 'billing'],
-    'k8s.pod.name': [
-        'posthog-web',
-        'posthog-feature-flags',
-        'posthog-surveys',
-        'posthog-web-django',
-        'cdp-behavioural-events-consumer',
-        'cdp-events-consumer',
-        'cdp-legacy-events-consumer',
-        'capture',
-    ],
-    'k8s.container.restart_count': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
-    'k8s.node.name': [
-        'node-1',
-        'node-2',
-        'node-3',
-        'node-4',
-        'node-5',
-        'node-6',
-        'node-7',
-        'node-8',
-        'node-9',
-        'node-10',
-    ],
-    'log.iostream': ['stdout', 'stderr'],
+const attributeExamples: Record<
+    PropertyFilterType.LogAttribute | PropertyFilterType.LogResourceAttribute,
+    Record<string, string[]>
+> = {
+    [PropertyFilterType.LogResourceAttribute]: {
+        'service.name': [
+            'posthog-web',
+            'posthog-feature-flags',
+            'posthog-surveys',
+            'posthog-web-django',
+            'cdp-behavioural-events-consumer',
+            'cdp-events-consumer',
+            'cdp-legacy-events-consumer',
+            'capture',
+        ],
+        'k8s.namespace.name': ['posthog', 'internal', 'billing'],
+        'k8s.pod.name': [
+            'posthog-web',
+            'posthog-feature-flags',
+            'posthog-surveys',
+            'posthog-web-django',
+            'cdp-behavioural-events-consumer',
+            'cdp-events-consumer',
+            'cdp-legacy-events-consumer',
+            'capture',
+        ],
+        'k8s.container.restart_count': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+        'k8s.node.name': [
+            'node-1',
+            'node-2',
+            'node-3',
+            'node-4',
+            'node-5',
+            'node-6',
+            'node-7',
+            'node-8',
+            'node-9',
+            'node-10',
+        ],
+    },
+    [PropertyFilterType.LogAttribute]: {
+        'log.iostream': ['stdout', 'stderr'],
+        duration: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+        method: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD'],
+    },
 }
 
 const EXAMPLES: Record<
     string,
     {
-        attributes: Record<string, string>
+        resource_attributes: Record<string, string>
         logs: { message: string; level: LogSeverityLevel; attributes?: Record<string, string> }[]
     }
 > = {
     'posthog-web': {
-        attributes: {
+        resource_attributes: {
             'k8s.namespace.name': 'posthog',
             'service.name': 'posthog-web',
             'k8s.pod.name': 'posthog-web',
@@ -86,7 +97,7 @@ const EXAMPLES: Record<
         ],
     },
     'cdp-events-consumer': {
-        attributes: {
+        resource_attributes: {
             'k8s.namespace.name': 'posthog',
             'service.name': 'cdp-events-consumer',
             'k8s.pod.name': 'cdp-events-consumer',
@@ -113,30 +124,29 @@ const EXAMPLES: Record<
     },
 }
 
-// Make a deterministic log of all messages. We basicallty want to create a tonne of logs over an example time period with some deterministic randomness to it.
+// Make a deterministic log of all messages. We basically want to create a tonne of logs over an example time period with some deterministic randomness to it.
 
 const generateLogs = (): LogMessage[] => {
     const results: LogMessage[] = []
-    const startTime = dayjs().utc().subtract(48, 'hours')
+    const startTime = inStorybookTestRunner()
+        ? dayjs().utc().subtract(15, 'minutes')
+        : dayjs().utc().subtract(1, 'hours')
     const endTime = dayjs().utc()
     // Iterate each minute adding N logs to the results
     let currentTime = startTime
 
     while (currentTime.isBefore(endTime)) {
         Object.values(EXAMPLES).forEach((example) => {
-            const logsToAdd = Math.floor(deterministicRandom() * 10)
+            const logsToAdd = Math.floor(deterministicRandom() * 3)
             for (let i = 0; i < logsToAdd; i++) {
                 const log = sampleOne<(typeof example.logs)[0]>(example.logs)
                 results.push({
                     uuid: uuid(),
                     trace_id: uuid(),
                     span_id: uuid(),
-                    resource_attributes: 'any',
+                    resource_attributes: example.resource_attributes,
                     body: log.message,
-                    attributes: {
-                        ...example.attributes,
-                        ...log.attributes,
-                    },
+                    attributes: { ...log.attributes },
                     timestamp: currentTime.toISOString(),
                     observed_timestamp: currentTime.toISOString(),
                     severity_text: log.level,
@@ -178,7 +188,10 @@ const getLogs = async (
         if (endDate && endDate.isBefore(dayjs(log.timestamp))) {
             return false
         }
-        if (body.query?.serviceNames?.length && !body.query?.serviceNames.includes(log.attributes['service.name'])) {
+        if (
+            body.query?.serviceNames?.length &&
+            !body.query?.serviceNames.includes(log.resource_attributes['service.name'])
+        ) {
             return false
         }
         if (severityLevels.length && !severityLevels.includes(log.severity_text.toLowerCase())) {
@@ -281,11 +294,15 @@ const sparklineMock: MockSignature = async (req, res, ctx) => {
     return res(ctx.json(results))
 }
 
-const attributesMock: MockSignature = async (_req, res, ctx) => {
+const attributesMock: MockSignature = async (req, res, ctx) => {
     await delayIfNotTestRunner()
-    const results = Object.keys(keysAndValues).map((key) => ({
+    const type = (req.url.searchParams.get('attribute_type') ?? 'log_attribute') as
+        | PropertyFilterType.LogAttribute
+        | PropertyFilterType.LogResourceAttribute
+    const results = Object.keys(attributeExamples[type]).map((key) => ({
         id: key,
         name: key,
+        type: type,
     }))
     return res(ctx.json(results))
 }
@@ -293,7 +310,10 @@ const attributesMock: MockSignature = async (_req, res, ctx) => {
 const valuesMock: MockSignature = async (req, res, ctx) => {
     await delayIfNotTestRunner()
     const key = req.url.searchParams.get('key') ?? ''
-    const results = (keysAndValues[key] ?? []).map((value) => ({
+    const type = (req.url.searchParams.get('attribute_type') ?? 'log_attribute') as
+        | PropertyFilterType.LogAttribute
+        | PropertyFilterType.LogResourceAttribute
+    const results = (attributeExamples[type][key] ?? []).map((value) => ({
         id: value,
         name: value,
     }))
@@ -320,6 +340,10 @@ export default {
         options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-02-18',
+        featureFlags: [FEATURE_FLAGS.LOGS_VIRTUALIZED_LIST],
+        testOptions: {
+            waitForSelector: 'text=/Welcome to Logs!/i',
+        },
     }, // scene mode
 } as Meta
 

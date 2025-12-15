@@ -16,9 +16,10 @@ import { createRedis } from '~/utils/db/redis'
 import { parseRawClickHouseEvent } from '~/utils/event'
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
-import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
+import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
 
+import { createCreateEventStep } from '../../src/ingestion/event-processing/create-event-step'
 import { createEmitEventStep } from '../../src/ingestion/event-processing/emit-event-step'
 import { isOkResult } from '../../src/ingestion/pipelines/results'
 import { ClickHouseEvent, Hub, Person, PluginsServerConfig, Team } from '../../src/types'
@@ -28,8 +29,9 @@ import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues, fetchPersons } from '../../src/worker/ingestion/persons/repositories/test-helpers'
-import { EventsProcessor } from '../../src/worker/ingestion/process-event'
+import { createTestEventHeaders } from '../helpers/event-headers'
 import { resetKafka } from '../helpers/kafka'
+import { createTestMessage } from '../helpers/kafka-message'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/logger')
@@ -46,6 +48,7 @@ export async function createPerson(
     properties: Record<string, any> = {}
 ): Promise<Person> {
     const personRepository = new PostgresPersonRepository(server.db.postgres)
+    const [primaryDistinctId, ...extraDistinctIds] = distinctIds.map((distinctId) => ({ distinctId }))
     const result = await personRepository.createPerson(
         DateTime.utc(),
         properties,
@@ -55,7 +58,8 @@ export async function createPerson(
         null,
         false,
         new UUIDT().toString(),
-        distinctIds.map((distinctId) => ({ distinctId }))
+        primaryDistinctId,
+        extraDistinctIds
     )
     if (!result.success) {
         throw new Error('Failed to create person')
@@ -64,7 +68,7 @@ export async function createPerson(
     return result.person
 }
 
-async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<unknown>[]) {
+async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStore, kafkaAcks: Promise<unknown>[]) {
     const kafkaMessages = await personStore.flush()
     await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.db.kafkaProducer.flush()
@@ -80,7 +84,6 @@ describe('processEvent', () => {
     let team: Team
     let hub: Hub
     let personRepository: PostgresPersonRepository
-    let eventsProcessor: EventsProcessor
     let now = DateTime.utc()
 
     async function processEvent(
@@ -103,7 +106,7 @@ describe('processEvent', () => {
             ...data,
         } as any as PluginEvent
 
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+        const personsStoreForBatch = new BatchWritingPersonsStore(
             new PostgresPersonRepository(hub.db.postgres),
             hub.db.kafkaProducer
         )
@@ -112,19 +115,53 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const runner = new EventPipelineRunner(hub, pluginEvent, null, personsStoreForBatch, groupStoreForBatch)
+        const runner = new EventPipelineRunner(
+            {
+                SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+                TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
+                PIPELINE_STEP_STALLED_LOG_TIMEOUT: hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
+                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+                PERSON_MERGE_ASYNC_ENABLED: hub.PERSON_MERGE_ASYNC_ENABLED,
+                PERSON_MERGE_ASYNC_TOPIC: hub.PERSON_MERGE_ASYNC_TOPIC,
+                PERSON_MERGE_SYNC_BATCH_SIZE: hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+                PERSON_JSONB_SIZE_ESTIMATE_ENABLE: hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                PERSON_PROPERTIES_UPDATE_ALL: hub.PERSON_PROPERTIES_UPDATE_ALL,
+            },
+            hub.kafkaProducer,
+            hub.teamManager,
+            hub.groupTypeManager,
+            pluginEvent,
+            null,
+            personsStoreForBatch,
+            groupStoreForBatch
+        )
         const res = await runner.runEventPipeline(pluginEvent, team)
         if (isOkResult(res)) {
-            // Use emit event step to emit the event
-            const emitEventStep = createEmitEventStep({
-                kafkaProducer: hub.kafkaProducer,
-                clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            // Create the event
+            const createEventStep = createCreateEventStep()
+            const { person, preparedEvent, processPerson, historicalMigration } = res.value
+            const createResult = await createEventStep({
+                person,
+                preparedEvent,
+                processPerson,
+                historicalMigration,
+                inputHeaders: createTestEventHeaders(),
+                inputMessage: createTestMessage(),
             })
-            const emitResult = await emitEventStep(res.value)
 
-            // Handle side effects using side effect handling pipeline
-            if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
-                await Promise.allSettled(emitResult.sideEffects)
+            if (isOkResult(createResult)) {
+                // Use emit event step to emit the event
+                const emitEventStep = createEmitEventStep({
+                    kafkaProducer: hub.kafkaProducer,
+                    clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                    groupId: 'test-group-id',
+                })
+                const emitResult = await emitEventStep(createResult.value)
+
+                // Handle side effects using side effect handling pipeline
+                if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
+                    await Promise.allSettled(emitResult.sideEffects)
+                }
             }
 
             await flushPersonStoreToKafka(hub, personsStoreForBatch, res.sideEffects ?? [])
@@ -159,7 +196,6 @@ describe('processEvent', () => {
 
         personRepository = new PostgresPersonRepository(hub.db.postgres)
 
-        eventsProcessor = new EventsProcessor(hub)
         team = await getFirstTeam(hub)
         now = DateTime.utc()
 
@@ -226,7 +262,7 @@ describe('processEvent', () => {
             team_id: team.id,
             uuid: new UUIDT().toString(),
         }
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+        const personsStoreForBatch = new BatchWritingPersonsStore(
             personRepository || new PostgresPersonRepository(hub.db.postgres),
             hub.db.kafkaProducer
         )
@@ -235,19 +271,53 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const runner = new EventPipelineRunner(hub, event, null, personsStoreForBatch, groupStoreForBatch)
+        const runner = new EventPipelineRunner(
+            {
+                SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+                TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
+                PIPELINE_STEP_STALLED_LOG_TIMEOUT: hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
+                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+                PERSON_MERGE_ASYNC_ENABLED: hub.PERSON_MERGE_ASYNC_ENABLED,
+                PERSON_MERGE_ASYNC_TOPIC: hub.PERSON_MERGE_ASYNC_TOPIC,
+                PERSON_MERGE_SYNC_BATCH_SIZE: hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+                PERSON_JSONB_SIZE_ESTIMATE_ENABLE: hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                PERSON_PROPERTIES_UPDATE_ALL: hub.PERSON_PROPERTIES_UPDATE_ALL,
+            },
+            hub.kafkaProducer,
+            hub.teamManager,
+            hub.groupTypeManager,
+            event,
+            null,
+            personsStoreForBatch,
+            groupStoreForBatch
+        )
         const res = await runner.runEventPipeline(event, team)
         if (isOkResult(res)) {
-            // Use emit event step to emit the event
-            const emitEventStep = createEmitEventStep({
-                kafkaProducer: hub.kafkaProducer,
-                clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            // Create the event
+            const createEventStep = createCreateEventStep()
+            const { person, preparedEvent, processPerson, historicalMigration } = res.value
+            const createResult = await createEventStep({
+                person,
+                preparedEvent,
+                processPerson,
+                historicalMigration,
+                inputHeaders: createTestEventHeaders(),
+                inputMessage: createTestMessage(),
             })
-            const emitResult = await emitEventStep(res.value)
 
-            // Handle side effects using side effect handling pipeline
-            if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
-                await Promise.allSettled(emitResult.sideEffects)
+            if (isOkResult(createResult)) {
+                // Use emit event step to emit the event
+                const emitEventStep = createEmitEventStep({
+                    kafkaProducer: hub.kafkaProducer,
+                    clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                    groupId: 'test-group-id',
+                })
+                const emitResult = await emitEventStep(createResult.value)
+
+                // Handle side effects using side effect handling pipeline
+                if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
+                    await Promise.allSettled(emitResult.sideEffects)
+                }
             }
 
             await flushPersonStoreToKafka(hub, personsStoreForBatch, res.sideEffects ?? [])
@@ -276,28 +346,6 @@ describe('processEvent', () => {
     const alias = async (hub: Hub, alias: string, distinctId: string) => {
         await capture(hub, '$create_alias', { alias, disinct_id: distinctId })
     }
-
-    test('capture bad team', async () => {
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.db,
-            hub.groupRepository,
-            hub.clickhouseGroupRepository
-        )
-        await expect(
-            eventsProcessor.processEvent(
-                'asdfasdfasdf',
-                {
-                    event: '$pageview',
-                    properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-                } as any as PluginEvent,
-                1337,
-                now,
-                new UUIDT().toString(),
-                false,
-                groupStoreForBatch
-            )
-        ).rejects.toThrow("No team found with ID 1337. Can't ingest event.")
-    })
 
     test('ip none', async () => {
         await createPerson(hub, team, ['asdfasdfasdf'])
@@ -364,6 +412,7 @@ describe('processEvent', () => {
             [true],
             'testTag'
         )
+        team = await getFirstTeam(hub)
         await createPerson(hub, team, ['asdfasdfasdf'])
 
         await processEvent(
@@ -509,10 +558,9 @@ describe('processEvent', () => {
         )
 
         expect((await fetchPersons(hub.db.postgres)).length).toBe(1)
-        expect(await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])).toEqual([
-            'new_distinct_id',
-            'old_distinct_id',
-        ])
+        const distinctIds = await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])
+        expect(distinctIds).toEqual(expect.arrayContaining(['new_distinct_id', 'old_distinct_id']))
+        expect(distinctIds).toHaveLength(2)
     })
 
     test('alias both existing', async () => {
@@ -616,6 +664,7 @@ describe('processEvent', () => {
             [false, team.id],
             'testTag'
         )
+        team = await getFirstTeam(hub)
 
         await processEvent(
             '2',
@@ -874,7 +923,9 @@ describe('processEvent', () => {
         expect(people.length).toEqual(2)
         expect(people[1].team_id).toEqual(team.id)
         expect(people[1].properties).toEqual({})
-        expect(await fetchDistinctIdValues(hub.db.postgres, people[1])).toEqual(['1', '2'])
+        const distinctIdsForPerson1 = await fetchDistinctIdValues(hub.db.postgres, people[1])
+        expect(distinctIdsForPerson1).toEqual(expect.arrayContaining(['1', '2']))
+        expect(distinctIdsForPerson1).toHaveLength(2)
         expect(people[0].team_id).toEqual(team2.id)
         expect(await fetchDistinctIdValues(hub.db.postgres, people[0])).toEqual(['2'])
     })
@@ -964,16 +1015,13 @@ describe('processEvent', () => {
             // Get pairins of person distinctIds and the events associated with them
             const eventsByPerson = await getEventsByPerson(hub)
 
-            expect(eventsByPerson).toEqual([
-                [
-                    [initialDistinctId, anonymousId],
-                    ['$identify', 'event 2', '$identify'],
-                ],
-                [
-                    [p2DistinctId, p2NewDistinctId],
-                    ['event 3', '$identify', 'event 4'],
-                ],
-            ])
+            expect(eventsByPerson).toHaveLength(2)
+            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([initialDistinctId, anonymousId]))
+            expect(eventsByPerson[0][0]).toHaveLength(2)
+            expect(eventsByPerson[0][1]).toEqual(['$identify', 'event 2', '$identify'])
+            expect(eventsByPerson[1][0]).toEqual(expect.arrayContaining([p2DistinctId, p2NewDistinctId]))
+            expect(eventsByPerson[1][0]).toHaveLength(2)
+            expect(eventsByPerson[1][1]).toEqual(['event 3', '$identify', 'event 4'])
 
             // Make sure the persons are identified
             const persons = await fetchPersons(hub.db.postgres)
@@ -1090,12 +1138,10 @@ describe('processEvent', () => {
             const eventsByPerson = await getEventsByPerson(hub)
 
             // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toEqual([
-                [
-                    [initialDistinctId, anonymousId],
-                    ['$identify', 'anonymous event', '$create_alias'],
-                ],
-            ])
+            expect(eventsByPerson).toHaveLength(1)
+            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([initialDistinctId, anonymousId]))
+            expect(eventsByPerson[0][0]).toHaveLength(2)
+            expect(eventsByPerson[0][1]).toEqual(['$identify', 'anonymous event', '$create_alias'])
 
             // Make sure there is one identified person
             const persons = await fetchPersons(hub.db.postgres)
@@ -1118,12 +1164,10 @@ describe('processEvent', () => {
             const eventsByPerson = await getEventsByPerson(hub)
 
             // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toEqual([
-                [
-                    [initialDistinctId, anonymousId],
-                    ['$identify', 'anonymous event', '$create_alias'],
-                ],
-            ])
+            expect(eventsByPerson).toHaveLength(1)
+            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([initialDistinctId, anonymousId]))
+            expect(eventsByPerson[0][0]).toHaveLength(2)
+            expect(eventsByPerson[0][1]).toEqual(['$identify', 'anonymous event', '$create_alias'])
 
             // Make sure there is one identified person
             const persons = await fetchPersons(hub.db.postgres)
@@ -1171,7 +1215,10 @@ describe('processEvent', () => {
             const eventsByPerson = await getEventsByPerson(hub)
 
             // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toEqual([[[anonymous1, anonymous2], ['$create_alias']]])
+            expect(eventsByPerson).toHaveLength(1)
+            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([anonymous1, anonymous2]))
+            expect(eventsByPerson[0][0]).toHaveLength(2)
+            expect(eventsByPerson[0][1]).toEqual(['$create_alias'])
 
             const persons = await fetchPersons(hub.db.postgres)
             expect(persons.map((person) => person.is_identified)).toEqual([true])

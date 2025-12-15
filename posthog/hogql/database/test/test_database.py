@@ -38,11 +38,12 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):
@@ -370,7 +371,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     @snapshot_postgres_queries
@@ -432,7 +433,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         # initialization team query doesn't run
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
@@ -718,7 +719,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select id from persons"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
+            "ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
             in query
         ), query
 
@@ -736,7 +737,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
+            "ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)"
             in query
         ), query
 
@@ -1108,3 +1109,83 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             if isinstance(table, LazyTable | DANGEROUS_NoTeamIdCheckTable):
                 continue
             assert "team_id" in table.fields, f"Table {table_name} must have a team_id column"
+
+    def test_database_serialization_handles_invalid_sources_gracefully(self):
+        """Test that serialization continues even with sources that have invalid prefixes."""
+        # Create a valid source
+        valid_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="valid_source_id",
+            connection_id="valid_connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="valid_prefix",
+        )
+        valid_credentials = DataWarehouseCredential.objects.create(
+            access_key="valid_key", access_secret="valid_secret", team=self.team
+        )
+        valid_table = DataWarehouseTable.objects.create(
+            name="valid_prefixstripe_customers",
+            format="Parquet",
+            team=self.team,
+            external_data_source=valid_source,
+            credential=valid_credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="customers",
+            source=valid_source,
+            table=valid_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+        # Create an invalid source with characters that break HogQL identifier rules
+        # Note: Stage 1 validation prevents creating new sources like this, but this tests
+        # that serialization is resilient to existing invalid sources
+        invalid_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="invalid_source_id",
+            connection_id="invalid_connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="invalid@prefix",  # Invalid character @
+        )
+        invalid_credentials = DataWarehouseCredential.objects.create(
+            access_key="invalid_key", access_secret="invalid_secret", team=self.team
+        )
+        invalid_table = DataWarehouseTable.objects.create(
+            name="invalid@prefixstripe_invoices",
+            format="Parquet",
+            team=self.team,
+            external_data_source=invalid_source,
+            credential=invalid_credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="invoices",
+            source=invalid_source,
+            table=invalid_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+        # Serialize database - should not crash
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        serialized = database.serialize(context)
+
+        # Should have tables from valid source
+        assert serialized is not None
+        valid_table_found = any("valid_prefix" in table_key for table_key in serialized.keys())
+        assert valid_table_found, "Valid source tables should be serialized"
+
+        # Note: The invalid source may still appear in serialized output because the @ character
+        # doesn't cause get_table() to throw an exception - it just creates a malformed key.
+        # The important behavior we're testing is that serialization completes without crashing,
+        # allowing valid sources to work. Errors from actually using the invalid key are caught
+        # when queries try to resolve it.

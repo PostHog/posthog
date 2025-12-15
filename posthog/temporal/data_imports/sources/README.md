@@ -96,60 +96,60 @@ If your source uses OAuth (SourceFieldOauthConfig):
 
 1. **Environment Variables**: Add to your environment:
 
-    ```bash
-    YOUR_SOURCE_CLIENT_ID=your_client_id
-    YOUR_SOURCE_CLIENT_SECRET=your_client_secret
-    ```
+   ```bash
+   YOUR_SOURCE_CLIENT_ID=your_client_id
+   YOUR_SOURCE_CLIENT_SECRET=your_client_secret
+   ```
 
-    **If your integration doesn't exist yet**, add it to `posthog/settings/integrations.py`:
+   **If your integration doesn't exist yet**, add it to `posthog/settings/integrations.py`:
 
-    ```python
-    YOUR_SOURCE_CLIENT_ID = get_from_env("YOUR_SOURCE_CLIENT_ID", "")
-    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
-    ```
+   ```python
+   YOUR_SOURCE_CLIENT_ID = get_from_env("YOUR_SOURCE_CLIENT_ID", "")
+   YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
+   ```
 
 2. **Integration Kind**: Add your integration to `posthog/models/integration.py`:
 
-    **a) Add to `IntegrationKind` enum:**
+   **a) Add to `IntegrationKind` enum:**
 
-    ```python
-    class IntegrationKind(models.TextChoices):
-        # ... existing integrations ...
-        YOUR_SOURCE = "your-source"
-    ```
+   ```python
+   class IntegrationKind(models.TextChoices):
+       # ... existing integrations ...
+       YOUR_SOURCE = "your-source"
+   ```
 
-    **b) Add to `OauthIntegration.supported_kinds` list:**
+   **b) Add to `OauthIntegration.supported_kinds` list:**
 
-    ```python
-    supported_kinds = [
-        # ... existing kinds ...
-        "your-source",
-    ]
-    ```
+   ```python
+   supported_kinds = [
+       # ... existing kinds ...
+       "your-source",
+   ]
+   ```
 
-    **c) Add OAuth config in `oauth_config_for_kind()` method:**
+   **c) Add OAuth config in `oauth_config_for_kind()` method:**
 
-    ```python
-    elif kind == "your-source":
-        if not settings.YOUR_SOURCE_CLIENT_ID or not settings.YOUR_SOURCE_CLIENT_SECRET:
-            raise NotImplementedError("Your Source app not configured")
+   ```python
+   elif kind == "your-source":
+       if not settings.YOUR_SOURCE_CLIENT_ID or not settings.YOUR_SOURCE_CLIENT_SECRET:
+           raise NotImplementedError("Your Source app not configured")
 
-        return OauthConfig(
-            authorize_url="https://your-service.com/oauth/authorize",
-            token_url="https://your-service.com/oauth/token",
-            client_id=settings.YOUR_SOURCE_CLIENT_ID,
-            client_secret=settings.YOUR_SOURCE_CLIENT_SECRET,
-            scope="your required scopes",
-            id_path="id",
-            name_path="name",
-        )
-    ```
+       return OauthConfig(
+           authorize_url="https://your-service.com/oauth/authorize",
+           token_url="https://your-service.com/oauth/token",
+           client_id=settings.YOUR_SOURCE_CLIENT_ID,
+           client_secret=settings.YOUR_SOURCE_CLIENT_SECRET,
+           scope="your required scopes",
+           id_path="id",
+           name_path="name",
+       )
+   ```
 
 3. **Redirect URI**: Configure in external service:
 
-    ```text
-    https://localhost:8010/integrations/your-kind/callback
-    ```
+   ```text
+   https://localhost:8010/integrations/your-kind/callback
+   ```
 
 ## Testing Your Source Locally
 

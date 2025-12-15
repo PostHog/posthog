@@ -44,6 +44,8 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewEmptyState } from './ViewLoadingState'
 import { draftsLogic } from './draftsLogic'
@@ -122,6 +124,7 @@ function getTabHash(values: multitabEditorLogicType['values']): Record<string, a
     return hash
 }
 
+// Misnomer now: this logic is responsible for the state of one sql editor tab
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
     path(['data-warehouse', 'editor', 'multitabEditorLogic']),
     props({} as MultitabEditorLogicProps),
@@ -156,6 +159,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
+            endpointLogic,
+            ['setIsUpdateMode', 'setSelectedEndpointName'],
         ],
     })),
     actions(() => ({
@@ -166,7 +171,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         }),
         setActiveQuery: (query: string) => ({ query }),
 
-        setTabs: (tabs: QueryTab[]) => ({ tabs }),
         createTab: (
             query?: string,
             view?: DataWarehouseSavedQuery,
@@ -290,11 +294,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 updateTab: (_, { tab }) => tab.insight ?? null,
             },
         ],
-        allTabs: [
-            [] as QueryTab[],
+        activeTab: [
+            null as QueryTab | null,
             {
-                updateTab: (_, { tab }) => [tab],
-                setTabs: (_, { tabs }) => tabs,
+                updateTab: (_, { tab }) => tab,
             },
         ],
         error: [
@@ -552,11 +555,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.createTab(query, undefined, insight)
         },
         createTab: async ({ query = '', view, insight, draft }) => {
-            const currentModelCount = 1
+            // Use tabId to ensure each browser tab has its own unique Monaco model
             const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
 
             if (props.monaco) {
-                const uri = props.monaco.Uri.parse(currentModelCount.toString())
+                const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
                 let model = props.monaco.editor.getModel(uri)
                 if (!model) {
                     model = props.monaco.editor.createModel(query, 'hogQL', uri)
@@ -625,17 +628,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
             }
         },
-        saveDraft: async ({ activeTab, queryInput, viewId }) => {
-            const latestActiveTab = values.allTabs.find((tab) => tab.uri.toString() === activeTab.uri.toString())
-
-            if (latestActiveTab) {
+        saveDraft: async ({ queryInput, viewId }) => {
+            if (values.activeTab) {
                 actions.saveAsDraft(
                     {
                         kind: NodeKind.HogQLQuery,
                         query: queryInput,
                     },
                     viewId,
-                    latestActiveTab
+                    values.activeTab
                 )
             }
         },
@@ -814,41 +815,42 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             router.actions.push(urls.insightView(savedInsight.short_id))
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
-            // keep tab views up to date
-            const tab = values.activeTab
-            const view = dataWarehouseSavedQueries.find((v) => v.id === tab.view?.id)
-            if (tab && view) {
-                actions.setTabs([{ ...tab, view }])
-                actions.setQueryInput(view.query.query || '')
+            if (values.activeTab?.view) {
+                const view = dataWarehouseSavedQueries.find((v) => v.id === values.activeTab?.view?.id)
+                if (view && values.activeTab) {
+                    actions.updateTab({ ...values.activeTab, view })
+                    actions.setQueryInput(view.query.query || '')
+                }
             }
         },
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
-            const mustRemoveTab = values.allTabs.find((tab) => tab.view?.id === viewId && !tab.draft)
-            if (mustRemoveTab) {
-                actions.setTabs([])
+            if (values.activeTab?.view?.id === viewId && !values.activeTab?.draft) {
                 actions.createTab()
             }
-            lemonToast.success('View deleted')
         },
         createDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries, payload: view }) => {
             const newView = view && dataWarehouseSavedQueries.find((v) => v.name === view.name)
             if (newView) {
                 const oldTab = values.activeTab
-                if (oldTab) {
+                // Only update the tab if it doesn't have a view (new query being saved)
+                // or if it's the same view being recreated (edge case)
+                if (oldTab && (!oldTab.view || oldTab.view.id === newView.id)) {
                     actions.updateTab({ ...oldTab, view: newView })
                 }
             }
         },
-        updateDataWarehouseSavedQuerySuccess: () => {
-            lemonToast.success('View updated')
-        },
         updateView: async ({ view, draftId }) => {
             const latestView = await api.dataWarehouseSavedQueries.get(view.id)
+            // Only check for conflicts if there's an activity log (latest_history_id exists)
+            // When there's no activity log, both edited_history_id and latest_history_id are null/undefined,
+            // and we should allow the update to proceed without showing a false conflict
             if (
-                view.edited_history_id !== latestView?.latest_history_id &&
+                latestView?.latest_history_id != null &&
+                view.edited_history_id !== latestView.latest_history_id &&
                 view.query?.query !== latestView?.query.query
             ) {
                 actions._setSuggestionPayload({
+                    suggestedValue: values.queryInput!,
                     originalValue: latestView?.query.query,
                     acceptText: 'Confirm changes',
                     rejectText: 'Cancel',
@@ -875,13 +877,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         deleteDraftSuccess: ({ draftId, viewName }) => {
-            // remove draft from all tabs
-            const newTabs = values.allTabs.map((tab) => ({
-                ...tab,
-                draft: tab.draft?.id === draftId ? undefined : tab.draft,
-                name: tab.draft?.id === draftId && viewName ? viewName : tab.name,
-            }))
-            actions.setTabs(newTabs)
+            if (values.activeTab && values.activeTab.draft?.id === draftId) {
+                actions.updateTab({
+                    ...values.activeTab,
+                    draft: undefined,
+                    name: viewName ?? values.activeTab.name,
+                })
+            }
         },
     })),
     subscriptions(({ actions, values }) => ({
@@ -916,20 +918,21 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         drafts: (drafts) => {
-            // update all drafts in all tabs
-            const newTabs = values.allTabs.map((tab) => ({
-                ...tab,
-                draft: drafts.find((d: DataWarehouseSavedQueryDraft) => d.id === tab.draft?.id),
-                name:
-                    drafts.find((d: DataWarehouseSavedQueryDraft) => d.id === tab.draft?.id)?.name ??
-                    tab.view?.name ??
-                    tab.name,
-            }))
-            actions.setTabs(newTabs)
+            if (values.activeTab && values.activeTab.draft) {
+                const updatedDraft = drafts.find(
+                    (d: DataWarehouseSavedQueryDraft) => d.id === values.activeTab?.draft?.id
+                )
+                if (updatedDraft) {
+                    actions.updateTab({
+                        ...values.activeTab,
+                        draft: updatedDraft,
+                        name: updatedDraft.name ?? values.activeTab.view?.name ?? values.activeTab.name,
+                    })
+                }
+            }
         },
     })),
     selectors({
-        activeTab: [(s) => [s.allTabs], (allTabs: QueryTab[]) => allTabs?.[0] ?? null],
         suggestedSource: [
             (s) => [s.suggestionPayload],
             (suggestionPayload) => {
@@ -1102,7 +1105,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.view &&
-                !hashParams.insight
+                !hashParams.insight &&
+                values.queryInput !== null
             ) {
                 return
             }
@@ -1112,6 +1116,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const createQueryTab = async (): Promise<void> => {
                 if (searchParams.output_tab) {
                     actions.setActiveTab(searchParams.output_tab as OutputTab)
+                }
+                if (searchParams.endpoint_name) {
+                    actions.setIsUpdateMode(true)
+                    actions.setSelectedEndpointName(searchParams.endpoint_name)
                 }
                 if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
                     const draftId = searchParams.open_draft || hashParams.draft
@@ -1124,9 +1132,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         return
                     }
 
-                    const existingTab = values.allTabs.find((tab) => {
-                        return tab.draft?.id === draft.id
-                    })
+                    const existingTab = values.activeTab?.draft?.id === draft.id ? values.activeTab : null
 
                     if (!existingTab) {
                         const associatedView = draft.saved_query_id
@@ -1135,9 +1141,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
                         actions.createTab(draft.query.query, associatedView, undefined, draft)
 
-                        const newTab = values.allTabs[values.allTabs.length - 1]
-                        if (newTab) {
-                            actions.setTabDraftId(newTab.uri.toString(), draft.id)
+                        if (values.activeTab) {
+                            actions.setTabDraftId(values.activeTab.uri.toString(), draft.id)
                         }
                     }
                     return
@@ -1222,6 +1227,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 } else if (hashParams.q && values.queryInput === null) {
                     // only when opening the tab
                     actions.createTab(hashParams.q)
+                    tabAdded = true
+                } else if (values.queryInput === null) {
+                    actions.createTab('')
                     tabAdded = true
                 }
             }

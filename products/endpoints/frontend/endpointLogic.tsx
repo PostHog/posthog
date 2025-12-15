@@ -3,13 +3,15 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { slugify } from 'lib/utils'
+import { debounce, slugify } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { urls } from 'scenes/urls'
 
-import { EndpointRequest, HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
-import { EndpointType } from '~/types'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { EndpointRequest } from '~/queries/schema/schema-general'
+import { DataWarehouseSyncInterval, EndpointType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'
 import { endpointsLogic } from './endpointsLogic'
@@ -20,41 +22,37 @@ export interface EndpointLogicProps {
     tabId: string
 }
 
-const NEW_ENDPOINT: Partial<EndpointType> = {
-    name: 'new-endpoint',
-    description: 'New endpoint returns this and that',
-    query: {
-        kind: NodeKind.HogQLQuery,
-        query: 'select * from events limit 1',
-    } as HogQLQuery | InsightQueryNode,
-}
-
 export const endpointLogic = kea<endpointLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointLogic']),
     props({} as EndpointLogicProps),
     key((props) => props.tabId),
     connect(() => ({
-        actions: [endpointsLogic, ['loadEndpoints']],
+        actions: [endpointsLogic, ['loadEndpoints'], sceneLayoutLogic, ['setScenePanelOpen']],
     })),
     actions({
         setEndpointName: (endpointName: string) => ({ endpointName }),
         setEndpointDescription: (endpointDescription: string) => ({ endpointDescription }),
         setActiveCodeExampleTab: (tab: CodeExampleTab) => ({ tab }),
+        setSelectedCodeExampleVersion: (version: number | null) => ({ version }),
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
         setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
+        setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
+        setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
-        createEndpointFailure: (error: any) => ({ error }),
-        updateEndpoint: (name: string, request: Partial<EndpointRequest>) => ({ name, request }),
-        updateEndpointSuccess: (response: any) => ({ response }),
-        updateEndpointFailure: (error: any) => ({ error }),
+        createEndpointFailure: () => ({}),
+        updateEndpoint: (name: string, request: Partial<EndpointRequest>, showViewButton?: boolean) => ({
+            name,
+            request,
+            showViewButton,
+        }),
+        updateEndpointSuccess: (response: any, showViewButton?: boolean) => ({ response, showViewButton }),
+        updateEndpointFailure: () => ({}),
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
-        deleteEndpointFailure: (error: any) => ({ error }),
-        deactivateEndpoint: (name: string) => ({ name }),
-        deactivateEndpointSuccess: (response: any) => ({ response }),
-        deactivateEndpointFailure: (error: any) => ({ error }),
+        deleteEndpointFailure: () => ({}),
+        confirmToggleActive: (endpoint: EndpointType) => ({ endpoint }),
     }),
     reducers({
         endpointName: [null as string | null, { setEndpointName: (_, { endpointName }) => endpointName }],
@@ -63,6 +61,10 @@ export const endpointLogic = kea<endpointLogicType>([
             { setEndpointDescription: (_, { endpointDescription }) => endpointDescription },
         ],
         activeCodeExampleTab: ['terminal' as CodeExampleTab, { setActiveCodeExampleTab: (_, { tab }) => tab }],
+        selectedCodeExampleVersion: [
+            null as number | null,
+            { setSelectedCodeExampleVersion: (_, { version }) => version },
+        ],
         isUpdateMode: [
             false,
             {
@@ -81,14 +83,26 @@ export const endpointLogic = kea<endpointLogicType>([
                 setCacheAge: (_, { cacheAge }) => cacheAge,
             },
         ],
+        syncFrequency: [
+            '24hour' as DataWarehouseSyncInterval | null,
+            {
+                setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
+            },
+        ],
+        isMaterialized: [
+            null as boolean | null,
+            {
+                setIsMaterialized: (_, { isMaterialized }) => isMaterialized,
+            },
+        ],
     }),
-    loaders(({ actions }) => ({
+    loaders(({ actions, values }) => ({
         endpoint: [
             null as EndpointType | null,
             {
                 loadEndpoint: async (name: string) => {
-                    if (!name || name === 'new') {
-                        return { ...NEW_ENDPOINT } as EndpointType
+                    if (!name) {
+                        return null
                     }
                     const endpoint = await api.endpoint.get(name)
 
@@ -104,99 +118,150 @@ export const endpointLogic = kea<endpointLogicType>([
 
                     // TODO: This does not belong here. Refactor to the endpointSceneLogic?
                     actions.setCacheAge(endpoint.cache_age_seconds ?? null)
+                    actions.setSyncFrequency(endpoint.materialization?.sync_frequency ?? null)
+                    actions.setIsMaterialized(endpoint.is_materialized ?? null)
 
                     return endpoint
                 },
             },
         ],
+        materializationStatus: [
+            null as EndpointType['materialization'] | null,
+            {
+                loadMaterializationStatus: async (name: string) => {
+                    if (!name) {
+                        return null
+                    }
+                    const materializationStatus = await api.endpoint.getMaterializationStatus(name)
+
+                    // Update the local state if needed
+                    if (materializationStatus?.sync_frequency) {
+                        actions.setSyncFrequency(materializationStatus.sync_frequency)
+                    }
+
+                    // Update the endpoint object with the new materialization status
+                    if (values.endpoint) {
+                        const updatedEndpoint = {
+                            ...values.endpoint,
+                            materialization: materializationStatus,
+                            is_materialized: materializationStatus?.can_materialize
+                                ? !!materializationStatus.status
+                                : false,
+                        }
+                        actions.loadEndpointSuccess(updatedEndpoint)
+                    }
+
+                    return materializationStatus
+                },
+            },
+        ],
     })),
-    listeners(({ actions }) => ({
-        createEndpoint: async ({ request }) => {
-            try {
-                if (request.name) {
-                    request.name = slugify(request.name)
+    listeners(({ actions }) => {
+        const reloadMaterializationStatus = debounce((name: string): void => {
+            actions.loadMaterializationStatus(name)
+        }, 2000)
+        return {
+            createEndpoint: async ({ request }) => {
+                try {
+                    if (request.name) {
+                        request.name = slugify(request.name)
+                    }
+                    const response = await api.endpoint.create(request)
+                    actions.createEndpointSuccess(response)
+                } catch (error) {
+                    console.error('Failed to create endpoint:', error)
+                    actions.createEndpointFailure()
                 }
-                const response = await api.endpoint.create(request)
-                actions.createEndpointSuccess(response)
-            } catch (error) {
-                console.error('Failed to create endpoint:', error)
-                actions.createEndpointFailure(error)
-            }
-        },
-        createEndpointSuccess: ({ response }) => {
-            actions.setEndpointName('')
-            actions.setEndpointDescription('')
-            lemonToast.success(
-                <>
-                    Endpoint created successfully!
-                    <br />
-                    You will be redirected to the endpoint page.
-                </>,
-                {
-                    onClose: () => {
-                        router.actions.push(urls.endpoint(response.name))
+            },
+            createEndpointSuccess: ({ response }) => {
+                actions.setEndpointName('')
+                actions.setEndpointDescription('')
+                lemonToast.success(<>Endpoint created</>, {
+                    button: {
+                        label: 'View',
+                        action: () => {
+                            // Close the scene panel (info & actions panel) if endpoint was created from insight
+                            if (response.derived_from_insight) {
+                                actions.setScenePanelOpen(false)
+                            }
+                            router.actions.push(urls.endpoint(response.name))
+                        },
                     },
-                }
-            )
-        },
-        createEndpointFailure: ({ error }) => {
-            console.error('Failed to create endpoint:', error)
-            lemonToast.error('Failed to create endpoint')
-        },
-        updateEndpoint: async ({ name, request }) => {
-            try {
-                const response = await api.endpoint.update(name, request)
-                actions.updateEndpointSuccess(response)
-            } catch (error) {
-                console.error('Failed to update endpoint:', error)
-                actions.updateEndpointFailure(error)
-            }
-        },
-        updateEndpointSuccess: ({ response }) => {
-            lemonToast.success('Endpoint updated successfully')
-            actions.loadEndpoint(response.name)
-        },
-        updateEndpointFailure: ({ error }) => {
-            console.error('Failed to update endpoint:', error)
-            lemonToast.error('Failed to update endpoint')
-        },
-        deleteEndpoint: async ({ name }) => {
-            try {
-                // TODO: Add confirmation dialog
-                await api.endpoint.delete(name)
-                actions.deleteEndpointSuccess(name)
-            } catch (error) {
-                console.error('Failed to delete endpoint:', error)
-                actions.deleteEndpointFailure(error)
-            }
-        },
-        deleteEndpointSuccess: () => {
-            lemonToast.success('Endpoint deleted successfully')
-            actions.loadEndpoints()
-        },
-        deleteEndpointFailure: ({ error }) => {
-            console.error('Failed to delete endpoint:', error)
-            lemonToast.error('Failed to delete endpoint')
-        },
-        deactivateEndpoint: async ({ name }) => {
-            try {
-                await api.endpoint.update(name, {
-                    is_active: false,
                 })
-                actions.deactivateEndpointSuccess({})
-            } catch (error) {
-                console.error('Failed to deactivate endpoint:', error)
-                actions.deactivateEndpointFailure(error)
-            }
-        },
-        deactivateEndpointSuccess: () => {
-            lemonToast.success('Endpoint deactivated successfully')
-            actions.loadEndpoints()
-        },
-        deactivateEndpointFailure: ({ error }) => {
-            console.error('Failed to deactivate endpoint:', error)
-            lemonToast.error('Failed to deactivate endpoint')
-        },
-    })),
+            },
+            createEndpointFailure: () => {
+                lemonToast.error('Failed to create endpoint')
+            },
+            updateEndpoint: async ({ name, request, showViewButton }) => {
+                try {
+                    const response = await api.endpoint.update(name, request)
+                    actions.updateEndpointSuccess(response, showViewButton)
+                    actions.loadEndpoints()
+                } catch (error) {
+                    console.error('Failed to update endpoint:', error)
+                    actions.updateEndpointFailure()
+                }
+            },
+            updateEndpointSuccess: ({ response, showViewButton }) => {
+                if (showViewButton) {
+                    lemonToast.success(<>Endpoint updated</>, {
+                        button: {
+                            label: 'View',
+                            action: () => router.actions.push(urls.endpoint(response.name)),
+                        },
+                    })
+                } else {
+                    lemonToast.success('Endpoint updated')
+                }
+                reloadMaterializationStatus(response.name)
+            },
+            updateEndpointFailure: () => {
+                lemonToast.error('Failed to update endpoint')
+            },
+            deleteEndpoint: async ({ name }) => {
+                try {
+                    await api.endpoint.delete(name)
+                    actions.deleteEndpointSuccess(name)
+                } catch (error) {
+                    console.error('Failed to delete endpoint:', error)
+                    actions.deleteEndpointFailure()
+                }
+            },
+            deleteEndpointSuccess: () => {
+                lemonToast.success('Endpoint deleted')
+                actions.loadEndpoints()
+            },
+            deleteEndpointFailure: () => {
+                lemonToast.error('Failed to delete endpoint')
+            },
+            confirmToggleActive: ({ endpoint }) => {
+                const isActivating = !endpoint.is_active
+                LemonDialog.open({
+                    title: isActivating ? 'Activate endpoint?' : 'Deactivate endpoint?',
+                    content: (
+                        <div className="text-sm text-secondary">
+                            {isActivating
+                                ? 'Are you sure you want to activate this endpoint? It will be accessible via the API.'
+                                : 'Are you sure you want to deactivate this endpoint? It will no longer be accessible via the API.'}
+                        </div>
+                    ),
+                    primaryButton: {
+                        children: isActivating ? 'Activate' : 'Deactivate',
+                        type: 'primary',
+                        status: isActivating ? undefined : 'danger',
+                        onClick: () => {
+                            actions.updateEndpoint(endpoint.name, { is_active: isActivating })
+                        },
+                        size: 'small',
+                    },
+                    secondaryButton: {
+                        children: 'Cancel',
+                        type: 'tertiary',
+                        size: 'small',
+                    },
+                })
+            },
+        }
+    }),
     permanentlyMount(),
 ])

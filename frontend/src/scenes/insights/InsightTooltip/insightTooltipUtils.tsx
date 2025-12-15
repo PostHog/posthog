@@ -67,6 +67,8 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     timezone?: string | undefined
     interval?: IntervalType | null
     dateRange?: DateRange | null
+    /** Show hint about holding shift to highlight individual bars in stacked charts */
+    showShiftKeyHint?: boolean
 }
 
 export interface FormattedDateOptions {
@@ -95,6 +97,7 @@ export function getTooltipTitle(
 }
 
 export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
+    second: 'D MMM YYYY HH:mm:ss',
     minute: 'D MMM YYYY HH:mm:00',
     hour: 'D MMM YYYY HH:00',
     day: 'D MMM YYYY',

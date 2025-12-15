@@ -4,6 +4,7 @@ import { beforeUnload } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -71,6 +72,13 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             ['updateCurrentTeam'],
             dataWarehouseSettingsLogic,
             ['updateSourceRevenueAnalyticsConfig', 'deleteJoin'],
+            eventUsageLogic,
+            [
+                'reportRevenueAnalyticsEventDeleted',
+                'reportRevenueAnalyticsDataSourceEnabled',
+                'reportRevenueAnalyticsDataSourceDisabled',
+                'reportRevenueAnalyticsTestAccountFilterUpdated',
+            ],
         ],
     })),
     actions({
@@ -191,9 +199,16 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             // TODO: Check how to pass the preflight region here
             values.currentTeam?.revenue_analytics_config || createEmptyConfig(),
             {
-                updateCurrentTeam: (_, { revenue_analytics_config }) => {
+                updateCurrentTeam: (state, { revenue_analytics_config }) => {
+                    // Only update if revenue_analytics_config is explicitly provided
+                    if (revenue_analytics_config === undefined) {
+                        return state
+                    }
                     // TODO: Check how to pass the preflight region here
                     return revenue_analytics_config || createEmptyConfig()
+                },
+                loadRevenueAnalyticsConfigSuccess: (_, { revenueAnalyticsConfig }) => {
+                    return revenueAnalyticsConfig || createEmptyConfig()
                 },
             },
         ],
@@ -301,8 +316,18 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             addGoal: updateCurrentTeam,
             deleteGoal: updateCurrentTeam,
             updateGoal: updateCurrentTeam,
-            updateFilterTestAccounts: updateCurrentTeam,
             save: updateCurrentTeam,
+            updateFilterTestAccounts: ({ filterTestAccounts }) => {
+                updateCurrentTeam()
+                actions.reportRevenueAnalyticsTestAccountFilterUpdated(filterTestAccounts)
+            },
+            deleteEvent: ({ eventName }) => actions.reportRevenueAnalyticsEventDeleted(eventName),
+            updateSourceRevenueAnalyticsConfig: ({ source, config }) => {
+                const func = config.enabled
+                    ? actions.reportRevenueAnalyticsDataSourceEnabled
+                    : actions.reportRevenueAnalyticsDataSourceDisabled
+                return func(source.source_type)
+            },
         }
     }),
     loaders(({ values }) => ({

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import cached_property
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Optional, TypeVar, cast
 
 import structlog
 
@@ -11,6 +11,7 @@ from posthog.schema import (
     ConversionGoalFilter3,
     DateRange,
     MarketingAnalyticsHelperForColumnNames,
+    NodeKind,
 )
 
 from posthog.hogql import ast
@@ -87,12 +88,19 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Build SELECT columns for the CTE
         select_columns: list[ast.Expr] = []
 
-        # Only include campaign and source fields if we're grouping by them
+        # Only include campaign, ID, source, and match_key fields if we're grouping by them
         if group_by_exprs:
             select_columns.extend(
                 [
                     ast.Field(chain=[self.config.campaign_field]),
+                    ast.Field(chain=[self.config.id_field]),
                     ast.Field(chain=[self.config.source_field]),
+                    # match_key is used for joining with conversion goals
+                    # Use any() since all rows in a group have the same match_key value
+                    ast.Alias(
+                        alias=self.config.match_key_field,
+                        expr=ast.Call(name="any", args=[ast.Field(chain=[self.config.match_key_field])]),
+                    ),
                 ]
             )
 
@@ -100,20 +108,92 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             [
                 ast.Alias(
                     alias=self.config.total_cost_field,
-                    expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.cost_field])]),
+                    expr=ast.Call(
+                        name="sum",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat", args=[ast.Field(chain=[MarketingSourceAdapter.cost_field])]
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
+                    ),
                 ),
                 ast.Alias(
                     alias=self.config.total_clicks_field,
-                    expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.clicks_field])]),
+                    expr=ast.Call(
+                        name="sum",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat", args=[ast.Field(chain=[MarketingSourceAdapter.clicks_field])]
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
+                    ),
                 ),
                 ast.Alias(
                     alias=self.config.total_impressions_field,
-                    expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.impressions_field])]),
+                    expr=ast.Call(
+                        name="sum",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat",
+                                        args=[ast.Field(chain=[MarketingSourceAdapter.impressions_field])],
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
+                    ),
                 ),
                 ast.Alias(
                     alias=self.config.total_reported_conversions_field,
                     expr=ast.Call(
-                        name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.reported_conversion_field])]
+                        name="sum",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat",
+                                        args=[ast.Field(chain=[MarketingSourceAdapter.reported_conversion_field])],
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
+                    ),
+                ),
+                ast.Alias(
+                    alias=self.config.total_reported_conversion_value_field,
+                    expr=ast.Call(
+                        name="sum",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat",
+                                        args=[
+                                            ast.Field(chain=[MarketingSourceAdapter.reported_conversion_value_field])
+                                        ],
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
                     ),
                 ),
             ]
@@ -134,10 +214,33 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             self.team.marketing_analytics_config.conversion_goals, self.team.pk
         )
 
-        if self.query.draftConversionGoal:
+        # Only check draftConversionGoal if the query type supports it
+        if hasattr(self.query, "draftConversionGoal") and self.query.draftConversionGoal:
             conversion_goals = [self.query.draftConversionGoal, *conversion_goals]
 
         return conversion_goals
+
+    def _filter_invalid_conversion_goals(
+        self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
+    ) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
+        """
+        Filter out invalid conversion goals (e.g., those using "All Events").
+        Returns only valid conversion goals.
+        """
+        valid_goals = []
+        for goal in conversion_goals:
+            # Skip "All Events" goals
+            if goal.kind == cast(str, NodeKind.EVENTS_NODE):
+                event_name = getattr(goal, "event", None)
+                if event_name is None or event_name == "":
+                    logger.info(
+                        "filtering_out_all_events_conversion_goal",
+                        goal_name=getattr(goal, "conversion_goal_name", "Unknown"),
+                    )
+                    continue
+            valid_goals.append(goal)
+
+        return valid_goals
 
     def _create_conversion_goal_processors(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
@@ -289,9 +392,14 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Build the union query using the factory
             union_query_string = self._factory(date_range=self.query_date_range).build_union_query(adapters)
 
-            # Get conversion goals and create processors
+            # Get conversion goals and filter out invalid ones
             conversion_goals = self._get_team_conversion_goals()
-            processors = self._create_conversion_goal_processors(conversion_goals) if conversion_goals else []
+            valid_conversion_goals = self._filter_invalid_conversion_goals(conversion_goals)
+
+            # Create processors only for valid conversion goals
+            processors = (
+                self._create_conversion_goal_processors(valid_conversion_goals) if valid_conversion_goals else []
+            )
 
             # Build the complete query with CTEs using AST
             return self._build_complete_query_ast(union_query_string, processors, self.query_date_range)

@@ -58,6 +58,7 @@ function PlayPauseButton(): JSX.Element {
                     <KeyboardShortcut space />
                 </div>
             }
+            data-attr={showPause ? 'recording-pause' : endReached ? 'recording-rewind' : 'recording-play'}
         >
             {showPause ? (
                 <IconPause className="text-3xl" />
@@ -141,7 +142,7 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
 }
 
 export function PlayerController(): JSX.Element {
-    const { playlistLogic, logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
@@ -165,11 +166,11 @@ export function PlayerController(): JSX.Element {
         >
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
-                <Timestamp size={size} />
                 <div className="flex gap-0.5 items-center justify-center">
-                    <SeekSkip direction="backward" />
                     <PlayPauseButton />
+                    <SeekSkip direction="backward" />
                     <SeekSkip direction="forward" />
+                    <Timestamp size={size} />
                 </div>
                 <div className="flex justify-end items-center">
                     {!isCinemaMode && ModesWithInteractions.includes(playerMode) && (
@@ -180,9 +181,7 @@ export function PlayerController(): JSX.Element {
                             <ClipRecording />
                         </>
                     )}
-                    {playlistLogic && ModesWithInteractions.includes(playerMode) ? (
-                        <PlayerUpNext playlistLogic={playlistLogic} />
-                    ) : undefined}
+                    {ModesWithInteractions.includes(playerMode) ? <PlayerUpNext /> : undefined}
                     {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
                     <FullScreen />
                 </div>

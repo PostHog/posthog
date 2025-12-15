@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sourcemap::SourceMap;
 use std::{collections::BTreeMap, path::PathBuf};
-use tracing::info;
 
 use crate::{
     api::symbol_sets::SymbolSetUpload,
@@ -17,16 +16,18 @@ use crate::{
 pub struct SourceMapContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub release_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", alias = "debugId")]
     pub chunk_id: Option<String>,
     #[serde(flatten)]
     pub fields: BTreeMap<String, Value>,
 }
 
+#[derive(Debug)]
 pub struct SourceMapFile {
     pub inner: SourceFile<SourceMapContent>,
 }
 
+#[derive(Debug)]
 pub struct MinifiedSourceFile {
     pub inner: SourceFile<String>,
 }
@@ -48,6 +49,10 @@ impl SourceMapFile {
 
     pub fn get_release_id(&self) -> Option<String> {
         self.inner.content.release_id.clone()
+    }
+
+    pub fn has_release_id(&self) -> bool {
+        self.get_release_id().is_some()
     }
 
     pub fn apply_adjustment(&mut self, adjustment: SourceMap) -> Result<()> {
@@ -196,7 +201,6 @@ impl MinifiedSourceFile {
 
         for path in possible_paths.into_iter() {
             if path.exists() {
-                info!("Found sourcemap at path: {}", path.display());
                 return Ok(Some(path));
             }
         }

@@ -217,6 +217,21 @@ export function lowercaseFirstLetter(string: string): string {
     return string.charAt(0).toLowerCase() + string.slice(1)
 }
 
+export function getOrdinalSuffix(num: number): string {
+    const j = num % 10
+    const k = num % 100
+    if (j === 1 && k !== 11) {
+        return 'st'
+    }
+    if (j === 2 && k !== 12) {
+        return 'nd'
+    }
+    if (j === 3 && k !== 13) {
+        return 'rd'
+    }
+    return 'th'
+}
+
 export function fullName(props?: { first_name?: string; last_name?: string }): string {
     if (!props) {
         return 'Unknown User'
@@ -303,9 +318,9 @@ export const featureFlagOperatorMap: Record<string, string> = {
 }
 
 export const stickinessOperatorMap: Record<string, string> = {
-    exact: '= Exactly',
-    gte: '≥ At least',
-    lte: '≤ At most (but at least once)',
+    exact: '= exactly',
+    gte: '≥ at least',
+    lte: '≤ at most (but at least once)',
 }
 
 export const cleanedPathOperatorMap: Record<string, string> = {
@@ -392,6 +407,10 @@ export function isOperatorDate(operator: PropertyOperator): boolean {
     return [PropertyOperator.IsDateBefore, PropertyOperator.IsDateAfter, PropertyOperator.IsDateExact].includes(
         operator
     )
+}
+
+export function isOperatorBetween(operator: PropertyOperator): boolean {
+    return [PropertyOperator.Between, PropertyOperator.NotBetween].includes(operator)
 }
 
 /** Compare objects deeply. */
@@ -682,12 +701,18 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
-    formatTime = 'h:mm:ss A'
+    formatTime = 'h:mm:ss A',
+    options: { timestampStyle?: 'relative' | 'absolute' } = { timestampStyle: 'relative' }
 ): string {
     if (!date) {
         return 'Never'
     }
     const parsedDate = dayjs(date)
+
+    if (options.timestampStyle === 'absolute') {
+        return parsedDate.format(`${formatDate} ${formatTime}`)
+    }
+
     const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
     if (parsedDate.isSame(dayjs(), 'm')) {
@@ -695,9 +720,9 @@ export function humanFriendlyDetailedTime(
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = `[Today] ${formatTime}`
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = `[Yesterday] ${formatTime}`
+        formatString = `[Yesterday] ${formatTime}`
     } else {
         formatString = `${formatDate} ${formatTime}`
     }
@@ -821,13 +846,14 @@ export function isExternalLink(input: any): boolean {
     return !!input.trim().match(regexp)
 }
 
-export function isEmail(string: string): boolean {
+export function isEmail(string: string, options?: { requireTLD?: boolean }): boolean {
     if (!string) {
         return false
     }
     // https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
-    const regexp =
-        /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+    const regexp = options?.requireTLD
+        ? /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/
+        : /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
 }
 
@@ -926,6 +952,7 @@ export function determineDifferenceType(
 export const DATE_FORMAT = 'MMMM D, YYYY'
 export const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
 export const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
+export const DATE_FORMAT_WITHOUT_DAY = 'HH:mm:ss'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)
@@ -942,6 +969,51 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
         formatFrom = DATE_FORMAT_WITHOUT_YEAR
     }
     return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
+}
+
+export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs): string => {
+    const MONTHDAY = 'MMMM D'
+    const COMMA = ', '
+    const YEAR = 'YYYY '
+    const TIME = 'HH:mm'
+    const SECONDS = ':ss'
+
+    let fromComponents = [MONTHDAY, COMMA, YEAR, TIME, SECONDS]
+    let toComponents = [MONTHDAY, COMMA, YEAR, TIME, SECONDS]
+    if (dateFrom.year() === dateTo.year()) {
+        toComponents = toComponents.filter((x) => x !== YEAR)
+        if (dateTo.year() === dayjs().year()) {
+            fromComponents = fromComponents.filter((x) => x !== YEAR)
+        }
+
+        if (dateFrom.date() === dateTo.date()) {
+            toComponents = toComponents.filter((x) => x !== MONTHDAY)
+            toComponents = toComponents.filter((x) => x !== COMMA)
+            if (dateTo.date() === dayjs().date()) {
+                fromComponents = fromComponents.filter((x) => x !== MONTHDAY)
+                fromComponents = fromComponents.filter((x) => x !== COMMA)
+            }
+        }
+
+        if (dateFrom.isSame(dayjs(dateFrom).startOf('day')) && dateTo.isSame(dayjs(dateTo).startOf('day'))) {
+            fromComponents = fromComponents.filter((x) => x !== TIME)
+            toComponents = toComponents.filter((x) => x !== TIME)
+        }
+
+        if (dateFrom.second() === 0 && dateTo.second() === 0) {
+            fromComponents = fromComponents.filter((x) => x !== SECONDS)
+            toComponents = toComponents.filter((x) => x !== SECONDS)
+        }
+
+        if (!fromComponents.includes(YEAR) && !fromComponents.includes(TIME)) {
+            fromComponents = fromComponents.filter((x) => x !== COMMA)
+        }
+
+        if (!toComponents.includes(YEAR) && !toComponents.includes(TIME)) {
+            toComponents = toComponents.filter((x) => x !== COMMA)
+        }
+    }
+    return `${dateFrom.format(fromComponents.join(''))} - ${dateTo.format(toComponents.join(''))}`
 }
 
 export const dateMapping: DateMappingOption[] = [
@@ -1002,17 +1074,21 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'month',
     },
     {
-        key: 'This month',
-        values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
+        key: 'Last week',
+        values: ['-1wStart', '-1wEnd'],
         defaultInterval: 'day',
     },
     {
-        key: 'Previous month',
+        key: 'Last month',
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
-        inactive: true,
+        defaultInterval: 'day',
+    },
+    {
+        key: 'This month',
+        values: ['mStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
         defaultInterval: 'day',
     },
     {
@@ -1042,6 +1118,7 @@ const dateOptionsMap = {
     d: 'day',
     h: 'hour',
     M: 'minute',
+    s: 'second',
 } as const
 
 export function dateFilterToText(
@@ -1107,6 +1184,9 @@ export function dateFilterToText(
                     break
                 case 'minute':
                     date = dayjs().subtract(counter, 'm')
+                    break
+                case 'second':
+                    date = dayjs().subtract(counter, 's')
                     break
                 default:
                     date = dayjs().subtract(counter, 'd')
@@ -1184,6 +1264,9 @@ export function componentsToDayJs(
         case 'minute':
             response = dayjsInstance.add(amount, 'minute')
             break
+        case 'second':
+            response = dayjsInstance.add(amount, 'second')
+            break
         default:
             throw new UnexpectedNeverError(unit)
     }
@@ -1199,7 +1282,7 @@ export function componentsToDayJs(
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
 export function dateStringToDayJs(date: string | null, timezone: string = 'UTC'): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
-        return dayjs(date).tz(timezone)
+        return dayjs.tz(date, timezone)
     }
     const dateComponents = dateStringToComponents(date)
     if (!dateComponents) {
@@ -1315,6 +1398,11 @@ export const areDatesValidForInterval = (
         return (
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') >= 2 &&
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 12 // 12 hours. picked based on max graph resolution
+        )
+    } else if (interval === 'second') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'second') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'second') < 60 * 60 // 1 hour
         )
     }
     throw new UnexpectedNeverError(interval)
@@ -1432,7 +1520,7 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
         .trim()
         .split('')
         .forEach((character) => {
-            if (character === '_' || character === '-') {
+            if (character === '_' || character === '-' || character === '/') {
                 if (currentWord) {
                     words.push(currentWord)
                 }
@@ -2213,4 +2301,23 @@ export const formatPercentage = (x: number, options?: { precise?: boolean }): st
         return humanFriendlyLargeNumber(x) + '%'
     }
     return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
+}
+
+/**
+ * Checks if a string matches the canonical UUID/UUID-like format.
+ *
+ * This function only checks the structure:
+ *  - 8-4-4-4-12 hexadecimal characters
+ *  - 4 dashes in the correct positions
+ * It does not enforce UUID version or variant.
+ *
+ * Examples:
+ *  - ✅ "0199ed4a-5c03-0000-3220-df21df612e95"
+ *  - ❌ "not-a-uuid"
+ *
+ * @param candidate - The string to test.
+ * @returns True if the string matches the UUID-like structure.
+ */
+export function isUUIDLike(candidate: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)
 }

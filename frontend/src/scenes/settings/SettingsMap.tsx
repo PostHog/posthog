@@ -1,6 +1,7 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
+import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
@@ -13,12 +14,12 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
+import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
@@ -31,7 +32,14 @@ import { urls } from 'scenes/urls'
 import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
+import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
+import {
+    ActivityLogNotifications,
+    ActivityLogOrgLevelSettings,
+    ActivityLogSettings,
+} from './environment/ActivityLogSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
@@ -53,7 +61,6 @@ import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConf
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import {
     NetworkCaptureSettings,
-    ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayDataRetentionSettings,
     ReplayGeneral,
@@ -66,6 +73,7 @@ import { TeamDangerZone } from './environment/TeamDangerZone'
 import {
     Bookmarklet,
     TeamAuthorizedURLs,
+    TeamBusinessModel,
     TeamDisplayName,
     TeamTimezone,
     TeamVariables,
@@ -81,6 +89,7 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
+import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
@@ -89,6 +98,7 @@ import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
+import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
@@ -131,6 +141,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Project ID',
                 component: <TeamVariables />,
             },
+
+            {
+                id: 'date-and-time',
+                title: 'Date & time',
+                component: <TeamTimezone />,
+            },
+            {
+                id: 'business-model',
+                title: 'Business model',
+                component: <TeamBusinessModel />,
+            },
         ],
     },
     {
@@ -170,7 +191,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-customer-analytics',
         title: 'Customer analytics',
-        flag: 'CRM_ITERATION_ONE',
+        flag: 'CUSTOMER_ANALYTICS',
         settings: [
             {
                 id: 'group-analytics',
@@ -178,10 +199,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <GroupAnalyticsConfig />,
             },
             {
-                id: 'crm-usage-metrics',
+                id: 'customer-analytics-usage-metrics',
                 title: 'Usage metrics',
                 component: <UsageMetricsConfig />,
-                flag: 'CRM_USAGE_METRICS',
+                flag: 'CUSTOMER_ANALYTICS',
+            },
+            {
+                id: 'customer-analytics-dashboard-events',
+                title: 'Dashboard events',
+                component: <CustomerAnalyticsDashboardEvents />,
+                flag: 'CUSTOMER_ANALYTICS',
             },
         ],
     },
@@ -190,11 +217,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-product-analytics',
         title: 'Product analytics',
         settings: [
-            {
-                id: 'date-and-time',
-                title: 'Date & time',
-                component: <TeamTimezone />,
-            },
             {
                 id: 'base-currency',
                 title: 'Base currency',
@@ -241,6 +263,8 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'datacapture',
                 title: 'IP data capture configuration',
+                description:
+                    'When enabled, PostHog will discard client IP addresses from all events captured in this project. IP data will not be stored or used for location-based insights.',
                 component: <IPCapture />,
             },
             {
@@ -252,7 +276,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
-                flag: '!CRM_ITERATION_ONE',
+                flag: '!CUSTOMER_ANALYTICS',
             },
             {
                 id: 'persons-join-mode',
@@ -292,7 +316,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'revenue-analytics-filter-test-accounts',
-                title: 'Filter test accounts out of revenue analytics',
+                title: 'Filter out internal and test users from revenue analytics',
                 component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
             },
             {
@@ -408,12 +432,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 allowForTeam: (t) => !!t?.recording_domains?.length,
             },
             {
-                id: 'replay-ai-config',
-                title: 'AI recording summary',
-                component: <ReplayAISettings />,
-                flag: 'AI_SESSION_PERMISSIONS',
-            },
-            {
                 id: 'replay-retention',
                 title: (
                     <>
@@ -486,6 +504,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Symbol sets',
                 component: <SymbolSets />,
             },
+            {
+                id: 'error-tracking-releases',
+                title: 'Releases',
+                component: <Releases />,
+            },
         ],
     },
     {
@@ -512,7 +535,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-max',
         title: 'AI',
-        flag: 'ARTIFICIAL_HOG',
         settings: [
             {
                 id: 'core-memory',
@@ -520,6 +542,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     "PostHog AI automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want PostHog AI to remember, you can edit or remove them below.",
                 component: <MaxMemorySettings />,
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+            {
+                id: 'changelog',
+                title: 'Changelog',
+                description:
+                    'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
+                component: <MaxChangelogSettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
         ],
@@ -572,8 +602,24 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-activity-logs',
         title: 'Activity logs',
-        to: urls.advancedActivityLogs(),
-        settings: [],
+        settings: [
+            {
+                id: 'activity-log-settings',
+                title: 'Logs',
+                component: <ActivityLogSettings />,
+            },
+            {
+                id: 'activity-log-org-level-settings',
+                title: 'Settings',
+                component: <ActivityLogOrgLevelSettings />,
+            },
+            {
+                id: 'activity-log-notifications',
+                title: 'Notifications',
+                component: <ActivityLogNotifications />,
+                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+            },
+        ],
     },
     {
         level: 'environment',
@@ -598,8 +644,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Move project',
                 flag: '!ENVIRONMENTS',
                 component: <ProjectMove />, // There isn't EnvironmentMove yet
-                allowForTeam: () =>
-                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
             },
             {
                 id: 'environment-delete',
@@ -631,8 +675,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'project-move',
                 title: 'Move project',
                 component: <ProjectMove />,
-                allowForTeam: () =>
-                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
             },
             {
                 id: 'project-delete',
@@ -664,8 +706,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: (
                     // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
                     <>
-                        PostHog AI features, such as our assistant Max, use{' '}
-                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>
+                        PostHog AI features, such as the PostHog AI chat, use{' '}
+                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
                             <dfn>external AI services</dfn>
                         </Tooltip>{' '}
                         for data analysis.
@@ -684,6 +726,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
                 component: <OrganizationExperimentStatsMethod />,
+            },
+            {
+                id: 'organization-ip-anonymization-default',
+                title: 'IP data capture default',
+                description:
+                    'When enabled, new projects will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing projects are not affected.',
+                component: <OrgIPAnonymizationDefault />,
             },
         ],
     },
@@ -862,6 +911,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
                 hideOn: [Realm.Cloud],
+            },
+            {
+                id: 'allow-impersonation',
+                title: 'Support access',
+                component: <AllowImpersonation />,
             },
             {
                 id: 'hedgehog-mode',

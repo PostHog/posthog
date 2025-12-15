@@ -1,5 +1,6 @@
 use std::{net::SocketAddr, num::NonZeroU32};
 
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use health::HealthStrategy;
 use tracing::Level;
@@ -40,6 +41,13 @@ pub struct Config {
     pub address: SocketAddr,
 
     pub redis_url: String,
+
+    #[envconfig(default = "100")]
+    pub redis_response_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub redis_connection_timeout_ms: u64,
+
     pub otel_url: Option<String>,
 
     #[envconfig(default = "false")]
@@ -63,8 +71,6 @@ pub struct Config {
 
     #[envconfig(default = "1")]
     pub historical_rerouting_threshold_days: i64,
-
-    pub historical_tokens_keys: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
@@ -109,6 +115,12 @@ pub struct Config {
     // AI endpoint size limits
     #[envconfig(default = "26214400")] // 25MB in bytes
     pub ai_max_sum_of_parts_bytes: usize,
+
+    // if set in env, will configure a request timeout on the server's Axum router
+    pub request_timeout_seconds: Option<u64>,
+
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
 }
 
 #[derive(Envconfig, Clone)]
@@ -152,4 +164,6 @@ pub struct KafkaConfig {
     // default is 3x metadata refresh interval so we maintain that here
     #[envconfig(default = "60000")]
     pub kafka_metadata_max_age_ms: u32,
+    #[envconfig(default = "60000")] // lib default, can tweak in env overrides
+    pub kafka_socket_timeout_ms: u32,
 }

@@ -1,13 +1,13 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar } from '@posthog/icons'
+import { IconCalendar, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
+import { IconCancel } from 'lib/lemon-ui/icons'
 
 import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 

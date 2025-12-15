@@ -534,5 +534,33 @@ describe('hog flow processing', () => {
                 teamId: 2,
             })
         })
+
+        it('should not produce billable_invocation metrics for hog flow invocations', async () => {
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            await processor['createHogFlowInvocations']([globals])
+
+            const producedMetrics =
+                mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+            expect(producedMetrics).not.toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        value: expect.objectContaining({
+                            metric_name: 'billable_invocation',
+                        }),
+                    }),
+                ])
+            )
+        })
     })
 })

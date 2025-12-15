@@ -54,7 +54,13 @@ DEBUG=1 AWS_ACCESS_KEY_ID="AAAA" AWS_SECRET_ACCESS_KEY="BBBB" AWS_REGION="region
 
 ## Testing S3 batch exports
 
-S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket (like `test_s3_export_workflow_with_s3_bucket`). Additional setup is required to run those specific tests:
+S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket (like `test_s3_export_workflow_with_s3_bucket`) and a Google Cloud Storage (GCS) bucket.
+
+If no environment variables are defined, then just the tests targeting MinIO will be run (the tests targeting S3/GCS will be skipped).
+
+### Using an S3 bucket
+
+Additional setup is required to run the tests against an S3 bucket:
 
 1. Ensure you are logged in to an AWS account.
 2. Create or choose an existing S3 bucket from that AWS account to use as the test bucket.
@@ -64,13 +70,34 @@ S3 batch exports are tested against a MinIO bucket available in the local develo
 > [!NOTE]
 > For PostHog employees, your password manager contains a set of credentials for S3 batch exports development testing. You may populate your development environment with these credentials and use the provided test bucket and KMS key.
 
-With these setup steps done, we can run all tests (MinIO and S3 bucket) from the root of the `posthog` repo with:
+With these setup steps done, we can run the S3-specific tests from the root of the `posthog` repo with:
 
 ```bash
-DEBUG=1 S3_TEST_KMS_KEY_ID='1111111-2222-3333-4444-55555555555' S3_TEST_BUCKET='your-test-bucket' pytest products/batch_exports/backend/tests/temporal/destinations/test_s3_batch_export_workflow.py
+DEBUG=1 S3_TEST_KMS_KEY_ID='1111111-2222-3333-4444-55555555555' S3_TEST_BUCKET='your-test-bucket' AWS_ACCESS_KEY_ID="AAAA" AWS_SECRET_ACCESS_KEY="BBBB" pytest products/batch_exports/backend/tests/temporal/destinations/s3/test_workflow_with_s3_bucket.py
 ```
 
-Replace the `S3_*` environment variables with the values obtained from the setup steps.
+Replace the environment variables with the values obtained from the setup steps.
+
+### Using a GCS bucket
+
+Additional setup is required to run the tests against a GCS bucket:
+
+1. Ensure you are logged in to a Google Cloud account.
+2. Create or choose an existing GCS bucket from that account to use as the test bucket.
+3. Create or choose an existing service principal or user.
+4. Make sure this service principal or user has permissions to use the bucket.
+5. Generate HMAC keys (AWS compatible access keys). This can be done by going to `Cloud Storage -> Settings -> Interoperability`
+
+> [!NOTE]
+> For PostHog employees, your password manager contains a set of credentials for GCS batch exports development testing. You may populate your development environment with these credentials and use the provided test bucket.
+
+With these setup steps done, we can run the GCS-specific tests from the root of the `posthog` repo with:
+
+```bash
+DEBUG=1 GCS_TEST_BUCKET='your-test-bucket' AWS_ACCESS_KEY_ID="AAAA" AWS_SECRET_ACCESS_KEY="BBBB" pytest products/batch_exports/backend/tests/temporal/destinations/s3/test_workflow_with_gcs_bucket.py
+```
+
+Replace the environment variables with the values obtained from the setup steps.
 
 ## Testing Snowflake batch exports
 

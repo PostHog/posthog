@@ -15,6 +15,7 @@ import {
     IconLive,
     IconLlmAnalytics,
     IconMessage,
+    IconNewspaper,
     IconNotebook,
     IconPeople,
     IconPieChart,
@@ -24,6 +25,7 @@ import {
     IconRewindPlay,
     IconRocket,
     IconServer,
+    IconSpotlight,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -371,8 +373,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.ProjectHomepage,
                             label: 'Home',
                             icon: <IconHome />,
-                            to: urls.projectHomepage(),
+                            to: urls.projectRoot(),
                         },
+                        ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
+                            ? [
+                                  {
+                                      identifier: Scene.Feed,
+                                      label: 'Feed',
+                                      icon: <IconNewspaper />,
+                                      to: urls.feed(),
+                                  },
+                              ]
+                            : []),
                         {
                             identifier: Scene.Dashboards,
                             label: 'Dashboards',
@@ -537,6 +549,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.surveys(),
                             tooltipDocLink: 'https://posthog.com/docs/surveys/creating-surveys',
                         },
+                        featureFlags[FEATURE_FLAGS.PRODUCT_TOURS]
+                            ? {
+                                  identifier: Scene.ProductTours,
+                                  label: 'Product tours',
+                                  icon: <IconSpotlight />,
+                                  tag: 'alpha' as const,
+                                  to: urls.productTours(),
+                              }
+                            : null,
                         {
                             identifier: Scene.EarlyAccessFeatures,
                             label: 'Early access features',
@@ -567,6 +588,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconLive />,
                                   to: urls.logs(),
                                   tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/logs',
                               }
                             : null,
                         {
@@ -772,12 +794,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     e.preventDefault()
                 }
             }
-            window.addEventListener('resize', cache.onResize)
-            window.addEventListener('keydown', cache.onKeyDown)
-        },
-        beforeUnmount: () => {
-            window.removeEventListener('resize', cache.onResize)
-            window.removeEventListener('resize', cache.onKeyDown)
+            cache.disposables.add(() => {
+                window.addEventListener('resize', cache.onResize)
+                return () => window.removeEventListener('resize', cache.onResize)
+            }, 'resizeListener')
+            cache.disposables.add(() => {
+                window.addEventListener('keydown', cache.onKeyDown)
+                return () => window.removeEventListener('keydown', cache.onKeyDown)
+            }, 'keydownListener')
         },
     })),
 ])

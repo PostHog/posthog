@@ -30,6 +30,7 @@ from posthog.hogql.resolver_utils import (
     lookup_field_by_name,
     lookup_table_by_name,
 )
+from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.models.utils import UUIDT
@@ -606,6 +607,9 @@ class Resolver(CloningVisitor):
         if len(node.chain) == 0:
             raise ResolutionError("Invalid field access with empty chain")
 
+        # Apply virtual property mapping before field resolution
+        node = map_virtual_properties(node)
+
         node = super().visit_field(node)
 
         # Only look for fields in the last SELECT scope, instead of all previous select queries.
@@ -828,6 +832,13 @@ class Resolver(CloningVisitor):
 
     def visit_dict(self, node: ast.Dict):
         return self.visit(convert_to_hx(node))
+
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        node = super().visit_between_expr(node)
+        if node is None:
+            return None
+        node.type = ast.BooleanType(nullable=False)
+        return node
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)

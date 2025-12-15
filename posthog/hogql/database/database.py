@@ -5,11 +5,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
 
+import structlog
+import posthoganalytics
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaEndpointTable,
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaPostHogTable,
@@ -50,6 +53,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
+from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.document_embeddings import DocumentEmbeddingsTable, RawDocumentEmbeddingsTable
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
@@ -67,7 +71,7 @@ from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
 )
-from posthog.hogql.database.schema.logs import LogsTable
+from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -78,6 +82,7 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
+from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
@@ -116,9 +121,11 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from posthog.person_db_router import PERSONS_DB_FOR_READ
 
+from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
@@ -144,7 +151,10 @@ type DatabaseSchemaTable = (
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
+    | DatabaseSchemaEndpointTable
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class Database(BaseModel):
@@ -166,6 +176,8 @@ class Database(BaseModel):
             "session_replay_events": TableNode(name="session_replay_events", table=SessionReplayEventsTable()),
             "cohort_people": TableNode(name="cohort_people", table=CohortPeople()),
             "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
+            "cohort_membership": TableNode(name="cohort_membership", table=CohortMembershipTable()),
+            "precalculated_events": TableNode(name="precalculated_events", table=PrecalculatedEventsTable()),
             "log_entries": TableNode(name="log_entries", table=LogEntriesTable()),
             "query_log": TableNode(name="query_log", table=QueryLogArchiveTable()),
             "app_metrics": TableNode(name="app_metrics", table=AppMetrics2Table()),
@@ -179,6 +191,8 @@ class Database(BaseModel):
             "document_embeddings": TableNode(name="document_embeddings", table=DocumentEmbeddingsTable()),
             "pg_embeddings": TableNode(name="pg_embeddings", table=PgEmbeddingsTable()),
             "logs": TableNode(name="logs", table=LogsTable()),
+            "log_attributes": TableNode(name="log_attributes", table=LogAttributesTable()),
+            "logs_kafka_metrics": TableNode(name="logs_kafka_metrics", table=LogsKafkaMetricsTable()),
             "numbers": TableNode(name="numbers", table=NumbersTable()),
             "system": SystemTables(),  # This is a `TableNode` already, refer to implementation
             # Web analytics pre-aggregated tables (internal use only)
@@ -235,12 +249,17 @@ class Database(BaseModel):
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
         self._week_start_day = week_start_day
+        self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
 
     def get_week_start_day(self) -> WeekStartDay:
         return self._week_start_day or WeekStartDay.SUNDAY
+
+    def get_serialization_errors(self) -> dict[str, str]:
+        """Return any errors encountered during serialization."""
+        return self._serialization_errors.copy()
 
     def has_table(self, table_name: str | list[str]) -> bool:
         if isinstance(table_name, str):
@@ -295,17 +314,17 @@ class Database(BaseModel):
 
     def _add_warehouse_tables(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.resolve_all_table_names():
+        for name in sorted(node.resolve_all_table_names()):
             self._warehouse_table_names.append(name)
 
     def _add_warehouse_self_managed_tables(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.resolve_all_table_names():
+        for name in sorted(node.resolve_all_table_names()):
             self._warehouse_self_managed_table_names.append(name)
 
     def _add_views(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.resolve_all_table_names():
+        for name in sorted(node.resolve_all_table_names()):
             self._view_table_names.append(name)
 
     def serialize(
@@ -313,8 +332,7 @@ class Database(BaseModel):
         context: HogQLContext,
         include_only: Optional[set[str]] = None,
     ) -> dict[str, DatabaseSchemaTable]:
-        from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
+        from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
         tables: dict[str, DatabaseSchemaTable] = {}
@@ -431,26 +449,35 @@ class Database(BaseModel):
             if include_only and table_key not in include_only:
                 continue
 
-            field_input = {}
-            table = self.get_table(table_key)
-            if isinstance(table, Table):
-                field_input = table.fields
+            try:
+                field_input = {}
+                table = self.get_table(table_key)
+                if isinstance(table, Table):
+                    field_input = table.fields
 
-            fields = serialize_fields(
-                field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
-            )
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(
+                    field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
+                )
+                fields_dict = {field.name: field for field in fields}
 
-            tables[table_key] = DatabaseSchemaDataWarehouseTable(
-                fields=fields_dict,
-                id=str(warehouse_table.id),
-                name=table_key,
-                format=warehouse_table.format,
-                url_pattern=warehouse_table.url_pattern,
-                schema=schema,
-                source=source,
-                row_count=warehouse_table.row_count,
-            )
+                tables[table_key] = DatabaseSchemaDataWarehouseTable(
+                    fields=fields_dict,
+                    id=str(warehouse_table.id),
+                    name=table_key,
+                    format=warehouse_table.format,
+                    url_pattern=warehouse_table.url_pattern,
+                    schema=schema,
+                    source=source,
+                    row_count=warehouse_table.row_count,
+                )
+            except (QueryError, ResolutionError) as e:
+                # Log error but continue processing other tables
+                logger.warning(
+                    f"Failed to serialize data warehouse table '{table_key}': {str(e)}",
+                    exc_info=True,
+                )
+                self._serialization_errors[table_key] = str(e)
+                continue  # Skip this table but process others
 
         # Fetch all views in a single query
         all_views = (
@@ -489,6 +516,7 @@ class Database(BaseModel):
                 continue
 
             saved_query = views_dict.get(view_name)
+
             if not saved_query:
                 continue
 
@@ -496,11 +524,22 @@ class Database(BaseModel):
             if saved_query.table:
                 row_count = saved_query.table.row_count
 
+            if saved_query and saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+                tables[view_name] = DatabaseSchemaEndpointTable(
+                    fields=fields_dict,
+                    id=str(saved_query.pk),
+                    name=view_name,
+                    query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
+                    row_count=row_count,
+                    status=saved_query.status,
+                )
+                continue
+
             tables[view_name] = DatabaseSchemaViewTable(
                 fields=fields_dict,
                 id=str(saved_query.pk),
                 name=view_name,
-                query=HogQLQuery(query=saved_query.query["query"]),
+                query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                 row_count=row_count,
             )
 
@@ -515,14 +554,16 @@ class Database(BaseModel):
         modifiers: Optional[HogQLQueryModifiers] = None,
         timings: Optional[HogQLTimings] = None,
     ) -> "Database":
-        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+        if timings is None:
+            timings = HogQLTimings()
+
+        with timings.measure("imports"):
+            from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
         from posthog.hogql.query import create_default_modifiers_for_team
 
         from posthog.models import Team
-        from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
 
-        if timings is None:
-            timings = HogQLTimings()
+        from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery
 
         with timings.measure("team"):
             if team_id is None and team is None:
@@ -540,6 +581,25 @@ class Database(BaseModel):
             # Set team_id for the create_hogql_database tracing span
             span = trace.get_current_span()
             span.set_attribute("team_id", team.pk)
+
+        with timings.measure("feature_flags"):
+            is_managed_viewset_enabled = posthoganalytics.feature_enabled(
+                "managed-viewsets",
+                str(team.uuid),
+                groups={
+                    "organization": str(team.organization_id),
+                    "project": str(team.id),
+                },
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization_id),
+                    },
+                    "project": {
+                        "id": str(team.id),
+                    },
+                },
+                send_feature_flag_events=False,
+            )
 
         with timings.measure("database"):
             database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
@@ -642,7 +702,7 @@ class Database(BaseModel):
         with timings.measure("group_type_mapping"):
             _setup_group_key_fields(database, team)
             events_table = database.get_table("events")
-            for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
+            for mapping in GroupTypeMapping.objects.using(PERSONS_DB_FOR_READ).filter(project_id=team.project_id):
                 if events_table.fields.get(mapping.group_type) is None:
                     events_table.fields[mapping.group_type] = FieldTraverser(
                         chain=[f"group_{mapping.group_type_index}"]
@@ -655,24 +715,52 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_saved_query"):
             with timings.measure("select"):
-                saved_queries = list(
+                queryset = (
                     DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-                    .filter(managed_viewset__isnull=True)  # Ignore managed views for now
                     .exclude(deleted=True)
-                    .select_related("table", "table__credential")
+                    .order_by("name")
+                    .select_related("table", "table__credential", "managed_viewset")
                 )
+                if not is_managed_viewset_enabled:
+                    queryset = queryset.filter(managed_viewset__isnull=True)
+
+                saved_queries = list(queryset)
 
             for saved_query in saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
                     views.add_child(
-                        TableNode(name=saved_query.name, table=saved_query.hogql_definition(modifiers)),
+                        TableNode.create_nested_for_chain(
+                            saved_query.name.split("."),
+                            table=saved_query.hogql_definition(modifiers),
+                        ),
                         table_conflict_mode="ignore",
                     )
 
-        with timings.measure("revenue_analytics_views"):
-            revenue_views = []
+        with timings.measure("endpoint_saved_query"):
+            endpoint_saved_queries = []
             try:
-                revenue_views = list(build_all_revenue_analytics_views(team, timings))
+                endpoint_saved_queries = list(
+                    DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                    .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
+                    .exclude(deleted=True)
+                    .select_related("table", "table__credential")
+                )
+                for endpoint_saved_query in endpoint_saved_queries:
+                    with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
+                        views.add_child(
+                            TableNode(
+                                name=endpoint_saved_query.name, table=endpoint_saved_query.hogql_definition(modifiers)
+                            ),
+                            table_conflict_mode="ignore",
+                        )
+            except Exception as e:
+                capture_exception(e)
+
+        with timings.measure("revenue_analytics_views"):
+            revenue_views: list[RevenueAnalyticsBaseView] = []
+            try:
+                if not is_managed_viewset_enabled:
+                    revenue_views = list(build_all_revenue_analytics_views(team, timings))
             except Exception as e:
                 capture_exception(e)
 
@@ -1023,7 +1111,10 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
     - Empty string if no GroupTypeMapping exists for that index
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
     """
-    group_mappings = {mapping.group_type_index: mapping for mapping in GroupTypeMapping.objects.filter(team=team)}
+    group_mappings = {
+        mapping.group_type_index: mapping
+        for mapping in GroupTypeMapping.objects.using(PERSONS_DB_FOR_READ).filter(team=team)
+    }
     table = database.get_table("events")
 
     for group_index in range(5):

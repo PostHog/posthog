@@ -1,35 +1,52 @@
-import './ErrorTrackingIssueScene.scss'
+import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
+import { useRef } from 'react'
 
-import { IconEllipsis } from '@posthog/icons'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { IconFilter, IconList, IconSearch } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
 
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { IconRobot } from 'lib/lemon-ui/icons'
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
+    TabsPrimitive,
+    TabsPrimitiveContent,
+    TabsPrimitiveList,
+    TabsPrimitiveTrigger,
+} from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { errorTrackingBreakdownsLogic } from '../../components/Breakdowns/errorTrackingBreakdownsLogic'
+import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
+import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
+import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
+import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
+import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
+import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
+import { StatusIndicator } from '../../components/Indicators'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
+import { IssueStatusButton } from '../../components/IssueStatusButton'
+import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
+import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
-import { V2Layout } from './V2Layout'
+import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
+import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
+import {
+    ErrorTrackingIssueSceneCategory,
+    errorTrackingIssueSceneConfigurationLogic,
+} from './errorTrackingIssueSceneConfigurationLogic'
 import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
     ErrorTrackingIssueSceneLogicProps,
@@ -43,101 +60,190 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, issueLoading, selectedEvent, initialEventLoading, eventsQuery, eventsQueryKey } =
-        useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
-    const tagRenderer = useErrorTagRenderer()
-    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const hasNewIssueLayout = useFeatureFlag('ERROR_TRACKING_ISSUE_LAYOUT_V2')
+    const { issue, issueId } = useValues(errorTrackingIssueSceneLogic)
+    const { updateAssignee, updateStatus, updateName } = useActions(errorTrackingIssueSceneLogic)
 
-    const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
-        v.includes('persistence.isDisabled is not a function')
-    )
+    useEffect(() => {
+        posthog.capture('error_tracking_issue_viewed', { issue_id: issueId })
+    }, [issueId])
 
-    if (hasNewIssueLayout) {
-        return (
+    return (
+        <StyleVariables>
             <ErrorTrackingSetupPrompt>
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                    <BindLogic logic={errorTrackingBreakdownsLogic} props={{ id: issueId }}>
-                        <V2Layout />
+                    <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
+                        {issue && (
+                            <>
+                                <div className="px-4">
+                                    <SceneTitleSection
+                                        canEdit
+                                        name={issue.name}
+                                        onNameChange={updateName}
+                                        description={null}
+                                        resourceType={{ type: 'error_tracking' }}
+                                        actions={
+                                            <div className="flex items-center gap-1">
+                                                <StatusIndicator status={issue.status} withTooltip />
+                                                <IssueAssigneeSelect
+                                                    assignee={issue.assignee}
+                                                    onChange={updateAssignee}
+                                                    disabled={issue.status != 'active'}
+                                                />
+                                                <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                            </div>
+                                        }
+                                    />
+                                </div>
+                                <ErrorTrackingIssueScenePanel issue={issue} />
+
+                                <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
+                                    <div className="flex flex-1 h-full w-full">
+                                        <LeftHandColumn />
+                                        <RightHandColumn />
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </BindLogic>
                 </BindLogic>
             </ErrorTrackingSetupPrompt>
-        )
-    }
+        </StyleVariables>
+    )
+}
+
+const RightHandColumn = (): JSX.Element => {
+    const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic)
+    const tagRenderer = useErrorTagRenderer()
 
     return (
-        <ErrorTrackingSetupPrompt>
-            <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                <div className="flex justify-between mb-2 -ml-[var(--button-padding-x-lg)]">
-                    <SceneBreadcrumbBackButton />
-                    {hasIssueSplitting && (
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <ButtonPrimitive iconOnly>
-                                    <IconEllipsis />
-                                </ButtonPrimitive>
-                            </DropdownMenuTrigger>
+        <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px]">
+            <PostHogSDKIssueBanner event={selectedEvent} />
+            <ExceptionCard
+                issueId={issue?.id ?? 'no-issue'}
+                loading={issueLoading || initialEventLoading}
+                event={selectedEvent ?? undefined}
+                label={tagRenderer(selectedEvent)}
+                renderStackTraceActions={() => {
+                    return issue ? <StackTraceActions issue={issue} /> : null
+                }}
+            />
+        </div>
+    )
+}
 
-                            <DropdownMenuContent loop align="end">
-                                <DropdownMenuGroup>
-                                    <DropdownMenuItem asChild>
-                                        <ButtonPrimitive
-                                            size="base"
-                                            menuItem
-                                            onClick={() =>
-                                                router.actions.push(urls.errorTrackingIssueFingerprints(issueId))
-                                            }
-                                        >
-                                            Split issue
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                </DropdownMenuGroup>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    )}
+const LeftHandColumn = (): JSX.Element => {
+    const { category } = useValues(errorTrackingIssueSceneConfigurationLogic)
+    const { setCategory } = useActions(errorTrackingIssueSceneConfigurationLogic)
+
+    const ref = useRef<HTMLDivElement>(null)
+    const resizerLogicProps: ResizerLogicProps = {
+        containerRef: ref,
+        logicKey: 'error-tracking-issue',
+        persistent: true,
+        placement: 'right',
+    }
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+    const hasTasks = useFeatureFlag('TASKS')
+
+    return (
+        <div
+            ref={ref}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                width: desiredSize ?? '30%',
+                minWidth: 320,
+            }}
+            className="flex flex-col h-full relative bg-surface-primary"
+        >
+            <TabsPrimitive
+                value={category}
+                onValueChange={(value) => setCategory(value as ErrorTrackingIssueSceneCategory)}
+                className="flex flex-col flex-1 min-h-0"
+            >
+                <div>
+                    <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
+                        <TabsPrimitiveList className="flex justify-between space-x-0.5">
+                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
+                                <IconList className="mr-1" />
+                                <span className="text-nowrap">Exceptions</span>
+                            </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="breakdowns">
+                                <IconFilter className="mr-1" />
+                                <span className="text-nowrap">Breakdowns</span>
+                            </TabsPrimitiveTrigger>
+                            {hasTasks && (
+                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="autofix">
+                                    <IconRobot className="mr-1" />
+                                    <span className="text-nowrap">Autofix</span>
+                                </TabsPrimitiveTrigger>
+                            )}
+                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
+                                <IconSearch className="mr-1" />
+                                <span className="text-nowrap">Similar issues</span>
+                            </TabsPrimitiveTrigger>
+                        </TabsPrimitiveList>
+                    </ScrollableShadows>
                 </div>
-
-                {isPostHogSDKIssue && (
-                    <LemonBanner
-                        type="error"
-                        action={{ to: 'https://status.posthog.com/incidents/l70cgmt7475m', children: 'Read more' }}
-                        className="mb-4"
-                    >
-                        This issue was captured because of a bug in the PostHog SDK. We've fixed the issue, and you
-                        won't be charged for any of these exception events. We recommend setting this issue's status to
-                        "Suppressed".
-                    </LemonBanner>
+                <TabsPrimitiveContent value="exceptions" className="h-full min-h-0">
+                    <ExceptionsTab />
+                </TabsPrimitiveContent>
+                <TabsPrimitiveContent value="breakdowns" className="flex-1 min-h-0">
+                    <BreakdownsTab />
+                </TabsPrimitiveContent>
+                {hasTasks && (
+                    <TabsPrimitiveContent value="autofix">
+                        <div className="p-2">
+                            <IssueTasks />
+                        </div>
+                    </TabsPrimitiveContent>
                 )}
+                <TabsPrimitiveContent value="similar_issues">
+                    <SimilarIssuesList />
+                </TabsPrimitiveContent>
+            </TabsPrimitive>
 
-                <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
-                    <div className="space-y-2 col-span-3">
-                        <ExceptionCard
-                            issue={issue ?? undefined}
-                            issueLoading={issueLoading}
-                            event={selectedEvent ?? undefined}
-                            eventLoading={initialEventLoading}
-                            label={tagRenderer(selectedEvent)}
-                        />
-                        <ErrorFilters.Root>
-                            <div className="flex gap-2 justify-between">
-                                <ErrorFilters.DateRange />
-                                <ErrorFilters.InternalAccounts />
-                            </div>
-                            <ErrorFilters.FilterGroup />
-                        </ErrorFilters.Root>
-                        <Metadata>
-                            <EventsTable
-                                query={eventsQuery}
-                                queryKey={eventsQueryKey}
-                                selectedEvent={selectedEvent}
-                                onEventSelect={(selectedEvent) => (selectedEvent ? selectEvent(selectedEvent) : null)}
-                            />
-                        </Metadata>
+            <Resizer {...resizerLogicProps} />
+        </div>
+    )
+}
+
+const ExceptionsTab = (): JSX.Element => {
+    const { eventsQuery, eventsQueryKey, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
+    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
+
+    return (
+        <div className="flex flex-col h-full">
+            <div className="px-2 py-3">
+                <ErrorFilters.Root>
+                    <div className="flex gap-2 justify-between flex-wrap">
+                        <ErrorFilters.DateRange />
+                        <ErrorFilters.InternalAccounts />
                     </div>
-                    <ErrorTrackingIssueScenePanel />
-                </div>
-            </BindLogic>
-        </ErrorTrackingSetupPrompt>
+                    <ErrorFilters.FilterGroup />
+                </ErrorFilters.Root>
+            </div>
+            <LemonDivider className="my-0" />
+            <Metadata className="flex flex-col overflow-y-auto">
+                <EventsTable
+                    query={eventsQuery}
+                    queryKey={eventsQueryKey}
+                    selectedEvent={selectedEvent}
+                    onEventSelect={(selectedEvent) => {
+                        if (selectedEvent) {
+                            selectEvent(selectedEvent)
+                        }
+                    }}
+                />
+            </Metadata>
+        </div>
+    )
+}
+const BreakdownsTab = (): JSX.Element => {
+    return (
+        <div className="flex flex-col h-full">
+            <BreakdownsSearchBar />
+            <MiniBreakdowns />
+            <BreakdownsChart />
+        </div>
     )
 }

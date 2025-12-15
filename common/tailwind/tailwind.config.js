@@ -32,7 +32,6 @@ const deprecatedColors = {
     'glass-border-3000-light': 'var(--glass-border-3000-light)',
     'link-3000-light': 'var(--link-3000-light)',
     'primary-3000-frame-bg-light': 'var(--primary-3000-frame-bg-light)',
-    'primary-3000-button-bg-light': 'var(--primary-3000-button-bg-light)',
     'primary-3000-button-border-light': 'var(--primary-3000-button-border-light)',
     'primary-3000-button-border-hover-light': 'var(--primary-3000-button-border-hover-light)',
     'secondary-3000-frame-bg-light': 'var(--secondary-3000-frame-bg-light)',
@@ -64,7 +63,6 @@ const deprecatedColors = {
     'glass-border-3000-dark': 'var(--glass-border-3000-dark)',
     'link-3000-dark': 'var(--link-3000-dark)',
     'primary-3000-frame-bg-dark': 'var(--primary-3000-frame-bg-dark)',
-    'primary-3000-button-bg-dark': 'var(--primary-3000-button-bg-dark)',
     'primary-3000-button-border-dark': 'var(--primary-3000-button-border-dark)',
     'primary-3000-button-border-hover-dark': 'var(--primary-3000-button-border-hover-dark)',
     'primary-alt-highlight-dark': 'var(--primary-alt-highlight-dark)',
@@ -164,7 +162,7 @@ const deprecatedColors = {
     // Z-indexes
     'z-top': 'var(--z-top)',
     'z-bottom-notice': 'var(--z-bottom-notice)',
-    'z-command-palette': 'var(--z-command-palette)',
+    'z-shortcut-menu': 'var(--z-shortcut-menu)',
     'z-force-modal-above-popovers': 'var(--z-force-modal-above-popovers)',
     'z-tooltip': 'var(--z-tooltip)',
 
@@ -318,7 +316,6 @@ const config = {
     content: [
         // Starting all paths with '../.." to share this between frontend/, playwright/ and common/storybook/
         '../../frontend/src/**/*.{ts,tsx}',
-        '../../ee/frontend/**/*.{ts,tsx}',
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
@@ -617,6 +614,22 @@ const config = {
             white: 'var(--color-white)',
         },
         extend: {
+            animation: {
+                // Default pulse animation but run for only 5 iterations
+                'pulse-5': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 5',
+                // Pulsing glow effect for highlighting UI elements
+                'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
+            },
+            keyframes: {
+                'pulse-glow': {
+                    '0%, 100%': {
+                        boxShadow: '0 0 2px 1px var(--color-accent)',
+                    },
+                    '50%': {
+                        boxShadow: '0 0 6px 2px var(--color-accent)',
+                    },
+                },
+            },
             colors: {
                 ...deprecatedColors,
                 // TODO: Move all colors over to Tailwind

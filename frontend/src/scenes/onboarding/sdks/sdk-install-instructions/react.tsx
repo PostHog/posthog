@@ -7,8 +7,9 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
+
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { SDK_DEFAULTS_DATE } from './constants'
 import { JSInstallSnippet } from './js-web'
 
 function ReactEnvVarsSnippet(): JSX.Element {
@@ -35,15 +36,15 @@ import { PostHogProvider } from 'posthog-js/react'
 const options = {
   api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
   defaults: '${SDK_DEFAULTS_DATE}',
-}
+} as const
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY} options={options}>
       <App />
     </PostHogProvider>
-  </StrictMode>,
-);`}
+  </StrictMode>
+)`}
         </CodeSnippet>
     )
 }

@@ -11,7 +11,8 @@ from structlog.types import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -66,6 +67,8 @@ def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
         if name not in columns_to_ignore:
             key = f"{key}-{value}"
 
+    # this hash has no security impact
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     hash_key = hashlib.md5(key.encode()).hexdigest()
 
     return {**row, "id": hash_key}
@@ -126,4 +129,4 @@ def doit_source(
 
         yield table_from_iterator((append_primary_key(dict(zip(column_names, row))) for row in rows), arrow_schema)
 
-    return SourceResponse(name=report_name, items=get_rows(report_id), primary_keys=["id"])
+    return SourceResponse(name=report_name, items=lambda: get_rows(report_id), primary_keys=["id"])

@@ -75,7 +75,7 @@ services:
                 }
 
     db:
-        image: postgres:12-alpine
+        image: postgres:15.12-alpine
         restart: on-failure
         environment:
             POSTGRES_USER: posthog
@@ -84,7 +84,7 @@ services:
         healthcheck:
             test: ['CMD-SHELL', 'pg_isready -U posthog']
             interval: 5s
-            timeout: 5s
+            timeout: 30s
         volumes:
             - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
 
@@ -113,7 +113,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.6.13.41}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.8.12.129}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
@@ -170,12 +170,13 @@ services:
             MINIO_ROOT_USER: object_storage_root_user
             MINIO_ROOT_PASSWORD: object_storage_root_password
         entrypoint: sh
-        command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service
+        command: -c 'mkdir -p /data/posthog /data/ducklake-dev && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' and 'ducklake-dev' buckets before starting the service
 
     maildev:
         image: maildev/maildev:2.0.5
         restart: on-failure
         healthcheck:
+            # nosemgrep: trailofbits.generic.wget-unencrypted-url.wget-unencrypted-url
             test: wget -qO- http://127.0.0.1:1080/healthz || exit 1
             interval: 3s
             timeout: 1s
@@ -212,6 +213,7 @@ services:
             PGPASSWORD: posthog
             DEPLOYMENT: hobby
             CDP_API_URL: 'http://plugins:6738'
+            FLAGS_REDIS_ENABLED: false
 
     web:
         <<: *worker
@@ -247,12 +249,12 @@ services:
             REDIS_URL: 'redis://redis:6379/'
             CAPTURE_MODE: recordings
 
-    log-capture:
-        image: ghcr.io/posthog/posthog/log-capture:master
+    capture-logs:
+        image: ghcr.io/posthog/posthog/capture-logs:master
         build:
             context: rust/
             args:
-                BIN: log-capture
+                BIN: capture-logs
         restart: on-failure
         environment:
             BIND_HOST: '0.0.0.0'
@@ -293,12 +295,17 @@ services:
             WRITE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
+            # Shared Redis for non-critical path (analytics, billing, cookieless)
             REDIS_URL: 'redis://redis:6379/'
-            # Optional: Use separate Redis URLs for read/write separation
+            # Optional: Use separate Redis URL for read replicas
             # REDIS_READER_URL: 'redis://redis-replica:6379/'
-            # REDIS_WRITER_URL: 'redis://redis-primary:6379/'
             # Optional: Increase Redis timeout (default is 100ms)
             # REDIS_TIMEOUT_MS: 200
+            # Dedicated Redis database for critical path (team cache + flags cache)
+            # Hobby deployments start in Mode 1 (shared-only). Developers override in docker-compose.dev.yml for Mode 2.
+            # FLAGS_REDIS_URL: 'redis://redis:6379/1'
+            # Optional: Use separate Flags Redis URL for read replicas
+            # FLAGS_REDIS_READER_URL: 'redis://redis-replica:6379/1'
             ADDRESS: '0.0.0.0:3001'
             RUST_LOG: 'info'
             COOKIELESS_REDIS_HOST: redis7
@@ -321,7 +328,7 @@ services:
             COOKIELESS_REDIS_PORT: 6379
 
     livestream:
-        image: 'ghcr.io/posthog/livestream:main'
+        image: 'ghcr.io/posthog/posthog/livestream:master'
         restart: on-failure
         depends_on:
             kafka:
@@ -476,6 +483,35 @@ services:
             - DEBUG=${DEBUG:-0}
         volumes:
             - '/var/run/docker.sock:/var/run/docker.sock'
+
+    seaweedfs:
+        container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
+        image: chrislusf/seaweedfs:latest
+        ports:
+            - '127.0.0.1:8333:8333' # S3 API
+            - '127.0.0.1:9333:9333' # Master server (for admin UI)
+        entrypoint:
+            - /bin/sh
+            - -c
+            - |
+                /usr/bin/weed "$$@" &
+                WEED_PID=$$!
+                echo "Waiting for SeaweedFS to initialize..."
+                while true; do
+                    sleep 5
+                    echo "Checking if posthog bucket exists..."
+                    if echo "s3.bucket.list" | /usr/bin/weed shell -master=localhost:9333 2>&1 | grep -q "posthog"; then
+                        echo "Bucket posthog exists!"
+                        break
+                    fi
+                    echo "Bucket not found, attempting to create..."
+                    echo "s3.bucket.create -name posthog" | /usr/bin/weed shell -master=localhost:9333 2>&1 || true
+                    echo "Retrying in 5s..."
+                done
+                echo "SeaweedFS ready with posthog bucket"
+                wait $$WEED_PID
+            - --
+        command: ['server', '-s3', '-s3.port=8333', '-dir=/data']
 
 networks:
     otel_network:

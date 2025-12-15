@@ -9,14 +9,12 @@ from posthog.schema import MaxRecordingUniversalFilters
 
 from posthog.models import Team, User
 
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import base_final_answer
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     DATE_FIELDS_PROMPT,
@@ -55,10 +53,6 @@ class SessionReplayFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgen
     def __init__(self, team: Team, user: User, toolkit_class: type[SessionReplayFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.SESSION_REPLAY_FILTER
-
     def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get default system prompts. Override in subclasses for custom prompts."""
         all_messages = [
@@ -79,10 +73,6 @@ class SessionReplayFilterOptionsToolsNode(
 
     def __init__(self, team: Team, user: User, toolkit_class: type[SessionReplayFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.SESSION_REPLAY_FILTER_OPTIONS_TOOLS
 
 
 class SessionReplayFilterOptionsGraph(
@@ -122,10 +112,10 @@ class SearchSessionRecordingsTool(MaxTool):
     - When NOT to use the tool:
       * When the user asks to summarize session recordings
     """
-    thinking_message: str = "Coming up with session recordings filters"
-    context_prompt_template: str = "Current recordings filters are: {current_filters}"
+    context_prompt_template: str = (
+        "Current recordings filters are: {current_filters}.\nCurrent session ID being viewed: {current_session_id}."
+    )
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
-    show_tool_call_message: bool = False
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
@@ -134,11 +124,13 @@ class SearchSessionRecordingsTool(MaxTool):
         """
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
+        # Not providing current session id to the prompt, as it's not required for the filtering logic, only as a context
         user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
         graph_context = {
             "change": user_prompt,
             "output": None,
             "tool_progress_messages": [],
+            "billable": True,
             **self.context,
         }
         result = await graph.compile_full_graph().ainvoke(graph_context)

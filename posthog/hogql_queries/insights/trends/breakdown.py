@@ -294,7 +294,7 @@ class Breakdown:
                     ast.CompareOperation(
                         left=self.get_replace_null_values_transform(left),
                         op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=""),
+                        right=ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                     ),
                 ]
             )

@@ -6,6 +6,7 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
+import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -301,7 +302,10 @@ export class HogExecutorService {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)
                 }
             } else {
-                result = await this.execute(nextInvocation, options)
+                // Finish execution, carrying forward previous execResult
+                // Tricky: We don't pass metrics in previousResult as they're accumulated in the local metrics array
+                const { metrics: _m, logs: _l, ...previousResultWithoutMetrics } = result || {}
+                result = await this.execute(nextInvocation, options, previousResultWithoutMetrics)
             }
 
             logs.push(...result.logs)
@@ -310,6 +314,14 @@ export class HogExecutorService {
             // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
             if (result.finished || result.invocation.queueScheduledAt) {
                 break
+            }
+        }
+
+        if (result.finished) {
+            const capturedAt = invocation.state.globals.event?.captured_at
+            if (capturedAt) {
+                const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
+                destinationE2eLagMsSummary.observe(e2eLagMs)
             }
         }
 
@@ -322,7 +334,11 @@ export class HogExecutorService {
     @instrumented('hog-executor.execute')
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
-        options: HogExecutorExecuteOptions = {}
+        options: HogExecutorExecuteOptions = {},
+        previousResult: Pick<
+            Partial<CyclotronJobInvocationResult>,
+            'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error' | 'execResult'
+        > = {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const loggingContext = {
             invocationId: invocation.id,
@@ -333,7 +349,7 @@ export class HogExecutorService {
 
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, previousResult)
         const addLog = createAddLogFunction(result.logs)
 
         try {
@@ -470,7 +486,7 @@ export class HogExecutorService {
                 execRes = execHogOutcome.execResult
 
                 // Store the result if execution finished
-                if (execRes.finished && execRes.result !== undefined) {
+                if (execRes.finished && Boolean(execRes.result)) {
                     result.execResult = convertHogToJS(execRes.result)
                 }
             } catch (e) {
@@ -669,6 +685,8 @@ export class HogExecutorService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 
                 return result
+            } else {
+                result.error = new Error(message)
             }
         }
 
@@ -701,6 +719,7 @@ export class HogExecutorService {
 
         // Finally we create the response object as the VM expects
         result.invocation.state.vmState!.stack.push(hogVmResponse)
+        result.execResult = hogVmResponse
 
         result.metrics.push({
             team_id: invocation.teamId,

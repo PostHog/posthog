@@ -74,7 +74,7 @@ function LinkedFlagSelector(): JSX.Element | null {
     const { selectedPlatform } = useValues(replayTriggersLogic)
 
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -114,8 +114,12 @@ function LinkedFlagSelector(): JSX.Element | null {
                                         selectFeatureFlag(flag)
                                         updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
                                     }}
-                                    disabledReason={disabledReason ?? undefined}
-                                    readOnly={!!disabledReason}
+                                    disabledReason={
+                                        (disabledReason ?? (currentTeamLoading || featureFlagLoading))
+                                            ? 'Loading...'
+                                            : undefined
+                                    }
+                                    readOnly={!!disabledReason || currentTeamLoading || featureFlagLoading}
                                 />
                             )}
                         </AccessControlAction>
@@ -131,6 +135,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                                     type="secondary"
                                     onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
                                     title="Clear selected flag"
+                                    loading={currentTeamLoading || featureFlagLoading}
                                 />
                             </AccessControlAction>
                         )}
@@ -164,7 +169,12 @@ function LinkedFlagSelector(): JSX.Element | null {
                                 <LemonSegmentedButton
                                     className="min-w-1/3"
                                     value={currentTeam?.session_recording_linked_flag?.variant ?? ANY_VARIANT}
-                                    options={variantOptions(linkedFlag?.filters.multivariate, disabledReason)}
+                                    options={variantOptions(
+                                        linkedFlag?.filters.multivariate,
+                                        (disabledReason ?? (currentTeamLoading || featureFlagLoading))
+                                            ? 'Loading...'
+                                            : undefined
+                                    )}
                                     onChange={(variant) => {
                                         if (!linkedFlag) {
                                             return
@@ -399,6 +409,7 @@ function UrlConfigSection({
                         type="secondary"
                         icon={<IconPlus />}
                         data-attr={`session-replay-add-url-${type}`}
+                        size="small"
                     >
                         Add
                     </LemonButton>
@@ -842,7 +853,7 @@ function TriggerMatchTypeTag(): JSX.Element {
     )
 }
 
-function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web' | 'mobile' }): JSX.Element {
+export function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web' | 'mobile' }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
 
@@ -858,7 +869,7 @@ function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web
     const hasEventTriggers = (eventTriggerConfig?.length ?? 0) > 0
     const hasFeatureFlag = !!currentTeam.session_recording_linked_flag
     const sampleRate = currentTeam.session_recording_sample_rate
-    const numericSampleRate = !!sampleRate && parseFloat(sampleRate) * 100
+    const numericSampleRate = !!sampleRate && Math.floor(parseFloat(sampleRate) * 100)
     const hasSampling = isNumeric(numericSampleRate) && numericSampleRate < 100
     const hasMinDuration = !!currentTeam.session_recording_minimum_duration_milliseconds
     const hasUrlBlocklist = (currentTeam.session_recording_url_blocklist_config?.length ?? 0) > 0

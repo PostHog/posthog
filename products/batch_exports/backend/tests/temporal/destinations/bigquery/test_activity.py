@@ -1,14 +1,8 @@
-"""Test module covering the activities used for batch exporting to BigQuery.
-
-The tests are parametrized with `use_internal_stage` to cover both usage of
-`insert_into_bigquery_activity` and `insert_into_bigquery_activity_from_stage`.
-
-NOTE: Once all batch exports have been moved to use the internal stage, the
-`use_internal_stage` parameter can be dropped with only the `True` case remaining.
-"""
+"""Test module covering the activities used for batch exporting to BigQuery."""
 
 import uuid
 import datetime as dt
+import collections.abc
 
 import pytest
 import unittest.mock
@@ -21,7 +15,6 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryInsertInputs,
     bigquery_default_fields,
-    insert_into_bigquery_activity,
     insert_into_bigquery_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
@@ -43,8 +36,6 @@ pytestmark = [
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    # While we migrate to the new workflow, we need to test both new and old activities
-    pytest.mark.parametrize("use_internal_stage", [False, True]),
 ]
 
 EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
@@ -79,16 +70,9 @@ async def _run_activity(
     expected_fields=None,
     expect_duplicates: bool = False,
     min_ingested_timestamp: dt.datetime = TEST_TIME,
-    use_internal_stage: bool = False,
+    timestamp_columns: collections.abc.Sequence[str] = (),
 ):
-    """Helper function to run BigQuery main activity and assert records are exported.
-
-    This function executes either `insert_into_bigquery_activity`, or
-    `insert_into_internal_stage_activity` and `insert_into_bigquery_activity_from_stage`
-    depending on the value of `use_internal_stage`.
-
-    This allows using a single function to test both versions of the pipeline.
-    """
+    """Helper function to run BigQuery main activity and assert records are exported."""
     insert_inputs = BigQueryInsertInputs(
         team_id=team.pk,
         table_id=table_id,
@@ -104,28 +88,25 @@ async def _run_activity(
         **bigquery_config,
     )
 
-    if use_internal_stage:
-        assert insert_inputs.batch_export_id is not None
-        # we first need to run the insert_into_internal_stage_activity so that we have data to export
-        await activity_environment.run(
-            insert_into_internal_stage_activity,
-            BatchExportInsertIntoInternalStageInputs(
-                team_id=insert_inputs.team_id,
-                batch_export_id=insert_inputs.batch_export_id,
-                data_interval_start=insert_inputs.data_interval_start,
-                data_interval_end=insert_inputs.data_interval_end,
-                exclude_events=insert_inputs.exclude_events,
-                include_events=None,
-                run_id=None,
-                backfill_details=None,
-                batch_export_model=insert_inputs.batch_export_model,
-                batch_export_schema=insert_inputs.batch_export_schema,
-                destination_default_fields=bigquery_default_fields(),
-            ),
-        )
-        result = await activity_environment.run(insert_into_bigquery_activity_from_stage, insert_inputs)
-    else:
-        result = await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+    assert insert_inputs.batch_export_id is not None
+    # we first need to run the insert_into_internal_stage_activity so that we have data to export
+    await activity_environment.run(
+        insert_into_internal_stage_activity,
+        BatchExportInsertIntoInternalStageInputs(
+            team_id=insert_inputs.team_id,
+            batch_export_id=insert_inputs.batch_export_id,
+            data_interval_start=insert_inputs.data_interval_start,
+            data_interval_end=insert_inputs.data_interval_end,
+            exclude_events=insert_inputs.exclude_events,
+            include_events=None,
+            run_id=None,
+            backfill_details=None,
+            batch_export_model=insert_inputs.batch_export_model,
+            batch_export_schema=insert_inputs.batch_export_schema,
+            destination_default_fields=bigquery_default_fields(),
+        ),
+    )
+    result = await activity_environment.run(insert_into_bigquery_activity_from_stage, insert_inputs)
 
     await assert_clickhouse_records_in_bigquery(
         bigquery_client=bigquery_client,
@@ -142,6 +123,7 @@ async def _run_activity(
         sort_key=sort_key,
         expected_fields=expected_fields,
         expect_duplicates=expect_duplicates,
+        timestamp_columns=timestamp_columns,
     )
 
     return result
@@ -195,7 +177,6 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
     """Test that the `insert_into_bigquery_activity` function inserts data into a BigQuery table.
 
@@ -239,7 +220,6 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         batch_export_model=batch_export_model,
         bigquery_config=bigquery_config,
         sort_key=sort_key,
-        use_internal_stage=use_internal_stage,
     )
 
 
@@ -249,7 +229,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         BatchExportModel(name="sessions", schema=None),
     ],
 )
-async def test_insert_into_bigquery_activity_inserts_sessions_data_into_bigquery_table(
+async def test_insert_into_bigquery_activity_from_stage_inserts_sessions_data_into_bigquery_table(
     clickhouse_client,
     activity_environment,
     bigquery_client,
@@ -262,9 +242,8 @@ async def test_insert_into_bigquery_activity_inserts_sessions_data_into_bigquery
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the `insert_into_bigquery_activity` function inserts sessions data into a BigQuery table.
+    """Test that the `insert_into_bigquery_activity_from_stage` function inserts sessions data into a BigQuery table.
 
     This test is the same as the previous one, but we require non-messed up properties to create the
     test session data, so we isolate this model in its own test.
@@ -294,7 +273,6 @@ async def test_insert_into_bigquery_activity_inserts_sessions_data_into_bigquery
         batch_export_model=batch_export_model,
         bigquery_config=bigquery_config,
         sort_key=sort_key,
-        use_internal_stage=use_internal_stage,
     )
 
 
@@ -340,7 +318,7 @@ async def test_insert_into_bigquery_activity_inserts_sessions_data_into_bigquery
     ],
     indirect=True,
 )
-async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_with_property_filters(
+async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigquery_table_with_property_filters(
     clickhouse_client,
     activity_environment,
     bigquery_client,
@@ -353,9 +331,8 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the `insert_into_bigquery_activity` function inserts data into a BigQuery table.
+    """Test that the `insert_into_bigquery_activity_from_stage` function inserts data into a BigQuery table.
 
     This test exclusively covers a model with property filters as property filters require
     a valid JSON. And the other test uses an invalid JSON due to unpaired surrogates.
@@ -394,13 +371,12 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
         batch_export_schema=batch_export_schema,
         bigquery_config=bigquery_config,
         sort_key="event",
-        use_internal_stage=use_internal_stage,
     )
 
 
 @pytest.mark.parametrize("use_json_type", [True], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
-async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_without_query_permissions(
+async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigquery_table_without_query_permissions(
     clickhouse_client,
     activity_environment,
     bigquery_client,
@@ -413,11 +389,10 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the `insert_into_bigquery_activity` function inserts data into a BigQuery table.
+    """Test that the `insert_into_bigquery_activity_from_stage` function inserts data into a BigQuery table.
 
-    For this test we mock the `acheck_for_query_permissions_on_table` method to assert the
+    For this test we mock the `check_for_query_permissions_on_table` method to assert the
     behavior of the activity function when lacking query permissions in BigQuery.
     """
     if isinstance(model, BatchExportModel) and model.name == "persons":
@@ -432,7 +407,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
 
     with (
         unittest.mock.patch(
-            "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.BigQueryClient.acheck_for_query_permissions_on_table",
+            "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.BigQueryClient.check_for_query_permissions",
             return_value=False,
         ) as mocked_check,
     ):
@@ -452,13 +427,12 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
             batch_export_schema=batch_export_schema,
             bigquery_config=bigquery_config,
             sort_key="event",
-            use_internal_stage=use_internal_stage,
         )
 
         mocked_check.assert_called_once()
 
 
-async def test_insert_into_bigquery_activity_merges_persons_data_in_follow_up_runs(
+async def test_insert_into_bigquery_activity_from_stage_merges_persons_data_in_follow_up_runs(
     clickhouse_client,
     activity_environment,
     bigquery_client,
@@ -468,9 +442,8 @@ async def test_insert_into_bigquery_activity_merges_persons_data_in_follow_up_ru
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the `insert_into_bigquery_activity` merges new versions of rows.
+    """Test that the `insert_into_bigquery_activity_from_stage` merges new versions of rows.
 
     This unit tests looks at the mutability handling capabilities of the aforementioned activity.
     We will generate a new entry in the persons table for half of the persons exported in a first
@@ -492,7 +465,6 @@ async def test_insert_into_bigquery_activity_merges_persons_data_in_follow_up_ru
         batch_export_model=model,
         bigquery_config=bigquery_config,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
     )
 
     _, persons_to_export_created = generate_test_data
@@ -530,11 +502,10 @@ async def test_insert_into_bigquery_activity_merges_persons_data_in_follow_up_ru
         batch_export_model=model,
         bigquery_config=bigquery_config,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
     )
 
 
-async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_runs(
+async def test_insert_into_bigquery_activity_from_stage_merges_sessions_data_in_follow_up_runs(
     clickhouse_client,
     activity_environment,
     bigquery_client,
@@ -544,9 +515,8 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the `insert_into_bigquery_activity` merges new versions of rows.
+    """Test that the `insert_into_bigquery_activity_from_stage` merges new versions of rows.
 
     This unit tests looks at the mutability handling capabilities of the aforementioned activity.
     We will generate a new entry in the raw_sessions table for the one session exported in the first
@@ -568,7 +538,6 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
         batch_export_model=model,
         bigquery_config=bigquery_config,
         sort_key="session_id",
-        use_internal_stage=use_internal_stage,
     )
 
     assert result.records_completed == 1
@@ -609,7 +578,6 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
         batch_export_model=model,
         bigquery_config=bigquery_config,
         sort_key="session_id",
-        use_internal_stage=use_internal_stage,
     )
 
     assert result.records_completed == 1
@@ -634,7 +602,7 @@ def drop_column_from_bigquery_table(
     _ = query_job.result()
 
 
-async def test_insert_into_bigquery_activity_handles_person_schema_changes(
+async def test_insert_into_bigquery_activity_from_stage_handles_person_new_columns(
     clickhouse_client,
     activity_environment,
     bigquery_client,
@@ -644,9 +612,8 @@ async def test_insert_into_bigquery_activity_handles_person_schema_changes(
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the `insert_into_bigquery_activity` handles changes to the
+    """Test that the `insert_into_bigquery_activity_from_stage` handles changes to the
     person schema.
 
     If we update the schema of the persons model we export, we should still be
@@ -672,10 +639,8 @@ async def test_insert_into_bigquery_activity_handles_person_schema_changes(
         batch_export_model=model,
         bigquery_config=bigquery_config,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
     )
 
-    # drop the created_at column from the BigQuery table
     drop_column_from_bigquery_table(
         bigquery_client=bigquery_client,
         dataset_id=bigquery_dataset.dataset_id,
@@ -721,5 +686,79 @@ async def test_insert_into_bigquery_activity_handles_person_schema_changes(
         bigquery_config=bigquery_config,
         sort_key="person_id",
         expected_fields=expected_fields,
-        use_internal_stage=use_internal_stage,
+    )
+
+
+async def test_insert_into_bigquery_activity_from_stage_handles_datetime_to_int(
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    bigquery_dataset,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_bigquery_activity_from_stage` handles columns in the
+    destination having INT64 type for DateTime64 columns.
+
+    ClickHouse exports DateTime columns as uint32. Not to be confused with DateTime64
+    columns which are exported as Arrow's native timestamp type.
+
+    This can lead to fields in destination tables corresponding to DateTime types being
+    created as BigQuery's INT64, as that's how we resolve Arrow's uint32.
+
+    If the ClickHouse type ever changes from DateTime to DateTime64, for example, if the
+    query is updated, we want to ensure we can continue exporting to an INT64 field,
+    even if the field is now DateTime64.
+
+    To replicate this situation we first export the data to create the table, then alter
+    'created_at' to be of type INT64, and then rerun the export.
+    """
+    model = BatchExportModel(name="persons", schema=None)
+    table_id = f"test_insert_activity_migration_table_{ateam.pk}"
+
+    await _run_activity(
+        activity_environment,
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_id=table_id,
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        bigquery_config=bigquery_config,
+        sort_key="person_id",
+    )
+
+    query_job = bigquery_client.query(f"TRUNCATE TABLE {bigquery_dataset.dataset_id}.{table_id}")
+    _ = query_job.result()
+
+    # It's easier to drop the column and re-add it as a different type than altering it.
+    drop_column_from_bigquery_table(
+        bigquery_client=bigquery_client,
+        dataset_id=bigquery_dataset.dataset_id,
+        table_id=table_id,
+        column_name="created_at",
+    )
+    query_job = bigquery_client.query(
+        f"ALTER TABLE {bigquery_dataset.dataset_id}.{table_id} ADD COLUMN created_at INT64"
+    )
+    _ = query_job.result()
+
+    await _run_activity(
+        activity_environment,
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_id=table_id,
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        bigquery_config=bigquery_config,
+        sort_key="person_id",
+        timestamp_columns=("created_at",),
     )

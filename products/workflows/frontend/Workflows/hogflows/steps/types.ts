@@ -28,6 +28,13 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: ActionFiltersSchema.optional().nullable(),
+    output_variable: z // The Hogflow-level variable to store the output of this action into
+        .object({
+            key: z.string(),
+            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+        })
+        .optional()
+        .nullable(),
 }
 
 const CyclotronInputSchema = z.object({
@@ -40,6 +47,54 @@ const CyclotronInputSchema = z.object({
 
 export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
 
+export const CyclotronJobInputSchemaTypeSchema = z.object({
+    type: z.enum([
+        'string',
+        'number',
+        'boolean',
+        'dictionary',
+        'choice',
+        'json',
+        'integration',
+        'integration_field',
+        'email',
+        'native_email',
+    ]),
+    key: z.string(),
+    label: z.string(),
+    choices: z
+        .array(
+            z.object({
+                value: z.string(),
+                label: z.string(),
+            })
+        )
+        .optional(),
+    required: z.boolean().optional(),
+    default: z.any().optional(),
+    secret: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    templating: z.boolean().optional(),
+    description: z.string().optional(),
+    integration: z.string().optional(),
+    integration_key: z.string().optional(),
+    integration_field: z.string().optional(),
+    requires_field: z.string().optional(),
+    requiredScopes: z.string().optional(),
+})
+
+export type CyclotronJobInputSchemaType = z.infer<typeof CyclotronJobInputSchemaTypeSchema>
+
+export const CyclotronInputMappingSchema = z.object({
+    name: z.string(),
+    disabled: z.boolean().optional(),
+    inputs_schema: z.array(CyclotronJobInputSchemaTypeSchema).optional(),
+    inputs: z.record(CyclotronInputSchema).optional().nullable(),
+    filters: z.any().optional().nullable(),
+})
+
+export type CyclotronInputMappingType = z.infer<typeof CyclotronInputMappingSchema>
+
 export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('event'),
@@ -51,12 +106,25 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
     }),
-
+    z.object({
+        type: z.literal('manual'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
     z.object({
         type: z.literal('tracking_pixel'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
+    }),
+    z.object({
+        type: z.literal('schedule'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
+        // Future: recurring schedule fields can be added here
     }),
 ])
 
@@ -75,6 +143,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             conditions: z.array(
                 z.object({
                     filters: ActionFiltersSchema,
+                    name: z.string().optional(), // Custom name for the condition
                 })
             ),
             delay_duration: z.string().optional(),
@@ -87,6 +156,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             cohorts: z.array(
                 z.object({
                     percentage: z.number(),
+                    name: z.string().optional(), // Custom name for the cohort
                 })
             ),
         }),
@@ -106,6 +176,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             condition: z.object({
                 filters: ActionFiltersSchema.optional().nullable(),
+                name: z.string().optional(), // Custom name for the condition
             }),
             max_wait_duration: z.string(),
         }),
@@ -139,6 +210,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
             inputs: z.record(CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
     z.object({
@@ -186,12 +258,15 @@ export const isFunctionAction = (
 
 export const isTriggerFunction = (
     action: HogFlowAction
-): action is Extract<HogFlowAction, { type: 'trigger'; config: { type: 'webhook' | 'tracking_pixel' } }> => {
+): action is Extract<
+    HogFlowAction,
+    { type: 'trigger'; config: { type: 'webhook' | 'tracking_pixel' | 'manual' | 'schedule' } }
+> => {
     if (action.type !== 'trigger') {
         return false
     }
     const trigger = action as Extract<HogFlowAction, { type: 'trigger' }>
-    return ['webhook', 'tracking_pixel'].includes(trigger.config.type)
+    return ['webhook', 'tracking_pixel', 'manual', 'schedule'].includes(trigger.config.type)
 }
 
 export interface HogflowTestResult {

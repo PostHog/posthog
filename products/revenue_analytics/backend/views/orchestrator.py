@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Iterable
 from typing import Optional
 
@@ -8,15 +7,14 @@ from django.db.models import Prefetch
 
 from posthog.schema import DatabaseSchemaManagedViewTableKind
 
-from posthog.hogql import ast
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.types import ExternalDataSourceType
 
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle
 from products.revenue_analytics.backend.views.schemas import SCHEMAS
@@ -82,7 +80,7 @@ def build_all_revenue_analytics_views(
     if timings is None:
         timings = HogQLTimings()
 
-    views_by_class: defaultdict[type[RevenueAnalyticsBaseView], list[RevenueAnalyticsBaseView]] = defaultdict(list)
+    views: list[RevenueAnalyticsBaseView] = []
     for handle in _iter_source_handles(team, timings):
         identifier = handle.event.eventName if handle.event else handle.source.id if handle.source else None
         with timings.measure(f"builder.{handle.type}.{identifier}"):
@@ -95,35 +93,8 @@ def build_all_revenue_analytics_views(
                         built_query = builder(handle)
                         with timings.measure(f"materialize.{handle.type}.{identifier}.{kind}"):
                             view = _query_to_view(built_query, kind, handle)
-                            views_by_class[type(view)].append(view)
+                            views.append(view)
                     except Exception as e:
                         capture_exception(e, {"handle_type": handle.type, "identifier": identifier, "kind": kind})
-
-    views: list[RevenueAnalyticsBaseView] = []
-    for ViewClass in views_by_class:
-        class_views = views_by_class[ViewClass]
-        views.extend(class_views)
-
-        # Add all the views for this class PLUS an "all" view that UNIONs all of them
-        # This MUST be added after the views this view depends on to guarantee the paths are built properly
-        # when attempting to materialize all revenue analytics views
-        selects = [
-            ast.SelectQuery(
-                select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[view.name]))
-            )
-            for view in class_views
-        ]
-        views.append(
-            ViewClass(
-                id=ViewClass.get_generic_view_alias(),
-                name=f"revenue_analytics.all.{ViewClass.get_generic_view_alias()}",
-                prefix="revenue_analytics.all",
-                query=ast.SelectSetQuery.create_from_queries(selects, set_operator="UNION ALL").to_hogql(),
-                fields=class_views[0].fields,  # Same fields for all views in this class
-                source_id=None,
-                event_name=None,
-                union_all=True,
-            )
-        )
 
     return views

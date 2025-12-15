@@ -1,7 +1,8 @@
+import { describe, expect, it } from 'vitest'
+
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import type { Context } from '@/tools/types'
-import { describe, expect, it } from 'vitest'
 
 const createMockContext = (): Context => ({
     api: {} as any,

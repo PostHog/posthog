@@ -14,6 +14,12 @@ export const tabAwareActionToUrl = <L extends Logic = Logic>(
                 k,
                 (payload: Record<string, any>): any => {
                     if (v) {
+                        // Check if sceneLogic is mounted before accessing values
+                        if (!sceneLogic.isMounted()) {
+                            // If sceneLogic is not mounted, just execute the original action
+                            return v(payload)
+                        }
+
                         if (sceneLogic.values.activeTabId === logic.props.tabId) {
                             const response = v(payload)
                             return response

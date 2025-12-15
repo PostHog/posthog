@@ -1,7 +1,7 @@
 import apiReal from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode, CustomerAnalyticsConfig, NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     ActivationTaskStatus,
@@ -37,6 +37,8 @@ type APIMockReturnType = {
         typeof apiReal,
         'create' | 'createResponse' | 'get' | 'getResponse' | 'update' | 'delete'
     >]: jest.Mock<ReturnType<(typeof apiReal)[K]>, Parameters<(typeof apiReal)[K]>>
+} & {
+    cohorts: typeof apiReal.cohorts
 }
 
 export const api = apiReal as any as APIMockReturnType
@@ -193,9 +195,18 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     marketing_analytics_config: {
         sources_map: {},
     },
+    customer_analytics_config: {
+        activity_event: { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' },
+        signup_pageview_event: {},
+        signup_event: {},
+        subscription_event: {},
+        payment_event: {},
+    } as CustomerAnalyticsConfig,
     base_currency: CurrencyCode.USD,
     default_evaluation_environments_enabled: false,
     managed_viewsets: { revenue_analytics: true },
+    receive_org_level_activity_logs: false,
+    require_evaluation_environment_tags: false,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -249,6 +260,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         discussions_mentioned: false,
     },
     anonymize_data: false,
+    allow_impersonation: true,
     toolbar_mode: 'toolbar',
     has_password: true,
     id: 179,
@@ -258,6 +270,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_2fa_enabled: false,
     has_social_auth: false,
     has_sso_enforcement: false,
+    shortcut_position: 'above',
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,

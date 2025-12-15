@@ -483,6 +483,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 const displayNameOverrides: Record<string, string> = {
                     session_replay: 'Web session replay',
+                    data_warehouse: 'Synced rows',
+                    data_warehouse_historical: 'Free historical synced rows',
                 }
 
                 const mainProduct = product as BillingProductV2Type
@@ -637,8 +639,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             }
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
-            // Only scroll to the product if it's an addon product. With subscribe to all products we don't need it for parent products.
-            if (scrollToProductKey && values.isAddonProduct && scrollToProductKey === props.product.type) {
+            // Scroll to the product or parent product
+            if (scrollToProductKey && scrollToProductKey === props.product.type) {
                 setTimeout(() => {
                     if (props.productRef?.current) {
                         props.productRef?.current.scrollIntoView({

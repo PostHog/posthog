@@ -1,7 +1,13 @@
-import { useValues } from 'kea'
+import { useReactFlow } from '@xyflow/react'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconEllipsis } from '@posthog/icons'
+import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../../constants'
@@ -9,11 +15,30 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'
 import { useHogFlowStep } from '../HogFlowSteps'
 import { StepViewMetrics } from './StepViewMetrics'
+import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
-    const { selectedNode, mode } = useValues(hogFlowEditorLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
+    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
+    const { deleteElements } = useReactFlow()
     const isSelected = selectedNode?.id === action.id
+    const node = nodesById[action.id]
+
+    const stepViewLogicProps: StepViewLogicProps = { action, workflowLogicProps: logicProps }
+    const { isEditingName, isEditingDescription, editNameValue, editDescriptionValue } = useValues(
+        stepViewLogic(stepViewLogicProps)
+    )
+    const {
+        startEditingName,
+        startEditingDescription,
+        setEditNameValue,
+        setEditDescriptionValue,
+        saveName,
+        saveDescription,
+        cancelEditingName,
+        cancelEditingDescription,
+    } = useActions(stepViewLogic(stepViewLogicProps))
 
     const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
 
@@ -58,19 +83,122 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                 >
                     {icon}
                 </div>
-                <div className="flex flex-col">
+                <div className="flex flex-col flex-1 min-w-0 pr-4">
                     <div className="flex justify-between items-center gap-1">
-                        <div className="text-[0.45rem] font-sans font-medium">{action.name}</div>
+                        {isEditingName ? (
+                            <div onClick={(e) => e.stopPropagation()} className="flex-1 min-w-0">
+                                <LemonInput
+                                    autoFocus
+                                    value={editNameValue}
+                                    onChange={setEditNameValue}
+                                    onBlur={(e: React.FocusEvent) => {
+                                        e.stopPropagation()
+                                        saveName()
+                                    }}
+                                    onKeyDown={(e: React.KeyboardEvent) => {
+                                        e.stopPropagation()
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault()
+                                            saveName()
+                                            ;(e.target as HTMLInputElement).blur()
+                                        } else if (e.key === 'Escape') {
+                                            e.preventDefault()
+                                            cancelEditingName()
+                                            ;(e.target as HTMLInputElement).blur()
+                                        }
+                                    }}
+                                    className="text-[0.45rem] font-sans font-medium !bg-transparent !border-0 !shadow-none !p-0 !pl-1 !m-0 !min-h-0 !h-[0.55rem] !leading-tight focus-within:!ring-1 focus-within:!ring-primary !rounded"
+                                />
+                            </div>
+                        ) : (
+                            <Tooltip title={action.name}>
+                                <div
+                                    className={`text-[0.45rem] font-sans font-medium rounded px-0.5 -mx-0.5 transition-colors pl-1 truncate min-w-0 flex-1 ${isSelected ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
+                                    onClick={(e) => {
+                                        if (isSelected) {
+                                            e.stopPropagation()
+                                            startEditingName()
+                                        }
+                                    }}
+                                >
+                                    {action.name}
+                                </div>
+                            </Tooltip>
+                        )}
                     </div>
 
-                    <div className="max-w-full text-[0.3rem]/1.5 text-muted text-ellipsis">{action.description}</div>
+                    {isEditingDescription ? (
+                        <div onClick={(e) => e.stopPropagation()} className="min-w-0">
+                            <LemonTextArea
+                                autoFocus
+                                value={editDescriptionValue}
+                                onChange={setEditDescriptionValue}
+                                onFocus={(e: React.FocusEvent<HTMLTextAreaElement>) => {
+                                    const el = e.target
+                                    el.setSelectionRange(el.value.length, el.value.length)
+                                }}
+                                onBlur={(e: React.FocusEvent) => {
+                                    e.stopPropagation()
+                                    saveDescription()
+                                }}
+                                onKeyDown={(e: React.KeyboardEvent) => {
+                                    e.stopPropagation()
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault()
+                                        saveDescription()
+                                        ;(e.target as HTMLTextAreaElement).blur()
+                                    } else if (e.key === 'Escape') {
+                                        e.preventDefault()
+                                        cancelEditingDescription()
+                                        ;(e.target as HTMLTextAreaElement).blur()
+                                    }
+                                }}
+                                className="text-[0.3rem] text-muted !bg-transparent !border-0 !shadow-none !p-0 !pl-1 !m-0 !min-h-0 !max-h-[0.9rem] !leading-[0.45rem] !resize-none !overflow-hidden focus-within:!ring-1 focus-within:!ring-primary !rounded"
+                            />
+                        </div>
+                    ) : (
+                        <Tooltip title={action.description || ''}>
+                            <div
+                                className={`text-[0.3rem]/1.5 text-muted line-clamp-2 rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 min-h-[0.45rem] overflow-hidden ${isSelected ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
+                                onClick={(e) => {
+                                    if (isSelected) {
+                                        e.stopPropagation()
+                                        startEditingDescription()
+                                    }
+                                }}
+                            >
+                                {action.description || ''}
+                            </div>
+                        </Tooltip>
+                    )}
                 </div>
+                {isSelected && node?.deletable && (
+                    <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Delete',
+                                    status: 'danger',
+                                    onClick: () => {
+                                        void deleteElements({ nodes: [node] })
+                                        setSelectedNodeId(null)
+                                    },
+                                    disabledReason: !selectedNodeCanBeDeleted
+                                        ? 'Clean up branching steps first'
+                                        : undefined,
+                                },
+                            ]}
+                        >
+                            <LemonButton icon={<IconEllipsis />} size="xsmall" noPadding />
+                        </LemonMenu>
+                    </div>
+                )}
             </div>
-            {hasValidationError && (
+            {hasValidationError ? (
                 <div className="absolute top-0 right-0 scale-75">
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
-            )}
+            ) : null}
             {mode === 'metrics' && (
                 <div
                     style={{

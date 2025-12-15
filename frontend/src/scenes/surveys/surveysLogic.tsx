@@ -7,7 +7,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { SURVEY_CREATED_SOURCE, SURVEY_PAGE_SIZE, SurveyTemplate } from 'scenes/surveys/constants'
@@ -19,9 +18,11 @@ import { userLogic } from 'scenes/userLogic'
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { ActivityScope, AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
+import { surveysSdkLogic } from './surveysSdkLogic'
 
 export enum SurveysTabs {
     Active = 'active',
@@ -113,6 +114,8 @@ export const surveysLogic = kea<surveysLogicType>([
             ['currentTeam', 'currentTeamLoading'],
             enabledFlagLogic,
             ['featureFlags as enabledFlags'],
+            surveysSdkLogic,
+            ['teamSdkVersions'],
         ],
         actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
     })),
@@ -237,8 +240,8 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
-            loadResponsesCount: async () => {
-                const surveysResponsesCount = await api.surveys.getResponsesCount()
+            loadResponsesCount: async (surveyIds: string) => {
+                const surveysResponsesCount = await api.surveys.getResponsesCount(surveyIds)
                 return surveysResponsesCount
             },
         },
@@ -304,18 +307,14 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         setSurveysFilters: () => {
             actions.loadSurveys()
-            actions.loadResponsesCount()
         },
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
 
-            actions.addProductIntent({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEYS_VIEWED,
-                metadata: {
-                    surveys_count: values.data.surveysCount,
-                },
-            })
+            if (values.data.surveys.length > 0) {
+                const surveyIds = values.data.surveys.map((s) => s.id).join(',')
+                actions.loadResponsesCount(surveyIds)
+            }
 
             if (values.data.surveys.some((survey) => survey.start_date)) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
@@ -426,6 +425,5 @@ export const surveysLogic = kea<surveysLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSurveys()
-        actions.loadResponsesCount()
     }),
 ])

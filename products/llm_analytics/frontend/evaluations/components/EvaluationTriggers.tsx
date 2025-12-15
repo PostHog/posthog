@@ -21,7 +21,7 @@ export function EvaluationTriggers(): JSX.Element {
     const addConditionSet = (): void => {
         const newCondition: EvaluationConditionSet = {
             id: `cond-${Date.now()}`,
-            rollout_percentage: 100,
+            rollout_percentage: 0,
             properties: [],
         }
         setTriggerConditions([...evaluation.conditions, newCondition])
@@ -61,93 +61,106 @@ export function EvaluationTriggers(): JSX.Element {
                 the evaluation will trigger if ANY of them match (OR logic).
             </div>
 
-            {evaluation.conditions.map((condition, index) => (
-                <div key={condition.id} className="bg-bg-light border rounded p-4 space-y-4">
-                    {/* Header */}
-                    <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                            <h4 className="font-semibold">Condition set {index + 1}</h4>
-                            {evaluation.conditions.length > 1 && (
-                                <div className="text-sm text-muted">{index === 0 ? 'IF' : 'OR IF'}</div>
-                            )}
-                        </div>
-                        <div className="flex gap-1">
-                            <LemonButton
-                                icon={<IconCopy />}
-                                size="small"
-                                type="secondary"
-                                onClick={() => duplicateConditionSet(index)}
-                                tooltip="Duplicate condition set"
-                            />
-                            {evaluation.conditions.length > 1 && (
+            {evaluation.conditions.map((condition, index) => {
+                const percentageValue = condition.rollout_percentage || 0
+
+                return (
+                    <div key={condition.id} className="bg-bg-light border rounded p-4 space-y-4">
+                        {/* Header */}
+                        <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-2">
+                                <h4 className="font-semibold">Condition set {index + 1}</h4>
+                                {evaluation.conditions.length > 1 && (
+                                    <div className="text-sm text-muted">{index === 0 ? 'IF' : 'OR IF'}</div>
+                                )}
+                            </div>
+                            <div className="flex gap-1">
                                 <LemonButton
-                                    icon={<IconTrash />}
+                                    icon={<IconCopy />}
                                     size="small"
                                     type="secondary"
-                                    status="danger"
-                                    onClick={() => removeConditionSet(index)}
-                                    tooltip="Remove condition set"
+                                    onClick={() => duplicateConditionSet(index)}
+                                    tooltip="Duplicate condition set"
                                 />
+                                {evaluation.conditions.length > 1 && (
+                                    <LemonButton
+                                        icon={<IconTrash />}
+                                        size="small"
+                                        type="secondary"
+                                        status="danger"
+                                        onClick={() => removeConditionSet(index)}
+                                        tooltip="Remove condition set"
+                                    />
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Percentage Control */}
+                        <div className="space-y-2">
+                            <label className="block text-sm font-medium">
+                                Sampling percentage <span className="text-danger">*</span>
+                            </label>
+                            <div className="flex items-center gap-4 max-w-md">
+                                <div className="flex-1">
+                                    <LemonSlider
+                                        value={percentageValue}
+                                        onChange={(value) => updateConditionSet(index, { rollout_percentage: value })}
+                                        min={0.1}
+                                        max={100}
+                                        step={0.1}
+                                    />
+                                </div>
+                                <div className="w-24">
+                                    <LemonInput
+                                        type="number"
+                                        value={percentageValue}
+                                        onChange={(value) =>
+                                            updateConditionSet(index, { rollout_percentage: Number(value) || 0 })
+                                        }
+                                        min={0.1}
+                                        max={100}
+                                        step={0.1}
+                                        suffix={<span>%</span>}
+                                        placeholder="Set percentage"
+                                        status={percentageValue === 0 ? 'danger' : undefined}
+                                    />
+                                </div>
+                            </div>
+                            {percentageValue === 0 ? (
+                                <div className="text-xs text-danger">
+                                    Please set a sampling percentage between 0.1% and 100%
+                                </div>
+                            ) : (
+                                <div className="text-xs text-muted">
+                                    This evaluation will run on {percentageValue.toFixed(2)}% of matching generations
+                                </div>
                             )}
                         </div>
-                    </div>
 
-                    {/* Percentage Control */}
-                    <div className="space-y-2">
-                        <label className="block text-sm font-medium">Sampling percentage</label>
-                        <div className="flex items-center gap-4 max-w-md">
-                            <div className="flex-1">
-                                <LemonSlider
-                                    value={condition.rollout_percentage}
-                                    onChange={(value) => updateConditionSet(index, { rollout_percentage: value })}
-                                    min={0.1}
-                                    max={100}
-                                    step={0.1}
-                                />
+                        {/* Property Filters */}
+                        <div className="space-y-2">
+                            <label className="block text-sm font-medium">Generation properties</label>
+                            <div className="text-sm text-muted mb-2">
+                                Define which generation events should trigger this evaluation. Leave empty to match all
+                                generations.
                             </div>
-                            <div className="w-20">
-                                <LemonInput
-                                    type="number"
-                                    value={condition.rollout_percentage}
-                                    onChange={(value) =>
-                                        updateConditionSet(index, { rollout_percentage: Number(value) || 0.1 })
-                                    }
-                                    min={0.1}
-                                    max={100}
-                                    step={0.1}
-                                    suffix={<span>%</span>}
-                                />
-                            </div>
-                        </div>
-                        <div className="text-xs text-muted">
-                            This evaluation will run on {condition.rollout_percentage.toFixed(2)}% of matching
-                            generations
+                            <PropertyFilters
+                                propertyFilters={condition.properties}
+                                onChange={(properties) => updateConditionSet(index, { properties })}
+                                pageKey={`evaluation-condition-${condition.id}`}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.EventMetadata,
+                                ]}
+                                addText="Add generation property condition"
+                                hasRowOperator={false}
+                                sendAllKeyUpdates
+                                allowRelativeDateOptions={false}
+                            />
                         </div>
                     </div>
-
-                    {/* Property Filters */}
-                    <div className="space-y-2">
-                        <label className="block text-sm font-medium">Generation properties</label>
-                        <div className="text-sm text-muted mb-2">
-                            Define which generation events should trigger this evaluation. Leave empty to match all
-                            generations.
-                        </div>
-                        <PropertyFilters
-                            propertyFilters={condition.properties}
-                            onChange={(properties) => updateConditionSet(index, { properties })}
-                            pageKey={`evaluation-condition-${condition.id}`}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.EventMetadata,
-                            ]}
-                            addText="Add generation property condition"
-                            hasRowOperator={false}
-                            sendAllKeyUpdates
-                            allowRelativeDateOptions={false}
-                        />
-                    </div>
-                </div>
-            ))}
+                )
+            })}
 
             {/* Add Condition Set Button */}
             <div className="flex justify-center">

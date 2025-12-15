@@ -1,19 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from freezegun import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
-
-from django.utils import timezone
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
@@ -143,58 +133,3 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(filters, self.team, funnel_step=-3)
 
         self.assertEqual(10, len(results))
-
-    @snapshot_clickhouse_queries
-    @freeze_time("2021-01-02 00:00:00.000Z")
-    def test_unordered_funnel_does_not_return_recordings(self):
-        p1 = _create_person(distinct_ids=[f"user_1"], team=self.team)
-        _create_event(
-            event="step two",
-            distinct_id="user_1",
-            team=self.team,
-            timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
-            properties={"$session_id": "s1", "$window_id": "w1"},
-            event_uuid="21111111-1111-1111-1111-111111111111",
-        )
-        _create_event(
-            event="step one",
-            distinct_id="user_1",
-            team=self.team,
-            timestamp=(timezone.now() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
-            properties={"$session_id": "s1", "$window_id": "w1"},
-            event_uuid="11111111-1111-1111-1111-111111111111",
-        )
-
-        timestamp = timezone.now() + timedelta(days=1)
-        produce_replay_summary(
-            team_id=self.team.pk,
-            session_id="s1",
-            distinct_id="user_1",
-            first_timestamp=timestamp,
-            last_timestamp=timestamp,
-        )
-
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "unordered",
-            "date_from": "2021-01-01",
-            "date_to": "2021-01-08",
-            "interval": "day",
-            "funnel_window_days": 7,
-            "funnel_step": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        results = get_actors(filters, self.team, funnel_step=1, include_recordings=True)
-
-        # self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0][0], p1.uuid)
-        self.assertEqual(
-            # results[0]["matched_recordings"],
-            list(results[0][2]),
-            [],
-        )

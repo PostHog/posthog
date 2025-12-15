@@ -13,6 +13,7 @@ import { parseJSON } from '../../../src/utils/json-parse'
 import { UUIDT, castTimestampOrNow } from '../../../src/utils/utils'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import {
+    createPersonUpdateFields,
     fetchDistinctIdValues,
     fetchDistinctIds,
     fetchPersons,
@@ -94,7 +95,8 @@ describe('postgres parity', () => {
             null,
             true,
             uuid,
-            [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
+            { distinctId: 'distinct1' },
+            [{ distinctId: 'distinct2' }]
         )
         if (!result.success) {
             throw new Error('Failed to create person')
@@ -116,14 +118,15 @@ describe('postgres parity', () => {
             {
                 id: uuid,
                 created_at: expect.any(String), // '2021-02-04 00:18:26.472',
-                team_id: teamId.toString(),
+                team_id: teamId,
                 properties: { userPropOnce: 'propOnceValue', userProp: 'propValue' },
                 is_identified: 1,
                 is_deleted: 0,
             },
         ])
         const clickHouseDistinctIds = await clickhouse.fetchDistinctIdValues(person)
-        expect(clickHouseDistinctIds).toEqual(['distinct1', 'distinct2'])
+        expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['distinct1', 'distinct2']))
+        expect(clickHouseDistinctIds).toHaveLength(2)
 
         const postgresPersons = await fetchPersons(hub.db.postgres)
         expect(postgresPersons).toEqual([
@@ -150,22 +153,23 @@ describe('postgres parity', () => {
             },
         ])
         const postgresDistinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
-        expect(postgresDistinctIds).toEqual(['distinct1', 'distinct2'])
+        expect(postgresDistinctIds).toEqual(expect.arrayContaining(['distinct1', 'distinct2']))
+        expect(postgresDistinctIds).toHaveLength(2)
 
         const newClickHouseDistinctIdValues = await clickhouse.fetchDistinctIds(person)
         expect(newClickHouseDistinctIdValues).toMatchObject([
             {
                 distinct_id: 'distinct1',
                 person_id: person.uuid,
-                team_id: teamId.toString(),
-                version: '0',
+                team_id: teamId,
+                version: 0,
                 is_deleted: 0,
             },
             {
                 distinct_id: 'distinct2',
                 person_id: person.uuid,
-                team_id: teamId.toString(),
-                version: '0',
+                team_id: teamId,
+                version: 0,
                 is_deleted: 0,
             },
         ])
@@ -184,7 +188,8 @@ describe('postgres parity', () => {
             null,
             false,
             uuid,
-            [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
+            { distinctId: 'distinct1' },
+            [{ distinctId: 'distinct2' }]
         )
         if (!result.success) {
             throw new Error('Failed to create person')
@@ -198,10 +203,13 @@ describe('postgres parity', () => {
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(person), 2)
 
         // update properties and set is_identified to true
-        const [_p, kafkaMessagesUpdate] = await personRepository.updatePerson(person, {
-            properties: { replacedUserProp: 'propValue' },
-            is_identified: true,
-        })
+        const [_p, kafkaMessagesUpdate] = await personRepository.updatePerson(
+            person,
+            createPersonUpdateFields(person, {
+                properties: { replacedUserProp: 'propValue' },
+                is_identified: true,
+            })
+        )
         await hub.db.kafkaProducer.queueMessages(kafkaMessagesUpdate)
 
         await clickhouse.delayUntilEventIngested(async () =>
@@ -225,10 +233,13 @@ describe('postgres parity', () => {
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        const [updatedPerson, kafkaMessages2] = await personRepository.updatePerson(person, {
-            created_at: randomDate,
-            is_identified: false,
-        })
+        const [updatedPerson, kafkaMessages2] = await personRepository.updatePerson(
+            person,
+            createPersonUpdateFields(person, {
+                created_at: randomDate,
+                is_identified: false,
+            })
+        )
 
         await hub.db.kafkaProducer.queueMessages(kafkaMessages2)
 
@@ -266,7 +277,7 @@ describe('postgres parity', () => {
             null,
             true,
             uuid,
-            [{ distinctId: 'distinct1' }]
+            { distinctId: 'distinct1' }
         )
         if (!result.success) {
             throw new Error('Failed to create person')
@@ -285,7 +296,7 @@ describe('postgres parity', () => {
             null,
             true,
             uuid2,
-            [{ distinctId: 'another_distinct_id' }]
+            { distinctId: 'another_distinct_id' }
         )
         if (!result2.success) {
             throw new Error('Failed to create person')
@@ -323,8 +334,8 @@ describe('postgres parity', () => {
             {
                 distinct_id: 'distinct1',
                 person_id: person.uuid,
-                team_id: teamId.toString(),
-                version: '0',
+                team_id: teamId,
+                version: 0,
                 is_deleted: 0,
             },
         ])
@@ -363,7 +374,7 @@ describe('postgres parity', () => {
             null,
             false,
             uuid,
-            [{ distinctId: 'distinct1' }]
+            { distinctId: 'distinct1' }
         )
         if (!result.success) {
             throw new Error('Failed to create person')
@@ -381,7 +392,7 @@ describe('postgres parity', () => {
             null,
             true,
             uuid2,
-            [{ distinctId: 'another_distinct_id' }]
+            { distinctId: 'another_distinct_id' }
         )
         if (!result2.success) {
             throw new Error('Failed to create person')
@@ -422,15 +433,15 @@ describe('postgres parity', () => {
             {
                 distinct_id: 'another_distinct_id',
                 person_id: anotherPerson.uuid,
-                team_id: teamId.toString(),
-                version: '0',
+                team_id: teamId,
+                version: 0,
                 is_deleted: 0,
             },
             {
                 distinct_id: 'distinct1',
                 person_id: anotherPerson.uuid,
-                team_id: teamId.toString(),
-                version: '1',
+                team_id: teamId,
+                version: 1,
                 is_deleted: 0,
             },
         ])

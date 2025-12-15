@@ -54,6 +54,15 @@ export interface ProjectTreeLogicProps {
     hideFolders?: string[]
 }
 
+const FOLDER_LOADING = [
+    {
+        id: `folder-loading/`,
+        name: 'Loading...',
+        icon: <Spinner />,
+        type: 'loading-indicator',
+    } as TreeDataItem,
+]
+
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
     props({} as ProjectTreeLogicProps),
@@ -74,6 +83,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'loadingPaths',
                 'lastNewFolder',
                 'getStaticTreeItems',
+                'getCustomProductTreeItems',
                 'shortcutData',
             ],
         ],
@@ -555,15 +565,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return recentTreeItems
                 }
                 if (loadingPaths[''] && projectTree.length === 0) {
-                    return [
-                        {
-                            id: `folder-loading/`,
-                            name: 'Loading...',
-                            icon: <Spinner />,
-                            type: 'loading-indicator',
-                        },
-                    ]
+                    return FOLDER_LOADING
                 }
+
                 return projectTree
             },
         ],
@@ -579,6 +583,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 s.sortMethod,
                 s.onlyFolders,
                 s.getStaticTreeItems,
+                s.getCustomProductTreeItems,
+                (_, props) => props.root,
             ],
             (
                 searchTerm,
@@ -590,17 +596,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 recentResultsLoading,
                 sortMethod,
                 onlyFolders,
-                getStaticTreeItems
+                getStaticTreeItems,
+                getCustomProductTreeItems,
+                root
             ): TreeDataItem[] => {
-                const folderLoading = [
-                    {
-                        id: `folder-loading/`,
-                        name: 'Loading...',
-                        icon: <Spinner />,
-                        type: 'loading-indicator',
-                    },
-                ]
-                const root: TreeDataItem[] = [
+                if (root === 'custom-products://') {
+                    return getCustomProductTreeItems(searchTerm)
+                }
+
+                const rootItems: TreeDataItem[] = [
                     {
                         id: 'project://',
                         name: 'project://',
@@ -608,19 +612,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         record: { type: 'folder', protocol: 'project://', path: '' },
                         children: searchTerm
                             ? searchResultsLoading && searchTreeItems.length === 0
-                                ? folderLoading
+                                ? FOLDER_LOADING
                                 : searchTreeItems
                             : sortMethod === 'recent'
                               ? recentResultsLoading && recentTreeItems.length === 0
-                                  ? folderLoading
+                                  ? FOLDER_LOADING
                                   : recentTreeItems
                               : loadingPaths[''] && projectTree.length === 0
-                                ? folderLoading
+                                ? FOLDER_LOADING
                                 : projectTree,
                     } as TreeDataItem,
                     ...getStaticTreeItems(searchTerm, onlyFolders),
                 ]
-                return root
+                return rootItems
             },
         ],
         fullFileSystemFiltered: [
@@ -643,7 +647,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const rootWithProtocol =
                     rootFolders.length > 0 && rootFolders[0].endsWith(':') && root.startsWith(`${rootFolders[0]}//`)
 
-                if (rootWithProtocol) {
+                // We can skip all of this and consider only the `fullFileSystem` if we're not on the custom products root
+                // since we don't need to do any filtering as this is coming from the backend
+                if (rootWithProtocol && root !== 'custom-products://') {
                     const protocol = rootFolders[0] + '//'
                     const ref = joinPath(rootFolders.slice(1))
                     const firstFolder = fullFileSystem.find((item) => item.id === protocol)
@@ -677,8 +683,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return tree
                 }
 
-                // no client side filtering under project://
-                if (!searchTerm || !root || root.startsWith('project://')) {
+                // no client side filtering under project:// or custom-products://
+                if (!searchTerm || !root || root.startsWith('project://') || root.startsWith('custom-products://')) {
                     return addRoot(firstFolders)
                 }
                 const term = searchTerm.toLowerCase()

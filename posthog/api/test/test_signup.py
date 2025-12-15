@@ -933,6 +933,85 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
+    def test_jit_and_scim_both_enabled_allows_new_users(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            mock_sso_providers.return_value = {"google-oauth2": True}
+            new_org = Organization.objects.create(name="Test org")
+            OrganizationDomain.objects.create(
+                domain="posthog.net",
+                verified_at=timezone.now(),
+                jit_provisioning_enabled=True,
+                scim_enabled=True,
+                organization=new_org,
+            )
+            Team.objects.create(organization=new_org, name="Test Project")
+
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+            url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+            url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": "alice@posthog.net",
+                "sub": "123",
+            }
+
+            response = self.client.get(url, follow=True)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertRedirects(response, "/")
+
+            # JIT creates user with default MEMBER level
+            # SCIM updates roles later from IdP groups
+            user = User.objects.get(email="alice@posthog.net")
+            self.assertEqual(user.organization_memberships.count(), 1)
+            membership = user.organization_memberships.first()
+            self.assertEqual(membership.organization, new_org)
+            self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_jit_and_scim_both_enabled_allows_existing_users(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            # User exists but is not part of the target org
+            existing_user = User.objects.create(email="bob@posthog.net", distinct_id=str(uuid.uuid4()))
+
+            mock_sso_providers.return_value = {"google-oauth2": True}
+            new_org = Organization.objects.create(name="Test org")
+            OrganizationDomain.objects.create(
+                domain="posthog.net",
+                verified_at=timezone.now(),
+                jit_provisioning_enabled=True,
+                scim_enabled=True,
+                organization=new_org,
+            )
+            Team.objects.create(organization=new_org, name="Test Project")
+
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+            url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+            url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": "bob@posthog.net",
+                "sub": "123",
+            }
+
+            response = self.client.get(url, follow=True)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertRedirects(response, "/")
+
+            # JIT allows existing users to join (controlled by jit_provisioning_enabled)
+            # To block access, admin must disable jit provisioning for SCIM-only provisioning
+            existing_user.refresh_from_db()
+            self.assertEqual(existing_user.organization_memberships.count(), 1)
+            self.assertEqual(existing_user.organization, new_org)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
     def test_cannot_social_signup_with_allowed_but_unverified_domain(self, mock_sso_providers, mock_request):
         mock_sso_providers.return_value = {"google-oauth2": True}
         new_org = Organization.objects.create(name="Test org")
@@ -1064,7 +1143,7 @@ class TestSignupAPI(APIBaseTest):
                     "password": VALID_TEST_PASSWORD,
                     "organization_name": f"Org{i}",
                 },
-                HTTP_X_FORWARDED_FOR="192.168.1.100",
+                headers={"x-forwarded-for": "192.168.1.100"},
             )
 
             if i < 5:
@@ -1098,7 +1177,7 @@ class TestSignupAPI(APIBaseTest):
                         "password": VALID_TEST_PASSWORD,
                         "organization_name": f"Org{ip_suffix}_{i}",
                     },
-                    HTTP_X_FORWARDED_FOR=ip,
+                    headers={"x-forwarded-for": ip},
                 )
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request from IP {ip} should succeed")
                 # Clean up the created org and user to allow next signup
@@ -1487,8 +1566,8 @@ class TestInviteSignupAPI(APIBaseTest):
             self.assertEqual(len(mail.outbox), 2)
             # Someone joined email is sent to the initial user
             self.assertListEqual(mail.outbox[0].to, [initial_user.email])
-            # Verify email is sent to the new user
-            self.assertListEqual(mail.outbox[1].to, [invite.target_email])
+            # Verify email is sent to the new user (formatted with name)
+            self.assertListEqual(mail.outbox[1].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
         self.organization.is_member_join_email_enabled = False

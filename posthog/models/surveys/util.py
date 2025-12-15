@@ -1,4 +1,7 @@
 from enum import StrEnum
+from uuid import UUID
+
+from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 
 
 class SurveyEventName(StrEnum):
@@ -69,10 +72,10 @@ def _build_multiple_choice_query(id_based_key: str, index_based_key: str) -> str
     )"""
 
 
-def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
+def filter_survey_sent_events_by_unique_submission(survey_id: str, team_id: int | None = None) -> str:
     """
     Generates a SQL condition string to filter 'survey sent' events, ensuring uniqueness based on submission ID,
-    using an optimized approach with argMax(). Usage with uniqueSurveySubmissionsFilter(survey_id).
+    using an optimized approach with argMax(). Usage with uniqueSurveySubmissionsFilter(survey_id, team_id).
 
     This handles two scenarios for identifying relevant 'survey sent' events:
     1. Events recorded before the introduction of `$survey_submission_id` (submission_id is empty/null):
@@ -82,6 +85,7 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
 
     Args:
         survey_id: The ID of the survey to filter events for.
+        team_id: Optional team ID to filter events
 
     Returns:
         A SQL condition string (part of a WHERE clause) filtering event UUIDs.
@@ -96,12 +100,17 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
         f"CASE WHEN COALESCE({submission_id_col}, '') = '' THEN toString(uuid) ELSE {submission_id_col} END"
     )
 
+    extra_filters = ""
+    if team_id is not None:
+        extra_filters += f" AND team_id = {team_id}"
+
     query = f"""uuid IN (
         SELECT
             argMax(uuid, timestamp) -- Selects the UUID of the event with the latest timestamp within each group
         FROM events
         WHERE event = '{SurveyEventName.SENT}' -- Filter for 'survey sent' events
           AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = '{survey_id}' -- Filter for the specific survey
+          {extra_filters}
           -- Date range filters from the outer query are intentionally NOT included here.
           -- This ensures we find the globally latest unique submission, which is then
           -- filtered by the outer query's date range.
@@ -160,3 +169,24 @@ def get_unique_survey_event_uuids_sql_subquery(
     group_by_clause = ", ".join([*group_by_prefix_expressions, deduplication_group_by_key])
 
     return f"(SELECT argMax(uuid, timestamp) FROM events WHERE {where_clause} GROUP BY {group_by_clause})"
+
+
+def get_archived_response_uuids(survey_id: str | UUID | None, team_id: int) -> set[str]:
+    """
+    Get set of archived response UUIDs from PostgreSQL.
+
+    Args:
+        survey_id: UUID of the survey, or None to get all archived responses for the team
+        team_id: Team ID
+
+    Returns:
+        Set of archived response UUIDs as strings
+    """
+    filter_kwargs: dict[str, int | str | UUID] = {"team_id": team_id}
+    if survey_id is not None:
+        filter_kwargs["survey_id"] = survey_id
+
+    return {
+        str(uuid)
+        for uuid in SurveyResponseArchive.objects.filter(**filter_kwargs).values_list("response_uuid", flat=True)
+    }
