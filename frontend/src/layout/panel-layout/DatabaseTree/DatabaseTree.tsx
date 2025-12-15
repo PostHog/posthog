@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSidePanel, IconSidebarClose } from '@posthog/icons'
+import { IconSidebarClose } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -21,7 +21,7 @@ export function DatabaseTree({ databaseTreeRef }: { databaseTreeRef: React.RefOb
     return (
         <div
             className={cn(
-                'relative bg-primary border-r border-primary transition-opacity duration-100',
+                'relative bg-primary border-r border-primary transition-opacity duration-100 flex flex-col',
                 isDatabaseTreeCollapsed ? 'w-11' : `w-[var(--database-tree-width)]`,
                 databaseTreeWillCollapse && 'opacity-50'
             )}
@@ -33,27 +33,25 @@ export function DatabaseTree({ databaseTreeRef }: { databaseTreeRef: React.RefOb
             }
             ref={databaseTreeRef}
         >
+            <div className={cn('flex items-center gap-1 w-full p-2 pr-1', !isDatabaseTreeCollapsed && 'pr-2')}>
+                <ButtonPrimitive
+                    onClick={toggleDatabaseTreeCollapsed}
+                    tooltip={isDatabaseTreeCollapsed ? 'Expand panel' : 'Collapse panel'}
+                    className="shrink-0 z-50 h-[32px]"
+                    iconOnly
+                >
+                    <IconSidebarClose
+                        className={cn('size-4 text-tertiary rotate-180', isDatabaseTreeCollapsed && 'rotate-0')}
+                    />
+                </ButtonPrimitive>
+                {!isDatabaseTreeCollapsed && <DatabaseSearchField placeholder="Search warehouse" />}
+            </div>
             <ScrollableShadows
                 direction="vertical"
                 className="flex flex-col gap-2 z-20 group/colorful-product-icons colorful-product-icons-true h-[calc(100vh-var(--scene-layout-header-height))] overflow-auto"
-                innerClassName={cn('py-2 pl-2 pr-1 flex flex-col gap-2', !isDatabaseTreeCollapsed && 'pr-2')}
+                innerClassName="flex flex-col gap-2"
                 styledScrollbars
             >
-                <div className="flex items-center gap-1 w-full">
-                    <ButtonPrimitive
-                        onClick={toggleDatabaseTreeCollapsed}
-                        tooltip={isDatabaseTreeCollapsed ? 'Expand database tree' : 'Collapse database tree'}
-                        className="shrink-0 z-50 h-[32px]"
-                        iconOnly
-                    >
-                        {isDatabaseTreeCollapsed ? (
-                            <IconSidePanel className="size-4 text-tertiary" />
-                        ) : (
-                            <IconSidebarClose className="size-4 text-tertiary" />
-                        )}
-                    </ButtonPrimitive>
-                    {!isDatabaseTreeCollapsed && <DatabaseSearchField placeholder="Search warehouse" />}
-                </div>
                 {!isDatabaseTreeCollapsed && (
                     <>
                         <div className="grow w-full">
