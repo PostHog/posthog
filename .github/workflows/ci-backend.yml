@@ -212,8 +212,8 @@ jobs:
 
                   # For PRs, use target-determinator
                   git fetch origin ${{ github.base_ref }}
-                  echo "Running: target-determinator -before=origin/${{ github.base_ref }} //..."
-                  if ! TARGETS=$(target-determinator -before=origin/${{ github.base_ref }} //... 2>&1); then
+                  echo "Running: target-determinator origin/${{ github.base_ref }}"
+                  if ! TARGETS=$(target-determinator "origin/${{ github.base_ref }}" 2>&1); then
                     echo "target-determinator failed with output:"
                     echo "$TARGETS"
                     echo "Falling back to run all"
