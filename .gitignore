@@ -148,7 +148,11 @@ CODE_REVIEW.md
 
 # SeaweedFS data + migration checkpoint
 .migration-checkpoint.json
-data/seaweedfs<<<<<<< ours
+data/seaweedfs/
+
+# No env files except for the example
+.env*
+!.env.example
 
 # Bazel output directories
 bazel-bin
@@ -156,12 +160,4 @@ bazel-out
 bazel-testlogs
 bazel-*
 MODULE.bazel.lock
-||||||| original
-
-=======
-data/seaweedfs/
-
-# No env files except for the example
-.env*
-!.env.example
->>>>>>> theirs
+requirements_lock.txt
