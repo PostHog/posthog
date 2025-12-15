@@ -674,6 +674,9 @@ class _Printer(Visitor[str]):
         return f"({visited_tuple}){symbol}{visited_index}"
 
     def visit_tuple(self, node: ast.Tuple):
+        if self.dialect == "postgres":
+            return f"ROW({', '.join([self.visit(expr) for expr in node.exprs])})"
+
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_array_access(self, node: ast.ArrayAccess):
@@ -684,7 +687,8 @@ class _Printer(Visitor[str]):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
 
     def visit_dict(self, node: ast.Dict):
-        str = "tuple('__hx_tag', '__hx_obj'"
+        tuple_function = "ROW" if self.dialect == "postgres" else "tuple"
+        str = f"{tuple_function}('__hx_tag', '__hx_obj'"
         for key, value in node.items:
             str += f", {self.visit(key)}, {self.visit(value)}"
         return str + ")"

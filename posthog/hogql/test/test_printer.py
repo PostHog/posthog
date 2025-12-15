@@ -26,6 +26,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import (
     HogQLDialect,
@@ -3348,3 +3349,21 @@ class TestPostgresPrinter(BaseTest):
             self._expr("or(event = 'test', distinct_id = 'abc')"),
             "((event = 'test') OR (distinct_id = 'abc'))",
         )
+
+    def test_hogqlx_row_literals_render_without_tuple_function(self):
+        hx_tag = convert_tag_to_hx(ast.HogQLXTag(kind="div", attributes=[]))
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[hx_tag], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="postgres", stack=[select_query]),
+        )
+
+        rendered = print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="postgres",
+            stack=[prepared_select_query],
+        )
+
+        self.assertEqual(rendered, "ROW('__hx_tag', 'div')")
