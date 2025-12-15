@@ -232,3 +232,22 @@ async def test_acheck_query_in_query_log_not_found(clickhouse_client, django_db_
     non_existent_query_id = f"test-non-existent-query-{uuid.uuid4()}"
     with pytest.raises(ClickHouseQueryNotFound):
         await clickhouse_client.acheck_query_in_query_log(non_existent_query_id)
+
+
+async def test_acheck_query_found(clickhouse_client, django_db_setup):
+    query_id = f"test-acheck-query-{uuid.uuid4()}"
+    await clickhouse_client.execute_query("SELECT 1", query_id=query_id)
+
+    status = await _wait_for_query_status(clickhouse_client, query_id, ClickHouseQueryStatus.FINISHED)
+    assert status == ClickHouseQueryStatus.FINISHED
+
+    # acheck_query should return the same status
+    result = await clickhouse_client.acheck_query(query_id)
+    assert result == ClickHouseQueryStatus.FINISHED
+
+
+async def test_acheck_query_not_found_anywhere(clickhouse_client, django_db_setup):
+    """Test that acheck_query raises ClickHouseQueryNotFound when query is not in query log or process list."""
+    non_existent_query_id = f"test-acheck-query-not-found-{uuid.uuid4()}"
+    with pytest.raises(ClickHouseQueryNotFound):
+        await clickhouse_client.acheck_query(non_existent_query_id)
