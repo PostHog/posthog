@@ -95,7 +95,7 @@ function PowerUsersTable(): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center gap-2 -mb-2">
+            <div className="flex items-center gap-2">
                 <h2 className="mb-0 ml-1">Power {customerLabel.plural}</h2>
                 <LemonButton size="small" noPadding targetBlank to={buttonTo} tooltip={tooltip} />
             </div>
