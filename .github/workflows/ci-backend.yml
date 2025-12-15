@@ -313,6 +313,9 @@ jobs:
                   chmod +x bazelisk-linux-amd64
                   sudo mv bazelisk-linux-amd64 /usr/local/bin/bazel
 
+            - name: Generate requirements_lock.txt for Bazel
+              run: bazel run //:requirements.update
+
             - name: Run Bazel tests
               run: |
                   echo "Running targets: ${{ needs.bazel-coordinator.outputs.bazel_targets }}"
