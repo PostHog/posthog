@@ -316,6 +316,7 @@ class AssistantTool(StrEnum):
     LIST_TASKS = "list_tasks"
     LIST_TASK_RUNS = "list_task_runs"
     LIST_REPOSITORIES = "list_repositories"
+    WEB_SEARCH = "web_search"
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
@@ -4065,7 +4066,12 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: AssistantForm | None = None
-    thinking: list[dict[str, Any]] | None = None
+    thinking: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks."
+        ),
+    )
 
 
 class AssistantNumericValuePropertyFilter(BaseModel):

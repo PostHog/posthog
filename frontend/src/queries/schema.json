@@ -1613,6 +1613,7 @@
                     "$ref": "#/definitions/AssistantForm"
                 },
                 "thinking": {
+                    "description": "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks.",
                     "items": {
                         "additionalProperties": {},
                         "type": "object"
@@ -1941,6 +1942,7 @@
                 "list_tasks",
                 "list_task_runs",
                 "list_repositories",
+                "web_search",
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",

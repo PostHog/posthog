@@ -1393,6 +1393,7 @@
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.14
+
   '''
   SELECT "posthog_sessionrecording"."id",
          "posthog_sessionrecording"."session_id",
