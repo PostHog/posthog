@@ -44,20 +44,29 @@ WORKTREE_BASE="${POSTHOG_WORKTREE_BASE:-${HOME}/.worktrees/posthog}"
 clone_path() {
     local source_path="$1"
     local destination_path="$2"
-    local require_cow="${3:-false}"  # If true, skip copy when CoW unavailable
+    local require_cow="${3:-false}"  # If true, fail when CoW unavailable
     local cp_args=("-a")
 
     if [[ "$(uname -s)" == "Darwin" ]]; then
+        # macOS: cp -c fails if cloning not supported
         if cp -c "${cp_args[@]}" "$source_path" "$destination_path" 2>/dev/null; then
             return 0
         fi
     else
-        if cp --reflink=auto "${cp_args[@]}" "$source_path" "$destination_path" 2>/dev/null; then
-            return 0
+        # Linux: --reflink=auto silently falls back to regular copy,
+        # so use --reflink=always when CoW is required
+        if [[ "$require_cow" == "true" ]]; then
+            if cp --reflink=always "${cp_args[@]}" "$source_path" "$destination_path" 2>/dev/null; then
+                return 0
+            fi
+        else
+            if cp --reflink=auto "${cp_args[@]}" "$source_path" "$destination_path" 2>/dev/null; then
+                return 0
+            fi
         fi
     fi
 
-    # CoW not available - either fall back to regular copy or skip
+    # CoW not available or failed - either fall back to regular copy or skip
     if [[ "$require_cow" == "true" ]]; then
         return 1
     fi
