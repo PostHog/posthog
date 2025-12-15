@@ -880,7 +880,7 @@ function buildFieldTreeNodes(
 
 function getOrderedFields(table: DatabaseSchemaTable): DatabaseSchemaField[] {
     const fieldsRecord = table.fields || {}
-    const primaryKeyFields = new Set(table.schema_metadata?.primary_key || [])
+    const primaryKeyFields = new Set(getPrimaryKeyFieldNames(table))
 
     return Object.values(fieldsRecord).sort((a, b) => {
         if (a.name === b.name) {
@@ -896,6 +896,32 @@ function getOrderedFields(table: DatabaseSchemaTable): DatabaseSchemaField[] {
 
         return a.name.localeCompare(b.name)
     })
+}
+
+function getPrimaryKeyFieldNames(table: DatabaseSchemaTable): string[] {
+    if (!('schema_metadata' in table)) {
+        // find fields "id" or "uuid"
+        return ['id', 'uuid', 'key', 'index'].filter((name) => name in table.fields)
+    }
+
+    const primaryKeyFromMetadata = table.schema_metadata?.primary_key || []
+    if (primaryKeyFromMetadata.length) {
+        return primaryKeyFromMetadata
+    }
+
+    const indexPrimaryKeys =
+        table.schema_metadata?.indexes?.filter((index) => index.is_primary).flatMap((index) => index.columns) || []
+    if (indexPrimaryKeys.length) {
+        return indexPrimaryKeys
+    }
+
+    const isClickhouseTable =
+        'format' in table && typeof table.format === 'string' && table.format.toLowerCase().includes('clickhouse')
+    if (isClickhouseTable && table.fields?.id) {
+        return ['id']
+    }
+
+    return []
 }
 
 function resolveFieldReference(
