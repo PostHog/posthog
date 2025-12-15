@@ -8,6 +8,7 @@ py_library(
     srcs = ["__init__.py"],
     data = [":legacy_srcs"],
     visibility = ["//visibility:public"],
+    deps = ["//common/bazel:third_party"],
 )
 
 exports_files(

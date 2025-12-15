@@ -1,0 +1,16 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+# Shared pip dependencies for legacy code.
+# Add commonly needed packages here once, use everywhere.
+# As we modularize, this will shrink and targets get more specific deps.
+py_library(
+    name = "third_party",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@pypi//celery",
+        "@pypi//django",
+        "@pypi//django_structlog",
+        "@pypi//djangorestframework",
+        "@pypi//structlog",
+    ],
+)
