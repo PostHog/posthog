@@ -36,7 +36,7 @@ export const multiQuestionFormLogic = kea<multiQuestionFormLogicType>([
             {
                 setCustomInput: (_: string, { value }) => value,
                 selectOption: () => '',
-                submitCustomAnswer: () => '',
+                advanceToNextQuestion: () => '',
             },
         ],
         showCustomInput: [
@@ -44,7 +44,7 @@ export const multiQuestionFormLogic = kea<multiQuestionFormLogicType>([
             {
                 setShowCustomInput: (_: boolean, { show }) => show,
                 selectOption: () => false,
-                submitCustomAnswer: () => false,
+                advanceToNextQuestion: () => false,
             },
         ],
         isSubmitted: [
@@ -95,6 +95,10 @@ export const multiQuestionFormLogic = kea<multiQuestionFormLogicType>([
             const trimmedValue = values.customInput.trim()
             const updatedAnswers = { ...values.answers, [currentQuestion.id]: trimmedValue }
             actions.setAnswersValues(updatedAnswers)
+
+            // Clear custom input and hide the input field after capturing the value
+            actions.setCustomInput('')
+            actions.setShowCustomInput(false)
 
             if (values.isLastQuestion) {
                 // Trigger form submission - kea-forms will call the submit handler with the current values

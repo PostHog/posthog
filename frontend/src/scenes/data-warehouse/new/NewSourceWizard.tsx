@@ -1,7 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect } from 'react'
 
-import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconQuestion } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -150,7 +151,17 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 </LemonButton>
             </div>
         )
-    }, [currentStep, canGoBack, onBack, isLoading, manualLinkIsLoading, canGoNext, nextButtonText, onSubmit])
+    }, [
+        currentStep,
+        canGoBack,
+        onBack,
+        isLoading,
+        manualLinkIsLoading,
+        canGoNext,
+        nextButtonText,
+        onSubmit,
+        props.hideBackButton,
+    ])
 
     return (
         <div>
@@ -232,13 +243,26 @@ function SecondStep(): JSX.Element {
                 <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
             )}
 
-            {selectedConnector.docsUrl && (
-                <div className="inline-block">
-                    <LemonButton to={selectedConnector.docsUrl} type="primary" size="small">
+            <div className="flex flex-row gap-1">
+                {selectedConnector.permissionsCaption && (
+                    <Tooltip
+                        title={
+                            <LemonMarkdown className="text-sm">{selectedConnector.permissionsCaption}</LemonMarkdown>
+                        }
+                        interactive
+                    >
+                        <LemonTag type="muted" size="small">
+                            Permissions required <IconQuestion />
+                        </LemonTag>
+                    </Tooltip>
+                )}
+                {selectedConnector.permissionsCaption && selectedConnector.docsUrl && <span>&nbsp;|&nbsp;</span>}
+                {selectedConnector.docsUrl && (
+                    <Link to={selectedConnector.docsUrl} target="_blank">
                         View docs
-                    </LemonButton>
-                </div>
-            )}
+                    </Link>
+                )}
+            </div>
 
             <LemonDivider />
 

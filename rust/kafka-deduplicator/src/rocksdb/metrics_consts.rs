@@ -41,5 +41,8 @@ pub const ROCKSDB_CHECKPOINT_OPERATIONS_COUNTER: &str = "rocksdb_checkpoint_oper
 /// Gauge for number of SST files
 pub const ROCKSDB_SST_FILES_COUNT_GAUGE: &str = "rocksdb_sst_files_count";
 
+/// Gauge for estimated number of keys in a column family
+pub const ROCKSDB_ESTIMATE_NUM_KEYS_GAUGE: &str = "rocksdb_estimate_num_keys";
+
 /// Counter for RocksDB errors
 pub const ROCKSDB_ERRORS_COUNTER: &str = "rocksdb_errors_total";

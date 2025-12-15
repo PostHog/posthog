@@ -224,4 +224,4 @@ class TestConfirmationFeature:
         cmd.execute()
 
         # Should pass --yes to child even though user didn't pass --yes flag
-        mock_run.assert_called_once_with([bin_hogli, "docker:services:down", "--yes"])
+        mock_run.assert_called_once_with([bin_hogli, "docker:services:down", "--yes"], env={})

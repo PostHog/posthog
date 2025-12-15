@@ -256,8 +256,8 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
         return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
     }
 
-    if (item.type === 'text' && 'text' in item) {
-        return searchQuery?.trim() && typeof item.text === 'string' ? (
+    if (item.type === 'text' && 'text' in item && typeof item.text === 'string') {
+        return searchQuery?.trim() ? (
             <SearchHighlight string={item.text} substring={searchQuery} className="whitespace-pre-wrap" />
         ) : (
             <span className="whitespace-pre-wrap">{item.text}</span>
