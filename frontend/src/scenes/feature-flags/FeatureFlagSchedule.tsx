@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -12,6 +13,7 @@ import {
     LemonTableColumns,
     LemonTag,
     LemonTagType,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -21,6 +23,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { RecurrenceInterval, ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
@@ -206,6 +209,20 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 return formattedDate
             },
         },
+        {
+            title: 'End date',
+            dataIndex: 'end_date',
+            render: function Render(_, scheduledChange: ScheduledChangeType) {
+                if (!scheduledChange.is_recurring && !scheduledChange.recurrence_interval) {
+                    // One-time schedule - no end date concept
+                    return <span className="text-muted">—</span>
+                }
+                if (!scheduledChange.end_date) {
+                    return <span className="text-muted">No end date</span>
+                }
+                return dayjs(scheduledChange.end_date).format('MMM D, YYYY')
+            },
+        },
         createdAtColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
         createdByColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
         {
@@ -331,31 +348,51 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
                             <div>
                                 <div className="font-semibold leading-6 h-6 mb-1">Repeat</div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-col gap-2">
                                     <LemonCheckbox
                                         id="recurring-checkbox"
                                         label="Make recurring"
-                                        onChange={setIsRecurring}
+                                        onChange={(checked) => {
+                                            setIsRecurring(checked)
+                                            if (!checked) {
+                                                setRecurrenceInterval(null)
+                                                setEndDate(null)
+                                            }
+                                        }}
                                         checked={isRecurring}
                                     />
-                                    {isRecurring && (
-                                        <LemonSelect
-                                            placeholder="Select interval"
-                                            value={recurrenceInterval}
-                                            onChange={setRecurrenceInterval}
-                                            options={[
-                                                { value: RecurrenceInterval.Daily, label: 'Daily' },
-                                                { value: RecurrenceInterval.Weekly, label: 'Weekly' },
-                                                { value: RecurrenceInterval.Monthly, label: 'Monthly' },
-                                            ]}
-                                        />
-                                    )}
+                                    <LemonSelect
+                                        className="w-40"
+                                        placeholder="Select interval"
+                                        value={recurrenceInterval}
+                                        onChange={setRecurrenceInterval}
+                                        disabled={!isRecurring}
+                                        options={[
+                                            { value: RecurrenceInterval.Daily, label: 'Daily' },
+                                            { value: RecurrenceInterval.Weekly, label: 'Weekly' },
+                                            { value: RecurrenceInterval.Monthly, label: 'Monthly' },
+                                        ]}
+                                    />
                                 </div>
                             </div>
                         )}
                         {isRecurring && (
                             <div className="w-50">
-                                <div className="font-semibold leading-6 h-6 mb-1">End date (optional)</div>
+                                <div className="font-semibold leading-6 h-6 mb-1 flex items-center gap-1">
+                                    End date (optional)
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Schedule will run through end of this day in the{' '}
+                                                <Link to={urls.settings('project', 'date-and-time')} target="_blank">
+                                                    project's timezone
+                                                </Link>
+                                            </>
+                                        }
+                                    >
+                                        <IconInfo className="text-muted text-base" />
+                                    </Tooltip>
+                                </div>
                                 <LemonCalendarSelectInput
                                     value={endDate}
                                     onChange={(value) => setEndDate(value)}
