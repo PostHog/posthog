@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.19
+
+- chore: upgrade cargo-dist to 0.30.3
+
 # 0.5.17
 
 - feat: add --file option to target built files directly
