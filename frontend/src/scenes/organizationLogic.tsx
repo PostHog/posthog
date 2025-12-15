@@ -141,8 +141,7 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
         isNotActiveReason: [
             (s) => [s.currentOrganization],
-            (currentOrganization): string | null =>
-                currentOrganization?.is_active === false ? currentOrganization.is_not_active_reason : null,
+            (currentOrganization): string | null => currentOrganization?.is_not_active_reason,
         ],
     }),
     listeners(({ actions, values }) => ({
