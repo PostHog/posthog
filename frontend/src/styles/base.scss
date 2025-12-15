@@ -1096,7 +1096,6 @@
     }
 
     .input-like {
-        border: 1px solid var(--color-border-primary);
         border-radius: var(--radius);
         outline: 0 solid transparent;
         box-shadow: 0 0 0 0 transparent;
@@ -1107,13 +1106,8 @@
             box-shadow: none;
         }
 
-        &:not([disabled]):hover {
-            border-color: var(--color-border-secondary);
-        }
-
         &:not([disabled]):focus-visible,
         &:not([disabled]):focus-within {
-            border-color: var(--color-border-secondary);
             box-shadow: 0 0 0 3px var(--color-bg-fill-highlight-75);
         }
     }
