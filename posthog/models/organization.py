@@ -155,6 +155,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     is_active = models.BooleanField(
         _("active"),
         default=True,
+        null=True,
+        blank=True,
         help_text=_("Set this to 'No' to temporarily disable an organization."),
     )
     is_not_active_reason = models.TextField(
