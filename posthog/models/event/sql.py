@@ -522,7 +522,8 @@ INSERT INTO {EVENTS_DATA_TABLE()}
     person_mode,
     created_at,
     _timestamp,
-    _offset
+    _offset,
+    historical_migration
 )
 VALUES
 """

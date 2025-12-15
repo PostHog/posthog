@@ -962,6 +962,57 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
         # assert mock_posthog.capture.call_count == 2
         # mock_posthog.capture.assert_has_calls(calls, any_order=True)
 
+    def test_get_teams_with_billable_event_count_excludes_historical_migration(self) -> None:
+        from posthog.tasks.usage_report import (
+            get_teams_with_billable_enhanced_persons_event_count_in_period,
+            get_teams_with_billable_event_count_in_period,
+            get_teams_with_historical_migration_enhanced_persons_event_count_in_period,
+            get_teams_with_historical_migration_event_count_in_period,
+        )
+
+        begin = datetime(2023, 1, 1, 0, 0)
+        end = datetime(2023, 1, 2, 0, 0)
+
+        # Create normal events
+        for i in range(10):
+            _create_event(
+                event="normal_event",
+                team=self.team,
+                distinct_id=f"user_{i}",
+                timestamp=begin + relativedelta(hours=i),
+                properties={},
+                person_mode="full",
+            )
+
+        # Create events with historical_migration=True (should be excluded from billing)
+        for i in range(5):
+            _create_event(
+                event="historical_event",
+                team=self.team,
+                distinct_id=f"historical_user_{i}",
+                timestamp=begin + relativedelta(hours=i),
+                properties={},
+                person_mode="full",
+                historical_migration=True,
+            )
+        flush_persons_and_events()
+
+        # Billable counts should exclude historical migration events
+        result = get_teams_with_billable_event_count_in_period(begin, end)
+        self.assertEqual(result[0][1], 10)
+
+        result_enhanced = get_teams_with_billable_enhanced_persons_event_count_in_period(begin, end)
+        self.assertEqual(result_enhanced[0][1], 10)
+
+        # Historical migration counts should only include historical migration events
+        result_historical = get_teams_with_historical_migration_event_count_in_period(begin, end)
+        self.assertEqual(result_historical[0][1], 5)
+
+        result_historical_enhanced = get_teams_with_historical_migration_enhanced_persons_event_count_in_period(
+            begin, end
+        )
+        self.assertEqual(result_historical_enhanced[0][1], 5)
+
 
 @freeze_time("2022-01-09T00:01:00Z")
 class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):

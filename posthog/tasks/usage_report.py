@@ -99,6 +99,8 @@ USAGE_REPORT_TASK_KWARGS = {
 class UsageReportCounters:
     event_count_in_period: int
     enhanced_persons_event_count_in_period: int
+    historical_migration_event_count_in_period: int
+    historical_migration_enhanced_persons_event_count_in_period: int
     event_count_with_groups_in_period: int
     event_count_from_langfuse_in_period: int
     event_count_from_helicone_in_period: int
@@ -524,6 +526,7 @@ def get_teams_with_billable_event_count_in_period(
         FROM events
         WHERE created_at >= %(begin)s AND created_at < %(end)s
             AND event NOT IN %(excluded_events)s
+            AND NOT historical_migration
         GROUP BY team_id
     """
 
@@ -562,6 +565,70 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
         WHERE created_at >= %(begin)s AND created_at < %(end)s
             AND event NOT IN %(excluded_events)s
             AND person_mode IN ('full', 'force_upgrade')
+            AND NOT historical_migration
+        GROUP BY team_id
+    """
+
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_historical_migration_event_count_in_period(
+    begin: datetime, end: datetime, count_distinct: bool = False
+) -> list[tuple[int, int]]:
+    if count_distinct:
+        distinct_expression = "distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)"
+    else:
+        distinct_expression = "1"
+
+    excluded_events = [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *AI_EVENTS,
+    ]
+
+    query_template = f"""
+        SELECT team_id, count({distinct_expression}) as count
+        FROM events
+        WHERE created_at >= %(begin)s AND created_at < %(end)s
+            AND event NOT IN %(excluded_events)s
+            AND historical_migration
+        GROUP BY team_id
+    """
+
+    return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=3)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_historical_migration_enhanced_persons_event_count_in_period(
+    begin: datetime, end: datetime, count_distinct: bool = False
+) -> list[tuple[int, int]]:
+    if count_distinct:
+        distinct_expression = "distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)"
+    else:
+        distinct_expression = "1"
+
+    excluded_events = [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *AI_EVENTS,
+    ]
+
+    query_template = f"""
+        SELECT team_id, count({distinct_expression}) as count
+        FROM events
+        WHERE created_at >= %(begin)s AND created_at < %(end)s
+            AND event NOT IN %(excluded_events)s
+            AND person_mode IN ('full', 'force_upgrade')
+            AND historical_migration
         GROUP BY team_id
     """
 
@@ -1661,6 +1728,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_enhanced_persons_event_count_in_period": get_teams_with_billable_enhanced_persons_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
+        "teams_with_historical_migration_event_count_in_period": get_teams_with_historical_migration_event_count_in_period(
+            period_start, period_end, count_distinct=True
+        ),
+        "teams_with_historical_migration_enhanced_persons_event_count_in_period": get_teams_with_historical_migration_enhanced_persons_event_count_in_period(
+            period_start, period_end, count_distinct=True
+        ),
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
             period_start, period_end
         ),
@@ -1914,6 +1987,12 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         enhanced_persons_event_count_in_period=all_data["teams_with_enhanced_persons_event_count_in_period"].get(
             team.id, 0
         ),
+        historical_migration_event_count_in_period=all_data[
+            "teams_with_historical_migration_event_count_in_period"
+        ].get(team.id, 0),
+        historical_migration_enhanced_persons_event_count_in_period=all_data[
+            "teams_with_historical_migration_enhanced_persons_event_count_in_period"
+        ].get(team.id, 0),
         event_count_with_groups_in_period=all_data["teams_with_event_count_with_groups_in_period"].get(team.id, 0),
         event_count_from_langfuse_in_period=all_data["teams_with_event_count_from_langfuse_in_period"].get(team.id, 0),
         event_count_from_traceloop_in_period=all_data["teams_with_event_count_from_traceloop_in_period"].get(
