@@ -408,7 +408,7 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
 
     const { users_affected, total_users } = blastRadius
 
-    if (users_affected !== undefined && total_users !== null) {
+    if (users_affected != null && total_users != null) {
         return (
             <div className="text-muted">
                 approximately {humanFriendlyNumber(users_affected)} of {humanFriendlyNumber(total_users)} persons.
