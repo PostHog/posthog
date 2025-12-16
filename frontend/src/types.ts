@@ -1980,7 +1980,6 @@ export interface BillingType {
         status: 'active' | 'expired' | 'cancelled' | 'converted'
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
-        silence_notifications?: boolean
     }
     billing_plan: BillingPlan | null
     startup_program_label?: StartupProgramLabel | null
