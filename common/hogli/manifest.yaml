@@ -284,7 +284,7 @@ build:
         description: Build products manifest from TypeScript/JSX files
 docker:
     docker:services:up:
-        cmd: docker compose -f docker-compose.dev.yml up -d
+        cmd: docker compose -f docker-compose.dev.yml up -d --force-recreate
         description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
             Kafka)
         services:
