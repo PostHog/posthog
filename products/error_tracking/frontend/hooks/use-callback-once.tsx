@@ -16,6 +16,7 @@ export function useCallbackOnce<F extends (...args: any[]) => any>(cb: F, deps: 
                 called.current = true
             }
         },
-        [cb]
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        []
     )
 }
