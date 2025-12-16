@@ -1148,7 +1148,7 @@ function wrapTimeAggregation(value: string, interval: BITimeAggregation, table: 
     }
 }
 
-function getTableDialect(table: DatabaseSchemaTable): 'postgres' | 'clickhouse' {
+export function getTableDialect(table: DatabaseSchemaTable): 'postgres' | 'clickhouse' {
     return (table as any)?.source?.source_type === 'Postgres' ? 'postgres' : 'clickhouse'
 }
 

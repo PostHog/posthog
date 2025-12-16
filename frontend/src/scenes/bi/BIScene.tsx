@@ -56,6 +56,7 @@ import {
     columnAlias,
     columnKey,
     defaultColumnForTable,
+    getTableDialect,
     isJsonField,
 } from './biLogic'
 
@@ -68,6 +69,8 @@ const MIN_MAIN_WIDTH = 360
 const MAX_COLUMN_WIDTH = 320
 const MAX_CELL_LINES = 6
 const MIN_CHARS_TO_CLAMP = 120
+
+type QueryPreviewLanguage = 'hogql' | 'clickhouse' | 'postgres'
 
 export function formatFilter(filter: BIQueryFilter): JSX.Element {
     return (
@@ -346,9 +349,14 @@ export function BIScene(): JSX.Element {
         setExpandedFields,
     } = useActions(biLogic)
 
+    const queryDialect: 'clickhouse' | 'postgres' = selectedTableObject
+        ? getTableDialect(selectedTableObject)
+        : 'clickhouse'
+
     const [openColumnPopover, setOpenColumnPopover] = useState<string | null>(null)
     const [openFilterPopover, setOpenFilterPopover] = useState<number | null>(null)
     const [showGeneratedQuery, setShowGeneratedQuery] = useState(false)
+    const [queryPreviewLanguage, setQueryPreviewLanguage] = useState<QueryPreviewLanguage>('hogql')
     const [chartType, setChartType] = useState<'pie' | 'line' | 'bar' | 'area'>('pie')
     const [expandedTableGroups, setExpandedTableGroups] = useState<string[]>(['folder-posthog'])
     const [viewportWidth, setViewportWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440)
@@ -360,7 +368,7 @@ export function BIScene(): JSX.Element {
         )
     )
     const [chartHeight, setChartHeight] = useState(DEFAULT_CHART_HEIGHT)
-    const [hogqlHeight, setHogqlHeight] = useState(180)
+    const [queryPreviewHeight, setQueryPreviewHeight] = useState(180)
 
     const tableTreeData = useMemo<TreeDataItem[]>(() => {
         const groupedTables: Record<string, TreeDataItem> = {}
@@ -431,7 +439,7 @@ export function BIScene(): JSX.Element {
                 )
             )
 
-            setHogqlHeight((current) =>
+            setQueryPreviewHeight((current) =>
                 Math.min(
                     Math.max(current, MIN_RESIZABLE_HEIGHT),
                     Math.max(MIN_RESIZABLE_HEIGHT, window.innerHeight - 260)
@@ -459,8 +467,21 @@ export function BIScene(): JSX.Element {
     useEffect(() => {
         if (!_queryString) {
             setShowGeneratedQuery(false)
+            setQueryPreviewLanguage('hogql')
         }
     }, [_queryString])
+
+    useEffect(() => {
+        setQueryPreviewLanguage((current) => {
+            if (queryDialect === 'postgres' && current === 'clickhouse') {
+                return 'hogql'
+            }
+            if (queryDialect === 'clickhouse' && current === 'postgres') {
+                return 'hogql'
+            }
+            return current
+        })
+    }, [queryDialect])
 
     const rawRows = useMemo(() => {
         if (!queryResponse?.results || selectedFields.length === 0) {
@@ -554,9 +575,53 @@ export function BIScene(): JSX.Element {
         ? ['line', 'bar', 'area']
         : ['pie', 'line', 'bar', 'area']
 
+    const queryPreviewOptions = useMemo(
+        () =>
+            queryDialect === 'postgres'
+                ? [
+                      { value: 'hogql' as const, label: 'HogQL' },
+                      { value: 'postgres' as const, label: 'Postgres' },
+                  ]
+                : [
+                      { value: 'hogql' as const, label: 'HogQL' },
+                      { value: 'clickhouse' as const, label: 'ClickHouse' },
+                  ],
+        [queryDialect]
+    )
+
+    const activeQueryPreviewLanguage = queryPreviewOptions.some((option) => option.value === queryPreviewLanguage)
+        ? queryPreviewLanguage
+        : 'hogql'
+
+    const displayedQuery = useMemo(() => {
+        if (activeQueryPreviewLanguage === 'hogql') {
+            return queryString
+        }
+
+        const sqlQuery = activeQueryPreviewLanguage === 'postgres' ? queryResponse?.postgres : queryResponse?.clickhouse
+
+        if (sqlQuery) {
+            return sqlQuery
+        }
+
+        if (queryResponseLoading) {
+            return 'Loading SQL…'
+        }
+
+        return activeQueryPreviewLanguage === 'postgres'
+            ? 'Postgres SQL will appear after running the query.'
+            : 'ClickHouse SQL will appear after running the query.'
+    }, [
+        activeQueryPreviewLanguage,
+        queryResponse?.clickhouse,
+        queryResponse?.postgres,
+        queryResponseLoading,
+        queryString,
+    ])
+
     const maxSidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, viewportWidth - MIN_MAIN_WIDTH)
     const maxChartHeight = Math.max(MIN_RESIZABLE_HEIGHT, viewportHeight - 240)
-    const maxHogqlHeight = Math.max(MIN_RESIZABLE_HEIGHT, viewportHeight - 260)
+    const maxQueryPreviewHeight = Math.max(MIN_RESIZABLE_HEIGHT, viewportHeight - 260)
 
     const { canvasRef: chartCanvasRef } = useChart({
         getConfig: () => {
@@ -718,8 +783,14 @@ export function BIScene(): JSX.Element {
     const startChartResize = (event: React.MouseEvent | React.TouchEvent): void =>
         startVerticalResize(event, chartHeight, setChartHeight, MIN_RESIZABLE_HEIGHT, maxChartHeight)
 
-    const startHogqlResize = (event: React.MouseEvent | React.TouchEvent): void =>
-        startVerticalResize(event, hogqlHeight, setHogqlHeight, MIN_RESIZABLE_HEIGHT, maxHogqlHeight)
+    const startQueryPreviewResize = (event: React.MouseEvent | React.TouchEvent): void =>
+        startVerticalResize(
+            event,
+            queryPreviewHeight,
+            setQueryPreviewHeight,
+            MIN_RESIZABLE_HEIGHT,
+            maxQueryPreviewHeight
+        )
 
     const ResizeHandle = ({
         onStart,
@@ -849,7 +920,7 @@ export function BIScene(): JSX.Element {
                 </ResizableElement>
 
                 <div className="flex-1 flex flex-col gap-2 min-h-0 min-w-0">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2 w-full">
                         <div className="flex items-center gap-2">
                             <LemonButton type="secondary" onClick={() => refreshQuery()} icon={<IconPlay />}>
                                 Run query
@@ -860,56 +931,67 @@ export function BIScene(): JSX.Element {
                                 value={limit}
                                 onChange={(value) => setLimit(Number(value) || 50)}
                                 suffix="rows"
-                                style={{ width: 140 }}
+                                style={{ width: 70 }}
                             />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => setShowGeneratedQuery((current) => !current)}
-                                disabled={!_queryString}
-                            >
-                                {showGeneratedQuery ? 'Hide generated HogQL' : 'Show generated HogQL'}
-                            </LemonButton>
+                            <div className="flex flex-wrap gap-2">
+                                {filters.map((filter, index) => (
+                                    <FilterPill
+                                        key={`${columnKey(filter.column)}-${index}`}
+                                        filter={filter}
+                                        isOpen={openFilterPopover === index}
+                                        onOpenChange={(visible) => {
+                                            setOpenColumnPopover(null)
+                                            setOpenFilterPopover(visible ? index : null)
+                                        }}
+                                        onUpdate={(expression) => updateFilter(index, expression)}
+                                        onRemove={() => removeFilter(index)}
+                                    />
+                                ))}
+                            </div>{' '}
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                            {filters.map((filter, index) => (
-                                <FilterPill
-                                    key={`${columnKey(filter.column)}-${index}`}
-                                    filter={filter}
-                                    isOpen={openFilterPopover === index}
-                                    onOpenChange={(visible) => {
-                                        setOpenColumnPopover(null)
-                                        setOpenFilterPopover(visible ? index : null)
-                                    }}
-                                    onUpdate={(expression) => updateFilter(index, expression)}
-                                    onRemove={() => removeFilter(index)}
-                                />
-                            ))}
-                        </div>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => setShowGeneratedQuery((current) => !current)}
+                            disabled={!_queryString}
+                        >
+                            {showGeneratedQuery ? 'Hide SQL' : 'Show SQL'}
+                        </LemonButton>
                     </div>
 
                     {showGeneratedQuery && _queryString && (
                         <LemonCard
                             hoverEffect={false}
                             className="flex flex-col overflow-hidden"
-                            style={{ minHeight: MIN_RESIZABLE_HEIGHT, height: hogqlHeight, maxHeight: maxHogqlHeight }}
+                            style={{
+                                minHeight: MIN_RESIZABLE_HEIGHT,
+                                height: queryPreviewHeight,
+                                maxHeight: maxQueryPreviewHeight,
+                            }}
                         >
-                            <div className="flex items-start justify-between gap-2">
-                                <div className="text-muted">Generated HogQL</div>
-                                <LemonButton
-                                    type="tertiary"
-                                    size="small"
-                                    icon={<IconExpand45 />}
-                                    onClick={() => newInternalTab(urls.sqlEditor(_queryString))}
-                                    tooltip="Open in SQL editor"
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={activeQueryPreviewLanguage}
+                                    onChange={(value) => setQueryPreviewLanguage(value)}
+                                    options={queryPreviewOptions}
                                 />
+                                <div className="flex items-center gap-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconExpand45 />}
+                                        onClick={() => newInternalTab(urls.sqlEditor(_queryString))}
+                                        tooltip="Open in SQL editor"
+                                    />
+                                </div>
                             </div>
-                            <pre className="flex-1 overflow-auto whitespace-pre-wrap text-xs">{queryString}</pre>
+                            <pre className="flex-1 overflow-auto whitespace-pre-wrap text-xs">{displayedQuery}</pre>
                         </LemonCard>
                     )}
 
                     {showGeneratedQuery && _queryString && numericColumns.length > 0 && (
-                        <ResizeHandle onStart={startHogqlResize} ariaLabel="Resize generated HogQL" />
+                        <ResizeHandle onStart={startQueryPreviewResize} ariaLabel="Resize generated query" />
                     )}
 
                     {numericColumns.length > 0 && selectedFields.length > 0 && (
