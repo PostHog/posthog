@@ -150,7 +150,17 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 </LemonButton>
             </div>
         )
-    }, [currentStep, canGoBack, onBack, isLoading, manualLinkIsLoading, canGoNext, nextButtonText, onSubmit])
+    }, [
+        currentStep,
+        canGoBack,
+        onBack,
+        isLoading,
+        manualLinkIsLoading,
+        canGoNext,
+        nextButtonText,
+        onSubmit,
+        props.hideBackButton,
+    ])
 
     return (
         <div>

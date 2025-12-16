@@ -5464,6 +5464,10 @@ class SavedInsightNode(BaseModel):
     showEventFilter: bool | None = Field(
         default=None, description="Include an event filter above the table (EventsNode only)"
     )
+    showEventsFilter: bool | None = Field(
+        default=None,
+        description="Include an events filter above the table to filter by multiple events (EventsQuery only)",
+    )
     showExport: bool | None = Field(default=None, description="Show the export button")
     showFilters: bool | None = None
     showHeader: bool | None = None
@@ -5490,9 +5494,6 @@ class SavedInsightNode(BaseModel):
     )
     showSavedQueries: bool | None = Field(default=None, description="Shows a list of saved queries")
     showSearch: bool | None = Field(default=None, description="Include a free text search field (PersonsNode only)")
-    showSecondEventFilter: bool | None = Field(
-        default=None, description="Include a second event filter above the table (EventsQuery only)"
-    )
     showSourceQueryOptions: bool | None = Field(
         default=None, description="Show actors query options and back to source"
     )
@@ -15711,6 +15712,7 @@ class SessionBatchEventsQuery(BaseModel):
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
+    events: list[str] | None = Field(default=None, description="Filter to events matching any of these event names")
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
@@ -15773,9 +15775,6 @@ class SessionBatchEventsQuery(BaseModel):
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
     response: SessionBatchEventsQueryResponse | None = None
-    secondEvent: str | None = Field(
-        default=None, description="Second event filter - shows events matching either this or the primary event"
-    )
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     session_ids: list[str] = Field(
         ..., description="List of session IDs to fetch events for. Will be translated to $session_id IN filter."
@@ -15838,6 +15837,7 @@ class EventsQuery(BaseModel):
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
+    events: list[str] | None = Field(default=None, description="Filter to events matching any of these event names")
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
@@ -15897,9 +15897,6 @@ class EventsQuery(BaseModel):
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
     response: EventsQueryResponse | None = None
-    secondEvent: str | None = Field(
-        default=None, description="Second event filter - shows events matching either this or the primary event"
-    )
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     source: InsightActorsQuery | None = Field(default=None, description="source for querying events for insights")
     tags: QueryLogTags | None = None
@@ -15977,6 +15974,10 @@ class DataTableNode(BaseModel):
     showEventFilter: bool | None = Field(
         default=None, description="Include an event filter above the table (EventsNode only)"
     )
+    showEventsFilter: bool | None = Field(
+        default=None,
+        description="Include an events filter above the table to filter by multiple events (EventsQuery only)",
+    )
     showExport: bool | None = Field(default=None, description="Show the export button")
     showHogQLEditor: bool | None = Field(default=None, description="Include a HogQL query editor above HogQL tables")
     showOpenEditorButton: bool | None = Field(
@@ -15998,9 +15999,6 @@ class DataTableNode(BaseModel):
     )
     showSavedQueries: bool | None = Field(default=None, description="Shows a list of saved queries")
     showSearch: bool | None = Field(default=None, description="Include a free text search field (PersonsNode only)")
-    showSecondEventFilter: bool | None = Field(
-        default=None, description="Include a second event filter above the table (EventsQuery only)"
-    )
     showSourceQueryOptions: bool | None = Field(
         default=None, description="Show actors query options and back to source"
     )

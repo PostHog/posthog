@@ -772,8 +772,8 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     filterTestAccounts?: boolean
     /** Limit to events matching this string */
     event?: string | null
-    /** Second event filter - shows events matching either this or the primary event */
-    secondEvent?: string | null
+    /** Filter to events matching any of these event names */
+    events?: string[] | null
     /**
      * Number of rows to return
      */
@@ -1046,8 +1046,8 @@ interface DataTableNodeViewProps {
     /** Show with most visual options enabled. Used in scenes. */ full?: boolean
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
-    /** Include a second event filter above the table (EventsQuery only) */
-    showSecondEventFilter?: boolean
+    /** Include an events filter above the table to filter by multiple events (EventsQuery only) */
+    showEventsFilter?: boolean
     /** Include a free text search field (PersonsNode only) */
     showSearch?: boolean
     /** Include a property filter above the table */

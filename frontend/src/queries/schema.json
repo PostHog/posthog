@@ -9892,6 +9892,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -9944,10 +9948,6 @@
                 },
                 "showSearch": {
                     "description": "Include a free text search field (PersonsNode only)",
-                    "type": "boolean"
-                },
-                "showSecondEventFilter": {
-                    "description": "Include a second event filter above the table (EventsQuery only)",
                     "type": "boolean"
                 },
                 "showSourceQueryOptions": {
@@ -12584,6 +12584,20 @@
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
                 },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
+                },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
                     "type": "boolean"
@@ -12631,10 +12645,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/EventsQueryResponse"
-                },
-                "secondEvent": {
-                    "description": "Second event filter - shows events matching either this or the primary event",
-                    "type": ["string", "null"]
                 },
                 "select": {
                     "description": "Return a limited set of data. Required.",
@@ -26929,6 +26939,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -26996,10 +27010,6 @@
                 },
                 "showSearch": {
                     "description": "Include a free text search field (PersonsNode only)",
-                    "type": "boolean"
-                },
-                "showSecondEventFilter": {
-                    "description": "Include a second event filter above the table (EventsQuery only)",
                     "type": "boolean"
                 },
                 "showSourceQueryOptions": {
@@ -27171,6 +27181,20 @@
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
                 },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
+                },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
                     "type": "boolean"
@@ -27222,10 +27246,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/SessionBatchEventsQueryResponse"
-                },
-                "secondEvent": {
-                    "description": "Second event filter - shows events matching either this or the primary event",
-                    "type": ["string", "null"]
                 },
                 "select": {
                     "description": "Return a limited set of data. Required.",
