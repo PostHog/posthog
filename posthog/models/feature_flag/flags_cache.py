@@ -291,10 +291,14 @@ def verify_team_flags(team: Team, batch_data: dict | None = None, verbose: bool 
     if mismatch_count > 0:
         summary_parts.append(f"{mismatch_count} mismatched")
 
+    # Always include flag keys for logging; full diffs only when verbose
+    diff_flag_keys = sorted([d.get("flag_key") or str(d["flag_id"]) for d in diffs])
+
     result: dict = {
         "status": "mismatch",
         "issue": "DATA_MISMATCH",
         "details": f"{', '.join(summary_parts)} flags" if summary_parts else "unknown differences",
+        "diff_flags": diff_flag_keys,
     }
 
     if verbose:

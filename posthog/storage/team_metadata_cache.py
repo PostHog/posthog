@@ -290,10 +290,14 @@ def verify_team_metadata(team: Team, batch_data: dict | None = None, verbose: bo
     if not diffs:
         return {"status": "match", "issue": "", "details": ""}
 
+    # Always include field names for logging; full values only when verbose
+    diff_fields = sorted([d["field"] for d in diffs])
+
     result: dict = {
         "status": "mismatch",
         "issue": "DATA_MISMATCH",
         "details": f"{len(diffs)} field(s) differ",
+        "diff_fields": diff_fields,
     }
 
     if verbose:
