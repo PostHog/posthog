@@ -191,7 +191,7 @@ export function Billing(): JSX.Element {
 
             {!showBillingSummary && <StripePortalButton />}
 
-            {!couponsOverviewLoading && activeCoupons.length > 0 && billing?.billing_provider !== 'vercel' && (
+            {!couponsOverviewLoading && activeCoupons.length > 0 && (
                 <div className="mt-6 max-w-300">
                     <LemonBanner type="info" hideIcon>
                         <div className="flex items-center gap-4">
