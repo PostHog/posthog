@@ -69,7 +69,7 @@ async def generate_and_save_summary_activity(
             "collapsed": False,
         }
 
-        text_repr = format_trace_text_repr(
+        text_repr, _ = format_trace_text_repr(
             trace=trace_dict,
             hierarchy=hierarchy,
             options=options,
