@@ -35,7 +35,7 @@ class BatchSummarizationInputs:
     team_id: int
     max_traces: int = DEFAULT_MAX_TRACES_PER_WINDOW  # Hard limit on traces to process
     batch_size: int = DEFAULT_BATCH_SIZE  # Number of traces per batch
-    mode: str = DEFAULT_MODE  # 'minimal' or 'comprehensive'
+    mode: str = DEFAULT_MODE  # 'minimal' or 'detailed'
     window_minutes: int = DEFAULT_WINDOW_MINUTES  # Time window to query (defaults to 60 min)
     model: str | None = None  # LLM model to use (defaults to SUMMARIZATION_MODEL constant)
     # Optional explicit window (if not provided, uses window_minutes from now)

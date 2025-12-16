@@ -3,6 +3,7 @@
 # Export activities
 # Export constants
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
+    COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
@@ -29,6 +30,7 @@ __all__ = [
     "generate_and_save_summary_activity",
     "query_traces_in_window_activity",
     # Constants
+    "COORDINATOR_WORKFLOW_NAME",
     "DEFAULT_BATCH_SIZE",
     "DEFAULT_MAX_TRACES_PER_WINDOW",
     "DEFAULT_MODE",

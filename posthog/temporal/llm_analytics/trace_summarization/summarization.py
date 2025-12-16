@@ -166,7 +166,7 @@ async def generate_and_save_summary_activity(
             skip_reason="trace_not_found",
         )
 
-    trace, hierarchy, text_repr, team, trace_timestamp = result
+    _trace, hierarchy, text_repr, team, trace_timestamp = result
 
     # Generate summary using LLM
     # Note: text_repr is automatically reduced to fit LLM context if needed (see format_trace_text_repr)
