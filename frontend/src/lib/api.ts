@@ -4568,6 +4568,7 @@ const api = {
         ): Promise<{
             users_affected: number
             total_users: number
+            batch_is_too_large: boolean
         }> {
             return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },

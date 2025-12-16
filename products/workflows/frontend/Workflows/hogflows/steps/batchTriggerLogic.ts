@@ -26,7 +26,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
     })),
     loaders(({ props }) => ({
         blastRadius: [
-            null as { users_affected: number; total_users: number } | null,
+            null as { users_affected: number; total_users: number; batch_is_too_large: boolean } | null,
             {
                 loadBlastRadius: async () => {
                     return await api.hogFlows.getBatchTriggerBlastRadius(props.filters)
@@ -37,7 +37,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
     selectors({
         isBlastRadiusTooLarge: [
             (s) => [s.blastRadius],
-            (blastRadius: { users_affected: number } | null) => blastRadius && blastRadius.users_affected > 1500,
+            (blastRadius: { batch_is_too_large: boolean } | null) => blastRadius && !blastRadius.batch_is_too_large,
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {

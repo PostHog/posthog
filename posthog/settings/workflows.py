@@ -1,0 +1,3 @@
+import os
+
+BATCH_WORKFLOWS_MAX_SIZE = int(os.getenv("BATCH_WORKFLOWS_MAX_SIZE", "1500"))

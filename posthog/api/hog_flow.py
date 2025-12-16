@@ -1,6 +1,7 @@
 import json
 from typing import Optional, cast
 
+from django.conf import settings
 from django.db.models import QuerySet
 
 import structlog
@@ -409,7 +410,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if "filters" not in request.data:
             raise exceptions.ValidationError("Missing filters for which to get blast radius")
 
-        filters = request.data.get("filters") or {}
+        filters = request.data.get("filters", {})
 
         users_affected, total_users = get_user_blast_radius(self.team, filters)
 
@@ -417,5 +418,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             {
                 "users_affected": users_affected,
                 "total_users": total_users,
+                "batch_is_too_large": users_affected > settings.BATCH_WORKFLOWS_MAX_SIZE,
             }
         )
