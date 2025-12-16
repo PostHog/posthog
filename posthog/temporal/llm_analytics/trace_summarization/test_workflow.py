@@ -207,6 +207,113 @@ class TestGenerateSummaryActivity:
             assert call_kwargs["properties"]["$ai_trace_id"] == sample_trace_data["trace_id"]
             assert call_kwargs["properties"]["$ai_summary_title"] == "Test Summary"
 
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_embedding_requested_on_success(self, sample_trace_data, mock_team):
+        from posthog.schema import LLMTrace, LLMTracePerson
+
+        from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
+
+        mock_summary = SummarizationResponse(title="Test", flow_diagram="", summary_bullets=[], interesting_notes=[])
+
+        with (
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.summarize") as mock_summarize,
+            patch(
+                "posthog.temporal.llm_analytics.trace_summarization.summarization.llm_trace_to_formatter_format"
+            ) as mock_to_format,
+            patch(
+                "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
+            ) as mock_format,
+            patch(
+                "posthog.temporal.llm_analytics.trace_summarization.summarization.TraceQueryRunner"
+            ) as mock_runner_class,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event"),
+            patch(
+                "posthog.temporal.llm_analytics.trace_summarization.summarization.LLMTracesSummarizerEmbedder"
+            ) as mock_embedder_class,
+        ):
+            mock_person = LLMTracePerson(
+                uuid=str(uuid.uuid4()), distinct_id="test", created_at=datetime.now(UTC).isoformat(), properties={}
+            )
+            mock_trace = LLMTrace(
+                id=sample_trace_data["trace_id"],
+                createdAt=sample_trace_data["trace_timestamp"],
+                events=[],
+                person=mock_person,
+            )
+            mock_runner_class.return_value.calculate.return_value.results = [mock_trace]
+            mock_to_format.return_value = ({}, [])
+            mock_format.return_value = "test"
+            mock_summarize.return_value = mock_summary
+
+            result = await generate_and_save_summary_activity(
+                sample_trace_data["trace_id"],
+                mock_team.id,
+                "2025-01-01T00:00:00Z",
+                "2025-01-01T01:00:00Z",
+                "minimal",
+                "batch_123",
+                None,
+            )
+
+            assert result.embedding_requested is True
+            assert result.embedding_request_error is None
+            mock_embedder_class.return_value._embed_document.assert_called_once()
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_embedding_failure_captured(self, sample_trace_data, mock_team):
+        from posthog.schema import LLMTrace, LLMTracePerson
+
+        from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
+
+        mock_summary = SummarizationResponse(title="Test", flow_diagram="", summary_bullets=[], interesting_notes=[])
+
+        with (
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.summarize") as mock_summarize,
+            patch(
+                "posthog.temporal.llm_analytics.trace_summarization.summarization.llm_trace_to_formatter_format"
+            ) as mock_to_format,
+            patch(
+                "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
+            ) as mock_format,
+            patch(
+                "posthog.temporal.llm_analytics.trace_summarization.summarization.TraceQueryRunner"
+            ) as mock_runner_class,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event"),
+            patch(
+                "posthog.temporal.llm_analytics.trace_summarization.summarization.LLMTracesSummarizerEmbedder"
+            ) as mock_embedder_class,
+        ):
+            mock_person = LLMTracePerson(
+                uuid=str(uuid.uuid4()), distinct_id="test", created_at=datetime.now(UTC).isoformat(), properties={}
+            )
+            mock_trace = LLMTrace(
+                id=sample_trace_data["trace_id"],
+                createdAt=sample_trace_data["trace_timestamp"],
+                events=[],
+                person=mock_person,
+            )
+            mock_runner_class.return_value.calculate.return_value.results = [mock_trace]
+            mock_to_format.return_value = ({}, [])
+            mock_format.return_value = "test"
+            mock_summarize.return_value = mock_summary
+            mock_embedder_class.return_value._embed_document.side_effect = Exception("Kafka connection failed")
+
+            result = await generate_and_save_summary_activity(
+                sample_trace_data["trace_id"],
+                mock_team.id,
+                "2025-01-01T00:00:00Z",
+                "2025-01-01T01:00:00Z",
+                "minimal",
+                "batch_123",
+                None,
+            )
+
+            assert result.success is True  # Summary saved successfully
+            assert result.embedding_requested is False
+            assert result.embedding_request_error == "Kafka connection failed"
+
 
 class TestBatchTraceSummarizationWorkflow:
     """Tests for BatchTraceSummarizationWorkflow."""
