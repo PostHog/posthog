@@ -250,17 +250,21 @@ def verify_team_flags(team: Team, batch_data: dict | None = None, verbose: bool 
     # Find missing flags (in DB but not in cache)
     for flag_id in db_flags_by_id:
         if flag_id not in cached_flags_by_id:
-            diff: dict = {"type": "MISSING_IN_CACHE", "flag_id": flag_id}
-            if verbose:
-                diff["flag_key"] = db_flags_by_id[flag_id].get("key")
+            diff: dict = {
+                "type": "MISSING_IN_CACHE",
+                "flag_id": flag_id,
+                "flag_key": db_flags_by_id[flag_id].get("key"),
+            }
             diffs.append(diff)
 
     # Find stale flags (in cache but not in DB)
     for flag_id in cached_flags_by_id:
         if flag_id not in db_flags_by_id:
-            diff = {"type": "STALE_IN_CACHE", "flag_id": flag_id}
-            if verbose:
-                diff["flag_key"] = cached_flags_by_id[flag_id].get("key")
+            diff = {
+                "type": "STALE_IN_CACHE",
+                "flag_id": flag_id,
+                "flag_key": cached_flags_by_id[flag_id].get("key"),
+            }
             diffs.append(diff)
 
     # Compare field values for flags that exist in both
@@ -269,10 +273,15 @@ def verify_team_flags(team: Team, batch_data: dict | None = None, verbose: bool 
             db_flag = db_flags_by_id[flag_id]
             cached_flag = cached_flags_by_id[flag_id]
             if db_flag != cached_flag:
-                diff = {"type": "FIELD_MISMATCH", "flag_id": flag_id}
+                field_diffs = _compare_flag_fields(db_flag, cached_flag)
+                diff = {
+                    "type": "FIELD_MISMATCH",
+                    "flag_id": flag_id,
+                    "flag_key": db_flag.get("key"),
+                    "diff_fields": [f["field"] for f in field_diffs],
+                }
                 if verbose:
-                    diff["flag_key"] = db_flag.get("key")
-                    diff["field_diffs"] = _compare_flag_fields(db_flag, cached_flag)
+                    diff["field_diffs"] = field_diffs
                 diffs.append(diff)
 
     if not diffs:
@@ -291,14 +300,24 @@ def verify_team_flags(team: Team, batch_data: dict | None = None, verbose: bool 
     if mismatch_count > 0:
         summary_parts.append(f"{mismatch_count} mismatched")
 
-    # Always include flag keys for logging; full diffs only when verbose
-    diff_flag_keys = sorted([d.get("flag_key") or str(d["flag_id"]) for d in diffs])
+    # Build descriptive diff_flags for logging
+    diff_flags = []
+    for d in sorted(diffs, key=lambda x: x.get("flag_key") or str(x["flag_id"])):
+        flag_key = d.get("flag_key") or str(d["flag_id"])
+        diff_type = d.get("type")
+        if diff_type == "MISSING_IN_CACHE":
+            diff_flags.append(f"{flag_key} {{only in db}}")
+        elif diff_type == "STALE_IN_CACHE":
+            diff_flags.append(f"{flag_key} {{only in cache}}")
+        elif diff_type == "FIELD_MISMATCH":
+            fields = d.get("diff_fields", [])
+            diff_flags.append(f"{flag_key} {{fields: {', '.join(fields)}}}")
 
     result: dict = {
         "status": "mismatch",
         "issue": "DATA_MISMATCH",
         "details": f"{', '.join(summary_parts)} flags" if summary_parts else "unknown differences",
-        "diff_flags": diff_flag_keys,
+        "diff_flags": diff_flags,
     }
 
     if verbose:
