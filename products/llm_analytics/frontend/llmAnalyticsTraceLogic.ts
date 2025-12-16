@@ -397,9 +397,9 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     })),
 
     actionToUrl(({ values }) => {
-        const buildUrl = (): string | void => {
+        const buildUrl = (): string | undefined => {
             if (!values.traceId) {
-                return
+                return undefined
             }
             const params: Record<string, string> = {}
             if (values.eventId) {

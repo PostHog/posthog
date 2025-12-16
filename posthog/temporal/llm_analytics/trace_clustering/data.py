@@ -303,9 +303,9 @@ def fetch_trace_summaries(
             team=team,
         )
 
-    # Debug: log the generated clickhouse SQL
-    logger.info(
-        "fetch_trace_summaries: HogQL debug",
+    # Log generated SQL for troubleshooting query issues
+    logger.debug(
+        "fetch_trace_summaries: HogQL query details",
         clickhouse_sql=result.clickhouse if hasattr(result, "clickhouse") else "N/A",
         num_results=len(result.results or []),
         window_start=str(window_start),

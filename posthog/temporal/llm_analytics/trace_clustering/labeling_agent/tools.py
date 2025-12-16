@@ -8,7 +8,6 @@ the appropriate state data.
 from typing import Any
 
 from langchain_core.tools import tool
-from pydantic import BaseModel, Field
 
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.state import (
     ClusterLabelingState,
@@ -19,33 +18,6 @@ from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.state import
     TraceTitleInfo,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel
-
-
-# Tool input schemas
-class GetClusterTraceTitlesInput(BaseModel):
-    cluster_id: int = Field(description="The cluster ID to get trace titles for")
-    limit: int = Field(default=30, description="Maximum number of traces to return (default 30)")
-
-
-class GetTraceDetailsInput(BaseModel):
-    trace_ids: list[str] = Field(description="List of trace IDs to get full details for")
-
-
-class SetClusterLabelInput(BaseModel):
-    cluster_id: int = Field(description="The cluster ID to set the label for")
-    title: str = Field(description="The title for the cluster (3-10 words)")
-    description: str = Field(description="The description for the cluster (2-5 bullet points)")
-
-
-class ClusterLabelEntry(BaseModel):
-    cluster_id: int = Field(description="The cluster ID")
-    title: str = Field(description="The title for the cluster (3-10 words)")
-    description: str = Field(description="The description for the cluster (2-5 bullet points)")
-
-
-class BulkSetLabelsInput(BaseModel):
-    labels: list[ClusterLabelEntry] = Field(description="List of cluster labels to set")
-
 
 # Tool definitions using @tool decorator
 # These are the schemas that will be bound to the LLM.

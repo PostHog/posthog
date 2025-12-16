@@ -1,7 +1,7 @@
 """Data models for trace clustering workflow."""
 
 from dataclasses import dataclass, field
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_LOOKBACK_DAYS,
@@ -31,11 +31,11 @@ class ClusteringWorkflowInputs:
     clustering_method: str = "hdbscan"  # "hdbscan" or "kmeans"
     # Method-specific params. For HDBSCAN: min_cluster_size_fraction, min_samples
     # For k-means: min_k, max_k (uses silhouette score to pick best k)
-    clustering_method_params: dict = field(default_factory=dict)
+    clustering_method_params: dict[str, Any] = field(default_factory=dict)
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
     # Optional property filters to scope which traces are included in clustering
     # Uses PostHog's standard property filter format (same as evaluations, feature flags, etc.)
-    trace_filters: list[dict] = field(default_factory=list)
+    trace_filters: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -56,10 +56,10 @@ class ClusteringActivityInputs:
     dimensionality_reduction_ndims: int = 100  # target dimensions for umap/pca (ignored if method is "none")
     run_label: str = ""  # optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
     clustering_method: str = "hdbscan"  # "hdbscan" or "kmeans"
-    clustering_method_params: dict = field(default_factory=dict)
+    clustering_method_params: dict[str, Any] = field(default_factory=dict)
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
     # Optional property filters to scope which traces are included in clustering
-    trace_filters: list[dict] = field(default_factory=list)
+    trace_filters: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

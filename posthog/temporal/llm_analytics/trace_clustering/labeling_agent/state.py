@@ -7,15 +7,6 @@ from langgraph.graph.message import add_messages
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, TraceSummary
 
 
-class ClusterInfo(TypedDict):
-    """Information about a cluster for the agent."""
-
-    cluster_id: int
-    size: int
-    centroid_x: float
-    centroid_y: float
-
-
 class TraceMetadata(TypedDict):
     """Metadata for a trace within a cluster."""
 

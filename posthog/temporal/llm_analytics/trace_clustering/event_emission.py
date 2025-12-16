@@ -26,6 +26,8 @@ logger = structlog.get_logger(__name__)
 
 
 class _TraceDistanceData(TypedDict):
+    """Internal type for trace distance data during cluster building."""
+
     trace_id: str
     distance_to_centroid: float
     x: float
@@ -100,13 +102,13 @@ def emit_cluster_events(
         trace_id: summary.get("trace_timestamp", "") for trace_id, summary in trace_summaries.items()
     }
 
-    # Debug logging for timestamp tracking
+    # Detailed timestamp tracking for troubleshooting
     traces_with_summaries = len(trace_summaries)
     traces_with_timestamps = sum(1 for ts in trace_timestamps.values() if ts)
     traces_missing_summaries = len(trace_ids) - traces_with_summaries
     traces_with_empty_timestamps = traces_with_summaries - traces_with_timestamps
 
-    logger.info(
+    logger.debug(
         "emit_cluster_events: timestamp analysis",
         total_trace_ids=len(trace_ids),
         traces_with_summaries=traces_with_summaries,
