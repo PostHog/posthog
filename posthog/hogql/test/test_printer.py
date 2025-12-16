@@ -3333,6 +3333,14 @@ class TestPostgresPrinter(BaseTest):
 
         self.assertIn("AS $value", printed)
 
+    def test_simple_identifiers_render_without_quotes(self):
+        self.assertEqual(self._expr("count(id)"), "count(events.id)")
+
+    def test_reserved_identifiers_are_quoted(self):
+        printed = self._select("SELECT event AS select FROM events")
+
+        self.assertIn('AS "select"', printed)
+
     def test_window_functions_keep_postgres_shape(self):
         printed = self._select("SELECT lag(timestamp) OVER (ORDER BY timestamp) FROM events")
 
