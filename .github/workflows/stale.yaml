@@ -3,10 +3,14 @@ on:
     schedule:
         - cron: '30 7 * * 1-5'
 
+permissions:
+    contents: read
+    actions: write
+    issues: write
+    pull-requests: write
+
 jobs:
     stale:
-        # Only unleash the stale bot on PostHog/posthog, as there's no POSTHOG_BOT_PAT token on forks
-        if: ${{ github.repository == 'PostHog/posthog' }}
         runs-on: ubuntu-24.04
         steps:
             - uses: actions/stale@v9
@@ -25,4 +29,3 @@ jobs:
                   remove-pr-stale-when-updated: true
                   exempt-pr-labels: 'waiting'
                   operations-per-run: 250
-                  repo-token: ${{ secrets.POSTHOG_BOT_PAT }}

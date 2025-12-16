@@ -2092,6 +2092,9 @@ importers:
       '@testing-library/user-event':
         specifier: '*'
         version: 13.5.0(@testing-library/dom@9.3.4)
+      '@types/papaparse':
+        specifier: '*'
+        version: 5.3.8
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2125,6 +2128,9 @@ importers:
       kea-router:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
+      papaparse:
+        specifier: '*'
+        version: 5.4.1
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -29741,7 +29747,7 @@ snapshots:
 
   '@types/papaparse@5.3.8':
     dependencies:
-      '@types/node': 22.15.17
+      '@types/node': 22.18.8
 
   '@types/parse-json@4.0.0': {}
 
