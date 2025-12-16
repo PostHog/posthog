@@ -100,13 +100,14 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
  * This prevents leaking credentials that may be embedded in the URL.
  * 
  * @param url - Redis URL (e.g., 'redis://:password@localhost:6379') or plain hostname (e.g., 'posthog-redis')
- * @returns The host portion without credentials (e.g., 'localhost:6379') or the original string if not a valid URL
+ * @returns The host portion without credentials (e.g., 'localhost:6379'), or the plain hostname if not a URL
  */
 function getRedisHost(url: string): string {
     try {
         const parsed = new URL(url)
         // Return host if available, otherwise fallback to hostname (which also excludes credentials)
-        return parsed.host || parsed.hostname || url
+        // If both are empty (unusual schemes like data: or file:), return a safe placeholder
+        return parsed.host || parsed.hostname || '[redis-host]'
     } catch {
         // If URL parsing fails, it's a plain hostname, which is safe to return
         return url
