@@ -72,7 +72,6 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                         experiment.user_access_level
                     )}
                     forceEdit
-                    saveOnBlur
                     onNameChange={(name) => {
                         setExperimentValue('name', name)
                         validateField('name')

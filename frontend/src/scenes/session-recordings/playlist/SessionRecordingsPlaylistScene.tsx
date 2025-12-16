@@ -158,7 +158,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     }}
                     canEdit={!playlist.is_synthetic}
                     forceEdit={isNewPlaylist}
-                    renameDebounceMs={1000}
                     actions={
                         !playlist.is_synthetic ? (
                             <LemonButton

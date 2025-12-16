@@ -6,11 +6,11 @@ import { forwardRef, useCallback, useEffect, useRef } from 'react'
 import { cn } from 'lib/utils/css-classes'
 
 export const textInputVariants = cva({
-    base: 'text-input-primitive w-full rounded border text-sm outline-none relative',
+    base: 'text-input-primitive w-full rounded border text-sm outline-none relative input-like',
     variants: {
         variant: {
-            default: 'border-primary bg-surface-primary',
-            invisible: 'border-transparent bg-transparent hover:border-transparent',
+            default: 'text-input-primitive--default',
+            invisible: 'text-input-primitive--invisible',
         },
         size: {
             sm: '',
