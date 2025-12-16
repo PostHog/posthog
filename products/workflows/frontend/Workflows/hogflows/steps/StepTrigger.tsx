@@ -273,7 +273,6 @@ function StepTriggerConfigurationWebhook({
                 ]}
             />
             <HogFlowFunctionConfiguration
-                key={`${workflow.id}_${action.id}_${config.type}`}
                 templateId={config.template_id}
                 inputs={config.inputs}
                 setInputs={(inputs) =>
@@ -415,7 +414,6 @@ function StepTriggerConfigurationTrackingPixel({
             />
 
             <HogFlowFunctionConfiguration
-                key={`${workflow.id}_${action.id}_${config.type}`}
                 templateId={config.template_id}
                 inputs={config.inputs}
                 setInputs={(inputs) =>
