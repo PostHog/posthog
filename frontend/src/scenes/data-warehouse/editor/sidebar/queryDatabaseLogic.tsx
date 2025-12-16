@@ -58,8 +58,7 @@ const isSystemTable = (
 const isViewTable = (
     table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
 ): table is DataWarehouseSavedQuery => {
-    // Use status as it's unique to DataWarehouseSavedQuery and always included in API responses
-    return 'status' in table
+    return 'query' in table
 }
 
 const isManagedViewTable = (
