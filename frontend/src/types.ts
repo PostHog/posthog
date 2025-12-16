@@ -1946,6 +1946,7 @@ export interface BillingType {
     customer_id: string
     has_active_subscription: boolean
     subscription_level: 'free' | 'paid' | 'custom'
+    billing_provider?: 'vercel' | null
     free_trial_until?: Dayjs
     stripe_portal_url?: string
     deactivated?: boolean

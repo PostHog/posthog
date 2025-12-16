@@ -25,6 +25,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.utils import relative_date_parse
 
 from ee.billing.billing_manager import BillingManager, build_billing_token
+from ee.billing.billing_types import BillingProvider
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -122,6 +123,17 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if "include_forecasting" in request.query_params:
             query["include_forecasting"] = request.query_params.get("include_forecasting")
         response = billing_manager.get_billing(org, query)
+
+        # Add billing_provider field to indicate if billing is managed externally
+        from posthog.models import OrganizationIntegration
+
+        has_vercel_integration = OrganizationIntegration.objects.filter(
+            organization=org,
+            kind=BillingProvider.VERCEL,
+        ).exists()
+
+        if has_vercel_integration:
+            response["billing_provider"] = "vercel"
 
         return Response(response)
 
@@ -342,6 +354,17 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
 
+        # Vercel marketplace customers don't use credits - billing is handled through Vercel
+        from posthog.models import OrganizationIntegration
+
+        has_vercel_integration = OrganizationIntegration.objects.filter(
+            organization=organization,
+            kind=BillingProvider.VERCEL,
+        ).exists()
+
+        if has_vercel_integration:
+            return Response({}, status=status.HTTP_200_OK)
+
         billing_manager = self.get_billing_manager()
         res = billing_manager.credits_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
@@ -531,6 +554,18 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"claimed_coupons": []}, status=status.HTTP_200_OK)
 
         organization = self._get_org_required()
+
+        # Vercel marketplace customers don't use coupons - billing is handled through Vercel
+        from posthog.models import OrganizationIntegration
+
+        has_vercel_integration = OrganizationIntegration.objects.filter(
+            organization=organization,
+            kind=BillingProvider.VERCEL,
+        ).exists()
+
+        if has_vercel_integration:
+            return Response({"claimed_coupons": []}, status=status.HTTP_200_OK)
+
         billing_manager = self.get_billing_manager()
         res = billing_manager.coupons_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
