@@ -23,6 +23,7 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_CLUSTER_SIZE_FRACTION,
     DEFAULT_UMAP_N_COMPONENTS,
+    WORKFLOW_NAME,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringWorkflowInputs
 
@@ -208,7 +209,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             logger.info("Connected to Temporal client")
             asyncio.run(
                 client.start_workflow(
-                    "daily-trace-clustering",
+                    WORKFLOW_NAME,
                     inputs,
                     id=workflow_id,
                     task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
