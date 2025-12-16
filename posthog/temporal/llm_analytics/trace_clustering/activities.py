@@ -17,9 +17,13 @@ from temporalio import activity
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.clustering import (
+    calculate_distances_to_cluster_means,
     calculate_trace_distances,
+    compute_2d_coordinates,
+    perform_hdbscan_clustering,
     perform_kmeans_with_optimal_k,
-    select_representatives_from_distances,
+    reduce_dimensions_for_clustering,
+    reduce_dimensions_pca,
 )
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_embeddings_for_clustering
 from posthog.temporal.llm_analytics.trace_clustering.event_emission import emit_cluster_events
@@ -38,52 +42,157 @@ logger = structlog.get_logger(__name__)
 
 
 def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringComputeResult:
-    """CPU-bound compute: fetch embeddings, cluster, compute distances.
+    """CPU-bound compute: fetch embeddings, optionally reduce dimensions, cluster with HDBSCAN.
 
-    This is the synchronous implementation called by the activity.
+    Pipeline:
+    1. Fetch embeddings from ClickHouse
+    2. UMAP dimensionality reduction (3072 -> 15 dims) - skipped if skip_umap_reduction=True
+    3. HDBSCAN clustering (auto-determines k, identifies outliers)
+    4. Compute distances and select representatives
+    5. UMAP to 2D for visualization
     """
     window_start = parse_datetime(inputs.window_start)
     window_end = parse_datetime(inputs.window_end)
     if window_start is None or window_end is None:
         raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
-    # Use a URL-friendly format: <team_id>_<YYYYMMDD>_<HHMMSS>
-    clustering_run_id = f"{inputs.team_id}_{window_end.strftime('%Y%m%d_%H%M%S')}"
+    # Generate run_id with optional label suffix for experiment tracking
+    base_run_id = f"{inputs.team_id}_{window_end.strftime('%Y%m%d_%H%M%S')}"
+    clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
 
-    # Fetch team object for HogQL queries
     team = Team.objects.get(id=inputs.team_id)
 
-    # Fetch trace IDs and embeddings using HogQL
-    trace_ids, embeddings_map = fetch_trace_embeddings_for_clustering(
+    trace_ids, embeddings_map, batch_run_ids_map = fetch_trace_embeddings_for_clustering(
         team=team,
         window_start=window_start,
         window_end=window_end,
         max_samples=inputs.max_samples,
+        trace_filters=inputs.trace_filters if inputs.trace_filters else None,
     )
+
+    logger.debug(
+        "perform_clustering_compute_fetched_embeddings",
+        num_traces=len(trace_ids),
+    )
+
+    # Need at least 2 traces to perform clustering
+    if len(trace_ids) < 2:
+        logger.warning(
+            "Not enough traces for clustering",
+            trace_count=len(trace_ids),
+            team_id=inputs.team_id,
+        )
+        return ClusteringComputeResult(
+            clustering_run_id=clustering_run_id,
+            trace_ids=[],
+            labels=[],
+            centroids=[],
+            distances=[],
+            coords_2d=[],
+            centroid_coords_2d=[],
+            probabilities=[],
+            num_noise_points=0,
+            batch_run_ids={},
+        )
 
     embeddings_array = np.array(list(embeddings_map.values()))
 
-    # Perform clustering with optimal k selection
-    kmeans_result = perform_kmeans_with_optimal_k(embeddings_array, inputs.min_k, inputs.max_k)
+    # Step 0: Optionally L2 normalize embeddings
+    if inputs.embedding_normalization == "l2":
+        # L2 normalize each embedding vector (row-wise normalization)
+        norms = np.linalg.norm(embeddings_array, axis=1, keepdims=True)
+        # Avoid division by zero for zero vectors
+        norms = np.where(norms == 0, 1, norms)
+        embeddings_array = embeddings_array / norms
 
-    # Compute distance matrix
-    distances_matrix = calculate_trace_distances(embeddings_array, np.array(kmeans_result.centroids))
+    # Step 1: Optionally reduce dimensions for clustering
+    if inputs.dimensionality_reduction_method == "none":
+        # Run HDBSCAN directly on raw embeddings (3072 dims or normalized)
+        clustering_embeddings = embeddings_array
+    elif inputs.dimensionality_reduction_method == "pca":
+        clustering_embeddings, _ = reduce_dimensions_pca(
+            embeddings_array,
+            n_components=inputs.dimensionality_reduction_ndims,
+        )
+    else:
+        # Default to UMAP
+        clustering_embeddings, _ = reduce_dimensions_for_clustering(
+            embeddings_array,
+            n_components=inputs.dimensionality_reduction_ndims,
+            n_neighbors=constants.DEFAULT_UMAP_N_NEIGHBORS,
+            min_dist=constants.DEFAULT_UMAP_MIN_DIST,
+        )
 
-    # Select representative traces for LLM labeling
-    representative_trace_ids = select_representatives_from_distances(
-        labels=np.array(kmeans_result.labels),
-        distances_matrix=distances_matrix,
-        trace_ids=trace_ids,
-        n_closest=constants.DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING,
+    # Step 2: Perform clustering based on method
+    clustering_params = inputs.clustering_method_params or {}
+
+    if inputs.clustering_method == "kmeans":
+        # K-means with optimal k selection via silhouette score
+        min_k = clustering_params.get("min_k", inputs.min_k)
+        max_k = clustering_params.get("max_k", inputs.max_k)
+        kmeans_result = perform_kmeans_with_optimal_k(
+            clustering_embeddings,
+            min_k=min_k,
+            max_k=max_k,
+        )
+        labels_array = np.array(kmeans_result.labels)
+        centroids_array = np.array(kmeans_result.centroids)
+        # K-means doesn't have probabilities or noise
+        probabilities = [1.0] * len(labels_array)
+        num_noise_points = 0
+        labels_list = kmeans_result.labels
+        centroids_list = kmeans_result.centroids
+
+        # Step 3: Compute distance matrix
+        distances_matrix = calculate_trace_distances(clustering_embeddings, centroids_array)
+    else:
+        # Default to HDBSCAN
+        min_cluster_size_fraction = clustering_params.get(
+            "min_cluster_size_fraction", constants.DEFAULT_MIN_CLUSTER_SIZE_FRACTION
+        )
+        min_samples = clustering_params.get("min_samples", constants.DEFAULT_HDBSCAN_MIN_SAMPLES)
+        hdbscan_result = perform_hdbscan_clustering(
+            clustering_embeddings,
+            min_cluster_size_fraction=min_cluster_size_fraction,
+            min_samples=min_samples,
+        )
+        labels_array = np.array(hdbscan_result.labels)
+        centroids_array = (
+            np.array(hdbscan_result.centroids)
+            if hdbscan_result.centroids
+            else np.zeros((0, clustering_embeddings.shape[1]))
+        )
+        probabilities = hdbscan_result.probabilities
+        num_noise_points = hdbscan_result.num_noise_points
+        labels_list = hdbscan_result.labels
+        centroids_list = hdbscan_result.centroids
+
+        # Step 3: Compute distance matrix (in clustering space)
+        distances_matrix = calculate_distances_to_cluster_means(
+            clustering_embeddings,
+            labels_array,
+            centroids_array,
+        )
+
+    # Step 4: Compute 2D coordinates for visualization
+    # Use the same embeddings that went into clustering so the scatter plot accurately represents the clustering space
+    coords_2d, centroid_coords_2d = compute_2d_coordinates(
+        clustering_embeddings,
+        centroids_array,
+        method=inputs.visualization_method,
     )
 
     return ClusteringComputeResult(
         clustering_run_id=clustering_run_id,
         trace_ids=trace_ids,
-        labels=kmeans_result.labels,
-        centroids=kmeans_result.centroids,
+        labels=labels_list,
+        centroids=centroids_list,
         distances=distances_matrix.tolist(),
-        representative_trace_ids=representative_trace_ids,
+        coords_2d=coords_2d.tolist(),
+        centroid_coords_2d=centroid_coords_2d.tolist(),
+        probabilities=probabilities,
+        num_noise_points=num_noise_points,
+        batch_run_ids=batch_run_ids_map,
     )
 
 
@@ -93,32 +202,38 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
 
     This activity handles all the compute-intensive work:
     - Fetches embeddings from ClickHouse
-    - Performs k-means clustering with optimal k selection
+    - Performs clustering (HDBSCAN or k-means)
     - Calculates distances from each trace to all centroids
-    - Selects representative traces for labeling
+    - Computes 2D coordinates for visualization
 
-    Output is ~150 KB (labels, centroids, distances, representative_trace_ids).
+    Output is ~150 KB (labels, centroids, distances, coords).
     Embeddings (~3-4 MB) are not passed to subsequent activities.
     """
     return await asyncio.to_thread(_perform_clustering_compute, inputs)
 
 
 def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
-    """LLM labeling implementation called by the activity."""
+    """LLM labeling implementation called by the activity.
+
+    Uses a LangGraph agent that can iteratively explore cluster structure
+    and generate high-quality, distinctive labels.
+    """
     window_start = parse_datetime(inputs.window_start)
     window_end = parse_datetime(inputs.window_end)
     if window_start is None or window_end is None:
         raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
-    # Fetch team object for HogQL queries
     team = Team.objects.get(id=inputs.team_id)
 
     cluster_labels = generate_cluster_labels(
         team=team,
-        labels=np.array(inputs.labels),
-        representative_trace_ids=inputs.representative_trace_ids,
+        trace_ids=inputs.trace_ids,
+        labels=inputs.labels,
+        trace_metadata=inputs.trace_metadata,
+        centroid_coords_2d=inputs.centroid_coords_2d,
         window_start=window_start,
         window_end=window_end,
+        batch_run_ids=inputs.batch_run_ids,
     )
 
     return GenerateLabelsActivityOutputs(cluster_labels=cluster_labels)
@@ -128,10 +243,12 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
 async def generate_cluster_labels_activity(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
     """Activity 2: LLM labeling - generate titles and descriptions for clusters.
 
-    This activity has a longer timeout (240s) for the LLM API call.
-    It fetches trace summaries internally and calls OpenAI to generate labels.
+    This activity runs a LangGraph agent (Claude Sonnet 4.5) that iteratively
+    explores cluster structure using tools to sample traces and generate
+    high-quality, distinctive labels.
 
-    Input: ~2.5 KB (representative trace IDs)
+    Timeout: 10 minutes for full agent run
+    Input: ~250 KB (trace IDs, cluster data, coordinates)
     Output: ~4 KB (cluster labels)
     """
     return await asyncio.to_thread(_generate_cluster_labels, inputs)
@@ -149,6 +266,10 @@ def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
         trace_ids=inputs.trace_ids,
         distances_matrix=np.array(inputs.distances),
         cluster_labels=inputs.cluster_labels,
+        coords_2d=np.array(inputs.coords_2d),
+        centroid_coords_2d=np.array(inputs.centroid_coords_2d),
+        batch_run_ids=inputs.batch_run_ids,
+        clustering_params=inputs.clustering_params,
     )
 
     return ClusteringResult(
