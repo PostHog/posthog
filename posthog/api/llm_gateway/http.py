@@ -197,8 +197,10 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ],
         tags=["LLM Gateway"],
     )
-    @action(detail=False, methods=["POST"], url_path="v1/messages", required_scopes=["task:write"])
-    def anthropic_messages(self, request: Request, *args, **kwargs):
+    @action(
+        detail=False, methods=["POST"], url_path=r"(?P<client_name>\w+/)?v1/messages", required_scopes=["task:write"]
+    )
+    def anthropic_messages(self, request: Request, client_name: str | None = None, *args, **kwargs):
         _setup_litellm()
         serializer = AnthropicMessagesRequestSerializer(data=request.data)
 
@@ -215,11 +217,14 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "user_id"
         )  # Claude Code passes a user_id in the metadata which is a concatenation of the user_id and the session_id
 
+        # Extract client name from URL path (e.g., /llm_gateway/wizard/v1/messages -> "wizard")
+        ai_product = client_name.rstrip("/") if client_name else "llm_gateway"
+
         data["metadata"] = {
             "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
             "team_id": str(self.team.id),
             "organization_id": str(self.organization.id),
-            "ai_product": "llm_gateway",
+            "ai_product": ai_product,
             **{
                 "trace_id": trace_id,
             },
@@ -303,10 +308,10 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(
         detail=False,
         methods=["POST"],
-        url_path="v1/chat/completions",
+        url_path=r"(?P<client_name>\w+/)?v1/chat/completions",
         required_scopes=["task:write"],
     )
-    def chat_completions(self, request: Request, *args, **kwargs):
+    def chat_completions(self, request: Request, client_name: str | None = None, *args, **kwargs):
         _setup_litellm()
         serializer = ChatCompletionRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -318,10 +323,13 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = dict(serializer.validated_data)
         is_streaming = data.get("stream", False)
 
+        # Extract client name from URL path (e.g., /llm_gateway/wizard/v1/chat/completions -> "wizard")
+        ai_product = client_name.rstrip("/") if client_name else "llm_gateway"
+
         data["metadata"] = {
             "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
             "team_id": str(self.team.id),
-            "ai_product": "llm_gateway",
+            "ai_product": ai_product,
             "organization_id": str(self.organization.id),
         }
 
