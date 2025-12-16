@@ -113,7 +113,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     <label
                         htmlFor="question-input"
                         className={clsx(
-                            'input-like flex flex-col',
+                            'input-like flex flex-col cursor-text',
                             'border border-[var(--color-border-primary)]',
                             'bg-[var(--color-bg-fill-input)]',
                             isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg'
@@ -131,8 +131,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         : threadLoading
                                           ? 'Thinking…'
                                           : isThreadVisible
-                                            ? placeholder || 'Ask follow-up (/ for commands)'
-                                            : 'Ask away (/ for commands)'
+                                            ? placeholder || 'Ask follow-up'
+                                            : 'Ask a question'
                                 }
                                 onPressEnter={() => {
                                     if (question && !submissionDisabledReason && !threadLoading) {
@@ -143,7 +143,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 disabled={inputDisabled}
                                 minRows={1}
                                 maxRows={10}
-                                className="!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12"
+                                className="!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none"
                                 hideFocus
                             />
                         </SlashCommandAutocomplete>
