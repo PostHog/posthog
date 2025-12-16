@@ -61,7 +61,10 @@ logger = structlog.get_logger(__name__)
 
 
 class DataWarehouseSavedQuerySerializerMixin:
-    """Shared methods for DataWarehouseSavedQuery serializers."""
+    """Shared methods for DataWarehouseSavedQuery serializers.
+
+    This mixin is intended to be used with serializers.ModelSerializer subclasses.
+    """
 
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         try:
@@ -80,8 +83,8 @@ class DataWarehouseSavedQuerySerializerMixin:
         return cast(DataWarehouseManagedViewsetKind, view.managed_viewset.kind) if view.managed_viewset else None
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
-        team_id = self.context["team_id"]
-        database = self.context.get("database", None)
+        team_id = self.context["team_id"]  # type: ignore[attr-defined]
+        database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
             database = Database.create_for(team_id=team_id)
 
