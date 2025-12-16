@@ -58,11 +58,11 @@ export const flagTriggerLogic = kea<flagTriggerLogicType>([
         ],
         flagHasVariants: [(s) => [s.linkedFlag], (linkedFlag) => isObject(linkedFlag?.filters.multivariate)],
     }),
-    listeners(({ props }) => {
-        ;({ flag }) => {
+    listeners(({ props }) => ({
+        onChange: ({ flag }) => {
             props.onChange(flag)
-        }
-    }),
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadFeatureFlag()
     }),
