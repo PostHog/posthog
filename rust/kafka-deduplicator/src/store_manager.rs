@@ -139,7 +139,34 @@ impl StoreManager {
     /// - If the store exists, it returns it immediately
     /// - If the store doesn't exist, it creates it atomically
     /// - If multiple workers try to create the same store, only one succeeds
+    ///
+    /// Use `get_or_create_for_rebalance` during rebalancing to pre-create stores.
+    /// Use this method during message processing - it will warn if a store needs to be created
+    /// (indicating pre-creation didn't complete in time).
     pub async fn get_or_create(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
+        self.get_or_create_internal(topic, partition, false).await
+    }
+
+    /// Get or create a deduplication store during rebalancing (pre-creation)
+    ///
+    /// This should be called during `cleanup_assigned_partitions` to pre-create stores
+    /// before messages start flowing. Unlike `get_or_create`, this won't emit a warning
+    /// when creating a new store.
+    pub async fn get_or_create_for_rebalance(
+        &self,
+        topic: &str,
+        partition: i32,
+    ) -> Result<DeduplicationStore> {
+        self.get_or_create_internal(topic, partition, true).await
+    }
+
+    /// Internal implementation of get_or_create with rebalance context
+    async fn get_or_create_internal(
+        &self,
+        topic: &str,
+        partition: i32,
+        is_rebalance: bool,
+    ) -> Result<DeduplicationStore> {
         let partition_key = Partition::new(topic.to_string(), partition);
 
         // Fast path: check if store already exists
@@ -163,12 +190,24 @@ impl StoreManager {
                 // Ensure parent directory exists
                 // Note: This is inside the closure so only the creating thread does this
                 self.ensure_directory_exists(&store_path)?;
-                info!(
-                    topic = topic,
-                    partition = partition,
-                    path = store_path,
-                    "Creating new deduplication store"
-                );
+
+                // Warn if store is being created during message processing (not during rebalance)
+                // This indicates pre-creation didn't complete in time
+                if !is_rebalance {
+                    warn!(
+                        topic = topic,
+                        partition = partition,
+                        path = %store_path,
+                        "Creating store during message processing - pre-creation did not complete in time"
+                    );
+                } else {
+                    info!(
+                        topic = topic,
+                        partition = partition,
+                        path = store_path,
+                        "Pre-creating deduplication store during rebalance"
+                    );
+                }
 
                 let mut partition_config = self.store_config.clone();
                 partition_config.path = PathBuf::from(&store_path);
@@ -176,7 +215,7 @@ impl StoreManager {
                 DeduplicationStore::new(partition_config, topic.to_string(), partition)
                     .with_context(|| {
                         format!(
-                            "Failed to create deduplication store for {topic}:{partition} at path {store_path}",                            
+                            "Failed to create deduplication store for {topic}:{partition} at path {store_path}",
                         )
                     })
             });
@@ -1030,6 +1069,247 @@ mod tests {
         stores[0].put_timestamp_record(&key, &metadata).unwrap();
 
         // All stores should now have it (proving they're all the same store instance)
+        for store in &stores {
+            assert!(store.get_timestamp_record(&key).unwrap().is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_or_create_for_rebalance() {
+        // Test that get_or_create_for_rebalance works the same as get_or_create
+        // but is intended for pre-creation during rebalancing
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // Pre-create during rebalance
+        let store1 = manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
+        // Subsequent call (during message processing) should return the same store
+        let store2 = manager.get_or_create("test-topic", 0).await.unwrap();
+
+        // Verify they share state
+        let event = RawEvent {
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+
+        store1.put_timestamp_record(&key, &metadata).unwrap();
+        assert!(store2.get_timestamp_record(&key).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_store_precreation_before_message_processing() {
+        // Simulates the ideal flow: store is pre-created during rebalance,
+        // then used during message processing without creating a new one
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // Step 1: Pre-create during rebalance (cleanup_assigned_partitions)
+        let _store = manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Step 2: Message processing calls get_or_create
+        // This should return the existing store (no new creation)
+        let store = manager.get_or_create("test-topic", 0).await.unwrap();
+
+        // Still only 1 store
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Verify it's the same store by checking it works
+        let event = RawEvent {
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+        assert!(store.get_timestamp_record(&key).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_rapid_revoke_assign_store_recreation() {
+        // Simulates rapid revoke -> assign where:
+        // 1. Store exists
+        // 2. Revoke removes it from map
+        // 3. Assign pre-creates a new one
+        // 4. Messages can use the new store
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // Initial assignment - pre-create store
+        let store1 = manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Add some data
+        let event = RawEvent {
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store1.put_timestamp_record(&key, &metadata).unwrap();
+
+        // Revoke - remove from map (but don't delete files yet)
+        manager.remove_from_map("test-topic", 0);
+        assert_eq!(manager.get_active_store_count(), 0);
+
+        // Rapid re-assign - pre-create new store
+        let store2 = manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // The new store should be fresh (different RocksDB instance with new timestamp path)
+        // But both stores should work independently
+        let event2 = RawEvent {
+            event: "test_event_2".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user_2".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let key2 = TimestampKey::from(&event2);
+        let metadata2 = TimestampMetadata::new(&event2);
+        store2.put_timestamp_record(&key2, &metadata2).unwrap();
+        assert!(store2.get_timestamp_record(&key2).unwrap().is_some());
+
+        // Message processing should use the new store
+        let store3 = manager.get_or_create("test-topic", 0).await.unwrap();
+        assert!(store3.get_timestamp_record(&key2).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_message_processing_creates_store_if_precreation_missed() {
+        // Simulates the case where messages arrive before pre-creation completes
+        // The processor's get_or_create should still work (and emit a warning)
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // No pre-creation - messages arrive first
+        // This would emit a warning in production
+        let store = manager.get_or_create("test-topic", 0).await.unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Store should work normally
+        let event = RawEvent {
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+        assert!(store.get_timestamp_record(&key).unwrap().is_some());
+
+        // Late pre-creation should just return the existing store
+        let store2 = manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+        assert!(store2.get_timestamp_record(&key).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_rebalance_and_message_processing() {
+        // Simulates concurrent pre-creation and message processing
+        // Only one store should be created
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Spawn concurrent tasks: some for rebalance, some for message processing
+        let mut handles = vec![];
+
+        for i in 0..5 {
+            let manager_clone = manager.clone();
+            let handle = if i % 2 == 0 {
+                // Rebalance pre-creation
+                tokio::spawn(async move {
+                    manager_clone
+                        .get_or_create_for_rebalance("test-topic", 0)
+                        .await
+                })
+            } else {
+                // Message processing
+                tokio::spawn(async move { manager_clone.get_or_create("test-topic", 0).await })
+            };
+            handles.push(handle);
+        }
+
+        // All should succeed
+        let mut stores = vec![];
+        for handle in handles {
+            let store = handle.await.unwrap().unwrap();
+            stores.push(store);
+        }
+
+        // Only one store should exist
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // All stores should be the same instance
+        let event = RawEvent {
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+
+        stores[0].put_timestamp_record(&key, &metadata).unwrap();
         for store in &stores {
             assert!(store.get_timestamp_record(&key).unwrap().is_some());
         }

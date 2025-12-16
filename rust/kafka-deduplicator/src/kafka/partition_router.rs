@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use dashmap::DashMap;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_message::KafkaMessage;
@@ -54,14 +54,16 @@ where
     /// Add a worker for a partition (called during partition assignment)
     ///
     /// This should be called synchronously during `on_partitions_assigned`.
-    /// If a worker already exists for this partition, it will be replaced.
+    /// If a worker already exists for this partition, it will be reused (not replaced).
+    /// This handles the rapid revoke→assign scenario where cleanup hasn't run yet.
     pub fn add_partition(&self, partition: Partition) {
         if self.workers.contains_key(&partition) {
-            warn!(
-                "Worker already exists for {}:{}, replacing",
+            info!(
+                "Worker already exists for {}:{}, reusing (rapid re-assignment)",
                 partition.topic(),
                 partition.partition_number()
             );
+            return;
         }
 
         info!(
@@ -329,6 +331,54 @@ mod tests {
         }
 
         router.add_partition(partition.clone());
+        assert_eq!(router.worker_count(), 1);
+
+        let workers = router.shutdown_all();
+        shutdown_workers(workers).await;
+    }
+
+    #[tokio::test]
+    async fn test_router_reuses_existing_worker_on_rapid_reassign() {
+        // Simulates rapid revoke → assign where cleanup hasn't run yet
+        // The router should reuse the existing worker instead of creating a new one
+        let processor = Arc::new(TestProcessor::new());
+        let config = PartitionRouterConfig::default();
+        let router = PartitionRouter::new(processor, config);
+
+        let partition = Partition::new("test-topic".to_string(), 0);
+
+        // Initial assignment
+        router.add_partition(partition.clone());
+        assert_eq!(router.worker_count(), 1);
+
+        // Rapid re-assignment (without remove - simulating cleanup not yet run)
+        // This should reuse the existing worker
+        router.add_partition(partition.clone());
+        assert_eq!(router.worker_count(), 1);
+
+        // Can still route messages
+        let result = router.route_batch(partition.clone(), vec![]).await;
+        assert!(result.is_ok());
+
+        let workers = router.shutdown_all();
+        shutdown_workers(workers).await;
+    }
+
+    #[tokio::test]
+    async fn test_router_add_partition_idempotent() {
+        // Calling add_partition multiple times should not create multiple workers
+        let processor = Arc::new(TestProcessor::new());
+        let config = PartitionRouterConfig::default();
+        let router = PartitionRouter::new(processor, config);
+
+        let partition = Partition::new("test-topic".to_string(), 0);
+
+        // Add same partition 3 times
+        router.add_partition(partition.clone());
+        router.add_partition(partition.clone());
+        router.add_partition(partition.clone());
+
+        // Should still only have 1 worker
         assert_eq!(router.worker_count(), 1);
 
         let workers = router.shutdown_all();
