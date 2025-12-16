@@ -247,7 +247,7 @@ def _build_cluster_data(
         # Sort by distance (most anomalous first - highest min distance)
         noise_trace_data.sort(key=lambda x: x["distance_to_centroid"], reverse=True)
 
-        traces_dict: dict[str, TraceClusterMetadata] = {
+        noise_traces_dict: dict[str, TraceClusterMetadata] = {
             t["trace_id"]: TraceClusterMetadata(
                 distance_to_centroid=t["distance_to_centroid"],
                 rank=rank,
@@ -277,10 +277,10 @@ def _build_cluster_data(
         clusters.append(
             ClusterData(
                 cluster_id=NOISE_CLUSTER_ID,
-                size=len(traces_dict),
+                size=len(noise_traces_dict),
                 title=title,
                 description=description,
-                traces=traces_dict,
+                traces=noise_traces_dict,
                 centroid=[],  # No actual centroid for noise cluster
                 centroid_x=centroid_x,
                 centroid_y=centroid_y,
