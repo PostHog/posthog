@@ -146,21 +146,24 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                     </div>
                 ) : (
                     paginatedTracesWithSummaries.map(
-                        ({
-                            traceId,
-                            traceInfo,
-                            summary,
-                        }: {
-                            traceId: string
-                            traceInfo: ClusterTraceInfo
-                            summary?: TraceSummary
-                        }) => (
+                        (
+                            {
+                                traceId,
+                                traceInfo,
+                                summary,
+                            }: {
+                                traceId: string
+                                traceInfo: ClusterTraceInfo
+                                summary?: TraceSummary
+                            },
+                            index: number
+                        ) => (
                             <TraceListItem
                                 key={traceId}
                                 traceId={traceId}
                                 traceInfo={traceInfo}
                                 summary={summary}
-                                page={currentPage}
+                                displayRank={(currentPage - 1) * 50 + index + 1}
                             />
                         )
                     )
@@ -199,12 +202,12 @@ function TraceListItem({
     traceId,
     traceInfo,
     summary,
-    page,
+    displayRank,
 }: {
     traceId: string
     traceInfo: ClusterTraceInfo
     summary?: TraceSummary
-    page: number
+    displayRank: number
 }): JSX.Element {
     const [showFlow, setShowFlow] = useState(false)
     const [showBullets, setShowBullets] = useState(false)
@@ -212,9 +215,6 @@ function TraceListItem({
 
     const bulletItems = summary?.bullets ? parseBullets(summary.bullets) : []
     const noteItems = summary?.interestingNotes ? parseBullets(summary.interestingNotes) : []
-
-    // Calculate display rank based on page (rank is 0-indexed in data)
-    const displayRank = (page - 1) * 50 + traceInfo.rank + 1
 
     return (
         <div className="p-4 hover:bg-surface-secondary transition-colors">
