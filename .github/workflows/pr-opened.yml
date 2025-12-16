@@ -36,7 +36,7 @@ jobs:
               if: steps.is-shame-worthy.outputs.is-shame-worthy == 'true'
               with:
                   # make the checkout extremely quickly
-                  sparse-checkout: "README.md"
+                  sparse-checkout: 'README.md'
 
             - name: Shame if PR has no description
               if: steps.is-shame-worthy.outputs.is-shame-worthy == 'true'
