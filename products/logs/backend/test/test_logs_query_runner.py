@@ -469,3 +469,47 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = self._make_logs_api_request(query_params)
         self.assertEqual(len(response["results"]), 10)
         self.assertEqual(len(queries), 2)
+
+    def test_logs_attributes_endpoint(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/logs/attributes",
+            {
+                "dateRange": '{"date_from": "2025-12-16T09:49:36.184820Z", "date_to": null}',
+                "attribute_type": "log",
+                "search": "x_forwarded_proto",
+                "limit": 10,
+                "offset": 0,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["name"], "x_forwarded_proto")
+        self.assertEqual(data["results"][0]["propertyFilterType"], "log_attribute")
+
+    def test_logs_values_endpoint(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/logs/values",
+            {
+                "dateRange": '{"date_from": "2025-12-16T10:32:36.184820Z", "date_to": null}',
+                "key": "service.name",
+                "search": "con",
+                "attribute_type": "resource",
+                "limit": 10,
+                "offset": 0,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["name"], "cdp-legacy-events-consumer")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/logs/values",
+            {
+                "dateRange": '{"date_from": "2025-12-16T10:32:36.184820Z", "date_to": null}',
+                "attribute_type": "log",
+                "limit": 10,
+                "offset": 0,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
