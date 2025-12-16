@@ -778,16 +778,6 @@ def send_org_usage_reports() -> None:
     send_all_org_usage_reports.delay()
 
 
-@shared_task(ignore_result=True)
-def schedule_all_subscriptions() -> None:
-    try:
-        from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
-    except ImportError:
-        pass
-    else:
-        _schedule_all_subscriptions()
-
-
 @shared_task(ignore_result=True, retries=3)
 def clickhouse_send_license_usage() -> None:
     try:

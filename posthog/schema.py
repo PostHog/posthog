@@ -316,12 +316,14 @@ class AssistantTool(StrEnum):
     LIST_TASKS = "list_tasks"
     LIST_TASK_RUNS = "list_task_runs"
     LIST_REPOSITORIES = "list_repositories"
+    WEB_SEARCH = "web_search"
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
     FILTER_SESSION_RECORDINGS = "filter_session_recordings"
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
+    TASK = "task"
 
 
 class AssistantToolCall(BaseModel):
@@ -2622,6 +2624,7 @@ class ProductIntentContext(StrEnum):
     SURVEY_BULK_DUPLICATED = "survey_bulk_duplicated"
     SURVEY_EDITED = "survey_edited"
     SURVEY_ANALYZED = "survey_analyzed"
+    QUICK_SURVEY_STARTED = "quick_survey_started"
     REVENUE_ANALYTICS_VIEWED = "revenue_analytics_viewed"
     REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
     REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
@@ -3128,6 +3131,7 @@ class SlashCommandName(StrEnum):
     FIELD_REMEMBER = "/remember"
     FIELD_USAGE = "/usage"
     FIELD_FEEDBACK = "/feedback"
+    FIELD_TICKET = "/ticket"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
@@ -3219,6 +3223,15 @@ class StickinessOperator(StrEnum):
     GTE = "gte"
     LTE = "lte"
     EXACT = "exact"
+
+
+class SubagentUpdateEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: AssistantToolCall
+    id: str
+    tool_call_id: str
 
 
 class SubscriptionDropoffMode(StrEnum):
@@ -4054,7 +4067,12 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: AssistantForm | None = None
-    thinking: list[dict[str, Any]] | None = None
+    thinking: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks."
+        ),
+    )
 
 
 class AssistantNumericValuePropertyFilter(BaseModel):
@@ -4813,6 +4831,7 @@ class HogQLQueryModifiers(BaseModel):
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
     useMaterializedViews: bool | None = None
+    usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(
         default=None,
         description="Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
@@ -4861,6 +4880,7 @@ class LLMTrace(BaseModel):
     inputCost: float | None = None
     inputState: Any | None = None
     inputTokens: float | None = None
+    isSupportTrace: bool | None = None
     outputCost: float | None = None
     outputState: Any | None = None
     outputTokens: float | None = None
@@ -9284,6 +9304,9 @@ class EndpointRunRequest(BaseModel):
             ' {variable.from_date}) For example: {"from_date": "1970-01-01"}'
         ),
     )
+    version: int | None = Field(
+        default=None, description="Specific endpoint version to execute. If not provided, the latest version is used."
+    )
 
 
 class EntityNode(BaseModel):
@@ -12331,6 +12354,7 @@ class TracesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterSupportTraces: bool | None = None
     filterTestAccounts: bool | None = None
     groupKey: str | None = None
     groupTypeIndex: int | None = None

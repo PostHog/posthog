@@ -8,6 +8,7 @@ from django.http import HttpRequest
 from django.utils.crypto import constant_time_compare
 from django.utils.http import base36_to_int
 
+import structlog
 from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from rest_framework.exceptions import PermissionDenied
@@ -17,6 +18,18 @@ from posthog.cloud_utils import is_dev_mode
 from posthog.email import is_email_available
 from posthog.models.user import User
 from posthog.settings.web import AUTHENTICATION_BACKENDS
+
+mfa_logger = structlog.get_logger("posthog.auth.mfa")
+
+
+def _obfuscate_token(token: str | None) -> str:
+    """Return first 5 and last 5 chars of token, with middle obfuscated."""
+    if not token:
+        return ""
+    if len(token) <= 10:
+        return "*" * len(token)
+    return f"{token[:5]}...{token[-5:]}"
+
 
 # Enforce Two-Factor Authentication only on sessions created after this date
 TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 9, day=22, hour=13)
@@ -182,12 +195,23 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
     def check_token(self, user, token):
         """Override to use 10-minute timeout instead of PASSWORD_RESET_TIMEOUT (1 hour)."""
         if not (user and token):
+            mfa_logger.warning(
+                "Email MFA token check failed: missing user or token",
+                user_id=getattr(user, "pk", None),
+                has_token=bool(token),
+                token=_obfuscate_token(token),
+            )
             return False
 
         try:
             ts_b36, _ = token.split("-")
             ts = base36_to_int(ts_b36)
         except ValueError:
+            mfa_logger.warning(
+                "Email MFA token check failed: malformed token",
+                user_id=user.pk,
+                token=_obfuscate_token(token),
+            )
             return False
 
         # Validate token signature
@@ -195,10 +219,33 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
             if constant_time_compare(self._make_token_with_timestamp(user, ts, secret), token):
                 break
         else:
+            mfa_logger.warning(
+                "Email MFA token check failed: signature mismatch (token may have been invalidated by login, password change, email change, or account deactivation)",
+                user_id=user.pk,
+                user_last_login=str(user.last_login) if user.last_login else None,
+                token=_obfuscate_token(token),
+            )
             return False
 
         # Check 10-minute timeout (600 seconds)
-        return (self._num_seconds(self._now()) - ts) <= 600
+        token_age_seconds = self._num_seconds(self._now()) - ts
+        if token_age_seconds > 600:
+            mfa_logger.warning(
+                "Email MFA token check failed: token expired",
+                user_id=user.pk,
+                token_age_seconds=token_age_seconds,
+                max_age_seconds=600,
+                token=_obfuscate_token(token),
+            )
+            return False
+
+        mfa_logger.info(
+            "Email MFA token check successful",
+            user_id=user.pk,
+            token_age_seconds=token_age_seconds,
+            token=_obfuscate_token(token),
+        )
+        return True
 
     def _make_hash_value(self, user: AbstractBaseUser, timestamp: int) -> str:
         """Include last_login and is_active to invalidate tokens after use or deactivation."""
@@ -246,8 +293,19 @@ class EmailMFAVerifier:
             email.send_email_mfa_link(user.pk, token)
             request.session["email_mfa_pending_user_id"] = user.pk
             request.session["email_mfa_token_created_at"] = int(time.time())
+            mfa_logger.info(
+                "Email MFA verification email sent",
+                user_id=user.pk,
+                user_last_login=str(user.last_login) if user.last_login else None,
+                token=_obfuscate_token(token),
+            )
             return True
         except Exception as e:
+            mfa_logger.exception(
+                "Email MFA verification email failed",
+                user_id=user.pk,
+                error=str(e),
+            )
             capture_exception(Exception(f"Email MFA verification email failed: {e}"))
             return False
 

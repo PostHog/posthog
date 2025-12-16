@@ -10,6 +10,7 @@ from posthog.schema import AssistantMessage, HumanMessage
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
 from ee.hogai.chat_agent.slash_commands.commands.feedback import FeedbackCommand
 from ee.hogai.chat_agent.slash_commands.commands.remember import RememberCommand
+from ee.hogai.chat_agent.slash_commands.commands.ticket import TicketCommand
 from ee.hogai.chat_agent.slash_commands.commands.usage import UsageCommand
 from ee.hogai.chat_agent.slash_commands.nodes import SlashCommandHandlerNode
 from ee.hogai.core.agent_modes.const import SlashCommandName
@@ -145,3 +146,23 @@ class TestSlashCommandHandlerNode(BaseTest):
         state = AssistantState(messages=[HumanMessage(content="/feedback This is great!")])
         result = self.node._get_command(state)
         self.assertEqual(result, SlashCommandName.FIELD_FEEDBACK)
+
+    def test_command_handlers_contains_ticket(self):
+        """Test that COMMAND_HANDLERS registry contains /ticket with correct class."""
+        self.assertIn(SlashCommandName.FIELD_TICKET, SlashCommandHandlerNode.COMMAND_HANDLERS)
+        self.assertEqual(
+            SlashCommandHandlerNode.COMMAND_HANDLERS[SlashCommandName.FIELD_TICKET],
+            TicketCommand,
+        )
+
+    def test_get_command_detects_ticket(self):
+        """Test that /ticket command is detected."""
+        state = AssistantState(messages=[HumanMessage(content="/ticket")])
+        result = self.node._get_command(state)
+        self.assertEqual(result, SlashCommandName.FIELD_TICKET)
+
+    async def test_router_returns_end_for_ticket_command(self):
+        """Test that /ticket command routes to END."""
+        state = AssistantState(messages=[HumanMessage(content="/ticket")])
+        result = await self.node.arouter(state)
+        self.assertEqual(result, AssistantNodeName.END)

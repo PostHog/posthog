@@ -45,11 +45,14 @@ import {
     FailureMessage,
     HumanMessage,
     RootAssistantMessage,
+    SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
-import { maxBillingContextLogic } from './maxBillingContextLogic'
+import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { ToolRegistration } from './max-constants'
+import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
@@ -61,6 +64,7 @@ import {
     isAssistantToolCallMessage,
     isHumanMessage,
     isNotebookUpdateMessage,
+    isSubagentUpdateEvent,
     threadEndsWithMultiQuestionForm,
 } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
@@ -177,9 +181,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
+        setSupportOverrideEnabled: (enabled: boolean) => ({ enabled }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
+        appendMessageToConversation: (message: string) => ({ message }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
-        setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
+        setToolCallUpdate: (
+            update: AssistantUpdateEvent | SubagentUpdateEvent,
+            toolMap: Record<string, ToolRegistration>
+        ) => ({
+            update,
+            toolMap,
+        }),
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
     }),
 
@@ -282,14 +294,29 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         toolCallUpdateMap: [
             new Map<string, string[]>(),
             {
-                setToolCallUpdate: (value, { update }: { update: AssistantUpdateEvent }) => {
+                setToolCallUpdate: (
+                    value,
+                    {
+                        update,
+                        toolMap,
+                    }: { update: AssistantUpdateEvent | SubagentUpdateEvent; toolMap: Record<string, ToolRegistration> }
+                ) => {
                     const currentValue = value.get(update.tool_call_id) || []
-                    if (currentValue.includes(update.content) || update.content === '') {
+                    const newMap = new Map(value)
+                    let newValue: string
+                    if (isSubagentUpdateEvent(update)) {
+                        const [description, _] = getToolCallDescriptionAndWidget(
+                            update.content as unknown as EnhancedToolCall,
+                            toolMap
+                        )
+                        newValue = description
+                    } else {
+                        newValue = update.content
+                    }
+                    if (currentValue.includes(newValue) || newValue === '') {
                         return value
                     }
-
-                    const newMap = new Map(value)
-                    newMap.set(update.tool_call_id, [...currentValue, update.content])
+                    newMap.set(update.tool_call_id, [...currentValue, newValue])
                     return newMap
                 },
             },
@@ -318,6 +345,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 stopGeneration: (state) => state + 1,
                 resetThread: () => 0,
                 resetCancelCount: () => 0,
+            },
+        ],
+
+        // Whether support agents have explicitly acknowledged they want to use an existing conversation
+        supportOverrideEnabled: [
+            false,
+            {
+                setSupportOverrideEnabled: (_, { enabled }) => enabled,
+                // Reset when changing conversations
+                setConversation: () => false,
             },
         ],
     })),
@@ -660,6 +697,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 console.error('Failed to navigate to notebook:', error)
             }
         },
+        appendMessageToConversation: async ({ message }) => {
+            const conversationId = values.conversationId
+            if (!conversationId) {
+                return
+            }
+
+            await api.conversations.appendMessage(conversationId, message)
+
+            actions.addMessage({
+                type: AssistantMessageType.Assistant,
+                content: message,
+                id: uuid(),
+                status: 'completed',
+            })
+        },
     })),
 
     selectors({
@@ -671,6 +723,30 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         isSharedThread: [
             (s) => [s.conversation, userLogic.selectors.user],
             (conversation, user): boolean => !!conversation?.user && !!user && conversation.user.uuid !== user.uuid,
+        ],
+
+        // Whether the current user is impersonating and viewing an existing conversation
+        isImpersonatingExistingConversation: [
+            (s) => [s.conversation, s.supportOverrideEnabled, userLogic.selectors.user],
+            (conversation, supportOverrideEnabled, user): boolean => {
+                // Only when user is impersonating
+                if (!user?.is_impersonated) {
+                    return false
+                }
+                // If conversation was created during impersonation (is_internal), allow typing
+                if (conversation?.is_internal) {
+                    return false
+                }
+                // Only applies to existing conversations
+                if (!conversation?.title) {
+                    return false
+                }
+                // Support agent has explicitly acknowledged they want to continue
+                if (supportOverrideEnabled) {
+                    return false
+                }
+                return true
+            },
         ],
 
         threadLoading: [
@@ -738,11 +814,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                     // Don't add thinking message if:
                     // 1. There are tool calls in progress, OR
-                    // 2. The last message is a streaming ASSISTANT message (no id) - it will show its own thinking/content
+                    // 2. The last message is a streaming ASSISTANT message (no ID or it starts with 'temp-') - it will show its own thinking/content
                     // Note: Human messages should always trigger thinking loader, only assistant messages can be "streaming"
                     // Note: NotebookUpdateMessages do stream, but they are not added to the thread until they have an id
                     const lastMessageIsStreamingAssistant =
-                        finalMessageSoFar && isAssistantMessage(finalMessageSoFar) && !finalMessageSoFar.id
+                        finalMessageSoFar &&
+                        isAssistantMessage(finalMessageSoFar) &&
+                        (!finalMessageSoFar.id || finalMessageSoFar.id.startsWith('temp-'))
                     const shouldAddThinkingMessage =
                         toolCallsInProgress.length === 0 && !lastMessageIsStreamingAssistant
 
@@ -788,27 +866,51 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 s.threadLoading,
                 s.dataProcessingAccepted,
                 s.isSharedThread,
+                s.isImpersonatingExistingConversation,
             ],
-            (formPending, multiQuestionFormPending, threadLoading, dataProcessingAccepted, isSharedThread) =>
+            (
+                formPending,
+                multiQuestionFormPending,
+                threadLoading,
+                dataProcessingAccepted,
+                isSharedThread,
+                isImpersonatingExistingConversation
+            ) =>
                 // Input unavailable when:
                 // - Answer must be provided using a form returned by Max only
                 // - Answer must be provided using a multi-question form
                 // - We are awaiting user to approve or reject external AI processing data
-                isSharedThread || formPending || multiQuestionFormPending || (threadLoading && !dataProcessingAccepted),
+                // - Support agent is viewing an existing conversation without override
+                isSharedThread ||
+                formPending ||
+                multiQuestionFormPending ||
+                (threadLoading && !dataProcessingAccepted) ||
+                isImpersonatingExistingConversation,
         ],
 
-        submissionDisabledReason: [
-            (s) => [s.formPending, s.multiQuestionFormPending, s.question, s.threadLoading, s.activeStreamingThreads],
+        contextDisabledReason: [
+            (s) => [
+                s.formPending,
+                s.multiQuestionFormPending,
+                s.threadLoading,
+                s.activeStreamingThreads,
+                s.isImpersonatingExistingConversation,
+            ],
             (
                 formPending,
                 multiQuestionFormPending,
-                question,
                 threadLoading,
-                activeStreamingThreads
+                activeStreamingThreads,
+                isImpersonatingExistingConversation
             ): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
+                }
+
+                // Support agents should create new conversations instead of using existing ones
+                if (isImpersonatingExistingConversation) {
+                    return 'You should create new conversations during impersonation. Use the checkbox to override.'
                 }
 
                 if (formPending) {
@@ -817,10 +919,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (multiQuestionFormPending) {
                     return 'Please answer the questions above'
-                }
-
-                if (!question) {
-                    return 'I need some input first'
                 }
 
                 // Prevent submission if too many active streaming threads (limit: 10)
@@ -832,14 +930,44 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        submissionDisabledReason: [
+            (s) => [s.contextDisabledReason, s.question],
+            (contextDisabledReason, question): string | undefined => {
+                // Context-related reasons take precedence (form pending, streaming, etc.)
+                if (contextDisabledReason) {
+                    return contextDisabledReason
+                }
+
+                if (!question) {
+                    return 'I need some input first'
+                }
+
+                return undefined
+            },
+        ],
+
         filteredCommands: [
-            (s) => [s.question, s.featureFlags],
-            (question: string, featureFlags: Record<string, boolean | string>): SlashCommand[] =>
-                MAX_SLASH_COMMANDS.filter(
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.billingContext],
+            (
+                question: string,
+                featureFlags: Record<string, boolean | string>,
+                threadLoading: boolean,
+                billingContext: MaxBillingContext | null
+            ): SlashCommand[] => {
+                const hasPaidPlan =
+                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.PAID ||
+                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.CUSTOM ||
+                    billingContext?.trial?.is_active ||
+                    process.env.NODE_ENV === 'development'
+
+                return MAX_SLASH_COMMANDS.filter(
                     (command) =>
                         command.name.toLowerCase().startsWith(question.toLowerCase()) &&
-                        (!command.flag || featureFlags[command.flag])
-                ),
+                        (!command.flag || featureFlags[command.flag]) &&
+                        (!command.requiresIdle || !threadLoading) &&
+                        (!command.requiresPaidPlan || hasPaidPlan)
+                )
+            },
         ],
 
         showDeepResearchModeToggle: [
@@ -952,12 +1080,13 @@ function enhanceThreadToolCalls(
     }
 
     // Enhance assistant messages with tool call status
-    return group.map((message, index) => {
+    return group.map((message, messageIndex) => {
+        message = { ...message }
+        // A message is in the final group if it comes after or is the last human message
+        const isFinalGroup = messageIndex >= lastHumanMessageIndex
         if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
-            // A message is in the final group if it comes after or is the last human message
-            const isFinalGroup = index >= lastHumanMessageIndex
             const isLastPlanningMessage = message.id === lastPlanningMessageId
-            const enhancedToolCalls = message.tool_calls.map((toolCall) => {
+            message.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
                 const isCompleted = !!toolCallCompletions.get(toolCall.id)
                 const isFailed = !isCompleted && (!isFinalGroup || !isLoading)
                 return {
@@ -971,18 +1100,13 @@ function enhanceThreadToolCalls(
                     updates: toolCallUpdateMap.get(toolCall.id) ?? [],
                 }
             })
-
-            return {
-                ...message,
-                tool_calls: enhancedToolCalls,
-            }
         }
         return message
     })
 }
 
 /** Assistant streaming event handler. */
-async function onEventImplementation(
+export async function onEventImplementation(
     event: string,
     data: string,
     {
@@ -1009,11 +1133,11 @@ async function onEventImplementation(
         actions.setConversation(conversationWithTitle)
         actions.updateGlobalConversationCache(conversationWithTitle)
     } else if (event === AssistantEventType.Update) {
-        const parsedResponse = parseResponse<AssistantUpdateEvent>(data)
+        const parsedResponse = parseResponse<AssistantUpdateEvent | SubagentUpdateEvent>(data)
         if (!parsedResponse) {
             return
         }
-        actions.setToolCallUpdate(parsedResponse)
+        actions.setToolCallUpdate(parsedResponse, values.toolMap)
         return
     } else if (event === AssistantEventType.Message) {
         const parsedResponse = parseResponse<RootAssistantMessage>(data)
@@ -1066,24 +1190,27 @@ async function onEventImplementation(
                 ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
                 : -1
 
+            const isLoading = !parsedResponse.id || parsedResponse.id.startsWith('temp-')
             if (existingMessageIndex >= 0) {
-                // Replace existing message with same ID
+                // When streaming a message with an already-present ID, we simply replace it
+                // (primarily when streaming in-progress messages with a temp- ID)
                 actions.replaceMessage(existingMessageIndex, {
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: isLoading ? 'loading' : 'completed',
                 })
-            } else if (
-                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
-                values.threadRaw.length === 0
-            ) {
+            } else if (isLoading) {
+                // When a new temp message is streamed for the first time, we append it
                 actions.addMessage({
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: 'loading',
                 })
-            } else if (parsedResponse) {
-                actions.replaceMessage(values.threadRaw.length - 1, {
+            } else {
+                // When we get the completed messages at the end of a generation,
+                // we replace from the last completed message to arrive at the final state
+                const lastCompletedMessageIndex = values.threadRaw.findLastIndex((msg) => msg.status === 'completed')
+                actions.replaceMessage(lastCompletedMessageIndex + 1, {
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: 'completed',
                 })
             }
         }

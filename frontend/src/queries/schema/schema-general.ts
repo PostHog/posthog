@@ -384,6 +384,7 @@ export interface HogQLQueryModifiers {
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
+    usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
 }
 
@@ -1689,6 +1690,8 @@ export interface EndpointRunRequest {
      *   The query executed will return the count of $identify events, instead of $pageview's
      */
     query_override?: Record<string, any>
+    /** Specific endpoint version to execute. If not provided, the latest version is used. */
+    version?: integer
 }
 
 export interface EndpointLastExecutionTimesRequest {
@@ -3834,6 +3837,7 @@ export interface LLMTrace {
     traceName?: string
     errorCount?: number
     events: LLMTraceEvent[]
+    isSupportTrace?: boolean
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -3850,6 +3854,7 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     limit?: integer
     offset?: integer
     filterTestAccounts?: boolean
+    filterSupportTraces?: boolean
     showColumnConfigurator?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
@@ -5003,6 +5008,7 @@ export enum ProductIntentContext {
     SURVEY_BULK_DUPLICATED = 'survey_bulk_duplicated',
     SURVEY_EDITED = 'survey_edited',
     SURVEY_ANALYZED = 'survey_analyzed',
+    QUICK_SURVEY_STARTED = 'quick_survey_started',
 
     // Revenue Analytics
     REVENUE_ANALYTICS_VIEWED = 'revenue_analytics_viewed',

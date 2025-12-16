@@ -336,6 +336,7 @@ export function LineGraph_({
             window.removeEventListener('keydown', handleKeyDown)
             window.removeEventListener('keyup', handleKeyUp)
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isBar, isStacked])
 
     // Add scrollend event on main element to hide tooltips when scrolling
