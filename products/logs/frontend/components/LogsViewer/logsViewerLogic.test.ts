@@ -135,6 +135,73 @@ describe('logsViewerLogic', () => {
                     .toNotHaveDispatchedActions(['setCursor'])
             })
         })
+
+        describe('shiftSelect', () => {
+            it('moveCursorDown with shiftSelect selects the new row', async () => {
+                logic.actions.setCursorIndex(0)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.moveCursorDown(true)
+                })
+                    .toDispatchActions(['moveCursorDown', 'setCursor', 'setSelectedLogIds'])
+                    .toMatchValues({
+                        cursorIndex: 1,
+                        selectedLogIds: { 'log-2': true },
+                    })
+            })
+
+            it('moveCursorUp with shiftSelect selects the new row', async () => {
+                logic.actions.setCursorIndex(2)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.moveCursorUp(true)
+                })
+                    .toDispatchActions(['moveCursorUp', 'setCursor', 'setSelectedLogIds'])
+                    .toMatchValues({
+                        cursorIndex: 1,
+                        selectedLogIds: { 'log-2': true },
+                    })
+            })
+
+            it('moveCursorDown with shiftSelect from no cursor selects first row', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveCursorDown(true)
+                })
+                    .toDispatchActions(['moveCursorDown', 'setCursor', 'setSelectedLogIds'])
+                    .toMatchValues({
+                        cursorIndex: 0,
+                        selectedLogIds: { 'log-1': true },
+                    })
+            })
+
+            it('moveCursorUp with shiftSelect from no cursor selects last row', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveCursorUp(true)
+                })
+                    .toDispatchActions(['moveCursorUp', 'setCursor', 'setSelectedLogIds'])
+                    .toMatchValues({
+                        cursorIndex: 2,
+                        selectedLogIds: { 'log-3': true },
+                    })
+            })
+
+            it('shiftSelect accumulates selections when moving down', async () => {
+                logic.actions.setCursorIndex(0)
+                await expectLogic(logic).toFinishAllListeners()
+
+                logic.actions.moveCursorDown(true)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.moveCursorDown(true)
+                }).toMatchValues({
+                    cursorIndex: 2,
+                    selectedLogIds: { 'log-2': true, 'log-3': true },
+                })
+            })
+        })
     })
 
     describe('empty logs', () => {

@@ -209,22 +209,16 @@ function LogsViewerContent({
 
     const handleMoveDown = useCallback(
         (e: KeyboardEvent): void => {
-            if (e.shiftKey && cursorLogId) {
-                toggleSelectLog(cursorLogId)
-            }
-            moveCursorDown()
+            moveCursorDown(e.shiftKey)
         },
-        [cursorLogId, toggleSelectLog, moveCursorDown]
+        [moveCursorDown]
     )
 
     const handleMoveUp = useCallback(
         (e: KeyboardEvent): void => {
-            if (e.shiftKey && cursorLogId) {
-                toggleSelectLog(cursorLogId)
-            }
-            moveCursorUp()
+            moveCursorUp(e.shiftKey)
         },
-        [cursorLogId, toggleSelectLog, moveCursorUp]
+        [moveCursorUp]
     )
 
     useKeyboardHotkeys(

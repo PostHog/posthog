@@ -54,8 +54,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         userSetCursorIndex: (index: number | null) => ({ index }), // User-initiated (click on row)
         userSetCursorAttribute: (logIndex: number, attributeIndex: number) => ({ logIndex, attributeIndex }), // User-initiated (click on attribute)
         resetCursor: true,
-        moveCursorDown: true,
-        moveCursorUp: true,
+        moveCursorDown: (shiftSelect?: boolean) => ({ shiftSelect: shiftSelect ?? false }),
+        moveCursorUp: (shiftSelect?: boolean) => ({ shiftSelect: shiftSelect ?? false }),
 
         // Expansion
         toggleExpandLog: (logId: string) => ({ logId }),
@@ -349,7 +349,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
             actions.recomputeRowHeights([logId])
         },
-        moveCursorDown: () => {
+        moveCursorDown: ({ shiftSelect }) => {
             const { logs } = values
             if (logs.length === 0) {
                 return
@@ -359,6 +359,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             if (cursor === null) {
                 // No cursor - start at first row
                 actions.setCursor({ logIndex: 0, attributeIndex: null })
+                if (shiftSelect && logs[0]) {
+                    actions.setSelectedLogIds({ ...values.selectedLogIds, [logs[0].uuid]: true })
+                }
                 return
             }
 
@@ -374,7 +377,11 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     actions.setCursor({ logIndex: cursor.logIndex, attributeIndex: 0 })
                 } else if (cursor.logIndex < logs.length - 1) {
                     // Move to next row
-                    actions.setCursor({ logIndex: cursor.logIndex + 1, attributeIndex: null })
+                    const newIndex = cursor.logIndex + 1
+                    actions.setCursor({ logIndex: newIndex, attributeIndex: null })
+                    if (shiftSelect && logs[newIndex]) {
+                        actions.setSelectedLogIds({ ...values.selectedLogIds, [logs[newIndex].uuid]: true })
+                    }
                 }
             } else {
                 // At attribute level
@@ -383,11 +390,15 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     actions.setCursor({ logIndex: cursor.logIndex, attributeIndex: cursor.attributeIndex + 1 })
                 } else if (cursor.logIndex < logs.length - 1) {
                     // Move to next row
-                    actions.setCursor({ logIndex: cursor.logIndex + 1, attributeIndex: null })
+                    const newIndex = cursor.logIndex + 1
+                    actions.setCursor({ logIndex: newIndex, attributeIndex: null })
+                    if (shiftSelect && logs[newIndex]) {
+                        actions.setSelectedLogIds({ ...values.selectedLogIds, [logs[newIndex].uuid]: true })
+                    }
                 }
             }
         },
-        moveCursorUp: () => {
+        moveCursorUp: ({ shiftSelect }) => {
             const { logs } = values
             if (logs.length === 0) {
                 return
@@ -396,7 +407,11 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             const cursor = values.cursor
             if (cursor === null) {
                 // No cursor - start at last row
-                actions.setCursor({ logIndex: logs.length - 1, attributeIndex: null })
+                const lastIndex = logs.length - 1
+                actions.setCursor({ logIndex: lastIndex, attributeIndex: null })
+                if (shiftSelect && logs[lastIndex]) {
+                    actions.setSelectedLogIds({ ...values.selectedLogIds, [logs[lastIndex].uuid]: true })
+                }
                 return
             }
 
@@ -404,17 +419,21 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 // At row level
                 if (cursor.logIndex > 0) {
                     // Check if previous row is expanded
-                    const prevLog = logs[cursor.logIndex - 1]
+                    const newIndex = cursor.logIndex - 1
+                    const prevLog = logs[newIndex]
                     const isPrevExpanded = !!values.expandedLogIds[prevLog?.uuid]
                     const prevAttributeKeys = prevLog ? Object.keys(prevLog.attributes) : []
                     const prevAttributeCount = prevAttributeKeys.length
 
                     if (isPrevExpanded && prevAttributeCount > 0) {
                         // Enter previous row at last attribute
-                        actions.setCursor({ logIndex: cursor.logIndex - 1, attributeIndex: prevAttributeCount - 1 })
+                        actions.setCursor({ logIndex: newIndex, attributeIndex: prevAttributeCount - 1 })
                     } else {
                         // Move to previous row
-                        actions.setCursor({ logIndex: cursor.logIndex - 1, attributeIndex: null })
+                        actions.setCursor({ logIndex: newIndex, attributeIndex: null })
+                    }
+                    if (shiftSelect && prevLog) {
+                        actions.setSelectedLogIds({ ...values.selectedLogIds, [prevLog.uuid]: true })
                     }
                 }
             } else {
