@@ -76,14 +76,14 @@ class ClusterLabelingState(TypedDict):
 
 ## Tools
 
-| Tool                       | Purpose                          | Input                                  | Output                                              |
-| -------------------------- | -------------------------------- | -------------------------------------- | --------------------------------------------------- |
-| `get_clusters_overview`    | High-level view of all clusters  | None                                   | List of {cluster_id, size, centroid_x, centroid_y}  |
-| `get_cluster_trace_titles` | Scan trace titles in a cluster   | `cluster_id`, `limit` (default 30)     | List of {trace_id, title, rank, distance, x, y}     |
-| `get_trace_details`        | Full trace summaries             | `trace_ids` (list)                     | List of {trace_id, title, flow_diagram, bullets, notes} |
-| `get_current_labels`       | Review all labels set so far     | None                                   | Dict of {cluster_id: {title, description} or null}  |
-| `set_cluster_label`        | Set/update a cluster's label     | `cluster_id`, `title`, `description`   | Confirmation message                                |
-| `finalize_labels`          | Signal completion                | None                                   | Triggers transition to finalize node                |
+| Tool                       | Purpose                         | Input                                | Output                                                  |
+| -------------------------- | ------------------------------- | ------------------------------------ | ------------------------------------------------------- |
+| `get_clusters_overview`    | High-level view of all clusters | None                                 | List of {cluster_id, size, centroid_x, centroid_y}      |
+| `get_cluster_trace_titles` | Scan trace titles in a cluster  | `cluster_id`, `limit` (default 30)   | List of {trace_id, title, rank, distance, x, y}         |
+| `get_trace_details`        | Full trace summaries            | `trace_ids` (list)                   | List of {trace_id, title, flow_diagram, bullets, notes} |
+| `get_current_labels`       | Review all labels set so far    | None                                 | Dict of {cluster_id: {title, description} or null}      |
+| `set_cluster_label`        | Set/update a cluster's label    | `cluster_id`, `title`, `description` | Confirmation message                                    |
+| `finalize_labels`          | Signal completion               | None                                 | Triggers transition to finalize node                    |
 
 ### Tool Details
 
@@ -131,12 +131,12 @@ The system prompt guides the agent to:
 
 From `constants.py`:
 
-| Constant                       | Value                    | Description                                   |
-| ------------------------------ | ------------------------ | --------------------------------------------- |
-| `LABELING_AGENT_MODEL`         | `claude-sonnet-4-20250514` | Claude Sonnet 4 model for reasoning         |
-| `LABELING_AGENT_MAX_ITERATIONS`| 50                       | Max iterations before forced finalization     |
-| `LABELING_AGENT_RECURSION_LIMIT`| 150                     | LangGraph recursion limit (> 2 * max_iterations) |
-| `LABELING_AGENT_TIMEOUT`       | 600.0                    | Full agent run timeout (seconds)              |
+| Constant                         | Value                      | Description                                       |
+| -------------------------------- | -------------------------- | ------------------------------------------------- |
+| `LABELING_AGENT_MODEL`           | `claude-sonnet-4-20250514` | Claude Sonnet 4 model for reasoning               |
+| `LABELING_AGENT_MAX_ITERATIONS`  | 50                         | Max iterations before forced finalization         |
+| `LABELING_AGENT_RECURSION_LIMIT` | 150                        | LangGraph recursion limit (> 2 \* max_iterations) |
+| `LABELING_AGENT_TIMEOUT`         | 600.0                      | Full agent run timeout (seconds)                  |
 
 ## Usage
 
