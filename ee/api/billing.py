@@ -531,7 +531,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"claimed_coupons": []}, status=status.HTTP_200_OK)
 
         organization = self._get_org_required()
-
         billing_manager = self.get_billing_manager()
         res = billing_manager.coupons_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
