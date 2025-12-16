@@ -106,6 +106,7 @@ describe('createResolveTeamStep()', () => {
         expect(response).toEqual(
             ok({
                 ...input,
+                team: teamTwo,
                 eventWithTeam: {
                     event: { ...pipelineEvent, token: teamTwoToken },
                     team: teamTwo,
@@ -152,6 +153,7 @@ describe('createResolveTeamStep()', () => {
         expect(response).toEqual(
             ok({
                 ...input,
+                team: teamTwo,
                 eventWithTeam: {
                     event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
                     team: teamTwo,

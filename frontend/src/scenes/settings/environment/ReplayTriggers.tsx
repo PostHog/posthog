@@ -172,12 +172,12 @@ function Sampling(): JSX.Element {
                     <IngestionTriggers.MatchTypeTag /> Sampling <Since web={{ version: '1.85.0' }} />
                 </LemonLabel>
                 <IngestionTriggers.SamplingTrigger
-                    value={
+                    initialSampleRate={
                         typeof currentTeam?.session_recording_sample_rate === 'string'
-                            ? currentTeam?.session_recording_sample_rate
-                            : '1.00'
+                            ? Math.floor(parseFloat(currentTeam?.session_recording_sample_rate) * 100)
+                            : 100
                     }
-                    onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v })}
+                    onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
                 />
             </div>
             <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
