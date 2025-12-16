@@ -947,6 +947,7 @@ def main():
         all_droplets = manager.get_all_droplets()
         now = datetime.datetime.now(datetime.UTC)
         cleaned = 0
+        cleaned_prs: list[str] = []
 
         for droplet in all_droplets:
             # Find droplets with pr:* tags (hobby previews)
@@ -1030,12 +1031,20 @@ def main():
 
                         HobbyTester.destroy_environment(droplet_id=droplet.id, record_id=record_id)
                         cleaned += 1
+                        cleaned_prs.append(pr_number)
                     except Exception as e:
                         print(f"   ❌ Failed to destroy: {e}")
             else:
                 print(f"   ✅ Keeping (PR open and active)")
 
         print(f"\n{'Would clean' if dry_run else 'Cleaned'} {cleaned} droplet(s)")
+
+        # Output cleaned PR numbers for GitHub deployment cleanup
+        if cleaned_prs:
+            print(f"Cleaned PRs: {','.join(cleaned_prs)}")
+            # Write to file for workflow to pick up
+            with open("/tmp/cleaned_prs.txt", "w") as f:
+                f.write(",".join(cleaned_prs))
 
     if command == "destroy-pr":
         # Destroy droplet for a specific PR number

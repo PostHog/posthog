@@ -54,6 +54,73 @@ jobs:
                   DRY_RUN: ${{ inputs.dry_run || 'false' }}
               run: uv run bin/hobby-ci.py cleanup-stale
 
+            - name: Cleanup GitHub deployments for stale PRs
+              if: inputs.pr_number == ''
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              with:
+                  script: |
+                      const fs = require('fs');
+
+                      // Read cleaned PR numbers from file
+                      let cleanedPrs = [];
+                      try {
+                          const content = fs.readFileSync('/tmp/cleaned_prs.txt', 'utf8');
+                          cleanedPrs = content.split(',').filter(pr => pr.trim());
+                      } catch (e) {
+                          console.log('No cleaned PRs file found, skipping deployment cleanup');
+                          return;
+                      }
+
+                      if (cleanedPrs.length === 0) {
+                          console.log('No PRs were cleaned up');
+                          return;
+                      }
+
+                      console.log(`Cleaning up GitHub deployments for PRs: ${cleanedPrs.join(', ')}`);
+
+                      for (const prNumber of cleanedPrs) {
+                          const environment = `preview-pr-${prNumber}`;
+                          console.log(`\nCleaning up ${environment}...`);
+
+                          try {
+                              const { data: deployments } = await github.rest.repos.listDeployments({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  environment: environment,
+                                  per_page: 100
+                              });
+
+                              for (const deployment of deployments) {
+                                  try {
+                                      await github.rest.repos.createDeploymentStatus({
+                                          owner: context.repo.owner,
+                                          repo: context.repo.repo,
+                                          deployment_id: deployment.id,
+                                          state: 'inactive',
+                                          description: 'Cleaned up by stale cleanup'
+                                      });
+                                      await github.rest.repos.deleteDeployment({
+                                          owner: context.repo.owner,
+                                          repo: context.repo.repo,
+                                          deployment_id: deployment.id
+                                      });
+                                      console.log(`  Deleted deployment ${deployment.id}`);
+                                  } catch (error) {
+                                      console.log(`  Could not delete deployment ${deployment.id}: ${error.message}`);
+                                  }
+                              }
+
+                              await github.rest.repos.deleteAnEnvironment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  environment_name: environment
+                              });
+                              console.log(`  Deleted environment ${environment}`);
+                          } catch (error) {
+                              console.log(`  Could not cleanup ${environment}: ${error.message}`);
+                          }
+                      }
+
             - name: Cleanup GitHub deployment and environment
               if: inputs.pr_number != ''
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
