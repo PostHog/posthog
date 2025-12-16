@@ -6,7 +6,7 @@
       {
         "ordinal": 0,
         "name": "vm_state",
-        "type_info": "Bytea"
+        "type_info": "Text"
       }
     ],
     "parameters": {
