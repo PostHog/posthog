@@ -259,7 +259,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                         to="https://posthog.com/docs/data-warehouse/views#materializing-and-scheduling-a-view"
                                         target="_blank"
                                     >
-                                        Learn more about materialization.
+                                        Learn more about materialization
                                     </Link>
                                     .
                                 </p>

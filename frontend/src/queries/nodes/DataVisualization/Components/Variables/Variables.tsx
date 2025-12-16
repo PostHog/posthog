@@ -321,10 +321,11 @@ export const VariableComponent = ({
     const tooltip = (
         <div className="flex flex-col gap-1">
             <span>
-                Use this variable in your HogQL by referencing <code>{variableAsHogQL}</code> or
+                Use this variable in your HogQL by referencing <code>{variableAsHogQL}</code>
                 {onInsertAtCursor && (
                     <>
                         {' '}
+                        or{' '}
                         <Link subtle onClick={() => onInsertAtCursor(variableAsHogQL)}>
                             insert at cursor.
                         </Link>
