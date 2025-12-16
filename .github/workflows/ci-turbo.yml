@@ -2,6 +2,9 @@ name: Turbo CI
 on:
     pull_request:
 
+permissions:
+    contents: write
+
 jobs:
     turbo-affected-4:
         timeout-minutes: 30
@@ -40,7 +43,6 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
