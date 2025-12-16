@@ -16402,6 +16402,9 @@
                 "useMaterializedViews": {
                     "type": "boolean"
                 },
+                "usePreaggregatedIntermediateResults": {
+                    "type": "boolean"
+                },
                 "usePreaggregatedTableTransforms": {
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
                     "type": "boolean"

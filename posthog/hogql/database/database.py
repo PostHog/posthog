@@ -82,6 +82,7 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
+from posthog.hogql.database.schema.preaggregation_results import PreaggregationResultsTable
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
@@ -207,6 +208,7 @@ class Database(BaseModel):
             "web_pre_aggregated_bounces": TableNode(
                 name="web_pre_aggregated_bounces", table=WebPreAggregatedBouncesTable()
             ),
+            "preaggregation_results": TableNode(name="preaggregation_results", table=PreaggregationResultsTable()),
             # Revenue analytics tables
             "persons_revenue_analytics": TableNode(
                 name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()
