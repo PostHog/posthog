@@ -122,7 +122,7 @@ pub fn decode_request(
         "application/json" | "text/plain" => {
             let decoded_body = decode_body(body, query.compression, headers)?;
 
-            try_parse_with_fallbacks(decoded_body)
+            try_parse_with_fallbacks(decoded_body, user_agent)
         }
         "application/x-www-form-urlencoded" => {
             decode_form_data(body, query.compression, user_agent)
@@ -218,7 +218,10 @@ fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
     Ok(Bytes::from(decoded))
 }
 
-pub fn try_parse_with_fallbacks(body: Bytes) -> Result<FlagRequest, FlagError> {
+pub fn try_parse_with_fallbacks(
+    body: Bytes,
+    user_agent: Option<&str>,
+) -> Result<FlagRequest, FlagError> {
     // Strategy 1: Try parsing as JSON directly
     if let Ok(request) = FlagRequest::from_bytes(body.clone()) {
         return Ok(request);
@@ -226,14 +229,25 @@ pub fn try_parse_with_fallbacks(body: Bytes) -> Result<FlagRequest, FlagError> {
 
     // Strategy 2: Try base64 decode then JSON
     // Even if compression is not specified, we still try to decode it as base64
-    tracing::warn!("Direct JSON parsing failed, trying base64 decode fallback");
+    let client_type = classify_client_type(user_agent);
+    tracing::warn!(
+        client_type = client_type,
+        "Direct JSON parsing failed, trying base64 decode fallback"
+    );
     match decode_base64(body.clone()) {
         Ok(decoded) => match FlagRequest::from_bytes(decoded) {
             Ok(request) => {
                 inc(
                     FLAG_REQUEST_KLUDGE_COUNTER,
-                    &[("type".to_string(), "base64_fallback_success".to_string())],
+                    &[
+                        ("type".to_string(), "base64_fallback_success".to_string()),
+                        ("client_type".to_string(), client_type.to_string()),
+                    ],
                     1,
+                );
+                tracing::info!(
+                    client_type = client_type,
+                    "Successfully parsed request using base64 fallback"
                 );
                 return Ok(request);
             }
