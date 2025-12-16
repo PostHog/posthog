@@ -821,7 +821,7 @@ async def run_consumers(
     max_consumers: int,
 ) -> BatchExportResult:
     tasks = []
-    max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES / max_consumers
+    max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
 
     async with asyncio.TaskGroup() as tg:
         for _ in range(max_consumers):
@@ -1030,8 +1030,9 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 create=can_perform_merge,
                 delete=can_perform_merge,
             ) as bigquery_consumer_table:
-                file_format = "Parquet" if can_perform_merge else "JSONLines"
-                if inputs.team_id in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
+                file_format: typing.Literal["Parquet", "JSONLines"] = "Parquet" if can_perform_merge else "JSONLines"
+
+                if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
                     # This just repeats what's in `run_consumers` to preserve backwards compatibility
                     # while testing.
                     # TODO: Remove this or the else block after we have tested out whether multiple

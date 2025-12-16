@@ -27,7 +27,9 @@ class BatchExportResult:
             case None:
                 return None
             case error:
-                return f"{error.type}: {error.message}"
+                # mypy cannot narrow types properly, error can only be BatchExportError
+                # See: https://github.com/python/mypy/issues/19081
+                return f"{error.type}: {error.message}"  # type: ignore[union-attr]
 
     @classmethod
     def from_exception(cls, e: Exception) -> "BatchExportResult":
@@ -35,21 +37,23 @@ class BatchExportResult:
 
 
 def reduce_batch_export_results(results: collections.abc.Iterable[BatchExportResult]) -> BatchExportResult:
-    total_result = BatchExportResult(records_completed=0, bytes_exported=0, error=None)
+    records_completed = 0
+    bytes_exported = 0
+    error: list[BatchExportError] = []
 
     for result in results:
         if result.records_completed is not None:
-            assert total_result.records_completed is not None
-            total_result.records_completed += result.records_completed
+            records_completed += result.records_completed
 
         if result.bytes_exported is not None:
-            assert total_result.bytes_exported is not None
-            total_result.bytes_exported += result.bytes_exported
+            bytes_exported += result.bytes_exported
 
         if result.error is not None:
             if not isinstance(result.error, list):
                 errors = [result.error]
             else:
                 errors = result.error
-            total_result.extend(errors)
-    return total_result
+
+            error.extend(errors)
+
+    return BatchExportResult(records_completed=records_completed, bytes_exported=bytes_exported, error=error or None)
