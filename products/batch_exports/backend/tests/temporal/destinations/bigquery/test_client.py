@@ -41,7 +41,7 @@ async def test_execute_query_pending_timeout(states_sequence: list[str], should_
 
     if should_timeout:
         with pytest.raises(
-            StartQueryTimeoutError, match="Query 'test-job-id' still in 'PENDING' state after 0.05 seconds"
+            StartQueryTimeoutError, match="Query still in 'PENDING' state after 0.05 seconds; timing out."
         ):
             await client.execute_query(
                 "SELECT 1",
