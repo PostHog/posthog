@@ -199,7 +199,7 @@ class WidgetMessageView(APIView):
     def post(self, request: Request) -> Response:
         """Handle incoming message from widget."""
 
-        team: Team = request.auth
+        team: Team = request.auth  # type: ignore[assignment]
 
         # Check honeypot field (bots fill this)
         if request.data.get("_hp"):
@@ -248,11 +248,12 @@ class WidgetMessageView(APIView):
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             # Find existing ticket by widget_session_id or create new one
-            ticket = Ticket.objects.filter(
+            existing_ticket = Ticket.objects.filter(
                 team=team, widget_session_id=widget_session_id, channel_source="widget"
             ).first()
 
-            if ticket:
+            if existing_ticket:
+                ticket = existing_ticket
                 # Update distinct_id if changed (anonymous → identified)
                 if ticket.distinct_id != distinct_id:
                     ticket.distinct_id = distinct_id
@@ -310,7 +311,7 @@ class WidgetMessagesView(APIView):
     def get(self, request: Request, ticket_id: str) -> Response:
         """Get messages for a ticket."""
 
-        team: Team = request.auth
+        team: Team = request.auth  # type: ignore[assignment]
 
         try:
             widget_session_id = validate_widget_session_id(request.query_params.get("widget_session_id"))
@@ -400,7 +401,7 @@ class WidgetTicketsView(APIView):
     def get(self, request: Request) -> Response:
         """List tickets for a widget_session_id."""
 
-        team: Team = request.auth
+        team: Team = request.auth  # type: ignore[assignment]
 
         try:
             widget_session_id = validate_widget_session_id(request.query_params.get("widget_session_id"))
@@ -464,7 +465,7 @@ class WidgetMarkReadView(APIView):
     def post(self, request: Request, ticket_id: str) -> Response:
         """Mark ticket messages as read by customer."""
 
-        team: Team = request.auth
+        team: Team = request.auth  # type: ignore[assignment]
 
         try:
             widget_session_id = validate_widget_session_id(request.data.get("widget_session_id"))

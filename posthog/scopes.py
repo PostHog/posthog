@@ -17,6 +17,7 @@ APIScopeObject = Literal[
     "batch_export",
     "batch_import",
     "cohort",
+    "content_article",
     "dashboard",
     "dashboard_template",
     "dataset",
@@ -32,6 +33,7 @@ APIScopeObject = Literal[
     "file_system",
     "file_system_shortcut",
     "group",
+    "guidance_rule",
     "hog_function",
     "insight",
     "integration",
@@ -57,6 +59,7 @@ APIScopeObject = Literal[
     "subscription",
     "survey",
     "task",
+    "ticket",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
     "warehouse_table",

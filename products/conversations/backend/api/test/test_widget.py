@@ -118,6 +118,7 @@ class TestWidgetMessageView(APIBaseTest):
         # Verify message was created
         comment = Comment.objects.get(id=data["message_id"])
         self.assertEqual(comment.content, "Hello, I need help")
+        assert comment.item_context is not None
         self.assertEqual(comment.item_context["author_type"], "customer")
         self.assertEqual(comment.item_context["distinct_id"], "user_123")
 
@@ -373,6 +374,7 @@ class TestWidgetMessageView(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         message_id = response.json()["message_id"]
         comment = Comment.objects.get(id=message_id)
+        assert comment.content is not None
         self.assertNotIn("<script>", comment.content)
         self.assertIn("&lt;script&gt;", comment.content)
 

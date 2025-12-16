@@ -30,6 +30,7 @@ def increment_unread_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     # Increment unread count for customer
-    Ticket.objects.filter(id=instance.item_id, team=instance.team).update(
-        unread_customer_count=F("unread_customer_count") + 1
-    )
+    if instance.item_id:
+        Ticket.objects.filter(id=instance.item_id, team=instance.team).update(
+            unread_customer_count=F("unread_customer_count") + 1
+        )
