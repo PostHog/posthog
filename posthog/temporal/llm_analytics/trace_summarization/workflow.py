@@ -156,9 +156,14 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for result in results:
+        for i, result in enumerate(results):
             if isinstance(result, BaseException):
                 # Activity failed with an exception - count as failed but don't crash workflow
+                logger.exception(
+                    "Activity failed for trace",
+                    trace_id=trace_ids[i],
+                    error=str(result),
+                )
                 metrics.summaries_failed += 1
             elif result.success:
                 metrics.summaries_generated += 1
