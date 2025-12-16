@@ -11,10 +11,10 @@ import { eventWithTime } from '@posthog/rrweb-types'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { PaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
+import { UrlTriggerConfig } from 'lib/components/IngestionTriggers/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { UrlTriggerConfig } from 'lib/components/Triggers/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,

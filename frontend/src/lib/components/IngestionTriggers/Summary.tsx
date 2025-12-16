@@ -16,7 +16,7 @@ const summaryLabel: Record<TriggerType, string> = {
     [TriggerType.URL_BLOCKLIST]: 'URL blocklist',
 }
 
-export function TriggersSummary({ triggers }: { triggers: Trigger[] }): JSX.Element {
+export function IngestionTriggersSummary({ triggers }: { triggers: Trigger[] }): JSX.Element {
     const hasAnyTriggers = triggers.some((t) => t.enabled)
 
     return (
