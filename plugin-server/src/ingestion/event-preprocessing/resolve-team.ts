@@ -3,13 +3,24 @@ import { Message } from 'node-rdkafka'
 import { TeamManager } from '~/utils/team-manager'
 
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { EventHeaders, IncomingEvent, IncomingEventWithTeam } from '../../types'
+import { EventHeaders, IncomingEvent, IncomingEventWithTeam, Team } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
+export interface ResolveTeamStepInput {
+    message: Message
+    headers: EventHeaders
+    event: IncomingEvent
+}
+
+export interface ResolveTeamStepOutput {
+    eventWithTeam: IncomingEventWithTeam
+    team: Team
+}
+
 type ResolveTeamError = { error: true; cause: 'no_token' | 'invalid_token' }
-type ResolveTeamSuccess = { error: false; eventWithTeam: IncomingEventWithTeam }
+type ResolveTeamSuccess = { error: false } & ResolveTeamStepOutput
 type ResolveTeamResult = ResolveTeamSuccess | ResolveTeamError
 
 async function resolveTeam(
@@ -49,6 +60,7 @@ async function resolveTeam(
 
     return {
         error: false,
+        team,
         eventWithTeam: {
             event,
             team,
@@ -58,9 +70,9 @@ async function resolveTeam(
     }
 }
 
-export function createResolveTeamStep<T extends { message: Message; headers: EventHeaders; event: IncomingEvent }>(
+export function createResolveTeamStep<TInput extends ResolveTeamStepInput>(
     teamManager: TeamManager
-): ProcessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
+): ProcessingStep<TInput, TInput & ResolveTeamStepOutput> {
     return async function resolveTeamStep(input) {
         const { message, headers, event } = input
 
@@ -70,6 +82,6 @@ export function createResolveTeamStep<T extends { message: Message; headers: Eve
             return drop(result.cause)
         }
 
-        return ok({ ...input, eventWithTeam: result.eventWithTeam })
+        return ok({ ...input, eventWithTeam: result.eventWithTeam, team: result.team })
     }
 }
