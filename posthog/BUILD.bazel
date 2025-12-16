@@ -3,6 +3,7 @@ load("@rules_python//python:defs.bzl", "py_library")
 # Core posthog infrastructure - permanent dependency for all products.
 # Isolated products depend on this to get access to posthog internals
 # and to trigger reruns when legacy code changes.
+# Includes both posthog/ and ee/ directories.
 py_library(
     name = "core",
     srcs = glob(
@@ -13,8 +14,23 @@ py_library(
             "**/tests/**",
         ],
     ),
+    data = glob(
+        [
+            "**/*.json",
+            "**/*.yaml",
+            "**/*.yml",
+            "**/*.html",
+            "**/*.txt",
+            "**/*.sql",
+        ],
+        allow_empty = True,
+    ),
     visibility = ["//visibility:public"],
-    deps = ["//common/bazel:third_party"],
+    deps = [
+        "//common",
+        "//common/bazel:third_party",
+        "//ee",
+    ],
 )
 
 exports_files(

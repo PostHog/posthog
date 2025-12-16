@@ -5,6 +5,7 @@ load("@aspect_rules_py//py:defs.bzl", "py_test")
 py_test(
     name = "tests",
     srcs = glob(["test_*.py"]),
+    package_collisions = "warning",  # Some pypi packages include tests/ dirs
     args = [
         # Only collect from this test directory, ignore everything else
         "products/visual_review/backend/tests/",
@@ -22,9 +23,8 @@ py_test(
         "//products/visual_review/backend:impl",
         "//products/visual_review/backend:presentation",
         "//products/visual_review/backend:tasks",
-        "@pypi//celery",
-        "@pypi//django",
-        "@pypi//djangorestframework",
+        "//posthog:core",  # Core posthog + ee for django.setup()
+        "//products:non_isolated",  # Legacy products data (JSON, etc.)
         "@pypi//pytest",
         "@pypi//pytest_django",
     ],

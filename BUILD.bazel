@@ -1,22 +1,22 @@
 load("@gazelle//:def.bzl", "gazelle")
-load("@rules_python//python/uv:lock.bzl", "lock")
 
 gazelle(
     name = "gazelle",
     gazelle = "@rules_python_gazelle_plugin//python:gazelle_binary",
 )
 
-# Generate requirements_lock.txt from pyproject.toml (including dev deps)
-# Run: bazel run //:requirements.update
-# Test: bazel test //:requirements_test
-lock(
+# Export requirements from frozen uv.lock to requirements_lock.txt
+# This respects the locked versions instead of re-resolving
+# Note: --no-hashes is used because uv export generates universal hashes
+# which don't match platform-specific wheels that bazel downloads
+genrule(
     name = "requirements",
-    srcs = ["pyproject.toml"],
-    out = "requirements_lock.txt",
-    args = ["--group", "dev"],
-    env = {
-        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
-    },
+    srcs = [
+        "uv.lock",
+        "pyproject.toml",
+    ],
+    outs = ["requirements_lock.txt"],
+    cmd = "uv export --format requirements-txt --all-extras --group dev --no-hashes --directory $(RULEDIR)/../../../ > $@",
 )
 
 # gazelle:python_root

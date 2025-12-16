@@ -2,10 +2,11 @@ module(name = "posthog", version = "0.0.1")
 
 bazel_dep(name = "platforms", version = "0.0.11")
 bazel_dep(name = "aspect_rules_py", version = "1.6.6")
-bazel_dep(name = "rules_python", version = "1.4.0")
-bazel_dep(name = "rules_python_gazelle_plugin", version = "1.4.0")
+bazel_dep(name = "rules_python", version = "1.7.0")
+bazel_dep(name = "rules_python_gazelle_plugin", version = "1.6.3")
 bazel_dep(name = "rules_go", version = "0.53.0")
 bazel_dep(name = "gazelle", version = "0.40.0")
+bazel_dep(name = "rules_uv", version = "0.89.2")
 
 # Go toolchain (required by Gazelle)
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
@@ -13,7 +14,7 @@ go_sdk.download(version = "1.23.4")
 
 # Python toolchain
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
-python.toolchain(python_version = "3.11")
+python.toolchain(python_version = "3.12")
 
 # uv toolchain for generating requirements_lock.txt
 uv = use_extension("@rules_python//python/uv:uv.bzl", "uv", dev_dependency = True)
@@ -23,7 +24,19 @@ uv.configure(version = "0.7.0")
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
     hub_name = "pypi",
-    python_version = "3.11",
+    python_version = "3.12",
     requirements_lock = "//:requirements_lock.txt",
+    # Download platform-specific wheels
+    experimental_target_platforms = [
+        "osx_aarch64",
+        "linux_x86_64",
+    ],
+    # Some packages (thrift, zstd, fastuuid, psycopg2-binary) only have sdist
+    # on PyPI and use distutils in setup.py. Python 3.12 removed distutils.
+    # Pre-build wheels with: uv pip wheel thrift==0.20.0 zstd fastuuid -w /tmp/bazel-wheels
+    extra_pip_args = [
+        "--prefer-binary",
+        "--find-links=/tmp/bazel-wheels",
+    ],
 )
 use_repo(pip, "pypi")

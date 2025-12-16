@@ -14,12 +14,30 @@ ISOLATED_PRODUCTS = [
 filegroup(
     name = "legacy_product_srcs",
     srcs = glob(
-        ["*/backend/**/*.py"],
+        ["*/**/*.py"],  # All Python files in all product subdirs
         exclude = [p + "/**" for p in ISOLATED_PRODUCTS] + [
             "**/test_*.py",
             "**/*_test.py",
             "**/tests/**",
         ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# Data files from all products (JSON, YAML, etc.)
+filegroup(
+    name = "legacy_product_data",
+    srcs = glob(
+        [
+            "**/*.json",
+            "**/*.yaml",
+            "**/*.yml",
+            "**/*.html",
+            "**/*.txt",
+            "**/*.sql",
+        ],
+        exclude = [p + "/**" for p in ISOLATED_PRODUCTS],
+        allow_empty = True,
     ),
     visibility = ["//visibility:public"],
 )
@@ -30,7 +48,10 @@ filegroup(
 py_library(
     name = "non_isolated",
     srcs = ["__init__.py"],
-    data = [":legacy_product_srcs"],
+    data = [
+        ":legacy_product_srcs",
+        ":legacy_product_data",
+    ],
     visibility = ["//visibility:public"],
 )
 
