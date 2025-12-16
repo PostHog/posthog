@@ -124,6 +124,27 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
     try:
         slack = SlackIntegration(integration)
 
+        # Check if conversation is already in progress
+        if existing_conversation and existing_conversation.status in [
+            Conversation.Status.IN_PROGRESS,
+            Conversation.Status.CANCELING,
+        ]:
+            user_id = event.get("user")
+            if user_id:
+                slack.client.chat_postEphemeral(
+                    channel=channel,
+                    user=user_id,
+                    thread_ts=thread_ts,
+                    text="Looks like this PostHog AI conversation is currently in flight already. Please wait for it to complete before sending another message.",
+                )
+            logger.info(
+                "slack_app_mention_conversation_in_progress",
+                channel=channel,
+                thread_ts=thread_ts,
+                status=existing_conversation.status,
+            )
+            return
+
         # Get our bot's IDs so we can filter out our own messages and check reactions
         auth_response = slack.client.auth_test()
         our_bot_id = auth_response.get("bot_id")
