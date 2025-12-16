@@ -30,6 +30,7 @@ import {
     formatDeltaPercent,
     formatMetricValue,
     getDelta,
+    getMetricColors,
     getMetricSubtitleValues,
     getNiceTickValues,
     hasValidationFailures,
@@ -112,6 +113,7 @@ export function MetricRowGroup({
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
     const colors = useChartColors()
+    const goalColors = getMetricColors(colors, metric.goal)
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { reportExperimentTimeseriesViewed } = useActions(experimentLogic)
@@ -465,28 +467,30 @@ export function MetricRowGroup({
                         {/* Delta */}
                         <td
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                !significant ? (isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light') : ''
                             } ${isLastRow ? 'border-b' : ''}`}
-                            style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                            style={{
+                                height: `${CELL_HEIGHT}px`,
+                                maxHeight: `${CELL_HEIGHT}px`,
+                                backgroundColor: significant
+                                    ? winning
+                                        ? `${goalColors.positive}30`
+                                        : `${goalColors.negative}30`
+                                    : undefined,
+                            }}
                         >
                             <div className="flex items-center gap-1">
                                 <span
-                                    className={`${
-                                        significant
-                                            ? winning
-                                                ? 'metric-cell text-success font-bold'
-                                                : 'metric-cell text-danger font-bold'
-                                            : 'metric-cell'
-                                    }`}
+                                    className={`metric-cell font-bold ${significant ? (winning ? 'text-success' : 'text-danger') : ''}`}
                                 >
                                     {deltaText}
                                 </span>
                                 {significant && deltaPositive !== undefined && (
                                     <span className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}>
                                         {deltaPositive ? (
-                                            <IconTrending className="w-4 h-4" />
+                                            <IconTrending className="w-5 h-5" style={{ strokeWidth: 2.5 }} />
                                         ) : (
-                                            <IconTrendingDown className="w-4 h-4" />
+                                            <IconTrendingDown className="w-5 h-5" style={{ strokeWidth: 2.5 }} />
                                         )}
                                     </span>
                                 )}
@@ -720,19 +724,21 @@ export function MetricRowGroup({
                                     {/* Delta */}
                                     <td
                                         className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                            isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                            !significant ? (isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light') : ''
                                         } ${isLastRow ? 'border-b' : ''}`}
-                                        style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                                        style={{
+                                            height: `${CELL_HEIGHT}px`,
+                                            maxHeight: `${CELL_HEIGHT}px`,
+                                            backgroundColor: significant
+                                                ? winning
+                                                    ? `${goalColors.positive}30`
+                                                    : `${goalColors.negative}30`
+                                                : undefined,
+                                        }}
                                     >
                                         <div className="flex items-center gap-1">
                                             <span
-                                                className={`${
-                                                    significant
-                                                        ? winning
-                                                            ? 'metric-cell text-success font-bold'
-                                                            : 'metric-cell text-danger font-bold'
-                                                        : 'metric-cell'
-                                                }`}
+                                                className={`metric-cell font-bold ${significant ? (winning ? 'text-success' : 'text-danger') : ''}`}
                                             >
                                                 {deltaText}
                                             </span>
@@ -741,9 +747,15 @@ export function MetricRowGroup({
                                                     className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}
                                                 >
                                                     {deltaPositive ? (
-                                                        <IconTrending className="w-4 h-4" />
+                                                        <IconTrending
+                                                            className="w-5 h-5"
+                                                            style={{ strokeWidth: 2.5 }}
+                                                        />
                                                     ) : (
-                                                        <IconTrendingDown className="w-4 h-4" />
+                                                        <IconTrendingDown
+                                                            className="w-5 h-5"
+                                                            style={{ strokeWidth: 2.5 }}
+                                                        />
                                                     )}
                                                 </span>
                                             )}

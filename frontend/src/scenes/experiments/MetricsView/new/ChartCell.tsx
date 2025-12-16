@@ -109,6 +109,7 @@ export function ChartCell({
                                 upper={upper}
                                 metric={metric}
                                 isSignificant={isSignificant(variantResult)}
+                                isBayesian={isBayesianResult(variantResult)}
                                 gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                     variantResult.key
                                 }`}
