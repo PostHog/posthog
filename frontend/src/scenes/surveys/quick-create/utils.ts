@@ -1,6 +1,7 @@
 import { SurveyQuestionType } from 'posthog-js'
 
 import { EventsNode } from '~/queries/schema/schema-general'
+import { SurveyMatchType } from '~/types'
 
 import { SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from '../constants'
 import { toSurveyEvent } from '../utils/opportunityDetection'
@@ -117,6 +118,33 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                                 },
                             ],
                         },
+                    },
+                },
+            }
+
+        case QuickSurveyType.WEB_PATH:
+            return {
+                key: `web-path-${context.path}-${randomId}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.WEB_ANALYTICS,
+                defaults: {
+                    name: `Survey users on ${context.path} (${randomId})`,
+                    question: 'How was your experience on this page?',
+                    questionType: SurveyQuestionType.Rating,
+                    scaleType: 'emoji',
+                    ratingLowerBound: 'Terrible',
+                    ratingUpperBound: 'Amazing',
+                    followUpEnabled: true,
+                    followUpQuestion: 'What could we improve?',
+                    conditions: {
+                        actions: null,
+                        events: null,
+                        url: context.path,
+                        urlMatchType: SurveyMatchType.Contains,
+                    },
+                    appearance: {
+                        ...defaultSurveyAppearance,
+                        surveyPopupDelaySeconds: 15,
                     },
                 },
             }
