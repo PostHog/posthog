@@ -13,6 +13,7 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { personsLogic } from 'scenes/persons/personsLogic'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -40,6 +41,19 @@ const DEFAULT_COHORT_FILTERS: CohortFilters = {
 
 const COHORTS_PER_PAGE = 100
 
+type QuickSurveyModalState =
+    | {
+          isOpen: false
+      }
+    | {
+          isOpen: true
+          context: {
+              type: QuickSurveyType.COHORT
+              cohortId: number
+              cohortName?: string
+          }
+      }
+
 export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     path(['scenes', 'cohorts', 'cohortsSceneLogic']),
     tabAwareScene(),
@@ -51,6 +65,8 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
         setCohortSorting: (sorting: Sorting | null) => ({ sorting }),
+        openQuickSurveyModal: (cohortId: number, cohortName?: string) => ({ cohortId, cohortName }),
+        closeQuickSurveyModal: true,
     })),
     reducers({
         cohortFilters: [
@@ -82,6 +98,26 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                     return {
                         ...state,
                         results: state.results.filter((c) => c.id !== cohort.id),
+                    }
+                },
+            },
+        ],
+        quickSurveyModalState: [
+            { isOpen: false } as QuickSurveyModalState,
+            {
+                openQuickSurveyModal: (_, { cohortId, cohortName }) => {
+                    return {
+                        isOpen: true,
+                        context: {
+                            type: QuickSurveyType.COHORT,
+                            cohortId,
+                            cohortName,
+                        },
+                    }
+                },
+                closeQuickSurveyModal: () => {
+                    return {
+                        isOpen: false,
                     }
                 },
             },
