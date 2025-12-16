@@ -14,9 +14,6 @@ Usage:
 
     # Get options for deltalake library
     options = storage_config.to_deltalake_options()
-
-    # Get kwargs for boto3/s3fs clients
-    kwargs = storage_config.to_boto3_kwargs()
 """
 
 from __future__ import annotations
