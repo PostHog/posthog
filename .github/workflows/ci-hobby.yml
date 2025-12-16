@@ -1,26 +1,18 @@
 # Hobby deployment smoke test and preview workflow
 #
 # Two modes:
-# - Smoke test (default): Creates ephemeral droplet, runs tests, destroys
+# - Smoke test (default): Creates ephemeral droplet, runs health check, destroys
 # - Preview (hobby-preview label): Creates/updates persistent droplet for manual testing
 #
-# Note: 'labeled' event ignores path filters - adding hobby-preview label always triggers.
+# Runs automatically when deployment-related files change, or on-demand via hobby-preview label.
 # Debug: SSH to droplet and run `tail -f /var/log/cloud-init-output.log`
-name: e2e - hobby smoke test
+name: E2E Hobby CI
 on:
     push:
         branches:
             - 'release-*.*'
     pull_request:
-        types: [opened, synchronize, labeled]
-        paths:
-            - Dockerfile
-            - docker-compose.base.yml
-            - docker-compose.hobby.yml
-            - bin/*
-            - docker/*
-            - uv.lock
-            - .github/workflows/ci-hobby.yml
+        types: [opened, synchronize, labeled, unlabeled]
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -32,11 +24,54 @@ permissions:
     deployments: write
 
 jobs:
+    # Determine if we should run based on changed files or preview label
+    # See https://github.com/dorny/paths-filter#conditional-execution
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.event_name == 'pull_request'
+        name: Determine need to run hobby checks
+        outputs:
+            should_run: ${{ steps.filter.outputs.hobby == 'true' || steps.check-label.outputs.has_label == 'true' }}
+            label_removed: ${{ steps.check-label.outputs.label_removed }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+              id: filter
+              with:
+                  filters: |
+                      hobby:
+                        - Dockerfile
+                        - docker-compose.base.yml
+                        - docker-compose.hobby.yml
+                        - 'bin/*'
+                        - 'docker/*'
+                        - uv.lock
+                        - .github/workflows/ci-hobby.yml
+
+            - name: Check for preview label
+              id: check-label
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              with:
+                  script: |
+                      const labels = context.payload.pull_request.labels || [];
+                      const hasLabel = labels.some(l => l.name.toLowerCase() === 'hobby-preview');
+
+                      // Check if hobby-preview label was just removed
+                      const labelRemoved = context.payload.action === 'unlabeled' &&
+                          context.payload.label?.name?.toLowerCase() === 'hobby-preview';
+
+                      console.log(`hobby-preview label: ${hasLabel}, label removed: ${labelRemoved}, hobby files changed: ${{ steps.filter.outputs.hobby }}`);
+                      core.setOutput('has_label', hasLabel.toString());
+                      core.setOutput('label_removed', labelRemoved.toString());
+
     wait-for-docker-image:
         name: Wait for Docker image build
+        needs: changes
         runs-on: ubuntu-24.04
         timeout-minutes: 60
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && needs.changes.outputs.should_run == 'true'
         outputs:
             preview-mode: ${{ steps.check-preview.outputs.preview }}
             comment-id: ${{ steps.post-comment.outputs.comment-id }}
@@ -246,12 +281,12 @@ jobs:
                           body: updatedBody,
                       });
 
-    changes:
+    hobby-test:
         runs-on: ubuntu-24.04
         timeout-minutes: 40
         name: Setup DO Hobby Instance and test
-        needs: [wait-for-docker-image]
-        if: always() && (needs.wait-for-docker-image.result == 'success' || github.event_name == 'push')
+        needs: [wait-for-docker-image, changes]
+        if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.result == 'success') || github.event_name == 'push')
         steps:
             - uses: actions/checkout@v4
               with:
@@ -551,3 +586,13 @@ jobs:
                     exit 1
                   fi
                   echo "✅ Test passed"
+
+    # Cleanup preview when hobby-preview label is removed
+    cleanup-on-label-removal:
+        name: Cleanup preview on label removal
+        needs: changes
+        if: needs.changes.outputs.label_removed == 'true'
+        uses: ./.github/workflows/cleanup-hobby-preview.yml
+        with:
+            pr_number: ${{ github.event.pull_request.number }}
+        secrets: inherit
