@@ -10,11 +10,15 @@ import { TraceSummary } from './types'
  *
  * @param traceIds - List of trace IDs to load summaries for
  * @param existingSummaries - Already loaded summaries to skip
+ * @param windowStart - ISO timestamp for filtering (required for ClickHouse efficiency)
+ * @param windowEnd - ISO timestamp for filtering (required for ClickHouse efficiency)
  * @returns New summaries (only the ones that were missing)
  */
 export async function loadTraceSummaries(
     traceIds: string[],
-    existingSummaries: Record<string, TraceSummary> = {}
+    existingSummaries: Record<string, TraceSummary>,
+    windowStart: string,
+    windowEnd: string
 ): Promise<Record<string, TraceSummary>> {
     const missingTraceIds = traceIds.filter((id) => !existingSummaries[id])
 
@@ -33,6 +37,8 @@ export async function loadTraceSummaries(
                 max(timestamp) as timestamp
             FROM events
             WHERE event = '$ai_trace_summary'
+                AND timestamp >= ${windowStart}
+                AND timestamp <= ${windowEnd}
                 AND JSONExtractString(properties, '$ai_trace_id') IN ${missingTraceIds}
             GROUP BY trace_id
             LIMIT 10000

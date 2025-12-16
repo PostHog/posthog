@@ -11,7 +11,7 @@ import { Breadcrumb } from '~/types'
 
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
 import { loadTraceSummaries } from './traceSummaryLoader'
-import { Cluster, ClusterTraceInfo, NOISE_CLUSTER_ID, TraceSummary } from './types'
+import { Cluster, ClusterTraceInfo, NOISE_CLUSTER_ID, TraceSummary, getTimestampBoundsFromRunId } from './types'
 
 const TRACES_PER_PAGE = 50
 
@@ -64,6 +64,8 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             null as { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null,
             {
                 loadClusterData: async () => {
+                    const { dayStart, dayEnd } = getTimestampBoundsFromRunId(props.runId)
+
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -74,6 +76,8 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                                 timestamp
                             FROM events
                             WHERE event = '$ai_trace_clusters'
+                                AND timestamp >= ${dayStart}
+                                AND timestamp <= ${dayEnd}
                                 AND JSONExtractString(properties, '$ai_clustering_run_id') = ${props.runId}
                             LIMIT 1
                         `,
@@ -220,11 +224,16 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         setPage: async () => {
             // Load trace summaries for the current page
             const traceIds = values.paginatedTraceIds
+            const { windowStart, windowEnd } = values
+
+            if (!windowStart || !windowEnd) {
+                return
+            }
 
             actions.setTraceSummariesLoading(true)
 
             try {
-                const summaries = await loadTraceSummaries(traceIds, values.traceSummaries)
+                const summaries = await loadTraceSummaries(traceIds, values.traceSummaries, windowStart, windowEnd)
                 actions.setTraceSummaries(summaries)
             } catch (error) {
                 console.error('Failed to load trace summaries:', error)
