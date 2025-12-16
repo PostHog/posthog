@@ -14,13 +14,11 @@ class Migration(migrations.Migration):
         # prevent duplicates when team_id and user_id are NULL because PostgreSQL
         # treats NULL != NULL. This partial index enforces uniqueness for that case.
         migrations.RunSQL(
-            """
-            CREATE UNIQUE INDEX CONCURRENTLY "posthog_insightviewed_null_team_user_unique"
-            ON "posthog_insightviewed" ("insight_id")
-            WHERE "team_id" IS NULL AND "user_id" IS NULL; -- not-null-ignore
+            sql="""
+                CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_insightviewed_null_team_user_unique"
+                ON "posthog_insightviewed" ("insight_id")
+                WHERE "team_id" IS NULL AND "user_id" IS NULL
             """,
-            reverse_sql="""
-                DROP INDEX IF EXISTS "posthog_insightviewed_null_team_user_unique";
-            """,
+            reverse_sql='DROP INDEX CONCURRENTLY IF EXISTS "posthog_insightviewed_null_team_user_unique"',
         ),
     ]
