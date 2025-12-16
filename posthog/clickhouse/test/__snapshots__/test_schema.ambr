@@ -2475,6 +2475,24 @@
   
   '''
 # ---
+# name: test_create_table_query[preaggregation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS preaggregation_results
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Breakdown dimension (empty array for no breakdown)
+      breakdown_value Array(String),
+  
+      -- Aggregate state column (uniqExact for precision)
+      uniq_exact_state AggregateFunction(uniqExact, UUID)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_preaggregation_results', sipHash64(job_id))
+  
+  '''
+# ---
 # name: test_create_table_query[precalculated_events_mv]
   '''
   
@@ -3925,6 +3943,28 @@
       ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
       SETTINGS index_granularity = 512
       
+  '''
+# ---
+# name: test_create_table_query[sharded_preaggregation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_preaggregation_results
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Breakdown dimension (empty array for no breakdown)
+      breakdown_value Array(String),
+  
+      -- Aggregate state column (uniqExact for precision)
+      uniq_exact_state AggregateFunction(uniqExact, UUID)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.preaggregation_results', '{replica}')
+  
+  PARTITION BY toYYYYMM(time_window_start)
+  ORDER BY (team_id, job_id, time_window_start, breakdown_value)
+  SETTINGS index_granularity=8192
+  
   '''
 # ---
 # name: test_create_table_query[sharded_precalculated_events]
@@ -6484,6 +6524,28 @@
       ORDER BY (team_id, toDate(timestamp), product, document_type, model_name, rendering, cityHash64(document_id))
       SETTINGS index_granularity = 512
       
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_preaggregation_results]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_preaggregation_results
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Breakdown dimension (empty array for no breakdown)
+      breakdown_value Array(String),
+  
+      -- Aggregate state column (uniqExact for precision)
+      uniq_exact_state AggregateFunction(uniqExact, UUID)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.preaggregation_results', '{replica}')
+  
+  PARTITION BY toYYYYMM(time_window_start)
+  ORDER BY (team_id, job_id, time_window_start, breakdown_value)
+  SETTINGS index_granularity=8192
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_precalculated_events]

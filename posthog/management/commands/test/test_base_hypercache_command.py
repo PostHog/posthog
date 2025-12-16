@@ -375,33 +375,31 @@ class TestExpiryTrackingVerification(BaseTest):
     """Test expiry tracking verification functionality."""
 
     def test_batch_check_expiry_returns_all_true_when_no_expiry_key_configured(self):
-        """Test that _batch_check_expiry_tracking returns all True when expiry tracking is disabled."""
+        """Test that batch_check_expiry_tracking returns all True when expiry tracking is disabled."""
+        from posthog.storage.hypercache_manager import batch_check_expiry_tracking
+
         mock_config = create_mock_config()  # No expiry_sorted_set_key
 
-        command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
-
-        result = command._batch_check_expiry_tracking([self.team], mock_config)
+        result = batch_check_expiry_tracking([self.team], mock_config)
 
         # All teams should be considered "tracked" when expiry tracking is disabled
         assert len(result) == 1
         assert all(v is True for v in result.values())
 
     def test_batch_check_expiry_uses_pipelining(self):
-        """Test that _batch_check_expiry_tracking uses Redis pipelining."""
+        """Test that batch_check_expiry_tracking uses Redis pipelining."""
+        from posthog.storage.hypercache_manager import batch_check_expiry_tracking
+
         mock_config = create_mock_config_with_expiry()
 
-        command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
-
-        with patch("posthog.redis.get_client") as mock_get_client:
+        with patch("posthog.storage.hypercache_manager.get_client") as mock_get_client:
             mock_redis = MagicMock()
             mock_pipeline = MagicMock()
             mock_pipeline.execute.return_value = [1234567890.0]  # Score indicates team is tracked
             mock_redis.pipeline.return_value = mock_pipeline
             mock_get_client.return_value = mock_redis
 
-            result = command._batch_check_expiry_tracking([self.team], mock_config)
+            result = batch_check_expiry_tracking([self.team], mock_config)
 
             # Pipeline should have been created and executed
             mock_redis.pipeline.assert_called_once_with(transaction=False)
@@ -412,20 +410,19 @@ class TestExpiryTrackingVerification(BaseTest):
             assert result[self.team.api_token] is True
 
     def test_batch_check_expiry_returns_false_for_missing_teams(self):
-        """Test that _batch_check_expiry_tracking returns False for teams not in sorted set."""
+        """Test that batch_check_expiry_tracking returns False for teams not in sorted set."""
+        from posthog.storage.hypercache_manager import batch_check_expiry_tracking
+
         mock_config = create_mock_config_with_expiry()
 
-        command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()  # type: ignore[assignment]
-
-        with patch("posthog.redis.get_client") as mock_get_client:
+        with patch("posthog.storage.hypercache_manager.get_client") as mock_get_client:
             mock_redis = MagicMock()
             mock_pipeline = MagicMock()
             mock_pipeline.execute.return_value = [None]  # None indicates team is not tracked
             mock_redis.pipeline.return_value = mock_pipeline
             mock_get_client.return_value = mock_redis
 
-            result = command._batch_check_expiry_tracking([self.team], mock_config)
+            result = batch_check_expiry_tracking([self.team], mock_config)
 
             # Team should be marked as NOT tracked (score was None)
             assert result[self.team.api_token] is False
@@ -449,7 +446,7 @@ class TestExpiryTrackingVerification(BaseTest):
         }
         mismatches: list[dict[str, Any]] = []
 
-        with patch("posthog.redis.get_client") as mock_get_client:
+        with patch("posthog.storage.hypercache_manager.get_client") as mock_get_client:
             mock_redis = MagicMock()
             mock_pipeline = MagicMock()
             mock_pipeline.execute.return_value = [None]  # Team not in sorted set
@@ -482,7 +479,7 @@ class TestExpiryTrackingVerification(BaseTest):
         }
         mismatches: list[dict[str, Any]] = []
 
-        with patch("posthog.redis.get_client") as mock_get_client:
+        with patch("posthog.storage.hypercache_manager.get_client") as mock_get_client:
             mock_redis = MagicMock()
             mock_pipeline = MagicMock()
             mock_pipeline.execute.return_value = [1234567890.0]  # Team is tracked
@@ -559,7 +556,7 @@ class TestExpiryTrackingVerification(BaseTest):
         }
         mismatches: list[dict[str, Any]] = []
 
-        with patch("posthog.redis.get_client") as mock_get_client:
+        with patch("posthog.storage.hypercache_manager.get_client") as mock_get_client:
             mock_get_client.side_effect = ConnectionError("Redis unavailable")
 
             command._verify_teams_batch([self.team], stats, mismatches, verbose=False, fix=False)
