@@ -1176,7 +1176,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         }
                     }
 
-                    const queryToOpen = searchParams.open_query ? searchParams.open_query : view.query?.query
+                    const queryToOpen = searchParams.open_query ? searchParams.open_query : view.query?.query ?? ''
 
                     actions.editView(queryToOpen, view)
                     tabAdded = true
