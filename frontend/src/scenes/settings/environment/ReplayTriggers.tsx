@@ -408,11 +408,13 @@ function Sampling(): JSX.Element {
                             suffix={<>%</>}
                             value={value}
                             onPressEnter={updateSampling}
+                            data-attr="sampling"
                         />
                         <LemonButton
                             type="primary"
                             disabledReason={currentSampleRate === value && 'there was no change in sample rate'}
                             onClick={updateSampling}
+                            data-attr="update-sampling"
                         >
                             Update
                         </LemonButton>
