@@ -11,7 +11,7 @@ import collections.abc
 from django.conf import settings
 
 import pyarrow as pa
-from google.api_core.exceptions import Forbidden, NotFound
+from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound
 from google.cloud import bigquery
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
@@ -418,13 +418,17 @@ class BigQueryClient:
                     break
                 query_duration = time.monotonic() - query_start_time
                 if query_duration > start_query_timeout:
-                    # Cancel the query then raise a timeout error
-                    # According to Google's own docs:
-                    # "It's not possible to check if a job was cancelled in the API"
-                    # so we cancel it and hope for the best
-                    await asyncio.to_thread(query_job.cancel)
-                    assert query_job.job_id is not None
-                    raise StartQueryTimeoutError(query_job.job_id, start_query_timeout)
+                    query_id = query_job.query_id
+                    error_msg = f"Query still in 'PENDING' state after {start_query_timeout} seconds; timing out."
+                    if query_id is not None:
+                        error_msg += f" Query ID: {query_id}"
+                    self.external_logger.error(error_msg)
+                    # best-effort attempt to cancel the query
+                    try:
+                        await asyncio.to_thread(query_job.cancel)
+                    except GoogleAPICallError as err:
+                        self.external_logger.warning("Failed to cancel query when cleaning up: %s", err)
+                    raise StartQueryTimeoutError(query_id, start_query_timeout)
                 await asyncio.sleep(poll_interval)
 
         # wait for the query to complete and return the result
@@ -722,8 +726,11 @@ class BigQueryQuotaExceededError(Exception):
 class StartQueryTimeoutError(TimeoutError):
     """Exception raised when a query takes too long to start."""
 
-    def __init__(self, job_id: str, timeout: float):
-        super().__init__(f"Query '{job_id}' still in 'PENDING' state after {timeout} seconds")
+    def __init__(self, query_id: str | None, timeout: float | int):
+        error_msg = f"Query still in 'PENDING' state after {timeout} seconds; timing out."
+        if query_id is not None:
+            error_msg += f" Query ID: {query_id}"
+        super().__init__(error_msg)
 
 
 class BigQueryConsumer(Consumer):
