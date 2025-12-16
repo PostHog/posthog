@@ -186,6 +186,8 @@ export const ExperimentSchema = z.object({
     stats_config: z.any().optional(),
     conclusion: z.enum(ExperimentConclusion).nullish(),
     conclusion_comment: z.string().nullish(),
+    primary_metrics_ordered_uuids: z.array(z.string()).nullish(),
+    secondary_metrics_ordered_uuids: z.array(z.string()).nullish(),
 })
 
 export type Experiment = z.infer<typeof ExperimentSchema>
