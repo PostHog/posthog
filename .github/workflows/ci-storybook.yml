@@ -452,7 +452,7 @@ jobs:
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ GITHUB_TOKEN }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     calculate-running-time:
         name: Calculate running time
