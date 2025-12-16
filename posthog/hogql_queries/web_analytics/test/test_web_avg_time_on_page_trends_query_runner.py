@@ -16,6 +16,7 @@ from posthog.schema import (
 from posthog.hogql_queries.web_analytics.web_avg_time_on_page_trends_query_runner import (
     WebAvgTimeOnPageTrendsQueryRunner,
 )
+from posthog.models.utils import uuid7
 
 
 class TestWebAvgTimeOnPageTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -203,3 +204,50 @@ class TestWebAvgTimeOnPageTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
 
         assert response.results[0].avgTimeOnPage == 200.0
+
+    def test_hourly_interval_buckets_correctly(self):
+        """Hourly interval groups events into hour-based buckets."""
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"])
+
+        session1 = str(uuid7())
+        session2 = str(uuid7())
+
+        self._create_pageview_event("user1", "2025-01-10 10:00:00", session1)
+        self._create_pageview_event("user1", "2025-01-10 10:30:00", session1, prev_pageview_duration=100)
+
+        self._create_pageview_event("user1", "2025-01-10 11:00:00", session2)
+        self._create_pageview_event("user1", "2025-01-10 11:30:00", session2, prev_pageview_duration=200)
+
+        response = self._run_query(
+            date_from="2025-01-10",
+            date_to="2025-01-11",
+            interval=IntervalType.HOUR,
+        )
+
+        assert len(response.results) == 2
+
+        buckets = sorted([r.bucket for r in response.results])
+
+        assert buckets[0] == "2025-01-10 10:00:00+00:00"
+        assert buckets[1] == "2025-01-10 11:00:00+00:00"
+
+    def test_weekly_interval_buckets_correctly(self):
+        """Weekly interval groups events into week-based buckets."""
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"])
+
+        session1 = str(uuid7())
+        session2 = str(uuid7())
+
+        self._create_pageview_event("user1", "2025-01-06 10:00:00", session1)
+        self._create_pageview_event("user1", "2025-01-06 10:01:00", session1, prev_pageview_duration=100)
+
+        self._create_pageview_event("user1", "2025-01-13 10:00:00", session2)
+        self._create_pageview_event("user1", "2025-01-13 10:01:00", session2, prev_pageview_duration=200)
+
+        response = self._run_query(
+            date_from="2025-01-01",
+            date_to="2025-01-20",
+            interval=IntervalType.WEEK,
+        )
+
+        assert len(response.results) == 2

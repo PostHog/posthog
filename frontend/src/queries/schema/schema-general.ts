@@ -4207,17 +4207,21 @@ export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryRes
 export interface WebAvgTimeOnPageTrendsItem {
     bucket: string
     avgTimeOnPage: number
-    previousAvgTimeOnPage?: number
 }
 
 export interface WebAvgTimeOnPageTrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: WebAvgTimeOnPageTrendsItem[]
     samplingRate?: SamplingRate
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
 }
 
 export interface WebAvgTimeOnPageTrendsQuery extends WebAnalyticsQueryBase<WebAvgTimeOnPageTrendsQueryResponse> {
     kind: NodeKind.WebAvgTimeOnPageTrendsQuery
     interval: IntervalType
+    limit?: integer
+    offset?: integer
 }
 
 export type CachedWebAvgTimeOnPageTrendsQueryResponse = CachedQueryResponse<WebAvgTimeOnPageTrendsQueryResponse>

@@ -3615,7 +3615,6 @@ class WebAvgTimeOnPageTrendsItem(BaseModel):
     )
     avgTimeOnPage: float
     bucket: str
-    previousAvgTimeOnPage: float | None = None
 
 
 class WebOverviewItem(BaseModel):
@@ -6194,8 +6193,11 @@ class WebAvgTimeOnPageTrendsQueryResponse(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8142,11 +8144,14 @@ class CachedWebAvgTimeOnPageTrendsQueryResponse(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -10976,8 +10981,11 @@ class QueryResponseAlternative30(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -12572,7 +12580,9 @@ class WebAvgTimeOnPageTrendsQuery(BaseModel):
         ..., description="For Product Analytics UI compatibility only - not used in Web Analytics query execution"
     )
     kind: Literal["WebAvgTimeOnPageTrendsQuery"] = "WebAvgTimeOnPageTrendsQuery"
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: WebAvgTimeOnPageTrendsQueryResponse | None = None

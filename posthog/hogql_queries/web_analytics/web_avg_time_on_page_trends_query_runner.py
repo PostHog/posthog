@@ -14,10 +14,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import get_property_key, get_property_type, property_to_expr
-from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.models.filters.mixins.utils import cached_property
@@ -27,6 +28,7 @@ class WebAvgTimeOnPageTrendsQueryRunner(WebAnalyticsQueryRunner[WebAvgTimeOnPage
     query: WebAvgTimeOnPageTrendsQuery
     response: WebAvgTimeOnPageTrendsQueryResponse
     cached_response: CachedWebAvgTimeOnPageTrendsQueryResponse
+    paginator: HogQLHasMorePaginator
 
     INTERVAL_TO_CLICKHOUSE_FUNCTION: dict[IntervalType, str] = {
         IntervalType.HOUR: "toStartOfHour",
@@ -34,6 +36,14 @@ class WebAvgTimeOnPageTrendsQueryRunner(WebAnalyticsQueryRunner[WebAvgTimeOnPage
         IntervalType.WEEK: "toStartOfWeek",
         IntervalType.MONTH: "toStartOfMonth",
     }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=LimitContext.QUERY,
+            limit=self.query.limit if self.query.limit else None,
+            offset=self.query.offset if self.query.offset else None,
+        )
 
     @cached_property
     def query_date_range(self):
@@ -88,111 +98,69 @@ class WebAvgTimeOnPageTrendsQueryRunner(WebAnalyticsQueryRunner[WebAvgTimeOnPage
         )
 
     def _build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        if self.query_compare_to_date_range:
-            return parse_select(
-                """
+        return parse_select(
+            """
+            SELECT
+                bucket,
+                avg(avg_time) AS avg_time_on_page
+            FROM (
                 SELECT
-                    bucket,
-                    avgIf(avg_time, {current_period}) AS avg_time_on_page,
-                    avgIf(avg_time, {previous_period}) AS previous_avg_time_on_page
-                FROM (
-                    SELECT
-                        {bucket_expr} AS bucket,
-                        avg(toFloat(events.properties.`$prev_pageview_duration`)) AS avg_time,
-                        session.session_id AS session_id,
-                        min(session.$start_timestamp) AS start_timestamp
-                    FROM events
-                    WHERE and(
-                        or(events.event = '$pageview', events.event = '$pageleave', events.event = '$screen'),
-                        events.properties.`$prev_pageview_duration` IS NOT NULL,
-                        {periods_expression},
-                        {event_properties},
-                        {session_properties}
-                    )
-                    GROUP BY session_id, bucket
+                    {bucket_expr} AS bucket,
+                    avg(toFloat(events.properties.`$prev_pageview_duration`)) AS avg_time,
+                    session.session_id AS session_id
+                FROM events
+                WHERE and(
+                    or(events.event = '$pageview', events.event = '$pageleave', events.event = '$screen'),
+                    events.properties.`$prev_pageview_duration` IS NOT NULL,
+                    {date_range_filter},
+                    {event_properties},
+                    {session_properties}
                 )
-                GROUP BY bucket
-                ORDER BY bucket
-                """,
-                timings=self.timings,
-                placeholders={
-                    "bucket_expr": self._bucket_expr,
-                    "current_period": self._current_period_expression(field="start_timestamp"),
-                    "previous_period": self._previous_period_expression(field="start_timestamp"),
-                    "periods_expression": self._periods_expression(field="timestamp"),
-                    "event_properties": self._event_properties_expr,
-                    "session_properties": self._session_properties_expr,
-                },
+                GROUP BY session_id, bucket
             )
-        else:
-            return parse_select(
-                """
-                SELECT
-                    bucket,
-                    avg(avg_time) AS avg_time_on_page
-                FROM (
-                    SELECT
-                        {bucket_expr} AS bucket,
-                        avg(toFloat(events.properties.`$prev_pageview_duration`)) AS avg_time,
-                        session.session_id AS session_id
-                    FROM events
-                    WHERE and(
-                        or(events.event = '$pageview', events.event = '$pageleave', events.event = '$screen'),
-                        events.properties.`$prev_pageview_duration` IS NOT NULL,
-                        {date_range_filter},
-                        {event_properties},
-                        {session_properties}
-                    )
-                    GROUP BY session_id, bucket
-                )
-                GROUP BY bucket
-                ORDER BY bucket
-                """,
-                timings=self.timings,
-                placeholders={
-                    "bucket_expr": self._bucket_expr,
-                    "date_range_filter": self.events_where_data_range(),
-                    "event_properties": self._event_properties_expr,
-                    "session_properties": self._session_properties_expr,
-                },
-            )
+            GROUP BY bucket
+            ORDER BY bucket
+            """,
+            timings=self.timings,
+            placeholders={
+                "bucket_expr": self._bucket_expr,
+                "date_range_filter": self.events_where_data_range(),
+                "event_properties": self._event_properties_expr,
+                "session_properties": self._session_properties_expr,
+            },
+        )
 
     def _calculate(self) -> WebAvgTimeOnPageTrendsQueryResponse:
-        response = self.run_query(self._build_query())
-        results = self._format_results(response.results or [])
+        response = self.paginator.execute_hogql_query(
+            query_type="web_avg_time_on_page_trends_query",
+            query=self._build_query(),
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+        )
+        results = self._format_results(self.paginator.results or [])
 
         return WebAvgTimeOnPageTrendsQueryResponse(
             results=results,
             timings=response.timings,
             hogql=response.hogql,
             modifiers=self.modifiers,
+            samplingRate=self._sample_rate,
             resolved_date_range=ResolvedDateRangeResponse(
                 date_from=self.query_date_range.date_from(),
                 date_to=self.query_date_range.date_to(),
             ),
+            **self.paginator.response_params(),
         )
 
     def _format_results(self, raw_results: list[Any]) -> list[WebAvgTimeOnPageTrendsItem]:
-        has_comparison = self.query_compare_to_date_range is not None and raw_results and len(raw_results[0]) > 2
-
         return [
             WebAvgTimeOnPageTrendsItem(
                 bucket=str(row[0]),
                 avgTimeOnPage=float(row[1]) if row[1] is not None else 0.0,
-                previousAvgTimeOnPage=float(row[2]) if has_comparison and row[2] is not None else None,
             )
             for row in raw_results
         ]
-
-    def run_query(self, query: ast.SelectQuery | ast.SelectSetQuery) -> Any:
-        return execute_hogql_query(
-            query_type="web_avg_time_on_page_trends_query",
-            query=query,
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-        )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self._build_query()
