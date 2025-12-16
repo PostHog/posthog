@@ -71,15 +71,27 @@ export class PostgresGroupRepository
             group_properties: Record<string, any>
         }[]
     > {
-        if (teamIds.length === 0 || groupTypeIndexes.length === 0 || groupKeys.length === 0) {
+        // All arrays must have the same length since they represent tuples
+        if (teamIds.length !== groupTypeIndexes.length || teamIds.length !== groupKeys.length) {
+            throw new Error(
+                `fetchGroupsByKeys: array lengths must match (teamIds: ${teamIds.length}, groupTypeIndexes: ${groupTypeIndexes.length}, groupKeys: ${groupKeys.length})`
+            )
+        }
+
+        if (teamIds.length === 0) {
             return []
         }
 
+        // Use unnest to match specific (team_id, group_type_index, group_key) tuples
+
         const { rows } = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_READ,
-            `SELECT team_id, group_type_index, group_key, group_properties
-             FROM posthog_group
-             WHERE team_id = ANY($1) AND group_type_index = ANY($2) AND group_key = ANY($3)`,
+            `SELECT g.team_id, g.group_type_index, g.group_key, g.group_properties
+             FROM posthog_group g
+             JOIN unnest($1::int[], $2::int[], $3::text[]) AS t(team_id, group_type_index, group_key)
+               ON g.team_id = t.team_id
+              AND g.group_type_index = t.group_type_index
+              AND g.group_key = t.group_key`,
             [teamIds, groupTypeIndexes, groupKeys],
             'fetchGroupsByKeys'
         )
