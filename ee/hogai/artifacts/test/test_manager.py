@@ -11,6 +11,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
     HumanMessage,
+    LifecycleQuery,
     TrendsQuery,
     VisualizationArtifactContent,
     VisualizationMessage,
@@ -403,3 +404,33 @@ class TestArtifactManagerEnrichMessages(BaseTest):
         contents = await self.manager._afetch_insight_contents([insight.short_id])
 
         self.assertEqual(len(contents), 0)
+
+
+class TestArtifactManagerGetInsightWithSource(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.manager = ArtifactManager(team=self.team, user=self.user)
+
+    async def test_retrieves_lifecycle_query_insight(self):
+        insight = await Insight.objects.acreate(
+            team=self.team,
+            name="Lifecycle Insight",
+            description="Test lifecycle insight",
+            saved=True,
+            query={
+                "source": {
+                    "kind": "LifecycleQuery",
+                    "series": [{"kind": "EventsNode", "name": "$pageview"}],
+                }
+            },
+        )
+
+        result = await self.manager.aget_insight_with_source([], insight.short_id)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        content, source = result
+        self.assertEqual(source, ArtifactSource.INSIGHT)
+        self.assertEqual(content.name, "Lifecycle Insight")
+        self.assertEqual(content.description, "Test lifecycle insight")
+        self.assertIsInstance(content.query, LifecycleQuery)

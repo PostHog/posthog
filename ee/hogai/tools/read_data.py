@@ -1,4 +1,4 @@
-from typing import Literal, Self
+from typing import Literal, Self, Union
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
@@ -150,7 +150,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         Override this factory to add additional args schemas or descriptions.
         """
-        kinds: list[str] = []
+        kinds: list[type[BaseModel]] = []
         prompt_vars: dict[str, str] = {}
 
         if not context_manager:
@@ -161,12 +161,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         # Subagents don't have access to artifacts
         if can_read_artifacts:
             prompt_vars["artifacts_prompt"] = READ_DATA_ARTIFACTS_PROMPT
-            kinds.append("artifacts")
+            kinds.append(ReadArtifacts)
         if has_billing_access:
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
-            kinds.append("billing_info")
+            kinds.append(ReadBillingInfo)
 
-        ReadDataKind = Literal["datawarehouse_schema", "insight", *kinds]  # type: ignore
+        ReadDataKind = Union[ReadDataWarehouseSchema, ReadInsight, *kinds]  # type: ignore
 
         ReadDataToolArgs = create_model(
             "ReadDataToolArgs",

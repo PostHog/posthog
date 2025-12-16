@@ -352,16 +352,6 @@
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
-        "AgentArtifactContent": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/DocumentArtifactContent"
-                },
-                {
-                    "$ref": "#/definitions/VisualizationArtifactContent"
-                }
-            ]
-        },
         "AgentMode": {
             "enum": ["product_analytics", "sql", "session_replay"],
             "type": "string"
@@ -444,35 +434,6 @@
                 }
             ],
             "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
-        },
-        "AnyAssistantSupportedQuery": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsQuery"
-                },
-                {
-                    "$ref": "#/definitions/RetentionQuery"
-                },
-                {
-                    "$ref": "#/definitions/HogQLQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
-                }
-            ],
-            "description": "The union type with all supported base queries for the assistant."
         },
         "AnyDataNode": {
             "anyOf": [
@@ -1718,6 +1679,9 @@
                     "$ref": "#/definitions/AssistantGroupPropertyFilter"
                 }
             ]
+        },
+        "AssistantQuerySchema": {
+            "$ref": "#/definitions/QuerySchema"
         },
         "AssistantRetentionActionsNode": {
             "additionalProperties": false,
@@ -30702,7 +30666,7 @@
                             "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
+                            "$ref": "#/definitions/AssistantQuerySchema"
                         }
                     ]
                 }
@@ -30733,7 +30697,28 @@
                             "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                         }
                     ]
                 },
@@ -30760,7 +30745,28 @@
                             "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                         }
                     ]
                 },
