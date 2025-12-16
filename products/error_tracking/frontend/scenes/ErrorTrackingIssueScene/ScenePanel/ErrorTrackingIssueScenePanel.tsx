@@ -118,6 +118,7 @@ const CreateSurveyButton = (): JSX.Element | null => {
                 info="This survey will trigger when users encounter matching exceptions. Adjust the filters below to target specific errors."
                 isOpen={showSurveyModal}
                 onCancel={() => setShowSurveyModal(false)}
+                showFollowupToggle={true}
             />
         </>
     )

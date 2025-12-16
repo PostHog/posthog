@@ -98,6 +98,8 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                     scaleType: 'number',
                     ratingLowerBound: 'Minor glitch',
                     ratingUpperBound: "Can't continue",
+                    followUpEnabled: true,
+                    followUpQuestion: 'What were you trying to do?',
                     conditions: {
                         actions: null,
                         events: {
