@@ -60,33 +60,8 @@ from products.data_warehouse.backend.models.external_data_schema import (
 logger = structlog.get_logger(__name__)
 
 
-class DataWarehouseSavedQueryMinimalSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for list views - excludes large query field to reduce memory usage."""
-
-    created_by = UserBasicSerializer(read_only=True)
-    columns = serializers.SerializerMethodField(read_only=True)
-    sync_frequency = serializers.SerializerMethodField()
-    last_run_at = serializers.SerializerMethodField(read_only=True)
-    managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
-
-    class Meta:
-        model = DataWarehouseSavedQuery
-        fields = [
-            "id",
-            "deleted",
-            "name",
-            "created_by",
-            "created_at",
-            "sync_frequency",
-            "columns",
-            "status",
-            "last_run_at",
-            "managed_viewset_kind",
-            "latest_error",
-            "is_materialized",
-            "origin",
-        ]
-        read_only_fields = fields
+class DataWarehouseSavedQuerySerializerMixin:
+    """Shared methods for DataWarehouseSavedQuery serializers."""
 
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         try:
@@ -127,7 +102,36 @@ class DataWarehouseSavedQueryMinimalSerializer(serializers.ModelSerializer):
         ]
 
 
-class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
+class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+    """Lightweight serializer for list views - excludes large query field to reduce memory usage."""
+
+    created_by = UserBasicSerializer(read_only=True)
+    columns = serializers.SerializerMethodField(read_only=True)
+    sync_frequency = serializers.SerializerMethodField()
+    last_run_at = serializers.SerializerMethodField(read_only=True)
+    managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = DataWarehouseSavedQuery
+        fields = [
+            "id",
+            "deleted",
+            "name",
+            "created_by",
+            "created_at",
+            "sync_frequency",
+            "columns",
+            "status",
+            "last_run_at",
+            "managed_viewset_kind",
+            "latest_error",
+            "is_materialized",
+            "origin",
+        ]
+        read_only_fields = fields
+
+
+class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
@@ -175,41 +179,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "soft_update": {"write_only": True},
         }
 
-    def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
-        try:
-            jobs = view.jobs  # type: ignore
-            if len(jobs) > 0:
-                return jobs[0].last_run_at
-        except:
-            pass
-
-        return view.last_run_at
-
-    def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
-        team_id = self.context["team_id"]
-        database = self.context.get("database", None)
-        if not database:
-            database = Database.create_for(team_id=team_id)
-
-        context = HogQLContext(team_id=team_id, database=database)
-
-        fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
-        return [
-            SerializedField(
-                key=field.name,
-                name=field.name,
-                type=field.type,
-                schema_valid=field.schema_valid,
-                fields=field.fields,
-                table=field.table,
-                chain=field.chain,
-            )
-            for field in fields
-        ]
-
-    def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
-        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
-
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
         # First check if we have an activity log from a recent creation/update
         if (
@@ -224,9 +193,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             return view.latest_activity_id
 
         return None
-
-    def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
-        return cast(DataWarehouseManagedViewsetKind, view.managed_viewset.kind) if view.managed_viewset else None
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
