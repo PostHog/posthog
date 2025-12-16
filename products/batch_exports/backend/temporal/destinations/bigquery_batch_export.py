@@ -397,7 +397,7 @@ class BigQueryClient:
         Args:
             query: The query to execute.
             start_query_timeout: The timeout (in seconds) to wait for the query to start.
-            poll_interval: The interval (in seconds) to poll for results.
+            poll_interval: The interval (in seconds) to poll for job state changes (PENDING -> RUNNING).
 
         Returns:
             The query result.
@@ -407,24 +407,25 @@ class BigQueryClient:
                 longer than the timeout duration).
         """
         job_config = bigquery.QueryJobConfig()
+        query_start_time = time.monotonic()
         query_job = await asyncio.to_thread(self.sync_client.query, query, job_config=job_config)
 
-        # wait for the query to start (and timeout if it takes too long)
-        query_start_time = time.monotonic()
-        while True:
-            await asyncio.to_thread(query_job.reload)
-            if query_job.state != "PENDING":
-                break
-            query_duration = time.monotonic() - query_start_time
-            if query_duration > start_query_timeout:
-                # Cancel the query then raise a timeout error
-                # According to Google's own docs:
-                # "It's not possible to check if a job was cancelled in the API"
-                # so we cancel it and hope for the best
-                await asyncio.to_thread(query_job.cancel)
-                assert query_job.job_id is not None
-                raise StartQueryTimeoutError(query_job.job_id, start_query_timeout)
-            await asyncio.sleep(poll_interval)
+        # if query is in "PENDING" state, wait for it to start (and timeout if it takes too long)
+        if query_job.state == "PENDING":
+            while True:
+                await asyncio.to_thread(query_job.reload)
+                if query_job.state != "PENDING":
+                    break
+                query_duration = time.monotonic() - query_start_time
+                if query_duration > start_query_timeout:
+                    # Cancel the query then raise a timeout error
+                    # According to Google's own docs:
+                    # "It's not possible to check if a job was cancelled in the API"
+                    # so we cancel it and hope for the best
+                    await asyncio.to_thread(query_job.cancel)
+                    assert query_job.job_id is not None
+                    raise StartQueryTimeoutError(query_job.job_id, start_query_timeout)
+                await asyncio.sleep(poll_interval)
 
         # wait for the query to complete and return the result
         return await asyncio.to_thread(query_job.result)
