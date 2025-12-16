@@ -52,12 +52,16 @@ class TestWebAvgTimeOnPageTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         date_to: str | None = None,
         interval: IntervalType = IntervalType.DAY,
         properties: list | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> WebAvgTimeOnPageTrendsQueryResponse:
         with freeze_time(self.QUERY_TIMESTAMP):
             query = WebAvgTimeOnPageTrendsQuery(
                 dateRange=DateRange(date_from=date_from, date_to=date_to),
                 interval=interval,
                 properties=properties or [],
+                limit=limit,
+                offset=offset,
             )
             runner = WebAvgTimeOnPageTrendsQueryRunner(
                 team=self.team,
@@ -251,3 +255,37 @@ class TestWebAvgTimeOnPageTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(response.results) == 2
+
+    def test_pagination_limits_results(self):
+        """Pagination returns limited results and indicates more are available."""
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"])
+
+        session1 = str(uuid7())
+        session2 = str(uuid7())
+
+        self._create_pageview_event("user1", "2025-01-08 10:00:00", session1)
+        self._create_pageview_event("user1", "2025-01-08 10:01:00", session1, prev_pageview_duration=100)
+
+        self._create_pageview_event("user1", "2025-01-09 10:00:00", session2)
+        self._create_pageview_event("user1", "2025-01-09 10:01:00", session2, prev_pageview_duration=200)
+
+        response = self._run_query(
+            date_from="2025-01-08",
+            date_to="2025-01-10",
+            limit=1,
+        )
+
+        assert len(response.results) == 1
+        assert response.hasMore is True
+        assert response.results[0].avgTimeOnPage == 100
+
+        response = self._run_query(
+            date_from="2025-01-08",
+            date_to="2025-01-10",
+            limit=1,
+            offset=1,
+        )
+
+        assert len(response.results) == 1
+        assert response.hasMore is False
+        assert response.results[0].avgTimeOnPage == 200
