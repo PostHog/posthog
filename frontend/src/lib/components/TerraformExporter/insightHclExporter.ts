@@ -2,11 +2,32 @@ import {
     addManagedByTag,
     formatHclValue,
     formatJsonForHcl,
+    sanitizeResourceName,
 } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
-import { InsightModel } from '~/types'
+import { AlertType } from '~/lib/components/Alerts/types'
+import { HogFunctionType, InsightModel } from '~/types'
 
+import { generateAlertHCL } from './alertHclExporter'
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'
+
+export interface InsightHclExportOptions extends HclExportOptions {
+    /** When provided, uses TF references instead of hardcoded dashboard_ids (also suppresses dashboard warnings) */
+    dashboardTfReferences?: string[]
+    /** Child alerts to include in export */
+    alerts?: AlertType[]
+    /** Hog functions grouped by alert ID */
+    hogFunctionsByAlertId?: Map<string, HogFunctionType[]>
+}
+
+export interface InsightExportResult extends HclExportResult {
+    resourceCounts: {
+        dashboards: number
+        insights: number
+        alerts: number
+        hogFunctions: number
+    }
+}
 
 /**
  * @see https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/insight
@@ -51,7 +72,7 @@ const INSIGHT_FIELD_MAPPINGS: FieldMapping<Partial<InsightModel>>[] = [
     },
 ]
 
-function validateInsight(insight: Partial<InsightModel>): string[] {
+function validateInsight(insight: Partial<InsightModel>, options?: InsightHclExportOptions): string[] {
     const warnings: string[] = []
 
     if (!insight.query) {
@@ -64,7 +85,7 @@ function validateInsight(insight: Partial<InsightModel>): string[] {
         )
     }
 
-    if (insight.dashboards && insight.dashboards.length > 0) {
+    if (!options?.dashboardTfReferences?.length && insight.dashboards && insight.dashboards.length > 0) {
         warnings.push(
             '`dashboard_ids` are hardcoded. After exporting, consider referencing the Terraform resource instead (for example, `posthog_dashboard.my_dashboard.id`) so the dashboard is managed alongside this configuration.'
         )
@@ -77,12 +98,78 @@ const INSIGHT_EXPORTER: ResourceExporter<Partial<InsightModel>> = {
     resourceType: 'posthog_insight',
     resourceLabel: 'insight',
     fieldMappings: INSIGHT_FIELD_MAPPINGS,
-    validate: validateInsight,
+    validate: (insight) => validateInsight(insight),
     getResourceName: (i) => i.name || i.derived_name || `insight_${i.id || 'new'}`,
     getId: (i) => i.id,
     getShortId: (i) => i.short_id,
 }
 
-export function generateInsightHCL(insight: Partial<InsightModel>, options: HclExportOptions = {}): HclExportResult {
-    return generateHCL(insight, INSIGHT_EXPORTER, options)
+export function generateInsightHCL(
+    insight: Partial<InsightModel>,
+    options: InsightHclExportOptions = {}
+): InsightExportResult {
+    const allWarnings: string[] = []
+    const hclSections: string[] = []
+
+    // Count resources for summary
+    const alertCount = options.alerts?.length || 0
+    const hogFunctionCount = options.hogFunctionsByAlertId
+        ? Array.from(options.hogFunctionsByAlertId.values()).flat().length
+        : 0
+
+    // Create a modified exporter that uses the options for validation
+    const exporterWithOptions: ResourceExporter<Partial<InsightModel>> = {
+        ...INSIGHT_EXPORTER,
+        validate: (i) => validateInsight(i, options),
+    }
+
+    const result = generateHCL(insight, exporterWithOptions, options)
+    let insightHcl = result.hcl
+    allWarnings.push(...result.warnings)
+
+    // If we have dashboard TF references, add dashboard_ids with the references
+    if (options.dashboardTfReferences?.length) {
+        const dashboardIdsLine = `  dashboard_ids = [${options.dashboardTfReferences.join(', ')}]`
+
+        // Insert before closing brace
+        const closingBraceIndex = insightHcl.lastIndexOf('}')
+        if (closingBraceIndex !== -1) {
+            insightHcl =
+                insightHcl.slice(0, closingBraceIndex) + dashboardIdsLine + '\n' + insightHcl.slice(closingBraceIndex)
+        }
+    }
+
+    hclSections.push(insightHcl)
+
+    // Generate child alerts if provided
+    if (options.alerts && options.alerts.length > 0) {
+        const insightTfName = sanitizeResourceName(
+            INSIGHT_EXPORTER.getResourceName(insight),
+            INSIGHT_EXPORTER.resourceLabel
+        )
+        const insightTfReference = `${INSIGHT_EXPORTER.resourceType}.${insightTfName}.id`
+
+        for (const alert of options.alerts) {
+            const hogFunctions = options.hogFunctionsByAlertId?.get(alert.id) || []
+
+            const alertResult = generateAlertHCL(alert, {
+                insightTfReference,
+                hogFunctions,
+            })
+            hclSections.push('')
+            hclSections.push(alertResult.hcl)
+            allWarnings.push(...alertResult.warnings.map((w) => `[Alert: ${alert.name || alert.id}] ${w}`))
+        }
+    }
+
+    return {
+        hcl: hclSections.join('\n'),
+        warnings: allWarnings,
+        resourceCounts: {
+            dashboards: 0,
+            insights: 1,
+            alerts: alertCount,
+            hogFunctions: hogFunctionCount,
+        },
+    }
 }

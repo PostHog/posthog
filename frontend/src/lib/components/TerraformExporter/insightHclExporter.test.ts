@@ -267,6 +267,7 @@ describe('insightHclExporter test', () => {
             expect(result.hcl).toContain(
                 'dashboard_ids = [posthog_dashboard.dashboard_one.id, posthog_dashboard.dashboard_two.id]'
             )
+            expect(result.hcl).not.toContain('dashboard_ids = [1, 2, 3, 4]')
             expect(result.warnings).toHaveLength(0)
         })
     })
