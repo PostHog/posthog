@@ -10,15 +10,22 @@ on:
     pull_request:
         types: [opened, synchronize, labeled]
         paths:
+            - Dockerfile
             - docker-compose.base.yml
             - docker-compose.hobby.yml
             - bin/*
             - docker/*
+            - uv.lock
             - .github/workflows/ci-hobby.yml
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: true
+
+permissions:
+    contents: read
+    pull-requests: write
+    deployments: write
 
 jobs:
     wait-for-docker-image:
@@ -29,6 +36,7 @@ jobs:
         outputs:
             preview-mode: ${{ steps.check-preview.outputs.preview }}
             comment-id: ${{ steps.post-comment.outputs.comment-id }}
+            deployment-id: ${{ steps.create-deployment.outputs.deployment-id }}
         steps:
             - name: 'Check for preview mode'
               id: check-preview
@@ -126,6 +134,41 @@ jobs:
                       // Also set as step output for the changes job to pick up
                       const output = `comment-id=${commentId}`;
                       fs.appendFileSync(process.env.GITHUB_OUTPUT, `${output}\n`);
+            - name: Create GitHub deployment
+              id: create-deployment
+              if: steps.check-preview.outputs.preview == 'true'
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const prNumber = context.issue.number;
+                      const environment = `preview-pr-${prNumber}`;
+
+                      // Use PR branch name - GitHub resolves to SHA and links to PR
+                      const ref = context.payload.pull_request?.head?.ref || context.ref;
+                      const { data: deployment } = await github.rest.repos.createDeployment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          ref: ref,
+                          environment: environment,
+                          auto_merge: false,
+                          required_contexts: [],
+                          description: `Hobby preview for PR #${prNumber}`
+                      });
+
+                      console.log(`Created deployment ${deployment.id} for ${environment}`);
+
+                      // Set initial status to pending (waiting for Docker build)
+                      await github.rest.repos.createDeploymentStatus({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          deployment_id: deployment.id,
+                          state: 'pending',
+                          log_url: `${context.payload.repository.html_url}/actions/runs/${context.runId}`,
+                          description: 'Waiting for Docker image build...'
+                      });
+
+                      fs.appendFileSync(process.env.GITHUB_OUTPUT, `deployment-id=${deployment.id}\n`);
             - name: Wait for container image build to complete
               uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
               id: wait-for-image
@@ -220,6 +263,7 @@ jobs:
               run: |
                   echo "PREVIEW_MODE=${{ github.event_name == 'pull_request' && needs.wait-for-docker-image.outputs.preview-mode || 'false' }}" >> $GITHUB_ENV
                   echo "HOBBY_COMMENT_ID=${{ needs.wait-for-docker-image.outputs.comment-id }}" >> $GITHUB_ENV
+                  echo "HOBBY_DEPLOYMENT_ID=${{ needs.wait-for-docker-image.outputs.deployment-id }}" >> $GITHUB_ENV
             - name: Setup DO Hobby Instance
               run: uv run bin/hobby-ci.py create "$GITHUB_HEAD_REF" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}" 2>&1 | tee /tmp/hobby-ci-output.txt
               env:
@@ -264,15 +308,13 @@ jobs:
                           comment_id: parseInt(commentId),
                           body: updatedBody,
                       });
-            - name: Create GitHub deployment
-              id: create-deployment
-              if: env.PREVIEW_MODE == 'true'
+            - name: Update GitHub deployment - instance created
+              if: env.PREVIEW_MODE == 'true' && env.HOBBY_DEPLOYMENT_ID
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
               with:
                   script: |
                       const fs = require('fs');
-                      const prNumber = context.issue.number;
-                      const environment = `preview-pr-${prNumber}`;
+                      const deploymentId = process.env.HOBBY_DEPLOYMENT_ID;
 
                       // Parse instance URL from droplet info
                       let instanceUrl = '';
@@ -282,34 +324,18 @@ jobs:
                           if (urlMatch) instanceUrl = urlMatch[1];
                       }
 
-                      // Use PR branch name - GitHub resolves to SHA and links to PR
-                      const ref = context.payload.pull_request?.head?.ref || context.ref;
-                      const { data: deployment } = await github.rest.repos.createDeployment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          ref: ref,
-                          environment: environment,
-                          auto_merge: false,
-                          required_contexts: [],
-                          description: `Hobby preview for PR #${prNumber}`
-                      });
-
-                      console.log(`Created deployment ${deployment.id} for ${environment}`);
-
-                      // Set initial status to in_progress
+                      // Update status to in_progress with URL
                       await github.rest.repos.createDeploymentStatus({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
-                          deployment_id: deployment.id,
+                          deployment_id: parseInt(deploymentId),
                           state: 'in_progress',
                           environment_url: instanceUrl || undefined,
                           log_url: `${context.payload.repository.html_url}/actions/runs/${context.runId}`,
                           description: 'Running smoke tests...'
                       });
 
-                      // Save deployment ID for later status update
-                      fs.appendFileSync(process.env.GITHUB_OUTPUT, `deployment-id=${deployment.id}\n`);
-                      fs.appendFileSync(process.env.GITHUB_OUTPUT, `environment=${environment}\n`);
+                      console.log(`Updated deployment ${deploymentId} to in_progress`);
             - name: Run smoke tests on DO
               id: test
               timeout-minutes: 30
@@ -456,12 +482,12 @@ jobs:
                           body: commentBody,
                       });
             - name: Update GitHub deployment status
-              if: always() && env.PREVIEW_MODE == 'true' && steps.create-deployment.outputs.deployment-id
+              if: always() && env.PREVIEW_MODE == 'true' && env.HOBBY_DEPLOYMENT_ID
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
               with:
                   script: |
                       const fs = require('fs');
-                      const deploymentId = '${{ steps.create-deployment.outputs.deployment-id }}';
+                      const deploymentId = process.env.HOBBY_DEPLOYMENT_ID;
                       const testExitCode = process.env.TEST_EXIT_CODE;
                       const testPassed = testExitCode === '0';
 

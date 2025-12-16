@@ -818,6 +818,26 @@ def main():
                 print(f"🌐 URL: https://{ht.hostname}", flush=True)
         else:
             # Smoke test mode: always create new ephemeral droplet
+            # First, check if there's an orphaned preview droplet from a removed label
+            token = os.environ.get("DIGITALOCEAN_TOKEN")
+            if pr_number != "unknown":
+                orphaned_droplet = HobbyTester.find_existing_droplet_for_pr(token, pr_number)
+                if orphaned_droplet:
+                    print(f"🧹 Found orphaned preview droplet for PR #{pr_number} - cleaning up", flush=True)
+                    print(f"   (label was likely removed)", flush=True)
+                    try:
+                        domain = digitalocean.Domain(token=token, name=DOMAIN)
+                        records = domain.get_records()
+                        record_id = None
+                        for record in records:
+                            if record.type == "A" and record.data == orphaned_droplet.ip_address:
+                                record_id = record.id
+                                break
+                        HobbyTester.destroy_environment(droplet_id=orphaned_droplet.id, record_id=record_id)
+                        print(f"✅ Cleaned up orphaned droplet", flush=True)
+                    except Exception as e:
+                        print(f"⚠️  Could not cleanup orphaned droplet: {e}", flush=True)
+
             name = f"do-ci-hobby-{run_id}"
             print(f"🧪 Smoke test mode - creating ephemeral droplet", flush=True)
             print(f"  Branch: {branch}", flush=True)
@@ -966,16 +986,24 @@ def main():
                             should_destroy = True
                             reason = "PR is closed"
                         else:
-                            # PR is open - check last activity (updated_at includes comments, commits, etc.)
-                            updated_at = pr_data.get("updated_at")
-                            if updated_at:
-                                last_activity = datetime.datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
-                                inactive_days = (now - last_activity).days
-                                print(f"   Last PR activity: {inactive_days} days ago")
+                            # PR is open - check if it still has hobby-preview label
+                            labels = [label.get("name", "").lower() for label in pr_data.get("labels", [])]
+                            has_preview_label = "hobby-preview" in labels
 
-                                if inactive_days >= max_inactive_days:
-                                    should_destroy = True
-                                    reason = f"PR inactive for {inactive_days} days"
+                            if not has_preview_label:
+                                should_destroy = True
+                                reason = "PR no longer has hobby-preview label"
+                            else:
+                                # PR is open with label - check last activity
+                                updated_at = pr_data.get("updated_at")
+                                if updated_at:
+                                    last_activity = datetime.datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+                                    inactive_days = (now - last_activity).days
+                                    print(f"   Last PR activity: {inactive_days} days ago")
+
+                                    if inactive_days >= max_inactive_days:
+                                        should_destroy = True
+                                        reason = f"PR inactive for {inactive_days} days"
                     elif resp.status_code == 404:
                         should_destroy = True
                         reason = "PR not found"
