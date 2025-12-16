@@ -332,6 +332,7 @@ class OauthIntegration:
                 scope="https://ads.microsoft.com/msads.manage offline_access openid profile",
                 id_path="id",
                 name_path="userPrincipalName",
+                additional_authorize_params={"prompt": "consent"},
             )
         elif kind == "intercom":
             if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:
