@@ -15,6 +15,7 @@ from posthog.schema import (
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 
+from ee.hogai.artifacts.manager import StateArtifactResult
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
@@ -204,7 +205,7 @@ class TestReadDataTool(BaseTest):
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_insight_with_source = AsyncMock(
-            return_value=(mock_content, ArtifactSource.INSIGHT)
+            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
         tool = await ReadDataTool.create_tool_class(
@@ -214,7 +215,7 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
         )
 
-        result, artifact = await tool._arun_impl(kind="insight", insight_id="abc123", execute=False)
+        result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": False})
 
         assert "Test Insight" in result
         assert "abc123" in result
@@ -240,11 +241,11 @@ class TestReadDataTool(BaseTest):
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_insight_with_source = AsyncMock(
-            return_value=(mock_content, ArtifactSource.INSIGHT)
+            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
         with patch(
-            "ee.hogai.tools.read_data.tool.execute_and_format_query", new=AsyncMock(return_value="Formatted results")
+            "ee.hogai.context.insight.context.execute_and_format_query", new=AsyncMock(return_value="Formatted results")
         ):
             tool = ReadDataTool(
                 team=team,
@@ -254,7 +255,7 @@ class TestReadDataTool(BaseTest):
                 node_path=(NodePath(name="test_node", tool_call_id=tool_call_id, message_id="test"),),
             )
 
-            result, artifact = await tool._arun_impl(kind="insight", insight_id="abc123", execute=True)
+            result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": True})
 
             # When execute=True, returns empty string and artifact
             assert result == ""
@@ -265,7 +266,7 @@ class TestReadDataTool(BaseTest):
             artifact_ref = artifact.messages[0]
             assert isinstance(artifact_ref, ArtifactRefMessage)
             assert artifact_ref.artifact_id == "abc123"
-            assert artifact_ref.source == ArtifactSource.INSIGHT
+            assert artifact_ref.source == ArtifactSource.STATE
 
             # Second message is the tool call message with results
             tool_call_msg = artifact.messages[1]
@@ -292,7 +293,7 @@ class TestReadDataTool(BaseTest):
         )
 
         with pytest.raises(MaxToolRetryableError) as exc_info:
-            await tool._arun_impl(kind="insight", insight_id="nonexistent", execute=False)
+            await tool._arun_impl({"kind": "insight", "insight_id": "nonexistent", "execute": False})
 
         assert "nonexistent" in str(exc_info.value)
 
@@ -315,7 +316,7 @@ class TestReadDataTool(BaseTest):
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_insight_with_source = AsyncMock(
-            return_value=(mock_content, ArtifactSource.INSIGHT)
+            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
         tool = await ReadDataTool.create_tool_class(
@@ -326,7 +327,7 @@ class TestReadDataTool(BaseTest):
         )
 
         # Don't pass execute, it should default to False and return schema only
-        result, artifact = await tool._arun_impl(kind="insight", insight_id="abc123")
+        result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123"})
 
         assert artifact is None
         assert "Test Insight" in result
@@ -349,7 +350,7 @@ class TestReadDataTool(BaseTest):
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_insight_with_source = AsyncMock(
-            return_value=(mock_content, ArtifactSource.INSIGHT)
+            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
         tool = await ReadDataTool.create_tool_class(
@@ -359,7 +360,7 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
         )
 
-        result, artifact = await tool._arun_impl(kind="insight", insight_id="abc123", execute=False)
+        result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": False})
 
         assert "Insight abc123" in result
 

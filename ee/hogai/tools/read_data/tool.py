@@ -16,9 +16,9 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ModelArtifactResult
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
-from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
@@ -203,20 +203,22 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if result is None:
             raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
 
-        query_type = result.content.query.kind
         insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
+
+        # Create insight context
+        context = InsightContext(
+            team=self._team,
+            query=result.content.query,
+            name=insight_name,
+            description=result.content.description,
+            insight_id=artifact_or_insight_id,
+            schema_template=INSIGHT_SCHEMA_TEMPLATE,
+            result_template=INSIGHT_RESULT_TEMPLATE,
+        )
 
         # The agent wants to read the schema, just return it
         if not execute:
-            query_schema = result.content.query.model_dump_json(exclude_none=True)
-            text_result = format_prompt_string(
-                INSIGHT_SCHEMA_TEMPLATE,
-                insight_name=insight_name,
-                insight_id=artifact_or_insight_id,
-                description=result.content.description,
-                query_type=query_type,
-                query_schema=query_schema,
-            )
+            text_result = context.format_schema()
             return text_result, None
 
         # Create a new artifact message, so the user can see the results in the UI
@@ -228,18 +230,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         )
 
         # Execute the query and return the results
-        results = await execute_and_format_query(
-            self._team,
-            result.content.query,
-            insight_id=result.model.id if isinstance(result, ModelArtifactResult) else None,
-        )
-        text_result = format_prompt_string(
-            INSIGHT_RESULT_TEMPLATE,
-            insight_name=insight_name,
-            insight_id=artifact_or_insight_id,
-            description=result.content.description,
-            query_type=query_type,
-            results=results,
+        text_result = await context.aformat_results(
+            insight_model_id=result.model.id if isinstance(result, ModelArtifactResult) else None
         )
         tool_call_message = AssistantToolCallMessage(
             content=text_result,
@@ -404,21 +396,41 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             if not insight or not insight.query:
                 return None
 
-            insight_name = tile.insight.name or tile.insight.derived_name or f"Insight {tile.insight.short_id}"
-            # TODO:
-            result = None
+            insight_name = insight.name or insight.derived_name or f"Insight {insight.short_id}"
 
-            try:
-                results = await execute_and_format_query(self._team, result.content.query, insight_id=insight.id)
-            except Exception as e:
-                results = f"Error executing query: {e}"
+            # Parse and validate the query
+            query = insight.query
+            if isinstance(query, dict):
+                # Handle wrapped queries
+                if query.get("source"):
+                    query = query.get("source")
+                if not query:
+                    return None
+                # Convert dict to proper query model
+                from ee.hogai.utils.query import validate_assistant_query
 
-            tile_content = format_prompt_string(
-                INSIGHT_RESULT_TEMPLATE,
-                insight_name=insight_name,
+                try:
+                    query = validate_assistant_query(query)
+                except Exception:
+                    return None
+
+            context = InsightContext(
+                team=self._team,
+                query=query,
+                name=insight_name,
+                description=insight.description,
                 insight_id=insight.short_id,
-                description=result.content.description,
-                results=results,
+                result_template=INSIGHT_RESULT_TEMPLATE,
             )
 
-            return tile_content
+            try:
+                return await context.aformat_results(insight_model_id=insight.id)
+            except Exception as e:
+                # Return formatted error message
+                return format_prompt_string(
+                    INSIGHT_RESULT_TEMPLATE,
+                    insight_name=insight_name,
+                    insight_id=insight.short_id,
+                    description=insight.description,
+                    results=f"Error executing query: {e}",
+                )

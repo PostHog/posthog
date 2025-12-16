@@ -20,10 +20,6 @@ from posthog.schema import (
     ModeContext,
 )
 
-from posthog.hogql_queries.apply_dashboard_filters import (
-    apply_dashboard_filters_to_dict,
-    apply_dashboard_variables_to_dict,
-)
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -32,11 +28,11 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor
+from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AssistantMessageUnion, BaseStateWithMessages
 
 from .prompts import (
@@ -292,36 +288,28 @@ class AssistantContextManager(AssistantContextMixin):
             Formatted insight string or empty string if failed
         """
         try:
-            query_model = insight.query
+            # Convert filters_override to dict if needed
+            filters_override = None
+            if insight.filtersOverride:
+                filters_override = insight.filtersOverride.model_dump(mode="json")
 
-            if dashboard_filters or insight.filtersOverride or insight.variablesOverride:
-                query_dict = insight.query.model_dump(mode="json")
-                if dashboard_filters:
-                    query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
-                if insight.filtersOverride:
-                    query_dict = apply_dashboard_filters_to_dict(
-                        query_dict, insight.filtersOverride.model_dump(mode="json"), self._team
-                    )
-                if insight.variablesOverride:
-                    variables_overrides = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
-                    query_dict = apply_dashboard_variables_to_dict(query_dict, variables_overrides, self._team)
+            # Convert variables_override to dict if needed
+            variables_override = None
+            if insight.variablesOverride:
+                variables_override = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
 
-                query_model = validate_assistant_query(query_dict)
-
-            raw_results, _ = await query_runner.arun_and_format_query(query_model)
-
-            result = (
-                PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
-                .format_prompt(
-                    heading=heading or "",
-                    name=insight.name or f"ID {insight.id}",
-                    description=insight.description,
-                    query_schema=insight.query.model_dump_json(exclude_none=True),
-                    query=raw_results,
-                )
-                .to_string()
+            context = InsightContext(
+                team=self._team,
+                query=insight.query,
+                name=insight.name or f"ID {insight.id}",
+                description=insight.description,
+                dashboard_filters=dashboard_filters,
+                filters_override=filters_override,
+                variables_override=variables_override,
+                result_template=ROOT_INSIGHT_CONTEXT_PROMPT,
             )
-            return result
+
+            return await context.aformat_results()
 
         except Exception as err:
             # Skip insights that fail to run

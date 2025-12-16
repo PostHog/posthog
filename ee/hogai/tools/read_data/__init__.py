@@ -1,3 +1,3 @@
-from .tool import ReadDataTool, ReadDataToolArgs
+from .tool import ReadDataTool
 
-__all__ = ["ReadDataTool", "ReadDataToolArgs"]
+__all__ = ["ReadDataTool"]
