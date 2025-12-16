@@ -22,7 +22,7 @@ interface LogsViewerSparklineProps {
     sparklineData: LogsSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
-    displayTimezone: string // IANA timezone string (e.g. "America/New_York", "Europe/London", "UTC", "Local")
+    displayTimezone: string // IANA timezone string (e.g. "UTC", "America/New_York", "Europe/London")
 }
 
 export function LogsSparkline({
