@@ -1949,6 +1949,7 @@ export interface BillingType {
     billing_provider?: 'vercel' | null
     free_trial_until?: Dayjs
     stripe_portal_url?: string
+    vercel_invoices_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string

@@ -123,6 +123,18 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             query["include_forecasting"] = request.query_params.get("include_forecasting")
         response = billing_manager.get_billing(org, query)
 
+        from posthog.models import OrganizationIntegration
+
+        vercel_integration = OrganizationIntegration.objects.filter(
+            organization=org,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        ).first()
+
+        if vercel_integration and vercel_integration.integration_id:
+            account_url = vercel_integration.config.get("account", {}).get("url", "")
+            if account_url:
+                response["vercel_invoices_url"] = f"{account_url}/invoices"
+
         return Response(response)
 
     @action(methods=["PATCH"], detail=False, url_path="/")
