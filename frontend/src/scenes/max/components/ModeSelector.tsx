@@ -200,20 +200,22 @@ export function ModeSelector(): JSX.Element {
     }
 
     return (
-        <LemonSelect
-            value={currentValue}
-            onChange={handleChange}
-            options={modeOptions}
-            size="xxsmall"
-            type="tertiary"
-            tooltip={buildGeneralTooltip(
-                'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
-                getDefaultTools({ webSearchEnabled })
-            )}
-            dropdownPlacement="top-start"
-            dropdownMatchSelectWidth={false}
-            menu={{ className: 'min-w-48' }}
-            className="flex-shrink-0 border [&>span]:text-secondary"
-        />
+        <>
+            <LemonSelect
+                value={currentValue}
+                onChange={handleChange}
+                options={modeOptions}
+                size="xxsmall"
+                type="tertiary"
+                tooltip={buildGeneralTooltip(
+                    'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
+                    getDefaultTools({ webSearchEnabled })
+                )}
+                dropdownPlacement="top-start"
+                dropdownMatchSelectWidth={false}
+                menu={{ className: 'min-w-48' }}
+                className="flex-shrink-0 border [&>span]:text-secondary"
+            />
+        </>
     )
 }

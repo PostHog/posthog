@@ -119,19 +119,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg'
                         )}
                     >
-                        {!isSharedThread && (
-                            <div className="pt-2">
-                                {!isThreadVisible ? (
-                                    <div className="flex items-start justify-between">
-                                        <ContextDisplay size={contextDisplaySize} />
-                                        <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
-                                    </div>
-                                ) : (
-                                    <ContextDisplay size={contextDisplaySize} />
-                                )}
-                            </div>
-                        )}
-
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
                                 id="question-input"
@@ -156,10 +143,23 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 disabled={inputDisabled}
                                 minRows={1}
                                 maxRows={10}
-                                className="!border-none !bg-transparent min-h-0 py-2 pl-2 pr-12"
+                                className="!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12"
                                 hideFocus
                             />
                         </SlashCommandAutocomplete>
+
+                        {!isSharedThread && (
+                            <div className="pb-2">
+                                {!isThreadVisible ? (
+                                    <div className="flex items-start justify-between">
+                                        <ContextDisplay size={contextDisplaySize} />
+                                        <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                                    </div>
+                                ) : (
+                                    <ContextDisplay size={contextDisplaySize} />
+                                )}
+                            </div>
+                        )}
                     </label>
                     <div
                         className={clsx(
