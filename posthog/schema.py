@@ -9290,6 +9290,9 @@ class EndpointRunRequest(BaseModel):
     client_query_id: str | None = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
+    debug: bool | None = Field(
+        default=False, description="Whether to include debug information (such as the executed HogQL) in the response."
+    )
     filters_override: DashboardFilter | None = Field(
         default=None,
         description=(

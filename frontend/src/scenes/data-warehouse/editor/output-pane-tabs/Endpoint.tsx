@@ -60,20 +60,17 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
             return
         }
 
-        const transformedVariables =
-            variablesForInsight.length > 0
-                ? variablesForInsight.reduce(
-                      (acc, variable, index) => {
-                          acc[`var_${index}`] = {
-                              variableId: variable.id,
-                              code_name: variable.code_name,
-                              value: variable.value || variable.default_value,
-                          }
-                          return acc
-                      },
-                      {} as Record<string, { variableId: string; code_name: string; value?: any }>
-                  )
-                : {}
+        const transformedVariables = Object.fromEntries(
+            variablesForInsight.map((variable) => [
+                variable.id,
+                {
+                    variableId: variable.id,
+                    code_name: variable.code_name,
+                    value: variable.value || variable.default_value,
+                    isNull: variable.isNull || false,
+                },
+            ])
+        )
 
         const queryPayload = {
             kind: NodeKind.HogQLQuery as const,

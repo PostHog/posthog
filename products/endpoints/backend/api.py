@@ -1,6 +1,6 @@
 import re
 from datetime import timedelta
-from typing import Union, cast
+from typing import Optional, Union, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
@@ -211,7 +211,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 created_by=cast(User, request.user),
             )
 
-            # Activity log: created
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -453,8 +452,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query_request_data: dict,
         client_query_id: str | None,
         request: Request,
+        variables_override: Optional[list[HogQLVariable]] = None,
         cache_age_seconds: int | None = None,
         extra_result_fields: dict | None = None,
+        debug: bool = False,
     ) -> Response:
         """Shared query execution logic."""
         merged_data = self.get_model(query_request_data, QueryRequest)
@@ -471,6 +472,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         result = process_query_model(
             self.team,
             query,
+            variables_override=variables_override,
             execution_mode=execution_mode,
             query_id=client_query_id,
             user=cast(User, request.user),
@@ -483,6 +485,23 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         if isinstance(result, dict) and extra_result_fields:
             result.update(extra_result_fields)
+
+        if not debug:
+            debug_fields_to_remove = [
+                "calculation_trigger",
+                "cache_key",
+                "explain",
+                "modifiers",
+                "resolved_date_range",
+                "timings",
+                "hogql",
+            ]
+
+            for field in debug_fields_to_remove:
+                result.pop(field, None)
+
+        if "results" in result:
+            result = {"results": result["results"], **result}
 
         response_status = (
             status.HTTP_202_ACCEPTED
@@ -506,7 +525,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return last_refresh < saved_query.last_run_at
 
     def _execute_materialized_endpoint(
-        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request
+        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request, debug: bool = False
     ) -> Response:
         """Execute against a materialized table in S3."""
         try:
@@ -544,13 +563,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
 
             result = self._execute_query_and_respond(
-                query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
+                query_request_data, data.client_query_id, request, extra_result_fields=extra_fields, debug=debug
             )
 
             if self._is_cache_stale(result, saved_query):
                 query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
                 result = self._execute_query_and_respond(
-                    query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
+                    query_request_data, data.client_query_id, request, extra_result_fields=extra_fields, debug=debug
                 )
 
             return result
@@ -572,27 +591,28 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if not query_variables:
             return None
 
-        variables_override = {}
-        for variable_code_name, variable_value in variables.items():
+        variables_override = []
+        for request_variable_code_name, request_variable_value in variables.items():
             variable_id = None
-            for query_variable_value in query_variables.values():
-                if query_variable_value.get("code_name", None) == variable_code_name:
-                    variable_id = query_variable_value.get("variableId")
-                    break
+            for query_variable_id, query_variable_value in query_variables.items():
+                if query_variable_value.get("code_name", None) == request_variable_code_name:
+                    variable_id = query_variable_id
 
             if variable_id is None:
-                raise ValidationError(f"Variable '{variable_code_name}' not found in query")
+                raise ValidationError(f"Variable '{request_variable_code_name}' not found in query")
 
-            variables_override[variable_id] = HogQLVariable(
-                variableId=variable_id,
-                code_name=variable_code_name,
-                value=variable_value,
-                isNull=True if variable_value is None else None,
-            ).model_dump()
+            variables_override.append(
+                HogQLVariable(
+                    variableId=variable_id,
+                    code_name=request_variable_code_name,
+                    value=request_variable_value,
+                    isNull=True if request_variable_value is None else None,
+                )
+            )
         return variables_override
 
     def _execute_inline_endpoint(
-        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request, query: dict
+        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request, query: dict, debug: bool = False
     ) -> Response:
         """Execute query directly against ClickHouse."""
         try:
@@ -607,11 +627,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "name": endpoint.name,
                 "refresh": data.refresh,
                 "query": query,
-                "variables_override": variables_override,
             }
 
             return self._execute_query_and_respond(
-                query_request_data, data.client_query_id, request, cache_age_seconds=endpoint.cache_age_seconds
+                query_request_data,
+                data.client_query_id,
+                request,
+                variables_override=variables_override,
+                cache_age_seconds=endpoint.cache_age_seconds,
+                debug=debug,
             )
 
         except Exception as e:
@@ -666,13 +690,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         # Only the latest version is materialized
         use_materialized = version_number is None and self._should_use_materialized_table(endpoint, data)
 
+        debug = data.debug or False
+
         try:
             if use_materialized:
-                result = self._execute_materialized_endpoint(endpoint, data, request)
+                result = self._execute_materialized_endpoint(endpoint, data, request, debug=debug)
             else:
                 # Use version's query if available, otherwise use endpoint.query
                 query_to_use = version_obj.query if version_obj else endpoint.query.copy()
-                result = self._execute_inline_endpoint(endpoint, data, request, query_to_use)
+                result = self._execute_inline_endpoint(endpoint, data, request, query_to_use, debug=debug)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError("An internal error occurred.", getattr(e, "code_name", None))
         except ResolutionError:
