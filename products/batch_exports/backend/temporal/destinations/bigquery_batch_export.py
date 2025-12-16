@@ -390,7 +390,7 @@ class BigQueryClient:
             return table
 
     async def execute_query(
-        self, query: str, start_query_timeout: float = 10 * 60, poll_interval: float = 0.5
+        self, query: str, start_query_timeout: float | int = 10 * 60, poll_interval: float | int = 0.5
     ) -> RowIterator | _EmptyRowIterator:
         """Execute a query and wait for it to complete.
 
