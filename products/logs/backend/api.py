@@ -229,7 +229,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # Default to last hour if dateRange is malformed
             dateRange = DateRange(date_from="-1h")
 
-        serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
+        try:
+            serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
+        except json.JSONDecodeError:
+            serviceNames = []
         try:
             filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
         except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
