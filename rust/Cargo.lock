@@ -1568,6 +1568,8 @@ dependencies = [
  "flate2",
  "futures",
  "health",
+ "hyper 1.6.0",
+ "hyper-util",
  "limiters",
  "lz-str",
  "metrics",
