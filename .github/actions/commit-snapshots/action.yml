@@ -170,6 +170,25 @@ runs:
                 "$COMMIT_SHA" \
                 "$SNAPSHOT_SHA"
 
+        - name: Trigger PR's GitHub Actions
+          if: steps.commit.outputs.committed == 'true'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
+              PR_NUMBER: ${{ inputs.pr-number }}
+              COMMIT_SHA: ${{ inputs.commit-sha }}
+              BRANCH_NAME: ${{ inputs.branch-name }}
+              REPOSITORY: ${{ inputs.repository }}
+          run: |
+              gh api \
+                repos/$REPOSITORY/dispatches \
+                -f event_type=pr-update \
+                -f client_payload='{
+                  "pr_number": $PR_NUMBER,
+                  "head_ref": "$BRANCH_NAME",
+                  "head_sha": "$COMMIT_SHA"
+                }'
+
         - name: Fail workflow to signal snapshot changes
           if: steps.commit.outputs.committed == 'true'
           shell: bash
