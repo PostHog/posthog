@@ -477,8 +477,8 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "dateRange": '{"date_from": "2025-12-16T09:49:36.184820Z", "date_to": null}',
                 "attribute_type": "log",
                 "search": "x_forwarded_proto",
-                "limit": 10,
-                "offset": 0,
+                "limit": "10",
+                "offset": "0",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -495,8 +495,8 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "key": "service.name",
                 "search": "con",
                 "attribute_type": "resource",
-                "limit": 10,
-                "offset": 0,
+                "limit": "10",
+                "offset": "0",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -508,8 +508,8 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {
                 "dateRange": '{"date_from": "2025-12-16T10:32:36.184820Z", "date_to": null}',
                 "attribute_type": "log",
-                "limit": 10,
-                "offset": 0,
+                "limit": "10",
+                "offset": "0",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

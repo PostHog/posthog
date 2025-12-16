@@ -276,7 +276,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         attributeKey = request.GET.get("key", "")
 
         if not attributeKey:
-            raise ValidationError("attribute_key is required")
+            return Response("key is required", status=status.HTTP_400_BAD_REQUEST)
 
         try:
             dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)

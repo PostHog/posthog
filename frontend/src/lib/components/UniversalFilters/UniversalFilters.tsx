@@ -43,7 +43,7 @@ function UniversalFilters({
                 group,
                 onChange,
                 taxonomicGroupTypes,
-                endpointFilters,
+                endpointFilters: endpointFilters || null,
             }}
         >
             {children}
