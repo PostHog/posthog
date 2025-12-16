@@ -27,13 +27,16 @@ import { MetricHeader } from '../shared/MetricHeader'
 import { useChartColors } from '../shared/colors'
 import {
     type ExperimentVariantResult,
+    formatChanceToWinForGoal,
     formatDeltaPercent,
     formatMetricValue,
+    formatPValue,
     getDelta,
     getMetricColors,
     getMetricSubtitleValues,
     getNiceTickValues,
     hasValidationFailures,
+    isBayesianResult,
     isDeltaPositive,
     isSignificant,
     isWinning,
@@ -246,7 +249,7 @@ export function MetricRowGroup({
 
                 {/* Combined columns for loading/error state */}
                 <td
-                    colSpan={5}
+                    colSpan={6}
                     className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                         !isLastMetric ? 'border-b' : ''
                     }`}
@@ -364,6 +367,16 @@ export function MetricRowGroup({
                     <div />
                 </td>
 
+                {/* P-value / Win probability (empty for baseline) */}
+                <td
+                    className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center whitespace-nowrap overflow-hidden ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                >
+                    <div />
+                </td>
+
                 {/* Details column - with rowspan */}
                 <td
                     className={`pt-3 align-top relative overflow-hidden border-b ${
@@ -467,17 +480,9 @@ export function MetricRowGroup({
                         {/* Delta */}
                         <td
                             className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                !significant ? (isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light') : ''
+                                isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                             } ${isLastRow ? 'border-b' : ''}`}
-                            style={{
-                                height: `${CELL_HEIGHT}px`,
-                                maxHeight: `${CELL_HEIGHT}px`,
-                                backgroundColor: significant
-                                    ? winning
-                                        ? `${goalColors.positive}30`
-                                        : `${goalColors.negative}30`
-                                    : undefined,
-                            }}
+                            style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             <div className="flex items-center gap-1">
                                 <span
@@ -495,6 +500,30 @@ export function MetricRowGroup({
                                     </span>
                                 )}
                             </div>
+                        </td>
+
+                        {/* P-value / Win probability */}
+                        <td
+                            className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center whitespace-nowrap overflow-hidden ${
+                                !significant ? (isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light') : ''
+                            } ${isLastRow ? 'border-b' : ''}`}
+                            style={{
+                                height: `${CELL_HEIGHT}px`,
+                                maxHeight: `${CELL_HEIGHT}px`,
+                                backgroundColor: significant
+                                    ? winning
+                                        ? `${goalColors.positive}30`
+                                        : `${goalColors.negative}30`
+                                    : undefined,
+                            }}
+                        >
+                            <span
+                                className={`metric-cell ${significant ? (winning ? 'text-success font-bold' : 'text-danger font-bold') : ''}`}
+                            >
+                                {isBayesianResult(variant)
+                                    ? formatChanceToWinForGoal(variant, metric.goal)
+                                    : formatPValue(variant.p_value)}
+                            </span>
                         </td>
 
                         {/* Chart */}
@@ -560,7 +589,7 @@ export function MetricRowGroup({
 
                             {/* Combined columns for loading/error state */}
                             <td
-                                colSpan={5}
+                                colSpan={6}
                                 className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                             >
@@ -630,6 +659,16 @@ export function MetricRowGroup({
                             {/* Change (empty for baseline) */}
                             <td
                                 className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
+                                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                                } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                                style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                            >
+                                <div />
+                            </td>
+
+                            {/* P-value / Win probability (empty for baseline) */}
+                            <td
+                                className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center whitespace-nowrap overflow-hidden ${
                                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                                 } ${variantResults.length === 0 ? 'border-b' : ''}`}
                                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
@@ -724,17 +763,9 @@ export function MetricRowGroup({
                                     {/* Delta */}
                                     <td
                                         className={`w-20 pt-1 pl-3 pr-3 pb-1 text-left whitespace-nowrap overflow-hidden ${
-                                            !significant ? (isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light') : ''
+                                            isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                                         } ${isLastRow ? 'border-b' : ''}`}
-                                        style={{
-                                            height: `${CELL_HEIGHT}px`,
-                                            maxHeight: `${CELL_HEIGHT}px`,
-                                            backgroundColor: significant
-                                                ? winning
-                                                    ? `${goalColors.positive}30`
-                                                    : `${goalColors.negative}30`
-                                                : undefined,
-                                        }}
+                                        style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                                     >
                                         <div className="flex items-center gap-1">
                                             <span
@@ -760,6 +791,30 @@ export function MetricRowGroup({
                                                 </span>
                                             )}
                                         </div>
+                                    </td>
+
+                                    {/* P-value / Win probability */}
+                                    <td
+                                        className={`w-20 pt-1 pl-3 pr-3 pb-1 text-center whitespace-nowrap overflow-hidden ${
+                                            !significant ? (isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light') : ''
+                                        } ${isLastRow ? 'border-b' : ''}`}
+                                        style={{
+                                            height: `${CELL_HEIGHT}px`,
+                                            maxHeight: `${CELL_HEIGHT}px`,
+                                            backgroundColor: significant
+                                                ? winning
+                                                    ? `${goalColors.positive}30`
+                                                    : `${goalColors.negative}30`
+                                                : undefined,
+                                        }}
+                                    >
+                                        <span
+                                            className={`metric-cell ${significant ? (winning ? 'text-success font-bold' : 'text-danger font-bold') : ''}`}
+                                        >
+                                            {isBayesianResult(variant)
+                                                ? formatChanceToWinForGoal(variant, metric.goal)
+                                                : formatPValue(variant.p_value)}
+                                        </span>
                                     </td>
 
                                     {/* Chart */}
