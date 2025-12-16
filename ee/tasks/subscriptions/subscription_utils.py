@@ -10,7 +10,7 @@ from celery import chain
 from prometheus_client import Histogram
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
@@ -191,20 +191,24 @@ async def generate_assets_async(
         async def export_single_asset(asset: ExportedAsset) -> None:
             subscription_id = getattr(resource, "id", None)
 
-            @retry(
-                retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
-                stop=stop_after_attempt(4),
-                wait=wait_exponential_jitter(initial=2, max=10),
-                reraise=True,
-            )
-            async def export_with_retry() -> None:
+            def log_attempt(retry_state: RetryCallState) -> None:
                 logger.info(
                     "generate_assets_async.exporting_asset",
                     asset_id=asset.id,
                     insight_id=asset.insight_id,
                     subscription_id=subscription_id,
                     team_id=resource.team_id,
+                    attempt=retry_state.attempt_number,
                 )
+
+            @retry(
+                retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
+                stop=stop_after_attempt(4),
+                wait=wait_exponential_jitter(initial=2, max=10),
+                reraise=True,
+                before=log_attempt,
+            )
+            async def export_with_retry() -> None:
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
                     asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS
                 )
