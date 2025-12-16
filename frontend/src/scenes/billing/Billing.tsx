@@ -153,8 +153,8 @@ export function Billing(): JSX.Element {
                     <strong>Billing managed by Vercel</strong>
                     <div className="mt-1">
                         Your PostHog subscription is billed through your Vercel account. To manage billing, visit your{' '}
-                        <Link to="https://vercel.com/dashboard/billing" target="_blank">
-                            Vercel billing dashboard
+                        <Link to="https://vercel.com/account/settings/billing-information" target="_blank">
+                            Vercel billing settings
                         </Link>
                         .
                     </div>

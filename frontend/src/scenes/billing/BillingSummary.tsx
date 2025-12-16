@@ -117,7 +117,7 @@ export const BillingSummary = (): JSX.Element => {
                         </div>
                     )}
                 </div>
-                <StripePortalButton />
+                {billing?.billing_provider !== 'vercel' && <StripePortalButton />}
             </div>
         </div>
     )
