@@ -1,7 +1,7 @@
 from time import perf_counter
 from typing import Optional
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 
 import structlog
 import posthoganalytics
@@ -46,6 +46,7 @@ EXPORT_TIMER = Histogram(
 EXCEPTIONS_TO_RETRY = (
     CHQueryErrorS3Error,
     CHQueryErrorTooManySimultaneousQueries,
+    OperationalError,
 )
 
 

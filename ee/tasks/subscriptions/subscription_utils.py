@@ -12,16 +12,14 @@ from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.errors import CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
+from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY
 from posthog.utils import wait_for_parallel_celery_group
-
-RETRIABLE_EXPORT_ERRORS = (CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries)
 
 logger = structlog.get_logger(__name__)
 
@@ -194,7 +192,7 @@ async def generate_assets_async(
             subscription_id = getattr(resource, "id", None)
 
             @retry(
-                retry=retry_if_exception_type(RETRIABLE_EXPORT_ERRORS),
+                retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
                 stop=stop_after_attempt(3),
                 wait=wait_exponential_jitter(initial=2, max=10),
                 reraise=True,
@@ -222,7 +220,7 @@ async def generate_assets_async(
                     team_id=resource.team_id,
                 )
             except Exception as e:
-                retyable_error = isinstance(e, RETRIABLE_EXPORT_ERRORS)
+                retyable_error = isinstance(e, EXCEPTIONS_TO_RETRY)
                 logger.error(  # noqa: TRY400
                     "generate_assets_async.export_failed",
                     asset_id=asset.id,
