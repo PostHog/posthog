@@ -155,19 +155,22 @@ class TestVercelIntegration(TestCase):
         assert plan["id"] == "posthog-usage-based"
         assert plan["type"] == "subscription"
         assert plan["name"] == "PostHog"
-        assert plan["description"] == "Usage-based analytics. First 1M events free."
+        assert (
+            plan["description"]
+            == "Usage-based analytics. First 1M events free. View pricing: https://posthog.com/pricing"
+        )
         assert not plan["paymentMethodRequired"]
 
-    def test_get_installation_returns_posthog_plan(self):
+        # Verify pricing link is in details
+        assert any(
+            detail["label"] == "Pricing details" and detail["value"] == "https://posthog.com/pricing"
+            for detail in plan["details"]
+        )
+
+    def test_get_installation_billing_plan(self):
         result = VercelIntegration.get_installation_billing_plan(self.installation_id)
-        assert "billingplan" in result
-        assert result["billingplan"]["id"] == "posthog-usage-based"
-
-    def test_update_installation_success(self):
-        VercelIntegration.update_installation(self.installation_id, "pro200")
-
-        updated_installation = OrganizationIntegration.objects.get(integration_id=self.installation_id)
-        assert updated_installation.config["billing_plan_id"] == "posthog-usage-based"
+        # Returns empty dict - billing handled through PostHog, not Vercel
+        assert result == {}
 
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
