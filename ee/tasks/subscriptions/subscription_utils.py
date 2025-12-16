@@ -195,7 +195,7 @@ async def generate_assets_async(
 
             @retry(
                 retry=retry_if_exception_type(RETRIABLE_EXPORT_ERRORS),
-                stop=stop_after_attempt(4),
+                stop=stop_after_attempt(3),
                 wait=wait_exponential_jitter(initial=2, max=10),
                 reraise=True,
             )
