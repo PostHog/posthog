@@ -94,3 +94,11 @@ class LabelInfo(TypedDict):
 
     title: str
     description: str
+
+
+class ClusterWithSampleTitles(TypedDict):
+    """Cluster info with sample trace titles returned by get_all_clusters_with_sample_titles."""
+
+    cluster_id: int
+    size: int
+    sample_titles: list[str]  # Just the titles, sorted by distance to centroid

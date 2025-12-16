@@ -180,6 +180,25 @@ def tools_node(state: ClusterLabelingState) -> dict[str, Any]:
                 )
 
                 result_str = confirmation
+            elif tool_name == "bulk_set_labels":
+                # Result is (dict[int, ClusterLabel], confirmation_message)
+                new_labels, confirmation = result
+
+                # Update current_labels in state with all new labels
+                if "current_labels" not in state_updates:
+                    state_updates["current_labels"] = dict(state["current_labels"])
+                state_updates["current_labels"].update(new_labels)
+
+                logger.info(
+                    "cluster_labeling_bulk_labels_set",
+                    team_id=state["team_id"],
+                    num_labels_set=len(new_labels),
+                    cluster_ids=list(new_labels.keys()),
+                    labels_complete=len(state_updates["current_labels"]),
+                    total_clusters=len(state["cluster_data"]),
+                )
+
+                result_str = confirmation
             elif tool_name == "finalize_labels":
                 # Just return the message, routing will handle the transition
                 result_str = result

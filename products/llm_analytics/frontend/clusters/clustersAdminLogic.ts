@@ -38,7 +38,7 @@ export const DEFAULT_CLUSTERING_PARAMS: ClusteringRunParams = {
     lookback_days: 7,
     max_samples: 1000,
     embedding_normalization: 'l2',
-    dimensionality_reduction_method: 'none',
+    dimensionality_reduction_method: 'umap',
     dimensionality_reduction_ndims: 100,
     clustering_method: 'hdbscan',
     min_cluster_size_fraction: 0.01,

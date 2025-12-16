@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.state import (
     ClusterLabelingState,
     ClusterOverview,
+    ClusterWithSampleTitles,
     LabelInfo,
     TraceDetail,
     TraceTitleInfo,
@@ -36,6 +37,16 @@ class SetClusterLabelInput(BaseModel):
     description: str = Field(description="The description for the cluster (2-5 bullet points)")
 
 
+class ClusterLabelEntry(BaseModel):
+    cluster_id: int = Field(description="The cluster ID")
+    title: str = Field(description="The title for the cluster (3-10 words)")
+    description: str = Field(description="The description for the cluster (2-5 bullet points)")
+
+
+class BulkSetLabelsInput(BaseModel):
+    labels: list[ClusterLabelEntry] = Field(description="List of cluster labels to set")
+
+
 # Tool definitions using @tool decorator
 # These are the schemas that will be bound to the LLM.
 # The actual execution logic is in the execute_* functions below.
@@ -49,6 +60,19 @@ def get_clusters_overview() -> str:
     Returns a list of cluster overviews with cluster_id, size, centroid_x, and centroid_y.
     """
     # This tool takes no input - execution handled by tools node
+    return "Executed by tools node"
+
+
+@tool
+def get_all_clusters_with_sample_titles(titles_per_cluster: int = 10) -> str:
+    """Get all clusters with sample trace titles in a single call. **Use this for Phase 1 initial labeling.**
+
+    This is the most efficient way to get a global overview for initial labeling.
+    Returns all clusters with their sizes and sample trace titles (sorted by distance to centroid).
+
+    Args:
+        titles_per_cluster: Number of sample titles to return per cluster (default 10)
+    """
     return "Executed by tools node"
 
 
@@ -103,6 +127,20 @@ def set_cluster_label(cluster_id: int, title: str, description: str) -> str:
 
 
 @tool
+def bulk_set_labels(labels: list[dict]) -> str:
+    """Set labels for multiple clusters at once. Use this to quickly set initial labels for all clusters.
+
+    This is more efficient than calling set_cluster_label multiple times.
+    Use this in your first pass to ensure all clusters have at least initial labels,
+    then refine individual labels as needed.
+
+    Args:
+        labels: List of objects with cluster_id, title, and description fields
+    """
+    return "Executed by tools node"
+
+
+@tool
 def finalize_labels() -> str:
     """Signal that all clusters have been labeled and you are done.
 
@@ -129,6 +167,41 @@ def execute_get_clusters_overview(state: ClusterLabelingState) -> list[ClusterOv
         )
     # Sort by cluster_id for consistent ordering
     return sorted(overviews, key=lambda x: x["cluster_id"])
+
+
+def execute_get_all_clusters_with_sample_titles(
+    state: ClusterLabelingState, titles_per_cluster: int = 10
+) -> list[ClusterWithSampleTitles]:
+    """Execute get_all_clusters_with_sample_titles tool with state.
+
+    Returns all clusters with sample trace titles in a single response.
+    """
+    result: list[ClusterWithSampleTitles] = []
+    trace_summaries = state["all_trace_summaries"]
+
+    for cluster_id, cluster_data in state["cluster_data"].items():
+        traces_metadata = cluster_data["traces"]
+
+        # Get traces sorted by rank (closest to centroid first)
+        sorted_traces = sorted(traces_metadata.items(), key=lambda x: x[1]["rank"])
+
+        # Extract just the titles
+        sample_titles: list[str] = []
+        for trace_id, _ in sorted_traces[:titles_per_cluster]:
+            summary = trace_summaries.get(trace_id, {})
+            title = summary.get("title", "Untitled")
+            sample_titles.append(title)
+
+        result.append(
+            ClusterWithSampleTitles(
+                cluster_id=cluster_id,
+                size=cluster_data["size"],
+                sample_titles=sample_titles,
+            )
+        )
+
+    # Sort by cluster_id for consistent ordering
+    return sorted(result, key=lambda x: x["cluster_id"])
 
 
 def execute_get_cluster_trace_titles(
@@ -209,6 +282,20 @@ def execute_set_cluster_label(
     return new_label, f"Label set for cluster {cluster_id}: '{title}'"
 
 
+def execute_bulk_set_labels(state: ClusterLabelingState, labels: list[dict]) -> tuple[dict[int, ClusterLabel], str]:
+    """Execute bulk_set_labels tool with state.
+
+    Returns a dict of new labels and a confirmation message.
+    The tools node should update state["current_labels"] with all the returned labels.
+    """
+    new_labels: dict[int, ClusterLabel] = {}
+    for entry in labels:
+        cluster_id = entry["cluster_id"]
+        new_labels[cluster_id] = ClusterLabel(title=entry["title"], description=entry["description"])
+
+    return new_labels, f"Labels set for {len(new_labels)} clusters: {list(new_labels.keys())}"
+
+
 def execute_finalize_labels(state: ClusterLabelingState) -> str:
     """Execute finalize_labels tool.
 
@@ -222,10 +309,12 @@ def execute_finalize_labels(state: ClusterLabelingState) -> str:
 # List of all tool schemas for binding to the LLM
 LABELING_TOOLS = [
     get_clusters_overview,
+    get_all_clusters_with_sample_titles,
     get_cluster_trace_titles,
     get_trace_details,
     get_current_labels,
     set_cluster_label,
+    bulk_set_labels,
     finalize_labels,
 ]
 
@@ -237,6 +326,10 @@ def execute_tool(tool_name: str, tool_args: dict[str, Any], state: ClusterLabeli
     """
     if tool_name == "get_clusters_overview":
         return execute_get_clusters_overview(state)
+    elif tool_name == "get_all_clusters_with_sample_titles":
+        return execute_get_all_clusters_with_sample_titles(
+            state, titles_per_cluster=tool_args.get("titles_per_cluster", 10)
+        )
     elif tool_name == "get_cluster_trace_titles":
         return execute_get_cluster_trace_titles(
             state, cluster_id=tool_args["cluster_id"], limit=tool_args.get("limit", 30)
@@ -252,6 +345,8 @@ def execute_tool(tool_name: str, tool_args: dict[str, Any], state: ClusterLabeli
             title=tool_args["title"],
             description=tool_args["description"],
         )
+    elif tool_name == "bulk_set_labels":
+        return execute_bulk_set_labels(state, labels=tool_args["labels"])
     elif tool_name == "finalize_labels":
         return execute_finalize_labels(state)
     else:
