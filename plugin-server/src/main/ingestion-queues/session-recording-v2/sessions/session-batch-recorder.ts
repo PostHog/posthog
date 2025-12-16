@@ -98,7 +98,7 @@ export class SessionBatchRecorder {
         // Check if this is a new session and whether it should be rate limited
         let shouldRateLimitNewSession = false
 
-        await this.sessionTracker.trackSession(teamId, sessionId, (teamId) => {
+        await this.sessionTracker.trackSession(teamId, sessionId, (teamId, _sessionId) => {
             const isAllowed = NewSessionLimiter.consume(String(teamId), 1)
             if (!isAllowed) {
                 shouldRateLimitNewSession = true
