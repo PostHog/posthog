@@ -56,8 +56,7 @@ jobs:
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-                  # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -196,8 +195,7 @@ jobs:
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-                  # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -408,7 +406,7 @@ jobs:
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  token: ${{ secrets.GITHUB_TOKEN }}
                   fetch-depth: 1
 
             - name: Download snapshot patches
@@ -453,7 +451,7 @@ jobs:
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  github-token: ${{ GITHUB_TOKEN }}
 
     calculate-running-time:
         name: Calculate running time
@@ -489,6 +487,6 @@ jobs:
             - name: Capture running time to PostHog
               uses: PostHog/posthog-github-action@v0.1
               with:
-                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
                   properties: '{"duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
