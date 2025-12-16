@@ -35,6 +35,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'hog_function', objectPlural: 'hog functions' },
     { key: 'insight', objectPlural: 'insights' },
     { key: 'integration', disabledActions: ['write'], objectPlural: 'integrations' },
+    { key: 'llm_prompt', objectPlural: 'LLM prompts' },
     { key: 'logs', objectPlural: 'logs' },
     { key: 'notebook', objectPlural: 'notebooks' },
     { key: 'organization', disabledWhenProjectScoped: true, objectPlural: 'organizations' },
@@ -54,6 +55,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'person', objectPlural: 'persons' },
     { key: 'plugin', objectPlural: 'plugins' },
+    { key: 'product_tour', objectPlural: 'product tours' },
     {
         key: 'project',
         objectPlural: 'projects',

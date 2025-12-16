@@ -26,6 +26,7 @@ class RestrictionType(models.TextChoices):
     SKIP_PERSON_PROCESSING = "skip_person_processing"
     DROP_EVENT_FROM_INGESTION = "drop_event_from_ingestion"
     FORCE_OVERFLOW_FROM_INGESTION = "force_overflow_from_ingestion"
+    REDIRECT_TO_DLQ = "redirect_to_dlq"
 
 
 class IngestionPipeline(models.TextChoices):

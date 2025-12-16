@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 import { LemonDivider } from '@posthog/lemon-ui'
 
+import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
+import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -26,12 +27,10 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
     return (
         <div className="flex flex-col gap-y-4">
             <div>
-                <LemonBanner type="warning" className="mb-4">
-                    This configuration only applies to the JS Web SDK. For all other SDKs autocapture can be configured
-                    directly in code. See the{' '}
-                    <Link to="https://posthog.com/docs/error-tracking/installation">installation instructions</Link> for
-                    more details.
-                </LemonBanner>
+                <div className="flex justify-between">
+                    <h3>Exception autocapture</h3>
+                    <SupportedPlatforms config={FEATURE_SUPPORT.errorTrackingExceptionAutocapture} />
+                </div>
                 <p>
                     Captures frontend exceptions thrown on a customers using `onError` and `onUnhandledRejection`
                     listeners in our web JavaScript SDK.
@@ -58,7 +57,10 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             </div>
 
             <div>
-                <h3>Suppression rules</h3>
+                <div className="flex justify-between">
+                    <h3>Suppression rules</h3>
+                    <SupportedPlatforms config={FEATURE_SUPPORT.errorTrackingSuppressionRules} />
+                </div>
                 <p>
                     Autocaptured exceptions can be filtered by type or message to skip capturing certain exceptions in
                     the JS Web SDK

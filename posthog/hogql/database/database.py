@@ -71,7 +71,7 @@ from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
 )
-from posthog.hogql.database.schema.logs import LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -82,6 +82,7 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
+from posthog.hogql.database.schema.preaggregation_results import PreaggregationResultsTable
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
@@ -191,6 +192,7 @@ class Database(BaseModel):
             "document_embeddings": TableNode(name="document_embeddings", table=DocumentEmbeddingsTable()),
             "pg_embeddings": TableNode(name="pg_embeddings", table=PgEmbeddingsTable()),
             "logs": TableNode(name="logs", table=LogsTable()),
+            "log_attributes": TableNode(name="log_attributes", table=LogAttributesTable()),
             "logs_kafka_metrics": TableNode(name="logs_kafka_metrics", table=LogsKafkaMetricsTable()),
             "numbers": TableNode(name="numbers", table=NumbersTable()),
             "system": SystemTables(),  # This is a `TableNode` already, refer to implementation
@@ -206,6 +208,7 @@ class Database(BaseModel):
             "web_pre_aggregated_bounces": TableNode(
                 name="web_pre_aggregated_bounces", table=WebPreAggregatedBouncesTable()
             ),
+            "preaggregation_results": TableNode(name="preaggregation_results", table=PreaggregationResultsTable()),
             # Revenue analytics tables
             "persons_revenue_analytics": TableNode(
                 name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()

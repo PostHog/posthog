@@ -28,7 +28,7 @@ export type EmailEditorMode = 'full' | 'preview'
  * native_email-template: editor for creating reusable templates, with only subject and preheader, and email content fields
  */
 export type EmailTemplaterType = 'email' | 'native_email' | 'native_email_template'
-type EmailMetaFieldKey = 'from' | 'preheader' | 'to' | 'subject'
+type EmailMetaFieldKey = 'from' | 'to' | 'replyTo' | 'subject' | 'preheader'
 type EmailMetaField = {
     key: EmailMetaFieldKey
     label: string
@@ -39,13 +39,19 @@ type EmailMetaField = {
 
 const EMAIL_META_FIELDS = {
     FROM: { key: 'from', label: 'From', optional: false },
+    TO: { key: 'to', label: 'To', optional: false },
+    REPLY_TO: {
+        key: 'replyTo',
+        label: 'Reply-To',
+        optional: true,
+        helpText: 'Optional reply-to email address. You can comma separate multiple reply-to addresses.',
+    },
     PREHEADER: {
         key: 'preheader',
         label: 'Preheader',
         optional: true,
         helpText: 'This is the preview text that appears below the subject line in an inbox.',
     },
-    TO: { key: 'to', label: 'To', optional: false },
     SUBJECT: { key: 'subject', label: 'Subject', optional: false },
 } as const
 
@@ -54,6 +60,7 @@ const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaField[]> 
     native_email: [
         EMAIL_META_FIELDS.FROM,
         EMAIL_META_FIELDS.TO,
+        EMAIL_META_FIELDS.REPLY_TO,
         EMAIL_META_FIELDS.SUBJECT,
         EMAIL_META_FIELDS.PREHEADER,
     ],

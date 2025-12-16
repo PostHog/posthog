@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -102,15 +103,17 @@ func TestSessionStats_Count(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ss := NewSessionStatsKeeper()
 			statsChan := make(chan SessionRecordingEvent, 100)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-			go ss.KeepStats(statsChan)
+			go ss.KeepStats(ctx, statsChan)
 
 			for _, event := range tt.events {
 				statsChan <- event
 			}
 
 			time.Sleep(50 * time.Millisecond)
-			close(statsChan)
+			cancel()
 			time.Sleep(10 * time.Millisecond)
 
 			if tt.wantToken1Count > 0 {
@@ -131,8 +134,10 @@ func TestSessionStats_Count(t *testing.T) {
 func TestSessionStats_Concurrency(t *testing.T) {
 	ss := NewSessionStatsKeeper()
 	statsChan := make(chan SessionRecordingEvent, 1000)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	go ss.KeepStats(statsChan)
+	go ss.KeepStats(ctx, statsChan)
 
 	iterations := 100
 	var wg sync.WaitGroup
@@ -150,10 +155,76 @@ func TestSessionStats_Concurrency(t *testing.T) {
 
 	wg.Wait()
 	time.Sleep(50 * time.Millisecond)
-	close(statsChan)
+	cancel()
 	time.Sleep(10 * time.Millisecond)
 
 	store := ss.GetExistingStoreForToken("token1")
 	assert.NotNil(t, store)
 	assert.Equal(t, 1, store.Len())
+}
+
+func TestSessionStats_CleanupEmptyStores(t *testing.T) {
+	tests := []struct {
+		name           string
+		setup          func(ss *SessionStats)
+		wantToken1     bool
+		wantToken2     bool
+		wantStoreCount int
+	}{
+		{
+			name: "removes empty stores",
+			setup: func(ss *SessionStats) {
+				ss.GetStoreForToken("token1")
+				ss.GetStoreForToken("token2")
+			},
+			wantToken1:     false,
+			wantToken2:     false,
+			wantStoreCount: 0,
+		},
+		{
+			name: "preserves non-empty stores",
+			setup: func(ss *SessionStats) {
+				ss.GetStoreForToken("token1").Add("session1", NoSpaceType{})
+				ss.GetStoreForToken("token2").Add("session2", NoSpaceType{})
+			},
+			wantToken1:     true,
+			wantToken2:     true,
+			wantStoreCount: 2,
+		},
+		{
+			name: "removes only empty stores",
+			setup: func(ss *SessionStats) {
+				ss.GetStoreForToken("token1").Add("session1", NoSpaceType{})
+				ss.GetStoreForToken("token2")
+			},
+			wantToken1:     true,
+			wantToken2:     false,
+			wantStoreCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ss := NewSessionStatsKeeper()
+			tt.setup(ss)
+
+			ss.cleanupEmptyStores()
+
+			if tt.wantToken1 {
+				assert.NotNil(t, ss.GetExistingStoreForToken("token1"))
+			} else {
+				assert.Nil(t, ss.GetExistingStoreForToken("token1"))
+			}
+
+			if tt.wantToken2 {
+				assert.NotNil(t, ss.GetExistingStoreForToken("token2"))
+			} else {
+				assert.Nil(t, ss.GetExistingStoreForToken("token2"))
+			}
+
+			ss.mu.RLock()
+			assert.Equal(t, tt.wantStoreCount, len(ss.store))
+			ss.mu.RUnlock()
+		})
+	}
 }

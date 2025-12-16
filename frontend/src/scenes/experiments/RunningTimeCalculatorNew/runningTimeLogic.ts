@@ -125,7 +125,13 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 if (baselineValue === null) {
                     return null
                 }
-                return calculateRecommendedSampleSize(firstMetric.metric, config.mde, baselineValue, numberOfVariants)
+                return calculateRecommendedSampleSize(
+                    firstMetric.metric,
+                    config.mde,
+                    baselineValue,
+                    numberOfVariants,
+                    firstMetric.result.baseline
+                )
             },
         ],
 

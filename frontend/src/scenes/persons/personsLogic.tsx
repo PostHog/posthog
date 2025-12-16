@@ -473,12 +473,14 @@ export const personsLogic = kea<personsLogicType>([
             }
         },
         navigateToTab: () => {
-            if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
-                const searchParams = {}
-
+            if (
+                props.syncWithUrl &&
+                router.values.location.pathname.indexOf('/person') > -1 &&
+                router.values.hashParams.activeTab !== values.activeTab
+            ) {
                 return [
                     router.values.location.pathname,
-                    searchParams,
+                    router.values.location.search,
                     {
                         ...router.values.hashParams,
                         activeTab: values.activeTab,
@@ -496,7 +498,7 @@ export const personsLogic = kea<personsLogicType>([
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 
-                if (!activeTab) {
+                if (!activeTab && values.activeTab !== values.defaultTab) {
                     actions.setActiveTab(values.defaultTab)
                 }
 

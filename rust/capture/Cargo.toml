@@ -17,7 +17,10 @@ bytes = { workspace = true }
 envconfig = { workspace = true }
 flate2 = { workspace = true }
 health = { path = "../common/health" }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 limiters = { path = "../common/limiters" }
@@ -50,6 +53,7 @@ futures = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
 futures = { workspace = true }

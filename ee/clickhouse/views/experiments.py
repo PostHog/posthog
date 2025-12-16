@@ -40,6 +40,8 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
+from products.product_tours.backend.models import ProductTour
+
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -816,7 +818,14 @@ class EnterpriseExperimentsViewSet(
         survey_internal_targeting_flags = Survey.objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
-        excluded_flag_ids = set(survey_targeting_flags) | set(survey_internal_targeting_flags)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+        excluded_flag_ids = (
+            set(survey_targeting_flags)
+            | set(survey_internal_targeting_flags)
+            | set(product_tour_internal_targeting_flags)
+        )
         queryset = queryset.exclude(id__in=excluded_flag_ids)
 
         # Apply search filter

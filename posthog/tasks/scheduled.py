@@ -16,6 +16,7 @@ from posthog.tasks.alerts.checks import (
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.feature_flags import cleanup_stale_flags_expiry_tracking_task, refresh_expiring_flags_cache_entries
+from posthog.tasks.hypercache_verification import verify_and_fix_hypercaches_task
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
@@ -46,7 +47,6 @@ from posthog.tasks.tasks import (
     redis_heartbeat,
     refresh_activity_log_fields_cache,
     replay_count_metrics,
-    schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -189,6 +189,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="15"),
         cleanup_stale_flags_expiry_tracking_task.s(),
         name="flags cache expiry tracking cleanup",
+    )
+
+    # HyperCache verification - hourly at minute 30
+    # Verifies all teams for both team_metadata and flags caches,
+    # automatically fixing any cache misses, mismatches, or expiry tracking issues
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="30"),
+        verify_and_fix_hypercaches_task.s(),
+        name="verify and fix hypercaches",
     )
 
     # Update events table partitions twice a week
@@ -349,7 +359,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*", minute="0"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
     )
@@ -414,8 +424,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 clickhouse_materialize_columns.s(),
                 name="clickhouse materialize columns",
             )
-
-        sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
 
         if playlist_counter_crontab := get_crontab(settings.PLAYLIST_COUNTER_SCHEDULE_CRON):
             sender.add_periodic_task(

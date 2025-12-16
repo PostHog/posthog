@@ -9,8 +9,9 @@ import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
-import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import {
     PopoverPrimitive,
     PopoverPrimitiveContent,
@@ -72,20 +73,17 @@ export function ProjectMenu({
                     ) : (
                         <span className="truncate">{currentTeam.name ?? 'Project'}</span>
                     )}
-                    {!iconOnly && <DropdownMenuOpenIndicator />}
+                    {!iconOnly && <MenuOpenIndicator className="ml-auto" />}
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
-            <PopoverPrimitiveContent
-                align="start"
-                className="w-[var(--project-panel-inner-width)] max-w-[var(--project-panel-inner-width)]"
-            >
+            <PopoverPrimitiveContent align="start" className="min-w-[var(--radix-popper-anchor-width)] max-w-fit">
                 <Combobox>
                     <Combobox.Search placeholder="Filter projects..." />
                     <Combobox.Content>
                         <Label intent="menu" className="px-2">
                             Current project
                         </Label>
-                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                        <MenuSeparator />
 
                         <Combobox.Empty>No projects found</Combobox.Empty>
 
@@ -129,7 +127,7 @@ export function ProjectMenu({
                                     <Label intent="menu" className="px-2 mt-2">
                                         Other projects
                                     </Label>
-                                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                                    <MenuSeparator />
                                 </>
                             )}
 
@@ -182,7 +180,7 @@ export function ProjectMenu({
                                     </Combobox.Group>
                                 )
                             })}
-                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                        <MenuSeparator />
                         {preflight?.can_create_org && (
                             <Combobox.Item
                                 asChild
