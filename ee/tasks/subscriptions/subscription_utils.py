@@ -220,7 +220,7 @@ async def generate_assets_async(
                     team_id=resource.team_id,
                 )
             except Exception as e:
-                retyable_error = isinstance(e, EXCEPTIONS_TO_RETRY)
+                retryable_error = isinstance(e, EXCEPTIONS_TO_RETRY)
                 logger.error(  # noqa: TRY400
                     "generate_assets_async.export_failed",
                     asset_id=asset.id,
