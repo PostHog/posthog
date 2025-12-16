@@ -95,26 +95,35 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
     return createRedisClient(url, options)
 }
 
+function getRedisHost(url: string): string {
+    try {
+        return new URL(url).host
+    } catch {
+        return url
+    }
+}
+
 export async function createRedisClient(url: string, options?: RedisOptions): Promise<Redis.Redis> {
     const redis = new Redis(url, {
         ...options,
         maxRetriesPerRequest: -1,
     })
     let errorCounter = 0
+    const redisHost = getRedisHost(url)
     redis
         .on('error', (error) => {
             errorCounter++
             captureException(error)
             if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
-                logger.error('😡', 'Redis error encountered! url:', url, ' Enough of this, I quit!', error)
+                logger.error('😡', 'Redis error encountered! host:', redisHost, ' Enough of this, I quit!', error)
                 killGracefully()
             } else {
-                logger.error('🔴', 'Redis error encountered! url:', url, ' Trying to reconnect...', error)
+                logger.error('🔴', 'Redis error encountered! host:', redisHost, ' Trying to reconnect...', error)
             }
         })
         .on('ready', () => {
             if (process.env.NODE_ENV !== 'test') {
-                logger.info('✅', 'Connected to Redis!', url)
+                logger.info('✅', 'Connected to Redis!', redisHost)
             }
         })
     await redis.info()
