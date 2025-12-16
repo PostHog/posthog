@@ -92,7 +92,6 @@ TEAM_METADATA_FIELDS = [
     "completed_snippet_onboarding",
     "has_completed_onboarding_for",
     "onboarding_tasks",
-    "ingested_event",
     "person_processing_opt_out",
     "extra_settings",
     "session_recording_opt_in",
