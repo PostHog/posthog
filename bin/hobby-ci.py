@@ -401,6 +401,7 @@ grep POSTHOG_APP_TAG .env
             print(f"Trying to connect... (attempt {attempt})", flush=True)
             try:
                 # Using HTTP directly to avoid DNS/TLS complexity in CI
+                # nosemgrep: trailofbits.generic.wget-unencrypted-url.wget-unencrypted-url
                 r = requests.get(url, timeout=10)
             except Exception as e:
                 last_error = type(e).__name__
