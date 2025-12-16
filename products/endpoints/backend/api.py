@@ -1,4 +1,5 @@
 import re
+import builtins
 from datetime import timedelta
 from typing import Optional, Union, cast
 
@@ -452,7 +453,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query_request_data: dict,
         client_query_id: str | None,
         request: Request,
-        variables_override: Optional[list[HogQLVariable]] = None,
+        variables_override: Optional[builtins.list[HogQLVariable]] = None,
         cache_age_seconds: int | None = None,
         extra_result_fields: dict | None = None,
         debug: bool = False,
@@ -586,7 +587,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
             raise
 
-    def _parse_variables(self, query: dict[str, dict], variables: dict[str, str]) -> dict[str, dict] | None:
+    def _parse_variables(
+        self, query: dict[str, dict], variables: dict[str, str]
+    ) -> builtins.list[HogQLVariable] | None:
         query_variables = query.get("variables", None)
         if not query_variables:
             return None

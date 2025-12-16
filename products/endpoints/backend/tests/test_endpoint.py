@@ -671,7 +671,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         # First execution - should calculate fresh
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"debug": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
@@ -681,7 +681,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         cache_key = response_data["cache_key"]
 
         # Second execution immediately - should use cache
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"debug": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["cache_key"], cache_key)
