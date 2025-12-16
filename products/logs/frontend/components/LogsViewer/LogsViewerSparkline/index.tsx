@@ -103,7 +103,7 @@ export function LogsSparkline({
                 date_to: dateTo,
             })
         },
-        [onDateRangeChange]
+        [sparklineData.dates, onDateRangeChange]
     )
 
     return (
