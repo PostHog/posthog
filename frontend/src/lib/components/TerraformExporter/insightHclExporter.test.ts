@@ -224,14 +224,49 @@ describe('insightHclExporter test', () => {
             )
         })
 
-        it('returns no warnings for simple insights', () => {
+        it('suppresses dashboard warnings when dashboardTfReferences is provided', () => {
             const insight = createTestInsight({
                 name: 'Valid Insight',
                 query: { kind: NodeKind.TrendsQuery },
             })
 
-            const result = generateInsightHCL(insight)
+            const result = generateInsightHCL(insight, {
+                dashboardTfReferences: ['posthog_dashboard.my_dashboard.id'],
+            })
 
+            expect(result.warnings).toHaveLength(0)
+        })
+
+        it('supports multiple dashboard TF references', () => {
+            const insight = createTestInsight({
+                name: 'Multi Dashboard Insight',
+                query: { kind: NodeKind.TrendsQuery },
+            })
+
+            const result = generateInsightHCL(insight, {
+                dashboardTfReferences: ['posthog_dashboard.dashboard_one.id', 'posthog_dashboard.dashboard_two.id'],
+            })
+
+            expect(result.hcl).toContain(
+                'dashboard_ids = [posthog_dashboard.dashboard_one.id, posthog_dashboard.dashboard_two.id]'
+            )
+            expect(result.warnings).toHaveLength(0)
+        })
+
+        it('overrules dashboard ids when tf references are passed', () => {
+            const insight = createTestInsight({
+                name: 'Multi Dashboard Insight',
+                query: { kind: NodeKind.TrendsQuery },
+                dashboards: [1, 2, 3, 4],
+            })
+
+            const result = generateInsightHCL(insight, {
+                dashboardTfReferences: ['posthog_dashboard.dashboard_one.id', 'posthog_dashboard.dashboard_two.id'],
+            })
+
+            expect(result.hcl).toContain(
+                'dashboard_ids = [posthog_dashboard.dashboard_one.id, posthog_dashboard.dashboard_two.id]'
+            )
             expect(result.warnings).toHaveLength(0)
         })
     })

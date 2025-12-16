@@ -36,6 +36,11 @@ const HOG_FUNCTION_FIELD_MAPPINGS: FieldMapping<Partial<HogFunctionType>>[] = [
         shouldInclude: () => true,
     },
     {
+        source: 'execution_order',
+        target: 'execution_order',
+        shouldInclude: (v) => v !== undefined && v !== null,
+    },
+    {
         source: 'hog',
         target: 'hog',
         shouldInclude: (v) => !!v,
@@ -59,6 +64,24 @@ const HOG_FUNCTION_FIELD_MAPPINGS: FieldMapping<Partial<HogFunctionType>>[] = [
         transform: (v) => `jsonencode(${formatJsonForHcl(v)})`,
     },
     {
+        source: 'mappings',
+        target: 'mappings_json',
+        shouldInclude: (v) => Array.isArray(v) && v.length > 0,
+        transform: (v) => `jsonencode(${formatJsonForHcl(v)})`,
+    },
+    {
+        source: 'masking',
+        target: 'masking_json',
+        shouldInclude: (v) => !!v && typeof v === 'object' && Object.keys(v as object).length > 0,
+        transform: (v) => `jsonencode(${formatJsonForHcl(v)})`,
+    },
+    {
+        source: 'template',
+        target: 'template_id',
+        shouldInclude: (v) => !!(v as HogFunctionType['template'])?.id,
+        transform: (v) => `"${(v as HogFunctionType['template'])?.id}"`,
+    },
+    {
         source: 'icon_url',
         target: 'icon_url',
         shouldInclude: (v) => !!v,
@@ -72,12 +95,11 @@ function validateHogFunction(hogFunction: Partial<HogFunctionType>): string[] {
         warnings.push('No name provided. Consider adding a name for better identification in Terraform state.')
     }
 
-    // Check if there are secrets in inputs that can't be exported
     if (hogFunction.inputs) {
         const secretInputs = Object.entries(hogFunction.inputs).filter(([, input]) => input?.secret)
         if (secretInputs.length > 0) {
             warnings.push(
-                `Secret inputs (${secretInputs.map(([k]) => k).join(', ')}) cannot be exported. You will need to configure these manually after import.`
+                `Secret inputs (${secretInputs.map(([k]) => k).join(', ')}) in the export, please be careful when handling this file!`
             )
         }
     }

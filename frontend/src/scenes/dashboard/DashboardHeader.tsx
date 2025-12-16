@@ -31,7 +31,7 @@ import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
-import { DashboardTerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
+import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -193,10 +193,10 @@ export function DashboardHeader(): JSX.Element | null {
                     {canEditDashboard && <DashboardInsightColorsModal />}
                     {user?.is_staff && <DashboardTemplateEditor />}
                     {terraformFeatureEnabled && (
-                        <DashboardTerraformExportModal
+                        <TerraformExportModal
                             isOpen={terraformModalOpen}
                             onClose={() => setTerraformModalOpen(false)}
-                            dashboard={dashboard}
+                            resource={{ type: 'dashboard', data: dashboard }}
                         />
                     )}
                 </>
