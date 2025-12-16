@@ -52,7 +52,7 @@ export function TableHeader({ axisRange, statsMethod }: TableHeaderProps): JSX.E
                 <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs sticky top-0 z-10 metric-cell-header">
                     Delta
                 </th>
-                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-center text-xs sticky top-0 z-10 metric-cell-header">
+                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-center text-xs sticky top-0 z-10 metric-cell-header whitespace-nowrap">
                     {statsMethod === ExperimentStatsMethod.Frequentist ? 'P-value' : 'Win %'}
                 </th>
                 <th className="border-b-2 bg-bg-table p-3 z-10" />
