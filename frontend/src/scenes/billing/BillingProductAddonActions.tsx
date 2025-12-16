@@ -96,6 +96,7 @@ export const BillingProductAddonActions = ({
                     You're on a trial for this add-on
                 </LemonTag>
             </Tooltip>
+            {/* Hide Cancel button for Enterprise 'standard' trials without auto-subscription (typically sales-managed) */}
             {(addon.type !== 'enterprise' || billing?.trial?.type === 'autosubscribe') && (
                 <LemonButton
                     type="primary"
