@@ -3986,9 +3986,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["conversations"], False)
 
     def test_conversations_enabled_with_defaults(self, *args):
+        from posthog.models.team.team_caching import set_team_in_cache
+
         self.team.conversations_enabled = True
         self.team.conversations_public_token = "test_public_token_123"
         self.team.save()
+        set_team_in_cache(self.team.api_token, self.team)
 
         response = self._post_decide(api_version=3)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -4000,11 +4003,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(conversations["token"], "test_public_token_123")
 
     def test_conversations_enabled_with_custom_values(self, *args):
+        from posthog.models.team.team_caching import set_team_in_cache
+
         self.team.conversations_enabled = True
         self.team.conversations_greeting_text = "Welcome! Need assistance?"
         self.team.conversations_color = "#ff5733"
         self.team.conversations_public_token = "custom_token_456"
         self.team.save()
+        set_team_in_cache(self.team.api_token, self.team)
 
         response = self._post_decide(api_version=3)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -4016,10 +4022,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(conversations["token"], "custom_token_456")
 
     def test_conversations_enabled_with_empty_greeting_text(self, *args):
+        from posthog.models.team.team_caching import set_team_in_cache
+
         self.team.conversations_enabled = True
         self.team.conversations_greeting_text = ""
         self.team.conversations_public_token = "test_token"
         self.team.save()
+        set_team_in_cache(self.team.api_token, self.team)
 
         response = self._post_decide(api_version=3)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -4029,10 +4038,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(conversations["greetingText"], "Hey, how can I help you today?")
 
     def test_conversations_returns_empty_domains_when_none_set(self, *args):
+        from posthog.models.team.team_caching import set_team_in_cache
+
         self.team.conversations_enabled = True
         self.team.conversations_public_token = "test_token"
         self.team.conversations_widget_domains = []
         self.team.save()
+        set_team_in_cache(self.team.api_token, self.team)
 
         response = self._post_decide(api_version=3)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -4041,10 +4053,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(conversations["domains"], [])
 
     def test_conversations_returns_domains_for_sdk_filtering(self, *args):
+        from posthog.models.team.team_caching import set_team_in_cache
+
         self.team.conversations_enabled = True
         self.team.conversations_public_token = "test_token"
         self.team.conversations_widget_domains = ["https://example.com", "https://*.posthog.com"]
         self.team.save()
+        set_team_in_cache(self.team.api_token, self.team)
 
         response = self._post_decide(api_version=3)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
