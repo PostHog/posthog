@@ -124,7 +124,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             query["include_forecasting"] = request.query_params.get("include_forecasting")
         response = billing_manager.get_billing(org, query)
 
-        # Add billing_provider field to indicate if billing is managed externally
         from posthog.models import OrganizationIntegration
 
         has_vercel_integration = OrganizationIntegration.objects.filter(
@@ -354,7 +353,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
 
-        # Vercel marketplace customers don't use credits - billing is handled through Vercel
         from posthog.models import OrganizationIntegration
 
         has_vercel_integration = OrganizationIntegration.objects.filter(
@@ -555,7 +553,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
 
-        # Vercel marketplace customers don't use coupons - billing is handled through Vercel
         from posthog.models import OrganizationIntegration
 
         has_vercel_integration = OrganizationIntegration.objects.filter(
