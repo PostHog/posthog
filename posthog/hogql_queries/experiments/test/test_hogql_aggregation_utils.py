@@ -128,14 +128,18 @@ class TestHogQLAggregationUtils(BaseTest):
         self.assertEqual(agg, "quantile")
         self.assertIsInstance(inner, ast.Field)
         self.assertIsNotNone(params)
+        assert params is not None  # for mypy
         self.assertEqual(len(params), 1)
         self.assertIsInstance(params[0], ast.Constant)
+        assert isinstance(params[0], ast.Constant)  # for mypy
         self.assertEqual(params[0].value, 0.90)
 
         # Test quantile with different level
         agg, inner, params = extract_aggregation_and_inner_expr("quantile(0.50)(properties.value)")
         self.assertEqual(agg, "quantile")
         self.assertIsNotNone(params)
+        assert params is not None  # for mypy
+        assert isinstance(params[0], ast.Constant)  # for mypy
         self.assertEqual(params[0].value, 0.50)
 
         # Test non-parametric aggregation returns None for params
@@ -147,7 +151,7 @@ class TestHogQLAggregationUtils(BaseTest):
         """Test that build_aggregation_call handles parametric functions."""
 
         inner_expr = parse_expr("properties.value")
-        params = [ast.Constant(value=0.90)]
+        params: list[ast.Expr] = [ast.Constant(value=0.90)]
 
         # Build quantile with parameter
         result = build_aggregation_call("quantile", inner_expr, params=params)
@@ -156,7 +160,9 @@ class TestHogQLAggregationUtils(BaseTest):
         self.assertIsInstance(result, ast.Call)
         self.assertEqual(result.name, "quantile")
         self.assertIsNotNone(result.params)
+        assert result.params is not None  # for mypy
         self.assertEqual(len(result.params), 1)
+        assert isinstance(result.params[0], ast.Constant)  # for mypy
         self.assertEqual(result.params[0].value, 0.90)
         self.assertEqual(result.args[0], inner_expr)
 
