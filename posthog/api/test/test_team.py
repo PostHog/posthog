@@ -2157,6 +2157,25 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         new_team = Team.objects.get(name="Test No IP Anonymization")
         self.assertFalse(new_team.anonymize_ips)
 
+    def test_new_team_explicit_anonymize_ips_overrides_org_default(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
+        ]
+        self.organization.default_anonymize_ips = False
+        self.organization.save()
+
+        response = self.client.post(
+            "/api/projects/@current/environments/",
+            {"name": "Explicit Anonymize IPs", "anonymize_ips": True},
+        )
+        assert response.status_code == 201
+        assert response.json()["anonymize_ips"] is True
+
+        new_team = Team.objects.get(name="Explicit Anonymize IPs")
+        self.assertTrue(new_team.anonymize_ips)
+
     def test_new_team_defaults_to_false_when_org_default_is_none(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

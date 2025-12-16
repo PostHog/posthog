@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall, IconSparkles } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonLabel, Link } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -10,8 +10,9 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { EntityTypes, FilterType, SidePanelTab } from '~/types'
+import { EntityTypes, FilterType } from '~/types'
+
+import { ConfigureWithAIButton } from 'products/customer_analytics/frontend/components/ConfigureWithAIButton'
 
 import { customerAnalyticsDashboardEventsLogic } from './customerAnalyticsDashboardEventsLogic'
 
@@ -21,10 +22,10 @@ export interface EventSelectorProps {
     setFilters: (filters: FilterType) => void
     title: string
     prompt: string
+    relatedSeries: string[]
 }
 
 function EventSelector({ filters, setFilters, title, caption, prompt }: EventSelectorProps): JSX.Element {
-    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { eventsToHighlight } = useValues(customerAnalyticsDashboardEventsLogic)
     const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
 
@@ -33,15 +34,7 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
             <div className="ml-1">
                 <div className="flex items-center gap-2">
                     <LemonLabel>{title}</LemonLabel>
-                    <LemonButton
-                        size="small"
-                        type="tertiary"
-                        icon={<IconSparkles className="text-accent" />}
-                        tooltip="Configure with PostHog AI"
-                        onClick={() => openSidePanel(SidePanelTab.Max, prompt)}
-                        className="border border-accent border-dashed p-1"
-                        noPadding
-                    />
+                    <ConfigureWithAIButton prompt={prompt} />
                 </div>
                 <p className="text-xs text-muted-alt">{caption}</p>
             </div>
@@ -131,7 +124,7 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 pt-4">
-                <LemonButton type="secondary" onClick={handleClear}>
+                <LemonButton type="secondary" onClick={handleClear} disabledReason={hasChanges ? null : 'No changes'}>
                     Clear changes
                 </LemonButton>
                 <LemonButton

@@ -122,8 +122,7 @@ class TeamManager(models.Manager):
         # Get organization to apply defaults
         organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
 
-        # Apply organization-level IP anonymization default
-        team.anonymize_ips = organization.default_anonymize_ips
+        team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
 
         team.test_account_filters = self.set_test_account_filters(organization.id)
 
