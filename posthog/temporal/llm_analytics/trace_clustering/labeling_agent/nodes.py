@@ -8,7 +8,7 @@ from django.conf import settings
 
 import structlog
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
 from posthog.cloud_utils import is_cloud
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.prompts import CLUSTER_LABELING_SYSTEM_PROMPT
@@ -67,7 +67,7 @@ def agent_node(state: ClusterLabelingState, config: dict | None = None) -> dict[
     llm_with_tools = llm.bind_tools(LABELING_TOOLS)
 
     # Build messages for the LLM
-    messages = []
+    messages: list[BaseMessage] = []
 
     # Add system message
     messages.append(SystemMessage(content=CLUSTER_LABELING_SYSTEM_PROMPT))

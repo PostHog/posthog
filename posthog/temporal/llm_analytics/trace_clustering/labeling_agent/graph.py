@@ -1,5 +1,7 @@
 """LangGraph StateGraph assembly for the cluster labeling agent."""
 
+from typing import Any
+
 from langgraph.graph import END, StateGraph
 
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.nodes import (
@@ -93,7 +95,7 @@ def run_labeling_agent(
     }
 
     # Run the graph with streaming to capture intermediate state on error
-    last_state = initial_state
+    last_state: dict[str, Any] = dict(initial_state)
     try:
         for state_update in compiled_graph.stream(
             initial_state,
@@ -116,9 +118,9 @@ def run_labeling_agent(
     except (RecursionError, Exception):
         # On error, return whatever labels we've generated so far
         labels = last_state.get("current_labels", {})
-        result: dict[int, ClusterLabel] = {}
+        error_result: dict[int, ClusterLabel] = {}
         for cluster_id, label in labels.items():
             if label is not None:
-                result[cluster_id] = label
+                error_result[cluster_id] = label
 
-        return result
+        return error_result

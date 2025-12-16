@@ -19,7 +19,13 @@ from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_summaries
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusterData, ClusteringParams, ClusterLabel, TraceId
+from posthog.temporal.llm_analytics.trace_clustering.models import (
+    ClusterData,
+    ClusteringParams,
+    ClusterLabel,
+    TraceClusterMetadata,
+    TraceId,
+)
 
 
 class _TraceDistanceData(TypedDict):
@@ -182,14 +188,14 @@ def _build_cluster_data(
 
         cluster_trace_data.sort(key=lambda x: x["distance_to_centroid"])
 
-        traces_dict = {
-            t["trace_id"]: {
-                "distance_to_centroid": t["distance_to_centroid"],
-                "rank": rank,
-                "x": t["x"],
-                "y": t["y"],
-                "timestamp": t["timestamp"],
-            }
+        traces_dict: dict[str, TraceClusterMetadata] = {
+            t["trace_id"]: TraceClusterMetadata(
+                distance_to_centroid=t["distance_to_centroid"],
+                rank=rank,
+                x=t["x"],
+                y=t["y"],
+                timestamp=t["timestamp"],
+            )
             for rank, t in enumerate(cluster_trace_data)
         }
 
@@ -241,14 +247,14 @@ def _build_cluster_data(
         # Sort by distance (most anomalous first - highest min distance)
         noise_trace_data.sort(key=lambda x: x["distance_to_centroid"], reverse=True)
 
-        traces_dict = {
-            t["trace_id"]: {
-                "distance_to_centroid": t["distance_to_centroid"],
-                "rank": rank,
-                "x": t["x"],
-                "y": t["y"],
-                "timestamp": t["timestamp"],
-            }
+        traces_dict: dict[str, TraceClusterMetadata] = {
+            t["trace_id"]: TraceClusterMetadata(
+                distance_to_centroid=t["distance_to_centroid"],
+                rank=rank,
+                x=t["x"],
+                y=t["y"],
+                timestamp=t["timestamp"],
+            )
             for rank, t in enumerate(noise_trace_data)
         }
 

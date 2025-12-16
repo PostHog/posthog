@@ -181,7 +181,7 @@ def fetch_trace_embeddings_for_clustering(
         )
         eligible_ids_tuple = None
 
-    placeholders = {
+    placeholders: dict[str, ast.Expr] = {
         "start_dt": ast.Constant(value=window_start),
         "end_dt": ast.Constant(value=window_end),
         "product": ast.Constant(value=constants.LLMA_TRACE_PRODUCT),
