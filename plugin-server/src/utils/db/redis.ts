@@ -95,6 +95,13 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
     return createRedisClient(url, options)
 }
 
+/**
+ * Sanitizes a Redis URL for safe logging by extracting only the host portion.
+ * This prevents leaking credentials that may be embedded in the URL.
+ * 
+ * @param url - Redis URL (e.g., 'redis://:password@localhost:6379') or plain hostname (e.g., 'posthog-redis')
+ * @returns The host portion without credentials (e.g., 'localhost:6379') or the original string if not a valid URL
+ */
 function getRedisHost(url: string): string {
     try {
         return new URL(url).host
