@@ -323,17 +323,6 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {sql}
             """)
 
-    @classmethod
-    def tearDownTestData(cls):
-        super().tearDownTestData()
-
-        sync_execute(f"""
-            TRUNCATE TABLE logs
-        """)
-        sync_execute(f"""
-            TRUNCATE TABLE log_attributes
-        """)
-
     def _make_logs_api_request(self, query_params, expected_status=status.HTTP_200_OK):
         response = self.client.post(f"/api/projects/{self.team.id}/logs/query", data={"query": query_params})
         self.assertEqual(response.status_code, expected_status)
