@@ -35,6 +35,7 @@ export type UniversalFiltersLogicProps = {
     group: UniversalFiltersGroup | null
     onChange: (group: UniversalFiltersGroup) => void
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
+    endpointFilters?: Record<string, any>
 }
 
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
@@ -99,6 +100,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
     selectors({
         rootKey: [(_, p) => [p.rootKey], (rootKey) => rootKey],
         taxonomicGroupTypes: [(_, p) => [p.taxonomicGroupTypes], (types) => types],
+        endpointFilters: [(_, p) => [p.endpointFilters], (endpointFilters) => endpointFilters],
         taxonomicPropertyFilterGroupTypes: [
             (_, p) => [p.taxonomicGroupTypes],
             (types) =>

@@ -9,15 +9,14 @@ from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, OrderBy3, PropertyGroupFilter
+from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, LogValuesQuery, OrderBy3, PropertyGroupFilter
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
+from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
@@ -271,45 +270,57 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
-        search = request.GET.get("value", "")
-        key = request.GET.get("key", "")
+        search = request.GET.get("search", "")
+        limit = request.GET.get("limit", 100)
+        offset = request.GET.get("offset", 0)
+        attributeKey = request.GET.get("key", "")
 
-        attribute_type = request.GET.get("attribute_type", "log")
-        if attribute_type not in ["log", "resource"]:
-            attribute_type = "log"
+        if not attributeKey:
+            raise ValidationError("attribute_key is required")
 
-        results = sync_execute(
-            """
-SELECT
-    groupArray(attribute_value) as keys
-FROM (
-    SELECT
-        attribute_value,
-        sum(attribute_count)
-    FROM log_attributes
-    WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
-    AND team_id = %(team_id)s
-    AND attribute_type = %(attribute_type)s
-    AND attribute_key = %(key)s
-    AND attribute_value LIKE %(search)s
-    GROUP BY team_id, attribute_value
-    ORDER BY sum(attribute_count) desc, attribute_value asc
-    LIMIT 50
-)
-""",
-            args={"key": key, "search": f"%{search}%", "team_id": self.team.id, "attribute_type": attribute_type},
-            workload=Workload.LOGS,
-            team_id=self.team.id,
+        try:
+            dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
+        except (json.JSONDecodeError, ValidationError, ValueError):
+            # Default to last hour if dateRange is malformed
+            dateRange = DateRange(date_from="-1h")
+
+        try:
+            serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
+        except json.JSONDecodeError:
+            serviceNames = []
+        try:
+            filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
+        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
+            filterGroup = None
+
+        attributeType = request.GET.get("attribute_type", "log")
+        # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
+        # like the property type, but annoyingly it's hard to update this in clickhouse so we're stuck with it for now
+        if attributeType not in ["log", "resource"]:
+            attributeType = "log"
+
+        try:
+            limit = int(limit)
+        except ValueError:
+            limit = 100
+
+        try:
+            offset = int(offset)
+        except ValueError:
+            offset = 0
+
+        query = LogValuesQuery(
+            dateRange=dateRange,
+            attributeKey=attributeKey,
+            attributeType=attributeType,
+            search=search,
+            limit=limit,
+            offset=offset,
+            serviceNames=serviceNames,
+            filterGroup=filterGroup,
         )
 
-        r = []
-        if type(results) is not list:
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        if len(results) > 0 and len(results[0]) > 0:
-            for result in results[0][0]:
-                entry = {
-                    "id": result,
-                    "name": result,
-                }
-                r.append(entry)
-        return Response(r, status=status.HTTP_200_OK)
+        runner = LogValuesQueryRunner(team=self.team, query=query)
+
+        result = runner.calculate()
+        return Response([r.model_dump() for r in result.results], status=status.HTTP_200_OK)

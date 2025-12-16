@@ -101,6 +101,7 @@ export enum NodeKind {
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
+    LogValuesQuery = 'LogValuesQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -211,6 +212,7 @@ export type AnyDataNode =
     | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | LogAttributesQuery
+    | LogValuesQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -297,6 +299,7 @@ export type QuerySchema =
     // Logs
     | LogsQuery
     | LogAttributesQuery
+    | LogValuesQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -344,6 +347,7 @@ export type AnyResponseType =
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
     | LogAttributesQueryResponse
+    | LogValuesQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -2647,6 +2651,28 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
 export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     count: number
+}
+
+export interface LogValueResult {
+    id: string
+    name: string
+}
+
+export interface LogValuesQueryResponse extends AnalyticsQueryResponseBase {
+    results: LogValueResult[]
+}
+
+export interface LogValuesQuery extends DataNode<LogValuesQueryResponse> {
+    kind: NodeKind.LogValuesQuery
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+    search?: string
+    severityLevels?: LogSeverityLevel[]
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+    attributeKey: string
+    attributeType: string
 }
 
 export interface SessionEventsItem {
