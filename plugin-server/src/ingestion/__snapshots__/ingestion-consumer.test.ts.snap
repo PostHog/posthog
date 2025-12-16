@@ -107,6 +107,8 @@ exports[`IngestionConsumer general overflow should emit to overflow if token and
       "distinct_id": "overflow-distinct-id",
       "event": "$pageview",
       "now": "2025-01-01T00:00:00.000Z",
+      "redirect-step": "rateLimitToOverflowStep",
+      "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
       "uuid": "<REPLACED-UUID-0>",
     },
