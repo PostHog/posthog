@@ -228,7 +228,7 @@ async def generate_assets_async(
                     subscription_id=subscription_id,
                     error=str(e),
                     exc_info=True,
-                    retryable_error=retyable_error,
+                    retryable_error=retryable_error,
                     team_id=resource.team_id,
                 )
                 asset.exception = str(e)
