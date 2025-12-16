@@ -17,7 +17,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _get_default_inputs_for_template(template: HogFunctionTemplate) -> dict:
-    """Get default inputs for a template, matching the frontend workflowToTemplate logic."""
+    """Get default inputs for a template"""
     default_inputs = {}
     for schema_item in template.inputs_schema or []:
         if schema_item.get("default") is not None:
@@ -134,8 +134,6 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         return None
 
     def validate(self, data):
-        # Don't call super().validate() - we'll do our own validation
-        # Copy the parent validation logic but skip input validation
         instance = cast(Optional[HogFlowTemplate], self.instance)
         actions = data.get("actions", instance.actions if instance else [])
 
@@ -157,7 +155,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         data.pop("updated_at", None)
         data.pop("status", None)
 
-        # Validate and reset function action inputs to defaults from templates
+        # Reset function action inputs to defaults from templates
         for action in actions:
             action_type = action.get("type", "")
             config = action.get("config", {})
@@ -176,24 +174,9 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
                 if template_id:
                     template = HogFunctionTemplate.get_template(template_id)
                     if template:
-                        # Get expected default inputs
-                        expected_default_inputs = _get_default_inputs_for_template(template)
-
-                        # Validate that provided inputs match defaults
-                        provided_inputs = config.get("inputs", {})
-                        if provided_inputs != expected_default_inputs:
-                            raise serializers.ValidationError(
-                                {
-                                    f"actions[{actions.index(action)}].config.inputs": (
-                                        f"Inputs must match template defaults. "
-                                        f"Expected: {expected_default_inputs}, "
-                                        f"Got: {provided_inputs}"
-                                    )
-                                }
-                            )
-
-                        # Set inputs to defaults (should already match, but ensure consistency)
-                        config["inputs"] = expected_default_inputs
+                        # Reset inputs to defaults from the template
+                        default_inputs = _get_default_inputs_for_template(template)
+                        config["inputs"] = default_inputs
 
         return data
 
