@@ -11,28 +11,9 @@ export const StripePortalButton = (): JSX.Element | null => {
         return null
     }
 
-    if (billing.billing_provider === 'vercel') {
-        if (!billing.vercel_invoices_url) {
-            return null
-        }
-        return (
-            <div className="w-fit mt-4">
-                <LemonButton
-                    type="primary"
-                    htmlType="submit"
-                    to={billing.vercel_invoices_url}
-                    disableClientSideRouting
-                    targetBlank
-                    center
-                    data-attr="manage-billing"
-                >
-                    {billing.has_active_subscription ? 'Manage card details and invoices' : 'View past invoices'}
-                </LemonButton>
-            </div>
-        )
-    }
+    const billingUrl = billing.vercel_invoices_url || billing.stripe_portal_url
 
-    if (!billing.stripe_portal_url) {
+    if (!billingUrl) {
         return null
     }
 
@@ -41,7 +22,7 @@ export const StripePortalButton = (): JSX.Element | null => {
             <LemonButton
                 type="primary"
                 htmlType="submit"
-                to={billing.stripe_portal_url}
+                to={billingUrl}
                 disableClientSideRouting
                 targetBlank
                 center
