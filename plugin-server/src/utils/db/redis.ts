@@ -109,8 +109,10 @@ function getRedisHost(url: string): string {
         // If both are empty (unusual schemes like data: or file:), return a safe placeholder
         return parsed.host || parsed.hostname || '[redis-host]'
     } catch {
-        // If URL parsing fails, it's a plain hostname, which is safe to return
-        return url
+        // If URL parsing fails, strip any potential credentials from the string
+        // (e.g., 'user:password@host:6379' -> 'host:6379')
+        const atIndex = url.indexOf('@')
+        return atIndex >= 0 ? url.substring(atIndex + 1) : url
     }
 }
 
