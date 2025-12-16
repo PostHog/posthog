@@ -95,8 +95,8 @@ class OAuthApplication(AbstractApplication):
             if is_custom_scheme:
                 from django.conf import settings
 
-                allowed_schemes: list[str] = settings.OAUTH2_PROVIDER.get(
-                    "ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"]
+                allowed_schemes = cast(
+                    list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"])
                 )
                 if parsed_uri.scheme not in allowed_schemes:
                     raise ValidationError(
@@ -128,7 +128,7 @@ class OAuthApplication(AbstractApplication):
         """Extract unique schemes from the application's registered redirect URIs, filtered against allowed schemes."""
         from django.conf import settings
 
-        allowed_list: list[str] = settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"])
+        allowed_list = cast(list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"]))
         globally_allowed = set(allowed_list)
         schemes: set[str] = set()
         for uri in self.redirect_uris.split(" "):
