@@ -409,7 +409,7 @@ class BigQueryClient:
             """
 
         try:
-            query_job = self.sync_client.query(query, job_config=job_config)
+            query_job = await asyncio.to_thread(self.sync_client.query, query, job_config=job_config)
             await asyncio.to_thread(query_job.result)
         except Forbidden:
             return False
@@ -524,7 +524,7 @@ class BigQueryClient:
 
         self.logger.info("Inserting into final table", format=format, table_id=final.name, stage_table_id=stage.name)
 
-        query_job = self.sync_client.query(query, job_config=job_config)
+        query_job = await asyncio.to_thread(self.sync_client.query, query, job_config=job_config)
         result = await asyncio.to_thread(query_job.result)
         return result
 
@@ -625,7 +625,7 @@ class BigQueryClient:
             VALUES ({values});
         """
 
-        query_job = self.sync_client.query(merge_query, job_config=job_config)
+        query_job = await asyncio.to_thread(self.sync_client.query, merge_query, job_config=job_config)
         return await asyncio.to_thread(query_job.result)
 
     async def load_file(self, file, format: FileFormat, table: BigQueryTable):

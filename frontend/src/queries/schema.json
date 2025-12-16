@@ -1613,6 +1613,7 @@
                     "$ref": "#/definitions/AssistantForm"
                 },
                 "thinking": {
+                    "description": "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks.",
                     "items": {
                         "additionalProperties": {},
                         "type": "object"
@@ -1941,6 +1942,7 @@
                 "list_tasks",
                 "list_task_runs",
                 "list_repositories",
+                "web_search",
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",
@@ -16400,6 +16402,9 @@
                 "useMaterializedViews": {
                     "type": "boolean"
                 },
+                "usePreaggregatedIntermediateResults": {
+                    "type": "boolean"
+                },
                 "usePreaggregatedTableTransforms": {
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
                     "type": "boolean"
@@ -21005,6 +21010,7 @@
                 "survey_bulk_duplicated",
                 "survey_edited",
                 "survey_analyzed",
+                "quick_survey_started",
                 "revenue_analytics_viewed",
                 "revenue_analytics_onboarding_completed",
                 "revenue_analytics_event_created",

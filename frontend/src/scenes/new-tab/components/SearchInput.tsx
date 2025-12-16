@@ -49,7 +49,6 @@ interface SearchInputProps<T = string> {
 export interface SearchInputHandle {
     focus: () => void
     getInputRef: () => React.RefObject<HTMLInputElement>
-    triggerPulse: () => void
 }
 
 export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(function SearchInput<T = string>(
@@ -75,8 +74,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const inputRef = useRef<HTMLInputElement>(null)
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
     const [expandedTags, setExpandedTags] = useState(false)
-    const [isFocused, setIsFocused] = useState(false)
-    const [pulseKey, setPulseKey] = useState(0)
     const isExplorerActive = !!explorerBreadcrumbs?.length && !!onExitExplorer
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
@@ -90,12 +87,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 }
             },
             getInputRef: () => inputRef,
-            triggerPulse: () => {
-                setPulseKey((prev) => prev + 1)
-                if (inputRef.current) {
-                    inputRef.current.focus()
-                }
-            },
         }),
         []
     )
@@ -321,14 +312,12 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
         <div className="relative w-full">
             <label
                 htmlFor="command-input"
-                key={`search-input-${pulseKey}`}
                 className={cn(
                     textInputVariants({
                         variant: 'default',
                         size: 'lg',
-                        showFocusPulse: isFocused,
                     }),
-                    'flex flex-wrap gap-1 focus-within:border-secondary items-center rounded-lg py-1'
+                    'input-like flex flex-wrap gap-1 focus-within:border-secondary items-center rounded-lg py-1'
                 )}
             >
                 {onExitExplorer ? (
@@ -508,12 +497,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     autoFocus
                     autoComplete="off"
                     className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg shadow-none"
-                    onFocus={() => {
-                        setIsFocused(true)
-                    }}
-                    onBlur={() => {
-                        setIsFocused(false)
-                    }}
                     size="lg"
                     suffix={
                         (inputValue !== '' || selectedCommands.length > 0) && (

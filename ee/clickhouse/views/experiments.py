@@ -341,6 +341,9 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 saved_metric_serializer.save()
                 # TODO: Going the above route means we can still sometimes fail when validation fails?
                 # But this shouldn't really happen, if it does its a bug in our validation logic (validate_saved_metrics_ids)
+
+        self._validate_metric_ordering(experiment, {})
+
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
@@ -494,6 +497,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
                 validated_data[metric_field] = updated_metrics
 
+        self._validate_metric_ordering(instance, validated_data)
+
         if instance.is_draft and has_start_date:
             feature_flag.active = True
             feature_flag.save()
@@ -502,6 +507,78 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             # Not a draft, doesn't have start date
             # Or draft without start date
             return super().update(instance, validated_data)
+
+    def _validate_metric_ordering(self, instance: Experiment, validated_data: dict) -> None:
+        """
+        Validate that ordering arrays contain all metric UUIDs.
+
+        This catches bugs where the frontend sends metrics but fails to include
+        their UUIDs in the ordering arrays
+        """
+        primary_ordering = validated_data.get("primary_metrics_ordered_uuids", instance.primary_metrics_ordered_uuids)
+        secondary_ordering = validated_data.get(
+            "secondary_metrics_ordered_uuids", instance.secondary_metrics_ordered_uuids
+        )
+
+        # Get inline metrics
+        primary_metrics = validated_data.get("metrics", instance.metrics) or []
+        secondary_metrics = validated_data.get("metrics_secondary", instance.metrics_secondary) or []
+
+        # Get saved metrics from the db (they were just created/recreated in update())
+        saved_metrics = list(instance.experimenttosavedmetric_set.select_related("saved_metric").all())
+
+        expected_primary_uuids: set[str] = set()
+        expected_secondary_uuids: set[str] = set()
+
+        # Add inline metric UUIDs
+        for metric in primary_metrics:
+            uuid = metric.get("uuid")
+            if uuid:
+                expected_primary_uuids.add(uuid)
+
+        for metric in secondary_metrics:
+            uuid = metric.get("uuid")
+            if uuid:
+                expected_secondary_uuids.add(uuid)
+
+        # Add saved metric UUIDs
+        for link in saved_metrics:
+            saved_metric = link.saved_metric
+            uuid = saved_metric.query.get("uuid") if saved_metric.query else None
+            if uuid:
+                metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
+                if metric_type == "primary":
+                    expected_primary_uuids.add(uuid)
+                else:
+                    expected_secondary_uuids.add(uuid)
+
+        # Validate: if there are primary metrics, ordering array must exist and contain all UUIDs
+        if expected_primary_uuids:
+            if primary_ordering is None:
+                raise ValidationError(
+                    "primary_metrics_ordered_uuids is null but primary metrics exist. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
+            missing = expected_primary_uuids - set(primary_ordering)
+            if missing:
+                raise ValidationError(
+                    f"primary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
+
+        # Validate: if there are secondary metrics, ordering array must exist and contain all UUIDs
+        if expected_secondary_uuids:
+            if secondary_ordering is None:
+                raise ValidationError(
+                    "secondary_metrics_ordered_uuids is null but secondary metrics exist. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
+            missing = expected_secondary_uuids - set(secondary_ordering)
+            if missing:
+                raise ValidationError(
+                    f"secondary_metrics_ordered_uuids is missing UUIDs: {sorted(missing)}. "
+                    "This is likely a frontend bug - please refresh and try again."
+                )
 
 
 class ExperimentStatus(str, Enum):

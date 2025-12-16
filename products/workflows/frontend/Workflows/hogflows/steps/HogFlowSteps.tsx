@@ -54,44 +54,44 @@ const HogFlowStepConfigs: Partial<{
         type: 'conditional_branch',
         icon: () => <IconDecisionTree />,
         color: (_, isDarkModeOn) => (isDarkModeOn ? '#35C46F' : '#005841'),
-        renderConfiguration: (node) => <StepConditionalBranchConfiguration node={node} />,
+        renderConfiguration: (node) => <StepConditionalBranchConfiguration key={node.id} node={node} />,
     },
     delay: {
         type: 'delay',
         icon: () => <IconClock />,
         color: () => '#a20031',
-        renderConfiguration: (node) => <StepDelayConfiguration node={node} />,
+        renderConfiguration: (node) => <StepDelayConfiguration key={node.id} node={node} />,
     },
     exit: {
         type: 'exit',
         icon: () => <IconLeave />,
         color: () => '#4b4b4b',
-        renderConfiguration: (node) => <StepExitConfiguration node={node} />,
+        renderConfiguration: (node) => <StepExitConfiguration key={node.id} node={node} />,
     },
 
     random_cohort_branch: {
         type: 'random_cohort_branch',
         icon: () => <IconPercentage />,
         color: (_, isDarkModeOn) => (isDarkModeOn ? '#D6247B' : '#9a004d'),
-        renderConfiguration: (node) => <StepRandomCohortBranchConfiguration node={node} />,
+        renderConfiguration: (node) => <StepRandomCohortBranchConfiguration key={node.id} node={node} />,
     },
     trigger: {
         type: 'trigger',
         icon: () => <IconBolt />,
         color: (_, isDarkModeOn) => (isDarkModeOn ? '#35C46F' : '#005841'),
-        renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,
+        renderConfiguration: (node) => <StepTriggerConfiguration key={node.id} node={node} />,
     },
     wait_until_condition: {
         type: 'wait_until_condition',
         icon: () => <IconHourglass />,
         color: () => '#ffaa00',
-        renderConfiguration: (node) => <StepWaitUntilConditionConfiguration node={node} />,
+        renderConfiguration: (node) => <StepWaitUntilConditionConfiguration key={node.id} node={node} />,
     },
     wait_until_time_window: {
         type: 'wait_until_time_window',
         icon: () => <IconDay />,
         color: () => '#FF653F',
-        renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration node={node} />,
+        renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration key={node.id} node={node} />,
     },
 
     // We can remove these later
@@ -99,13 +99,13 @@ const HogFlowStepConfigs: Partial<{
         type: 'function_email',
         icon: () => <IconLetter />,
         color: (_, isDarkModeOn) => (isDarkModeOn ? '#2F80FA' : '#2F80FA'),
-        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+        renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
     },
     function_sms: {
         type: 'function_sms',
         icon: () => <IconTwilio />,
         color: () => '#f22f46',
-        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+        renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
     },
     function: {
         type: 'function',
@@ -136,7 +136,7 @@ const HogFlowStepConfigs: Partial<{
 
             return isDarkModeOn ? '#F8BE2A' : '#F44D01'
         },
-        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+        renderConfiguration: (node) => <StepFunctionConfiguration key={node.id} node={node} />,
     },
 } as const
 
