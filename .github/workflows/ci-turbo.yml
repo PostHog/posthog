@@ -3,7 +3,8 @@ on:
     pull_request:
 
 permissions:
-    contents: write
+    contents: read
+    actions: write
 
 jobs:
     turbo-affected-4:
