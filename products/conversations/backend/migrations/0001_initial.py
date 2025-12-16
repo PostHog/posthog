@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "0942_add_conversations_settings_to_team"),
+        ("posthog", "0946_add_conversations_settings_to_team"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
