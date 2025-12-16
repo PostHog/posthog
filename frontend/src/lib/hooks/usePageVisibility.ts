@@ -1,4 +1,36 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+
+// Determine the correct hidden property name for browser compatibility
+// adapted from https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API#example
+// Opera 12.10 and Firefox 18 and later support
+function getHiddenProperty(): string {
+    // @ts-expect-error - to avoid complaint that msHidden isn't on document
+    if (typeof document.msHidden !== 'undefined') {
+        return 'msHidden'
+    }
+    // @ts-expect-error - to avoid complaint that webkitHidden isn't on document
+    if (typeof document.webkitHidden !== 'undefined') {
+        return 'webkitHidden'
+    }
+    return 'hidden'
+}
+
+function getVisibilityChangeEvent(): string {
+    // @ts-expect-error - to avoid complaint that msHidden isn't on document
+    if (typeof document.msHidden !== 'undefined') {
+        return 'msvisibilitychange'
+    }
+    // @ts-expect-error - to avoid complaint that webkitHidden isn't on document
+    if (typeof document.webkitHidden !== 'undefined') {
+        return 'webkitvisibilitychange'
+    }
+    return 'visibilitychange'
+}
+
+function isPageVisible(): boolean {
+    const hidden = getHiddenProperty()
+    return !document[hidden as keyof Document]
+}
 
 /**
  *
@@ -14,22 +46,10 @@ import { useEffect, useState } from 'react'
  */
 export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void): void {
     useEffect(() => {
-        // adapted from https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API#example
-        // Opera 12.10 and Firefox 18 and later support
-        let hidden = 'hidden'
-        let visibilityChange = 'visibilitychange'
-        // @ts-expect-error - to avoid complaint that msHidden isn't on document
-        if (typeof document.msHidden !== 'undefined') {
-            hidden = 'msHidden'
-            visibilityChange = 'msvisibilitychange'
-            // @ts-expect-error - to avoid complaint that webkitHidden isn't on document
-        } else if (typeof document.webkitHidden !== 'undefined') {
-            hidden = 'webkitHidden'
-            visibilityChange = 'webkitvisibilitychange'
-        }
+        const visibilityChange = getVisibilityChangeEvent()
 
         const onVisibilityChange = (): void => {
-            callback(!document[hidden])
+            callback(isPageVisible())
         }
 
         document.addEventListener(visibilityChange, onVisibilityChange)
@@ -40,12 +60,19 @@ export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void):
     }, [callback])
 }
 
+/**
+ * Hook that returns the current page visibility state and triggers re-renders when it changes.
+ */
 export function usePageVisibility(): { isVisible: boolean } {
-    const [isVisible, setIsVisible] = useState<boolean>(!document.hidden)
+    const [, forceUpdate] = useState({})
 
-    usePageVisibilityCb((pageIsVisible) => {
-        setIsVisible(pageIsVisible)
-    })
+    const handleVisibilityChange = useCallback(() => {
+        forceUpdate({}) // Force trigger re-render
+    }, [])
 
-    return { isVisible }
+    usePageVisibilityCb(handleVisibilityChange)
+
+    // Always get browser's state directly in case render is needed
+    // before this hook's forceUpdate has run (avoids flashing stale state)
+    return { isVisible: isPageVisible() }
 }
