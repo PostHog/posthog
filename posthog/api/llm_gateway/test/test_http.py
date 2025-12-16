@@ -290,3 +290,101 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(properties["$ai_is_error"], True)
         self.assertEqual(properties["$ai_error"], "API Error")
         self.assertEqual(properties["$ai_http_status"], 500)
+
+    @patch("posthog.api.llm_gateway.http.asyncio.run")
+    @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
+    def test_anthropic_messages_with_client_name(self, mock_anthropic, mock_asyncio_run):
+        """Test that client name from URL path is passed to metadata."""
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {
+            "id": "msg_01XYZ",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hello!"}],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        mock_asyncio_run.return_value = mock_response
+
+        response = self.client.post(
+            f"{self.base_url}/wizard/v1/messages/",
+            data={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 1024,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Check that anthropic_messages was called with correct metadata
+        mock_anthropic.assert_called_once()
+        call_kwargs = mock_anthropic.call_args[1]
+        self.assertEqual(call_kwargs["metadata"]["ai_product"], "wizard")
+
+    @patch("posthog.api.llm_gateway.http.asyncio.run")
+    @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
+    def test_anthropic_messages_default_ai_product(self, mock_anthropic, mock_asyncio_run):
+        """Test that default ai_product is 'llm_gateway' when no client name provided."""
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {
+            "id": "msg_01XYZ",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hello!"}],
+            "model": "claude-sonnet-4-20250514",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        mock_asyncio_run.return_value = mock_response
+
+        response = self.client.post(
+            f"{self.base_url}/v1/messages/",
+            data={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 1024,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_anthropic.assert_called_once()
+        call_kwargs = mock_anthropic.call_args[1]
+        self.assertEqual(call_kwargs["metadata"]["ai_product"], "llm_gateway")
+
+    @patch("posthog.api.llm_gateway.http.litellm.completion")
+    def test_chat_completions_with_client_name(self, mock_completion):
+        """Test that client name from URL path is passed to metadata for chat completions."""
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hello!"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        }
+        mock_completion.return_value = mock_response
+
+        response = self.client.post(
+            f"{self.base_url}/wizard/v1/chat/completions/",
+            data={
+                "model": "gpt-4",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_completion.assert_called_once()
+        call_kwargs = mock_completion.call_args[1]
+        self.assertEqual(call_kwargs["metadata"]["ai_product"], "wizard")
