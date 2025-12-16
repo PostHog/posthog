@@ -116,7 +116,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'input-like flex flex-col',
                             'border border-[var(--color-border-primary)]',
                             'bg-[var(--color-bg-fill-input)]',
-                            isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg'
+                            isThreadVisible ? 'border-primary m-0.5 rounded-[10px]' : 'rounded-lg'
                         )}
                     >
                         {!isSharedThread && (
