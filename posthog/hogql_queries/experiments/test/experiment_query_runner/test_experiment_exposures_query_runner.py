@@ -1353,6 +1353,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
 
         # Note: holdout.id is a float in schema, so key becomes "holdout-123.0"
+        assert query.holdout is not None
         holdout_key = f"holdout-{query.holdout.id}"
 
         # Directly test _calculate_srm with holdout-adjusted data
@@ -1361,7 +1362,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         result = runner._calculate_srm(total_exposures)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         # With 20% holdout, expected is: holdout=20, control=40, test=40 of 100
         self.assertEqual(result.expected[holdout_key], 20.0)
         self.assertEqual(result.expected["control"], 40.0)
@@ -1405,7 +1406,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         result = runner._calculate_srm(total_exposures)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         # Only control and test should be in expected
         self.assertEqual(len(result.expected), 2)
         self.assertIn("control", result.expected)
@@ -1431,6 +1432,6 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         result = runner._calculate_srm(total_exposures)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         # Should detect severe mismatch (100/0 vs expected 50/50)
         self.assertLess(result.p_value, 0.001)
