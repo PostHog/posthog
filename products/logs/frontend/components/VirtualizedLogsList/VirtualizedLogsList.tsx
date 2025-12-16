@@ -52,9 +52,20 @@ export function VirtualizedLogsList({
         recomputeRowHeightsRequest,
         attributeColumns,
         attributeColumnWidths,
+        selectedLogIds,
+        selectedCount,
     } = useValues(logsViewerLogic)
-    const { togglePinLog, toggleExpandLog, userSetCursorIndex, removeAttributeColumn, setAttributeColumnWidth } =
-        useActions(logsViewerLogic)
+    const {
+        togglePinLog,
+        toggleExpandLog,
+        userSetCursorIndex,
+        removeAttributeColumn,
+        setAttributeColumnWidth,
+        toggleSelectLog,
+        selectAll,
+        clearSelection,
+        selectLogRange,
+    } = useActions(logsViewerLogic)
 
     const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic({ tabId }))
     const { setContainerWidth } = useActions(virtualizedLogsListLogic({ tabId }))
@@ -180,6 +191,13 @@ export function VirtualizedLogsList({
                                     rowWidth={rowWidth}
                                     attributeColumns={attributeColumns}
                                     attributeColumnWidths={attributeColumnWidths}
+                                    isSelected={!!selectedLogIds[log.uuid]}
+                                    onToggleSelect={() => toggleSelectLog(log.uuid)}
+                                    onShiftClick={(clickedIndex) => {
+                                        const anchorIndex = cursorIndex ?? 0
+                                        selectLogRange(anchorIndex, clickedIndex)
+                                        userSetCursorIndex(clickedIndex)
+                                    }}
                                 />
                             </div>
                         )}
@@ -201,6 +219,9 @@ export function VirtualizedLogsList({
             userSetCursorIndex,
             attributeColumns,
             attributeColumnWidths,
+            selectedLogIds,
+            toggleSelectLog,
+            selectLogRange,
         ]
     )
 
@@ -227,6 +248,10 @@ export function VirtualizedLogsList({
                                     attributeColumnWidths={attributeColumnWidths}
                                     onRemoveAttributeColumn={removeAttributeColumn}
                                     onResizeAttributeColumn={setAttributeColumnWidth}
+                                    selectedCount={selectedCount}
+                                    totalCount={dataSource.length}
+                                    onSelectAll={() => selectAll(dataSource)}
+                                    onClearSelection={clearSelection}
                                 />
                                 <List
                                     ref={listRef}
@@ -266,6 +291,10 @@ export function VirtualizedLogsList({
                                 attributeColumnWidths={attributeColumnWidths}
                                 onRemoveAttributeColumn={removeAttributeColumn}
                                 onResizeAttributeColumn={setAttributeColumnWidth}
+                                selectedCount={selectedCount}
+                                totalCount={dataSource.length}
+                                onSelectAll={() => selectAll(dataSource)}
+                                onClearSelection={clearSelection}
                             />
                             <List
                                 ref={listRef}
