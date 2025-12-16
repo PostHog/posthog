@@ -10,15 +10,21 @@ export class SessionTracker {
 
     constructor(private readonly redisPool: RedisPool) {}
 
+    private static readonly noopCallback: NewSessionCallback = () => Promise.resolve()
+
     /**
      * Check if session has been seen before, mark as seen if not.
      * Invokes the callback for new sessions.
      *
      * @param teamId - The team ID
      * @param sessionId - The session ID
-     * @param onNewSession - Optional callback invoked when a new session is detected
+     * @param onNewSession - Callback invoked when a new session is detected
      */
-    public async trackSession(teamId: number, sessionId: string, onNewSession?: NewSessionCallback): Promise<void> {
+    public async trackSession(
+        teamId: number,
+        sessionId: string,
+        onNewSession: NewSessionCallback = SessionTracker.noopCallback
+    ): Promise<void> {
         const key = this.generateKey(teamId, sessionId)
         const client = await this.redisPool.acquire()
 
@@ -36,9 +42,7 @@ export class SessionTracker {
                     sessionId,
                 })
 
-                if (onNewSession) {
-                    await onNewSession(teamId, sessionId)
-                }
+                await onNewSession(teamId, sessionId)
             }
         } finally {
             await this.redisPool.release(client)

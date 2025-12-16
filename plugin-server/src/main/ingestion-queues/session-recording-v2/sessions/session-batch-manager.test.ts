@@ -4,6 +4,7 @@ import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
+import { SessionTracker } from './session-tracker'
 
 jest.setTimeout(1000)
 jest.mock('./session-batch-recorder')
@@ -16,6 +17,7 @@ describe('SessionBatchManager', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
+    let mockSessionTracker: jest.Mocked<SessionTracker>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -56,6 +58,10 @@ describe('SessionBatchManager', () => {
             storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
+        mockSessionTracker = {
+            trackSession: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionTracker>
+
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
@@ -65,6 +71,7 @@ describe('SessionBatchManager', () => {
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
             metadataSwitchoverDate: new Date('2025-01-02'),
+            sessionTracker: mockSessionTracker,
         })
     })
 
@@ -83,8 +90,8 @@ describe('SessionBatchManager', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             new Date('2025-01-02'),
-            Number.MAX_SAFE_INTEGER,
-            undefined
+            mockSessionTracker,
+            Number.MAX_SAFE_INTEGER
         )
 
         const secondBatch = manager.getCurrentBatch()
@@ -163,6 +170,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 metadataSwitchoverDate: new Date('2025-01-02'),
+                sessionTracker: mockSessionTracker,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -171,8 +179,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 new Date('2025-01-02'),
-                500,
-                undefined
+                mockSessionTracker,
+                500
             )
         })
 
@@ -186,6 +194,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 metadataSwitchoverDate: new Date('2025-01-02'),
+                sessionTracker: mockSessionTracker,
             })
 
             await manager.flush()
@@ -196,8 +205,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 new Date('2025-01-02'),
-                250,
-                undefined
+                mockSessionTracker,
+                250
             )
         })
 
@@ -211,6 +220,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 metadataSwitchoverDate: new Date('2025-01-02'),
+                sessionTracker: mockSessionTracker,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -219,8 +229,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 new Date('2025-01-02'),
-                0,
-                undefined
+                mockSessionTracker,
+                0
             )
         })
 
@@ -234,6 +244,7 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 metadataSwitchoverDate: new Date('2025-01-02'),
+                sessionTracker: mockSessionTracker,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -242,8 +253,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 new Date('2025-01-02'),
-                Number.MAX_SAFE_INTEGER,
-                undefined
+                mockSessionTracker,
+                Number.MAX_SAFE_INTEGER
             )
         })
     })

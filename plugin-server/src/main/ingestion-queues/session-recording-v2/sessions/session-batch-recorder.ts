@@ -75,8 +75,8 @@ export class SessionBatchRecorder {
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
         private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate,
-        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
-        private readonly sessionTracker?: SessionTracker
+        private readonly sessionTracker: SessionTracker,
+        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
     ) {
         this.batchId = uuidv7()
         this.rateLimiter = new SessionRateLimiter(maxEventsPerSessionPerBatch)
@@ -96,31 +96,29 @@ export class SessionBatchRecorder {
         const teamSessionKey = `${teamId}$${sessionId}`
 
         // Check if this is a new session and whether it should be rate limited
-        if (this.sessionTracker) {
-            let shouldRateLimitNewSession = false
+        let shouldRateLimitNewSession = false
 
-            await this.sessionTracker.trackSession(teamId, sessionId, (teamId) => {
-                const isAllowed = NewSessionLimiter.consume(String(teamId), 1)
-                if (!isAllowed) {
-                    shouldRateLimitNewSession = true
-                    SessionBatchMetrics.incrementSessionsRateLimitedByCallback()
-                }
-                return Promise.resolve()
-            })
-
-            if (shouldRateLimitNewSession) {
-                logger.debug('🔁', 'session_batch_recorder_new_session_rate_limited', {
-                    partition,
-                    sessionId,
-                    teamId,
-                    batchId: this.batchId,
-                })
-                this.offsetManager.trackOffset({
-                    partition: message.message.metadata.partition,
-                    offset: message.message.metadata.offset,
-                })
-                return 0
+        await this.sessionTracker.trackSession(teamId, sessionId, (teamId) => {
+            const isAllowed = NewSessionLimiter.consume(String(teamId), 1)
+            if (!isAllowed) {
+                shouldRateLimitNewSession = true
+                SessionBatchMetrics.incrementNewSessionsRateLimited()
             }
+            return Promise.resolve()
+        })
+
+        if (shouldRateLimitNewSession) {
+            logger.debug('🔁', 'session_batch_recorder_new_session_rate_limited', {
+                partition,
+                sessionId,
+                teamId,
+                batchId: this.batchId,
+            })
+            this.offsetManager.trackOffset({
+                partition: message.message.metadata.partition,
+                offset: message.message.metadata.offset,
+            })
+            return 0
         }
 
         const isAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)

@@ -25,8 +25,8 @@ export interface SessionBatchManagerConfig {
     consoleLogStore: SessionConsoleLogStore
     /** Optional switchover date for v2 metadata logic */
     metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
-    /** Optional session tracker for new session detection */
-    sessionTracker?: SessionTracker
+    /** Session tracker for new session detection */
+    sessionTracker: SessionTracker
 }
 
 /**
@@ -74,7 +74,7 @@ export class SessionBatchManager {
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
     private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
-    private readonly sessionTracker?: SessionTracker
+    private readonly sessionTracker: SessionTracker
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -93,8 +93,8 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.metadataSwitchoverDate,
-            this.maxEventsPerSessionPerBatch,
-            this.sessionTracker
+            this.sessionTracker,
+            this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
     }
@@ -118,8 +118,8 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.metadataSwitchoverDate,
-            this.maxEventsPerSessionPerBatch,
-            this.sessionTracker
+            this.sessionTracker,
+            this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
     }
