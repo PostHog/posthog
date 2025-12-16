@@ -353,16 +353,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
 
-        from posthog.models import OrganizationIntegration
-
-        has_vercel_integration = OrganizationIntegration.objects.filter(
-            organization=organization,
-            kind=BillingProvider.VERCEL,
-        ).exists()
-
-        if has_vercel_integration:
-            return Response({}, status=status.HTTP_200_OK)
-
         billing_manager = self.get_billing_manager()
         res = billing_manager.credits_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
@@ -552,16 +542,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"claimed_coupons": []}, status=status.HTTP_200_OK)
 
         organization = self._get_org_required()
-
-        from posthog.models import OrganizationIntegration
-
-        has_vercel_integration = OrganizationIntegration.objects.filter(
-            organization=organization,
-            kind=BillingProvider.VERCEL,
-        ).exists()
-
-        if has_vercel_integration:
-            return Response({"claimed_coupons": []}, status=status.HTTP_200_OK)
 
         billing_manager = self.get_billing_manager()
         res = billing_manager.coupons_overview(organization)
