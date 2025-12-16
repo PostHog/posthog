@@ -529,6 +529,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'web_analytics',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
+    [Scene.OrganizationDeactivated]: {
+        projectBased: false,
+        organizationBased: true,
+        name: 'Organization Deactivated',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -793,5 +799,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
+    [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
     ...productRoutes,
 }

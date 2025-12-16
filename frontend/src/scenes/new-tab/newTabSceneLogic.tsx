@@ -2066,11 +2066,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 values.newTabSearchInputRef.current.focus()
             }
         },
-        triggerSearchPulse: () => {
-            if (values.newTabSearchInputRef?.current) {
-                values.newTabSearchInputRef.current.triggerPulse()
-            }
-        },
     })),
     tabAwareActionToUrl(({ values }) => {
         const buildParams = (overrides: { folderPath?: string | null } = {}): Record<string, any> => {

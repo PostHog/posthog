@@ -5,12 +5,15 @@ import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { cn } from 'lib/utils/css-classes'
 
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { DateRange } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
+import { LogsSparkline, LogsSparklineData } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 import { logsViewerLogic } from './logsViewerLogic'
 
@@ -28,6 +31,9 @@ export interface LogsViewerProps {
     onRefresh?: () => void
     onLoadMore?: () => void
     onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
+    sparklineData: LogsSparklineData
+    sparklineLoading: boolean
+    onDateRangeChange: (dateRange: DateRange) => void
 }
 
 export function LogsViewer({
@@ -41,6 +47,9 @@ export function LogsViewer({
     onRefresh,
     onLoadMore,
     onAddFilter,
+    sparklineData,
+    sparklineLoading,
+    onDateRangeChange,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
@@ -52,6 +61,9 @@ export function LogsViewer({
                 onChangeOrderBy={onChangeOrderBy}
                 onRefresh={onRefresh}
                 onLoadMore={onLoadMore}
+                sparklineData={sparklineData}
+                sparklineLoading={sparklineLoading}
+                onDateRangeChange={onDateRangeChange}
             />
         </BindLogic>
     )
@@ -65,6 +77,9 @@ interface LogsViewerContentProps {
     onChangeOrderBy: (orderBy: LogsOrderBy) => void
     onRefresh?: () => void
     onLoadMore?: () => void
+    sparklineData: LogsSparklineData
+    sparklineLoading: boolean
+    onDateRangeChange: (dateRange: DateRange) => void
 }
 
 function LogsViewerContent({
@@ -75,9 +90,22 @@ function LogsViewerContent({
     onChangeOrderBy,
     onRefresh,
     onLoadMore,
+    sparklineData,
+    sparklineLoading,
+    onDateRangeChange,
 }: LogsViewerContentProps): JSX.Element {
-    const { tabId, wrapBody, prettifyJson, pinnedLogsArray, isFocused, cursorLogId, linkToLogId, logs, logsCount } =
-        useValues(logsViewerLogic)
+    const {
+        tabId,
+        wrapBody,
+        prettifyJson,
+        pinnedLogsArray,
+        isFocused,
+        cursorLogId,
+        linkToLogId,
+        logs,
+        logsCount,
+        timezone,
+    } = useValues(logsViewerLogic)
     const { setFocused, moveCursorDown, moveCursorUp, toggleExpandLog, resetCursor, setCursorToLogId } =
         useActions(logsViewerLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
@@ -198,54 +226,63 @@ function LogsViewerContent({
     )
 
     return (
-        <div
-            ref={containerRef}
-            className="flex flex-col gap-2 h-full outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 rounded"
-            tabIndex={0}
-            onFocus={() => {
-                setFocused(true)
-                containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            }}
-            onBlur={() => setFocused(false)}
-        >
-            <div className="py-2">
-                <LogsViewerToolbar
-                    totalLogsCount={totalLogsCount}
-                    orderBy={orderBy}
-                    onChangeOrderBy={onChangeOrderBy}
-                />
-            </div>
-            {pinnedLogsArray.length > 0 && (
-                <div className="border rounded-t bg-bg-light shadow-sm">
+        <>
+            <LogsSparkline
+                sparklineData={sparklineData}
+                sparklineLoading={sparklineLoading}
+                onDateRangeChange={onDateRangeChange}
+                displayTimezone={timezone}
+            />
+            <SceneDivider />
+            <div
+                ref={containerRef}
+                className="flex flex-col gap-2 h-full outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 rounded"
+                tabIndex={0}
+                onFocus={() => {
+                    setFocused(true)
+                    containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }}
+                onBlur={() => setFocused(false)}
+            >
+                <div className="py-2">
+                    <LogsViewerToolbar
+                        totalLogsCount={totalLogsCount}
+                        orderBy={orderBy}
+                        onChangeOrderBy={onChangeOrderBy}
+                    />
+                </div>
+                {pinnedLogsArray.length > 0 && (
+                    <div className="border rounded-t bg-bg-light shadow-sm">
+                        <VirtualizedLogsList
+                            dataSource={pinnedLogsArray}
+                            loading={false}
+                            wrapBody={wrapBody}
+                            prettifyJson={prettifyJson}
+                            tzLabelFormat={tzLabelFormat}
+                            showPinnedWithOpacity
+                            fixedHeight={250}
+                            disableInfiniteScroll
+                        />
+                    </div>
+                )}
+                <div
+                    className={cn(
+                        'border bg-bg-light flex-1 min-h-0',
+                        pinnedLogsArray.length > 0 ? 'rounded-b' : 'rounded'
+                    )}
+                >
                     <VirtualizedLogsList
-                        dataSource={pinnedLogsArray}
-                        loading={false}
+                        dataSource={logs}
+                        loading={loading}
                         wrapBody={wrapBody}
                         prettifyJson={prettifyJson}
                         tzLabelFormat={tzLabelFormat}
                         showPinnedWithOpacity
-                        fixedHeight={250}
-                        disableInfiniteScroll
+                        hasMoreLogsToLoad={hasMoreLogsToLoad}
+                        onLoadMore={onLoadMore}
                     />
                 </div>
-            )}
-            <div
-                className={cn(
-                    'border bg-bg-light flex-1 min-h-0',
-                    pinnedLogsArray.length > 0 ? 'rounded-b' : 'rounded'
-                )}
-            >
-                <VirtualizedLogsList
-                    dataSource={logs}
-                    loading={loading}
-                    wrapBody={wrapBody}
-                    prettifyJson={prettifyJson}
-                    tzLabelFormat={tzLabelFormat}
-                    showPinnedWithOpacity
-                    hasMoreLogsToLoad={hasMoreLogsToLoad}
-                    onLoadMore={onLoadMore}
-                />
             </div>
-        </div>
+        </>
     )
 }

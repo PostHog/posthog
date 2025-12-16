@@ -351,6 +351,7 @@ class BaseAgentRunner(ABC):
                 "team": self._team,
                 "user": self._user,
                 "billing_context": self._billing_context,
+                "is_subagent": not self._use_checkpointer,
                 "slack_thread_context": self._slack_thread_context,
                 "is_agent_billable": self._is_agent_billable,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).

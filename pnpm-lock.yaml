@@ -1573,6 +1573,8 @@ importers:
         specifier: '*'
         version: 18.2.0
 
+  products/analytics_platform: {}
+
   products/cohorts:
     dependencies:
       '@posthog/icons':
@@ -2051,6 +2053,15 @@ importers:
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+      '@testing-library/jest-dom':
+        specifier: '*'
+        version: 5.16.5
+      '@testing-library/react':
+        specifier: '*'
+        version: 13.4.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@testing-library/user-event':
+        specifier: '*'
+        version: 13.5.0(@testing-library/dom@9.3.4)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -3782,10 +3793,6 @@ packages:
 
   '@babel/runtime@7.24.0':
     resolution: {integrity: sha512-Chk32uHMg6TnQdvw2e9IlqPpFX/6NLuK0Ys2PqLb7/gL5uFn9mXvK715FGLlOLQrcO4qIkNHkvPGktzzXexsFw==}
-    engines: {node: '>=6.9.0'}
-
-  '@babel/runtime@7.27.6':
-    resolution: {integrity: sha512-vbavdySgbTTrmFE+EsiqUTzlOr5bzlnJtUv9PynGCAKvfQqjIXbvFdumPM/GxMDfyuGMJaJAU6TO4zc1Jf1i8Q==}
     engines: {node: '>=6.9.0'}
 
   '@babel/runtime@7.28.4':
@@ -22631,8 +22638,6 @@ snapshots:
     dependencies:
       regenerator-runtime: 0.14.1
 
-  '@babel/runtime@7.27.6': {}
-
   '@babel/runtime@7.28.4': {}
 
   '@babel/standalone@7.26.7': {}
@@ -26614,7 +26619,7 @@ snapshots:
 
   '@radix-ui/react-select@1.2.2(@types/react-dom@18.3.7(@types/react@17.0.52))(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
-      '@babel/runtime': 7.27.6
+      '@babel/runtime': 7.28.4
       '@radix-ui/number': 1.0.1
       '@radix-ui/primitive': 1.0.1
       '@radix-ui/react-collection': 1.0.3(@types/react-dom@18.3.7(@types/react@17.0.52))(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -26782,7 +26787,7 @@ snapshots:
 
   '@radix-ui/react-toolbar@1.0.4(@types/react-dom@18.3.7(@types/react@17.0.52))(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
-      '@babel/runtime': 7.27.6
+      '@babel/runtime': 7.28.4
       '@radix-ui/primitive': 1.0.1
       '@radix-ui/react-context': 1.0.1(@types/react@17.0.52)(react@18.2.0)
       '@radix-ui/react-direction': 1.0.1(@types/react@17.0.52)(react@18.2.0)
@@ -28989,7 +28994,7 @@ snapshots:
   '@testing-library/dom@9.3.4':
     dependencies:
       '@babel/code-frame': 7.26.2
-      '@babel/runtime': 7.27.6
+      '@babel/runtime': 7.28.4
       '@types/aria-query': 5.0.4
       aria-query: 5.1.3
       chalk: 4.1.2
@@ -29000,7 +29005,7 @@ snapshots:
   '@testing-library/jest-dom@5.16.5':
     dependencies:
       '@adobe/css-tools': 4.0.1
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.4
       '@types/testing-library__jest-dom': 5.14.5
       aria-query: 5.1.3
       chalk: 3.0.0
@@ -29011,7 +29016,7 @@ snapshots:
 
   '@testing-library/react@13.4.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.4
       '@testing-library/dom': 8.19.0
       '@types/react-dom': 18.3.7(@types/react@17.0.52)
       react: 18.2.0
@@ -29021,12 +29026,12 @@ snapshots:
 
   '@testing-library/user-event@13.5.0(@testing-library/dom@8.19.0)':
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.4
       '@testing-library/dom': 8.19.0
 
   '@testing-library/user-event@13.5.0(@testing-library/dom@9.3.4)':
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.4
       '@testing-library/dom': 9.3.4
 
   '@testing-library/user-event@14.6.1(@testing-library/dom@9.3.4)':
@@ -37931,7 +37936,7 @@ snapshots:
 
   polished@4.2.2:
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.4
 
   possible-typed-array-names@1.0.0: {}
 

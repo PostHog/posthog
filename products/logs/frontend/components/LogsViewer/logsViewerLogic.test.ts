@@ -326,4 +326,34 @@ describe('logsViewerLogic', () => {
             })
         })
     })
+
+    describe('timezone', () => {
+        beforeEach(() => {
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
+        })
+
+        it('defaults to UTC', () => {
+            expect(logic.values.timezone).toBe('UTC')
+        })
+
+        it('sets timezone to IANA string', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTimezone('America/New_York')
+            }).toMatchValues({
+                timezone: 'America/New_York',
+            })
+        })
+
+        it('sets timezone back to UTC', async () => {
+            logic.actions.setTimezone('Europe/London')
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setTimezone('UTC')
+            }).toMatchValues({
+                timezone: 'UTC',
+            })
+        })
+    })
 })
