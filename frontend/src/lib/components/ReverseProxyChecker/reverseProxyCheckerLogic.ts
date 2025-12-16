@@ -33,7 +33,10 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         AND event IN ('$pageview', '$screen')
                         LIMIT 10`
 
-                    const res = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query)
+                    const res = await api.queryHogQL(query, {
+                        scene: 'Onboarding',
+                        productKey: 'platform_and_support',
+                    })
                     return !!res.results?.find((x) => !!x[0])
                 },
             },

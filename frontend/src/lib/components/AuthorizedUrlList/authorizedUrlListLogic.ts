@@ -250,7 +250,10 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                         order by count() desc
                     limit 25`
 
-                const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query)
+                const response = await api.queryHogQL(query, {
+                    scene: 'Settings',
+                    productKey: 'platform_and_support',
+                })
                 const result = response.results as [string, number][]
 
                 if (result && result.length === 0) {

@@ -98,7 +98,11 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                         ORDER BY latest_timestamp DESC
                         limit 10`
 
-                    const res = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, { refresh: 'force_blocking' })
+                    const res = await api.queryHogQL(
+                        query,
+                        { scene: 'Settings', productKey: 'platform_and_support' },
+                        { refresh: 'force_blocking' }
+                    )
 
                     return (
                         res.results

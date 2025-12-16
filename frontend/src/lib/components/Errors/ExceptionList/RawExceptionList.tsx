@@ -28,8 +28,7 @@ export function RawExceptionList({
         if (!hasInAppFrames) {
             setShowAllFrames(true)
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hasInAppFrames])
+    }, [hasInAppFrames, setShowAllFrames])
 
     return (
         <div className={cn('flex flex-col gap-y-2', className)}>

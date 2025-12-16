@@ -29,7 +29,11 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                         AND instance_id = ${values.instanceId}`
 
                     // NOTE: I think this gets cached heavily - how to correctly invalidate?
-                    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, { refresh: 'force_blocking' })
+                    const response = await api.queryHogQL(
+                        query,
+                        { scene: 'SidePanel', productKey: 'platform_and_support' },
+                        { refresh: 'force_blocking' }
+                    )
                     const result = response.results as number[][]
                     return {
                         views: result[0][0],
@@ -50,7 +54,11 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                         AND timestamp >= NOW() - INTERVAL 30 DAY
                         ORDER BY timestamp DESC`
 
-                    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, { refresh: 'force_blocking' })
+                    const response = await api.queryHogQL(
+                        query,
+                        { scene: 'SidePanel', productKey: 'platform_and_support' },
+                        { refresh: 'force_blocking' }
+                    )
                     return response.results.map((result) => result[0]) as string[]
                 },
             },
