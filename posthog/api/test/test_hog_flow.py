@@ -392,3 +392,96 @@ class TestHogFlowAPI(APIBaseTest):
             "detail": "Event filters are not allowed in conditionals",
             "type": "validation_error",
         }
+
+    def test_hog_flow_batch_trigger_valid_filters(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": {
+                    "properties": [{"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}]
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Batch Flow",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["trigger"]["type"] == "batch"
+        assert response.json()["trigger"]["filters"]["properties"][0]["key"] == "email"
+
+    def test_hog_flow_batch_trigger_without_filters(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Batch Flow",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+
+    def test_hog_flow_batch_trigger_filters_not_dict(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": "not a dict",
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Batch Flow",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__0__filters",
+            "code": "invalid_input",
+            "detail": "Filters must be a dictionary.",
+            "type": "validation_error",
+        }
+
+    def test_hog_flow_batch_trigger_properties_not_array(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": {
+                    "properties": "not an array",
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Batch Flow",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__0__filters__properties",
+            "code": "invalid_input",
+            "detail": "Properties must be an array.",
+            "type": "validation_error",
+        }

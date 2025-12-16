@@ -74,7 +74,14 @@ class HogFlowActionSerializer(serializers.Serializer):
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
             elif data.get("config", {}).get("type") == "batch":
-                pass
+                filters = data.get("config", {}).get("filters", {})
+                if not filters:
+                    raise serializers.ValidationError({"filters": "Filters are required for batch triggers."})
+                if not isinstance(filters, dict):
+                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                properties = filters.get("properties", None)
+                if properties is not None and not isinstance(properties, list):
+                    raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
             else:
                 raise serializers.ValidationError({"config": "Invalid trigger type"})
 

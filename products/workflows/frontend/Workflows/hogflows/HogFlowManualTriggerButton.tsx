@@ -5,6 +5,7 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { humanFriendlyNumber } from 'lib/utils'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
@@ -39,7 +40,7 @@ const TriggerPopover = ({
             case 'manual':
                 return 'Run workflow'
             case 'batch': {
-                const forBlastRadius = blastRadius ? `for ${blastRadius.users_affected} users` : ''
+                const forBlastRadius = blastRadius ? `for ${humanFriendlyNumber(blastRadius.users_affected)} users` : ''
                 if (isScheduleTrigger) {
                     return `Schedule workflow ${forBlastRadius}`
                 }
