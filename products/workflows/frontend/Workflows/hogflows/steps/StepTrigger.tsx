@@ -367,7 +367,7 @@ function StepTriggerConfigurationTrackingPixel({
         workflow.id !== 'new' ? `${publicWebhooksHostOrigin()}/public/webhooks/${workflow.id}` : null
 
     const trackingPixelHtml = trackingPixelUrl
-        ? `<img
+        ? `<img 
     src="${trackingPixelUrl}.gif"
     width="1" height="1" style="display:none;" alt=""
 />`
