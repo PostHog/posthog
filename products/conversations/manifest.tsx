@@ -98,7 +98,7 @@ export const manifest: ProductManifest = {
             href: urls.conversationsTickets(),
             type: 'chat',
             flag: FEATURE_FLAGS.PRODUCT_TOURS,
-            tags: ['beta'],
+            tags: ['alpha'],
             iconType: 'chat',
             iconColor: ['var(--color-product-conversations-light)'] as FileSystemIconColor,
             sceneKey: 'ConversationsTickets',
@@ -113,7 +113,7 @@ export const manifest: ProductManifest = {
             href: urls.conversationsTickets(),
             sceneKey: 'ConversationsTickets',
             flag: FEATURE_FLAGS.PRODUCT_TOURS,
-            tags: ['beta'],
+            tags: ['alpha'],
         },
     ],
 }

@@ -8,6 +8,13 @@
             "intents": []
         },
         {
+            "path": "Conversations",
+            "category": "Unreleased",
+            "iconType": "chat",
+            "type": "chat",
+            "intents": ["conversations"]
+        },
+        {
             "path": "Customer analytics",
             "category": "Analytics",
             "iconType": "cohort",
@@ -181,6 +188,7 @@
             "type": null,
             "intents": []
         },
+        { "path": "Conversations", "category": "Unreleased", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Sources",
             "category": "Pipeline",
