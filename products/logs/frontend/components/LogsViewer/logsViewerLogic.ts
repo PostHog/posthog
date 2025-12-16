@@ -34,6 +34,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
 
     actions({
+        // Timezone (IANA string, e.g. "UTC", "America/New_York")
+        setTimezone: (timezone: string) => ({ timezone }),
+
         // Display options
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
         setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
@@ -77,6 +80,11 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         // Attribute breakdowns (per-log)
         toggleAttributeBreakdown: (logId: string, attributeKey: string) => ({ logId, attributeKey }),
 
+        // Attribute columns (show attributes as columns in the log list)
+        toggleAttributeColumn: (attributeKey: string) => ({ attributeKey }),
+        removeAttributeColumn: (attributeKey: string) => ({ attributeKey }),
+        setAttributeColumnWidth: (attributeKey: string, width: number) => ({ attributeKey, width }),
+
         // Row height recomputation (triggered by child components when content changes)
         recomputeRowHeights: (logIds?: string[]) => ({ logIds }),
     }),
@@ -84,6 +92,16 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     reducers(({ props }) => ({
         // Synced from props via propsChanged
         logs: [props.logs, { setLogs: (_, { logs }) => logs }],
+
+        // Timezone selection (IANA string, persisted)
+        timezone: [
+            'UTC',
+            { persist: true },
+            {
+                setTimezone: (_, { timezone }) => timezone,
+            },
+        ],
+
         wrapBody: [
             true,
             { persist: true },
@@ -177,6 +195,34 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             },
         ],
 
+        // Attribute columns shown in log list
+        attributeColumns: [
+            [] as string[],
+            { persist: true },
+            {
+                toggleAttributeColumn: (state, { attributeKey }) => {
+                    if (state.includes(attributeKey)) {
+                        return state.filter((k: string) => k !== attributeKey)
+                    }
+                    return [...state, attributeKey]
+                },
+                removeAttributeColumn: (state, { attributeKey }) => state.filter((k: string) => k !== attributeKey),
+            },
+        ],
+
+        // Attribute column widths (user-resizable)
+        attributeColumnWidths: [
+            {} as Record<string, number>,
+            { persist: true },
+            {
+                setAttributeColumnWidth: (state, { attributeKey, width }) => ({ ...state, [attributeKey]: width }),
+                removeAttributeColumn: (state, { attributeKey }) => {
+                    const { [attributeKey]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
+
         // Tracks requests to recompute row heights - VirtualizedLogsList watches this
         recomputeRowHeightsRequest: [
             null as { logIds?: string[]; timestamp: number } | null,
@@ -232,6 +278,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         ],
 
         logsCount: [(s) => [s.logs], (logs: ParsedLogMessage[]): number => logs.length],
+
+        isAttributeColumn: [
+            (s) => [s.attributeColumns],
+            (attributeColumns: string[]) =>
+                (attributeKey: string): boolean =>
+                    attributeColumns.includes(attributeKey),
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({

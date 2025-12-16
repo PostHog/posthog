@@ -262,8 +262,11 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         # Merge message chunks
         self._chunks[run_id] = merge_message_chunk(self._chunks[run_id], message)
 
-        # Stream ephemeral message (no ID = not persisted)
-        return normalize_ai_message(self._chunks[run_id])
+        # Stream ephemeral messages (no ID = not persisted).
+        # normalize_ai_message() returns a list when server_tool_use blocks are present,
+        # but we only stream the latest message for incremental updates
+        messages = normalize_ai_message(self._chunks[run_id])
+        return messages[-1] if messages else None
 
     async def _handle_node_end(
         self, event: AssistantDispatcherEvent, action: NodeEndAction

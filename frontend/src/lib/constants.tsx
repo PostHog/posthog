@@ -214,6 +214,7 @@ export const FEATURE_FLAGS = {
     // Temporary feature flags, still WIP, should be removed eventually
     AA_TEST_BAYESIAN_LEGACY: 'aa-test-bayesian-legacy', // owner: #team-experiments
     AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
+    ACTIVITY_EVENT_BANNER_WORDING: 'activity-event-banner-wording', // owner: @arthurdedeus #team-customer-analytics
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AGENT_MODES: 'phai-agent-modes', // owner: @skoob13 #team-posthog-ai
     AI_ONLY_MODE: 'ai-only-mode', // owner: #team-posthog-ai
@@ -268,10 +269,12 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_SUMMARIZATION: 'llm-analytics-summarization', // owner: #team-llm-analytics
     LLM_ANALYTICS_TEXT_VIEW: 'llm-analytics-text-view', // owner: #team-llm-analytics
     LLM_ANALYTICS_TRANSLATION: 'llm-analytics-translation', // owner: #team-llm-analytics
+    LLM_ANALYTICS_PROMPTS: 'llm-analytics-prompts', // owner: #team-llm-analytics
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-analytics
     LOGS_PRE_EARLY_ACCESS: 'logs-internal', // owner: #team-logs
     LOGS_VIRTUALIZED_LIST: 'logs-virtualized-list', // owner: #team-logs
     LOGS: 'logs', // owner: #team-logs
+    MANAGE_INSIGHTS_THROUGH_TERRAFORM: 'manage-insights-through-terraform', // owner: @vasco #team-analytics-platform
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
@@ -281,6 +284,7 @@ export const FEATURE_FLAGS = {
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
+    PHAI_WEB_SEARCH: 'phai-web-search', // owner: @Twixes #team-posthog-ai
     PRODUCT_ANALYTICS_DASHBOARD_TILE_OVERRIDES: 'dashboard-tile-overrides', // owner: @gesh #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE: 'date-picker-explicit-date-toggle', // owner: @gesh #team-product-analytics
@@ -298,11 +302,10 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG: 'posthog-ai-conversation-feedback-config', // owner: #team-posthog-ai
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
     POSTHOG_AI_FEEDBACK_COMMAND: 'posthog-ai-feedback-command', // owner: #team-posthog-ai
-    POSTHOG_AI_GENERAL_AVAILABILITY: 'posthog-ai-general-availability', // owner: #team-posthog-ai
+    POSTHOG_AI_TICKET_COMMAND: 'posthog-ai-ticket-command', // owner: #team-posthog-ai
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
-    REPLAY_DISCARD_RAW_SNAPSHOTS: 'replay-discard-raw-snapshots', // owner: @pauldambra #team-replay
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
     REPLAY_NEW_DETECTED_URL_COLLECTIONS: 'replay-new-detected-url-collections', // owner: @ksvat #team-replay multivariate=true
     REPLAY_WAIT_FOR_FULL_SNAPSHOT_PLAYBACK: 'replay-wait-for-full-snapshot-playback', // owner: @ksvat #team-replay
@@ -314,18 +317,19 @@ export const FEATURE_FLAGS = {
     SESSIONS_EXPLORER: 'sessions-explorer', // owner: @jabahamondes #team-web-analytics
     SHOPIFY_DWH: 'shopify-dwh', // owner: @andrew #team-data-stack
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
+    SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
     SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
     SURVEYS_EXPERIMENTS_CROSS_SELL: 'surveys-experiments-cross-sell', // owner: @adboio #team-surveys
     SURVEYS_FF_CROSS_SELL: 'surveys-ff-cross-sell', // owner: @adboio #team-surveys
     SURVEYS_FUNNELS_CROSS_SELL: 'survey-funnels-cross-sell', // owner: @adboio #team-surveys
     SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate=true
+    SURVEYS_WEB_ANALYTICS_CROSS_SELL: 'surveys-in-web-analytics', // owner: @adboio #team-surveys
     SWITCH_SUBSCRIPTION_PLAN: 'switch-subscription-plan', // owner: @a-lider #team-platform-features
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-llm-analytics
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
-    USE_TEMPORAL_SUBSCRIPTIONS: 'use-temporal-subscriptions', // owner: @aspicer #team-analytics-platform
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
