@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import Papa from 'papaparse'
 
 import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -87,6 +88,16 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         // Row height recomputation (triggered by child components when content changes)
         recomputeRowHeights: (logIds?: string[]) => ({ logIds }),
+
+        // Multi-select
+        toggleSelectLog: (logId: string) => ({ logId }),
+        setSelectedLogIds: (selectedLogIds: Record<string, boolean>) => ({ selectedLogIds }),
+        selectLogRange: (fromIndex: number, toIndex: number) => ({ fromIndex, toIndex }),
+        selectAll: (logsToSelect?: ParsedLogMessage[]) => ({ logsToSelect }),
+        clearSelection: true,
+        copySelectedLogs: true,
+        exportSelectedAsJson: true,
+        exportSelectedAsCsv: true,
     }),
 
     reducers(({ props }) => ({
@@ -230,6 +241,23 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 recomputeRowHeights: (_, { logIds }) => ({ logIds, timestamp: Date.now() }),
             },
         ],
+
+        // Multi-select state
+        selectedLogIds: [
+            {} as Record<string, boolean>,
+            {
+                toggleSelectLog: (state, { logId }) => {
+                    if (state[logId]) {
+                        const { [logId]: _, ...rest } = state
+                        return rest
+                    }
+                    return { ...state, [logId]: true }
+                },
+                setSelectedLogIds: (_, { selectedLogIds }) => selectedLogIds,
+                clearSelection: () => ({}),
+                setLogs: () => ({}), // Clear selection when logs change
+            },
+        ],
     })),
 
     propsChanged(({ actions, props }, oldProps) => {
@@ -284,6 +312,17 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             (attributeColumns: string[]) =>
                 (attributeKey: string): boolean =>
                     attributeColumns.includes(attributeKey),
+        ],
+
+        // Selection selectors
+        isSelectionActive: [
+            (s) => [s.selectedLogIds],
+            (selectedLogIds): boolean => Object.keys(selectedLogIds).length > 0,
+        ],
+        selectedCount: [(s) => [s.selectedLogIds], (selectedLogIds): number => Object.keys(selectedLogIds).length],
+        selectedLogsArray: [
+            (s) => [s.selectedLogIds, s.logs],
+            (selectedLogIds, logs): ParsedLogMessage[] => logs.filter((log) => selectedLogIds[log.uuid]),
         ],
     }),
 
@@ -412,6 +451,69 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 url.searchParams.set('initialLogsLimit', String(values.logsCount))
             }
             void copyToClipboard(url.toString(), 'link to log')
+        },
+        copySelectedLogs: () => {
+            const selectedLogs = values.selectedLogsArray
+            const text = selectedLogs.map((log) => log.body).join('\n')
+            void copyToClipboard(text, `${selectedLogs.length} log message${selectedLogs.length === 1 ? '' : 's'}`)
+        },
+        selectLogRange: ({ fromIndex, toIndex }) => {
+            const minIndex = Math.min(fromIndex, toIndex)
+            const maxIndex = Math.max(fromIndex, toIndex)
+            const newSelection: Record<string, boolean> = { ...values.selectedLogIds }
+            for (let i = minIndex; i <= maxIndex; i++) {
+                const log = values.logs[i]
+                if (log) {
+                    newSelection[log.uuid] = true
+                }
+            }
+            actions.setSelectedLogIds(newSelection)
+        },
+        selectAll: ({ logsToSelect }) => {
+            const logs = logsToSelect ?? values.logs
+            const newSelection: Record<string, boolean> = {}
+            for (const log of logs) {
+                newSelection[log.uuid] = true
+            }
+            actions.setSelectedLogIds(newSelection)
+        },
+        exportSelectedAsJson: () => {
+            const selectedLogs = values.selectedLogsArray.map((log) => ({
+                timestamp: log.timestamp,
+                observed_timestamp: log.observed_timestamp,
+                severity_text: log.severity_text,
+                body: log.body,
+                attributes: log.attributes,
+                resource_attributes: log.resource_attributes,
+                trace_id: log.trace_id,
+                span_id: log.span_id,
+            }))
+            const json = JSON.stringify(selectedLogs, null, 2)
+            const blob = new Blob([json], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`
+            a.click()
+            URL.revokeObjectURL(url)
+        },
+        exportSelectedAsCsv: () => {
+            const selectedLogs = values.selectedLogsArray
+            const headers = ['timestamp', 'severity', ...values.attributeColumns, 'body']
+            const rows = selectedLogs.map((log) => [
+                log.timestamp,
+                log.severity_text,
+                ...values.attributeColumns.map((col) => log.attributes[col] ?? log.resource_attributes[col] ?? ''),
+                log.body,
+            ])
+            const csv = Papa.unparse([headers, ...rows])
+            const blob = new Blob([csv], { type: 'text/csv' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`
+            a.click()
+            URL.revokeObjectURL(url)
         },
     })),
 
