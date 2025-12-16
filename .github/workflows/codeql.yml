@@ -18,6 +18,9 @@ on:
         branches: ['master']
     schedule:
         - cron: '38 19 * * 1'
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 jobs:
     analyze:

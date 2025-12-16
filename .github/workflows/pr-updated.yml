@@ -6,6 +6,9 @@ on:
             - opened
             - edited
             - synchronize
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 jobs:
     lint-pr:

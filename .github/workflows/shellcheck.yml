@@ -3,6 +3,9 @@ name: shellcheck
 on:
     pull_request:
     merge_group:
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 permissions:
     contents: read

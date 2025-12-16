@@ -5,6 +5,9 @@ on:
         paths:
             - common/hogql_parser/**
             - .github/workflows/build-hogql-parser.yml
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}

@@ -16,6 +16,9 @@ on:
         paths:
             - terraform/**/*
             - .github/workflows/terragrunt-posthog.yaml
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 concurrency:
     group: terragrunt-posthog-${{ github.ref }}

@@ -21,7 +21,10 @@ on:
     check_suite:
         types:
             - completed
-    status: {}
+    status:
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 jobs:
     automerge:

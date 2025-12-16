@@ -5,6 +5,9 @@ on:
         branches: [master, main]
     pull_request:
     merge_group:
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 env:
     CARGO_TERM_COLOR: always

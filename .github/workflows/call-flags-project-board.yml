@@ -6,6 +6,9 @@ name: Call Feature Flags Project Workflow
 on:
     pull_request:
         types: [opened, ready_for_review, review_requested, synchronize, converted_to_draft, reopened]
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 jobs:
     call-flags-project:

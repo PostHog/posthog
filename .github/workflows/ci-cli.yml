@@ -6,6 +6,9 @@ on:
         paths:
             - 'cli/**'
             - '.github/workflows/ci-cli.yml'
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 jobs:
     check-lockfile:

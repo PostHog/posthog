@@ -8,6 +8,9 @@ on:
         paths:
             - 'ee/hogai/**'
             - '.github/workflows/ci-ai.yml'
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}

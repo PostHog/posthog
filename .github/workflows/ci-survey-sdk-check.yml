@@ -4,6 +4,9 @@ on:
     pull_request:
         paths:
             - 'frontend/src/scenes/surveys/**'
+    # allow this to be triggered after committing with the GITHUB_TOKEN
+    repository_dispatch:
+        types: [pr-update]
 
 permissions:
     contents: read
