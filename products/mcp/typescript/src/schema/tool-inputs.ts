@@ -7,6 +7,11 @@ import {
     UpdateDashboardInputSchema,
 } from './dashboards'
 import { ErrorDetailsSchema, ListErrorsSchema } from './errors'
+import {
+    LogsQueryInputSchema,
+    LogsListAttributesInputSchema,
+    LogsListAttributeValuesInputSchema,
+} from './logs'
 import { FilterGroupsSchema, UpdateFeatureFlagInputSchema } from './flags'
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
 import { InsightQuerySchema } from './query'
@@ -382,3 +387,5 @@ export const SurveyUpdateSchema = UpdateSurveyInputSchema.extend({
 export const QueryRunInputSchema = z.object({
     query: InsightQuerySchema,
 })
+
+export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeValuesInputSchema }

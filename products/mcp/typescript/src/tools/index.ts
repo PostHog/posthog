@@ -17,6 +17,10 @@ import searchDocs from './documentation/searchDocs'
 // Error Tracking
 import errorDetails from './errorTracking/errorDetails'
 import listErrors from './errorTracking/listErrors'
+// Logs
+import logsQuery from './logs/query'
+import logsListAttributes from './logs/listAttributes'
+import logsListAttributeValues from './logs/listAttributeValues'
 // Experiments
 import createExperiment from './experiments/create'
 import deleteExperiment from './experiments/delete'
@@ -89,6 +93,11 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Error Tracking
     'list-errors': listErrors,
     'error-details': errorDetails,
+
+    // Logs
+    'logs-query': logsQuery,
+    'logs-list-attributes': logsListAttributes,
+    'logs-list-attribute-values': logsListAttributeValues,
 
     // Experiments
     'experiment-get-all': getAllExperiments,
