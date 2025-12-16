@@ -862,3 +862,34 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.data["page"] == 1  # Default value
         assert response.data["limit"] == 10  # Default value
+
+    def test_response_serializer_instance(self):
+        """Response serializer can be provided as instance (e.g., MySerializer()), too"""
+
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer()),  # Instance
+            },
+        )
+        def mock_endpoint(view_self, request):
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": request.validated_data["distinct_id"],
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["status"] == "ok"
+        assert response.data["distinct_id"] == "user_123"

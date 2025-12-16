@@ -172,7 +172,7 @@ export function LogRow({
 
                 {/* Attribute columns */}
                 {attributeColumns.map((attributeKey) => {
-                    const attrValue = log.attributes[attributeKey]
+                    const attrValue = log.attributes[attributeKey] ?? log.resource_attributes[attributeKey]
                     return (
                         <AttributeCell
                             key={attributeKey}

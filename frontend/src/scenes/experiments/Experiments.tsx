@@ -19,6 +19,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -29,7 +30,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -257,7 +258,14 @@ const ExperimentsTable = ({
                                 </LemonButton>
                                 <ExperimentSurveyButton
                                     experiment={experiment}
-                                    onOpenModal={() => openSurveyModal(experiment)}
+                                    onOpenModal={() => {
+                                        openSurveyModal(experiment)
+                                        void addProductIntentForCrossSell({
+                                            from: ProductKey.EXPERIMENTS,
+                                            to: ProductKey.SURVEYS,
+                                            intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
+                                        })
+                                    }}
                                 />
                                 {!experiment.archived &&
                                     experiment?.end_date &&

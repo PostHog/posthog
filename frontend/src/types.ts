@@ -422,6 +422,8 @@ export interface OrganizationBasicType {
     membership_level: OrganizationMembershipLevel | null
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
+    is_active: boolean | null
+    is_not_active_reason: string | null
 }
 
 interface OrganizationMetadata {
@@ -3664,6 +3666,13 @@ export enum ScheduledChangeOperationType {
     UpdateVariants = 'update_variants',
 }
 
+// Keep in sync with posthog/models/scheduled_change.py RecurrenceInterval
+export enum RecurrenceInterval {
+    Daily = 'daily',
+    Weekly = 'weekly',
+    Monthly = 'monthly',
+}
+
 export type ScheduledChangePayload =
     | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
     | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
@@ -3683,6 +3692,10 @@ export interface ScheduledChangeType {
     failure_reason: string | null
     created_at: string | null
     created_by: UserBasicType
+    is_recurring: boolean
+    recurrence_interval: RecurrenceInterval | null
+    last_executed_at: string | null
+    end_date: string | null
 }
 
 export interface PrevalidatedInvite {
@@ -4676,6 +4689,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'llm_prompt'
     | 'llm_provider_key'
     | 'logs'
     | 'notebook'
@@ -6150,6 +6164,17 @@ export interface DatasetItem {
     created_by: UserBasicType
     updated_at: string
     created_at: string
+    deleted: boolean
+}
+
+export interface LLMPrompt {
+    id: string
+    name: string
+    prompt: string
+    version: number
+    created_by: UserBasicType
+    created_at: string
+    updated_at: string
     deleted: boolean
 }
 

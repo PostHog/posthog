@@ -123,6 +123,7 @@ from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
+from .llm_prompt import LLMPromptViewSet
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
 
@@ -268,6 +269,13 @@ environments_router.register(
     r"column_configurations",
     ColumnConfigurationViewSet,
     "environment_column_configurations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_prompts",
+    LLMPromptViewSet,
+    "environment_llm_prompts",
     ["team_id"],
 )
 
