@@ -19,6 +19,8 @@ describe('useCaseSelectionLogic', () => {
         jest.spyOn(posthog, 'capture')
         logic = useCaseSelectionLogic()
         logic.mount()
+        // Clear mocks after mount to ignore the 'onboarding started' event
+        jest.clearAllMocks()
     })
 
     describe('selectUseCase', () => {
@@ -50,11 +52,16 @@ describe('useCaseSelectionLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.selectUseCase('pick_myself')
             })
+                .toDispatchActions(eventUsageLogic, ['reportOnboardingUseCaseSkipped'])
+                .toFinishListeners()
+
+            await expectLogic(eventUsageLogic).toFinishListeners()
 
             expect(router.values.location.pathname).toContain('/products')
             expect(router.values.searchParams.useCase).toBe('pick_myself')
-            // pick_myself should NOT trigger the analytics event
-            expect(posthog.capture).not.toHaveBeenCalled()
+            // pick_myself should NOT trigger the 'use case selected' event, but should trigger 'use case skipped'
+            expect(posthog.capture).toHaveBeenCalledWith('onboarding use case skipped')
+            expect(posthog.capture).not.toHaveBeenCalledWith('onboarding use case selected', expect.anything())
         })
 
         it('handles different use cases', async () => {

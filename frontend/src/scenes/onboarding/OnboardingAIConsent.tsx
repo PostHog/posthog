@@ -40,6 +40,8 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
     return (
         <OnboardingStep stepKey={stepKey} title="Activate PostHog AI" onContinue={handleContinue}>
             <HogfettiComponent />
+            <FlappyHog isOpen={showFlappyHog} onClose={() => setShowFlappyHog(false)} />
+
             <div className="mt-6">
                 <div className="flex items-start gap-6 mb-8">
                     <div
@@ -49,7 +51,6 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                     >
                         <RobotHog className="w-full h-auto" />
                     </div>
-                    <FlappyHog isOpen={showFlappyHog} onClose={() => setShowFlappyHog(false)} />
                     <div className="flex-1">
                         <div className="flex items-center gap-2 mb-3">
                             <IconSparkles className="text-2xl text-warning" />

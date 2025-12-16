@@ -17,7 +17,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -70,6 +70,7 @@ import {
     PropertyOperator,
     QueryBasedInsightModel,
     RecordingUniversalFilters,
+    RecurrenceInterval,
     RolloutConditionType,
     ScheduledChangeOperationType,
     ScheduledChangeType,
@@ -379,6 +380,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             payloads?: Record<string, any> | null
         ) => ({ filters, active, errors, variants, payloads }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
+        setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
+        setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
+        setEndDate: (endDate: Dayjs | null) => ({ endDate }),
+        stopRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
+        resumeRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
@@ -677,6 +683,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setScheduledChangeOperation: (_, { changeType }) => changeType,
             },
         ],
+        isRecurring: [
+            false,
+            {
+                setIsRecurring: (_, { isRecurring }) => isRecurring,
+                // Reset when operation changes away from UpdateStatus
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : false,
+            },
+        ],
+        recurrenceInterval: [
+            null as RecurrenceInterval | null,
+            {
+                setRecurrenceInterval: (_, { interval }) => interval,
+                // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
+            },
+        ],
+        endDate: [
+            null as Dayjs | null,
+            {
+                setEndDate: (_, { endDate }) => endDate,
+                // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
+            },
+        ],
     }),
     sharedListeners(({ values }) => ({
         checkDependentFlagsAndConfirm: async (payload: {
@@ -924,6 +957,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        // Separate loader for toggling active state - has its own loading state so it doesn't show skeleton
+        featureFlagActiveUpdate: [
+            null as FeatureFlagType | null,
+            {
+                updateFeatureFlagActive: async (active: boolean) => {
+                    if (!values.featureFlag.id) {
+                        throw new Error('Cannot toggle active state of unsaved flag')
+                    }
+                    const savedFlag = await api.update(
+                        `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
+                        { active }
+                    )
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
+                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                },
+            },
+        ],
         relatedInsights: [
             [] as QueryBasedInsightModel[],
             {
@@ -1086,6 +1136,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             value: payloadValue,
                         },
                         scheduled_at: scheduleDateMarker.toISOString(),
+                        is_recurring: values.isRecurring,
+                        recurrence_interval: values.recurrenceInterval,
+                        // Use end-of-day in project timezone to ensure consistent behavior
+                        // across all users in the project
+                        end_date: values.endDate
+                            ? values.endDate
+                                  .tz(values.currentTeam?.timezone || 'UTC')
+                                  .endOf('day')
+                                  .toISOString()
+                            : null,
                     }
 
                     return await api.featureFlags.createScheduledChange(currentProjectId, data)
@@ -1142,12 +1202,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         submitFeatureFlagFailure: async () => {
             scrollToFormError()
         },
+        updateFeatureFlagActiveFailure: ({ error }) => {
+            lemonToast.error(`Failed to toggle flag: ${error}`)
+        },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
+        },
+        updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
+            if (featureFlagActiveUpdate) {
+                lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
+                actions.setFeatureFlag(featureFlagActiveUpdate)
+                actions.updateFlag(featureFlagActiveUpdate)
+            }
         },
         saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Release conditions updated')
@@ -1275,6 +1345,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
+                actions.setIsRecurring(false)
+                actions.setRecurrenceInterval(null)
+                actions.setEndDate(null)
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
             }
@@ -1318,6 +1391,34 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (scheduledChange) {
                 lemonToast.success('Change has been deleted')
                 actions.loadScheduledChanges()
+            }
+        },
+        stopRecurringScheduledChange: async ({ scheduledChangeId }) => {
+            const { currentProjectId } = values
+            if (currentProjectId) {
+                try {
+                    await api.featureFlags.updateScheduledChange(currentProjectId, scheduledChangeId, {
+                        is_recurring: false,
+                    })
+                    lemonToast.success('Recurring schedule has been paused')
+                    actions.loadScheduledChanges()
+                } catch {
+                    lemonToast.error('Failed to pause recurring schedule')
+                }
+            }
+        },
+        resumeRecurringScheduledChange: async ({ scheduledChangeId }) => {
+            const { currentProjectId } = values
+            if (currentProjectId) {
+                try {
+                    await api.featureFlags.updateScheduledChange(currentProjectId, scheduledChangeId, {
+                        is_recurring: true,
+                    })
+                    lemonToast.success('Recurring schedule has been resumed')
+                    actions.loadScheduledChanges()
+                } catch {
+                    lemonToast.error('Failed to resume recurring schedule')
+                }
             }
         },
         setRemoteConfigEnabled: ({ enabled }) => {
@@ -1367,7 +1468,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     originalFlag: values.originalFeatureFlag,
                     updatedFlag,
                     onConfirm: () => {
-                        actions.saveFeatureFlag(updatedFlag)
+                        actions.updateFeatureFlagActive(active)
                     },
                 },
                 breakpoint,

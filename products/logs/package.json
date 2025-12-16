@@ -10,7 +10,11 @@
         "@posthog/icons": "*",
         "@posthog/products-error-tracking": "workspace:*",
         "@storybook/react": "*",
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
+        "@types/react-virtualized": "*",
         "ansi-colors": "*",
         "classnames": "*",
         "clsx": "*",
@@ -19,8 +23,12 @@
         "jest": "*",
         "prettier": "*",
         "react": "*",
+        "react-virtualized": "*",
         "stylelint": "*",
         "typescript": "*",
         "use-debounce": "*"
+    },
+    "devDependencies": {
+        "kea-test-utils": "*"
     }
 }

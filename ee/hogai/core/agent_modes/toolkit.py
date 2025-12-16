@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Sequence
-from typing import TYPE_CHECKING, ClassVar, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import structlog
 from langchain_core.messages import BaseMessage
@@ -37,11 +37,11 @@ logger = structlog.get_logger(__name__)
 
 
 class AgentToolkit:
-    POSITIVE_TODO_EXAMPLES: ClassVar[Sequence["TodoWriteExample"] | None] = None
+    POSITIVE_TODO_EXAMPLES: Sequence["TodoWriteExample"] | None = None
     """
     Positive examples that will be injected into the `todo_write` tool. Use this field to explain the agent how it should orchestrate complex tasks using provided tools.
     """
-    NEGATIVE_TODO_EXAMPLES: ClassVar[Sequence["TodoWriteExample"] | None] = None
+    NEGATIVE_TODO_EXAMPLES: Sequence["TodoWriteExample"] | None = None
     """
     Negative examples that will be injected into the `todo_write` tool. Use this field to explain the agent how it should **NOT** orchestrate tasks using provided tools.
     """
@@ -94,13 +94,19 @@ class AgentToolkitManager:
         cls._mode_toolkit = mode_toolkit
         cls._mode_registry = mode_registry
 
-    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
-        # Processed tools
-        available_tools: list[MaxTool] = []
+    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool | dict[str, Any]"]:
+        toolkits: list[type[AgentToolkit]] = [self._agent_toolkit, self._mode_toolkit]
+
+        # Accumulate positive and negative examples from all toolkits
+        positive_examples: list[TodoWriteExample] = []
+        negative_examples: list[TodoWriteExample] = []
+        for toolkit_class in toolkits:
+            positive_examples.extend(toolkit_class.POSITIVE_TODO_EXAMPLES or [])
+            negative_examples.extend(toolkit_class.NEGATIVE_TODO_EXAMPLES or [])
 
         # Initialize the static toolkit
         static_tools: list[Awaitable[MaxTool]] = []
-        for toolkit_class in [self._agent_toolkit, self._mode_toolkit]:
+        for toolkit_class in toolkits:
             toolkit = toolkit_class(team=self._team, user=self._user, context_manager=self._context_manager)
             for tool_class in toolkit.tools:
                 if tool_class is TodoWriteTool:
@@ -112,8 +118,8 @@ class AgentToolkitManager:
                         state=state,
                         config=config,
                         context_manager=self._context_manager,
-                        positive_examples=toolkit.POSITIVE_TODO_EXAMPLES,
-                        negative_examples=toolkit.NEGATIVE_TODO_EXAMPLES,
+                        positive_examples=positive_examples,
+                        negative_examples=negative_examples,
                     )
                     static_tools.append(todo_future)
                 elif tool_class == SwitchModeTool:
@@ -138,6 +144,5 @@ class AgentToolkitManager:
                         context_manager=self._context_manager,
                     )
                     static_tools.append(tool_future)
-        available_tools.extend(await asyncio.gather(*static_tools))
 
-        return available_tools
+        return await asyncio.gather(*static_tools)

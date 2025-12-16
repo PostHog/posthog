@@ -9,7 +9,7 @@ import { captureException } from '../posthog'
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
 
-export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording' | 'cookieless' | 'cdp'
+export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording' | 'cookieless' | 'cdp' | 'logs'
 
 export function getRedisConnectionOptions(
     serverConfig: PluginsServerConfig,
@@ -75,6 +75,18 @@ export function getRedisConnectionOptions(
                       },
                   }
                 : fallback
+        case 'logs':
+            return serverConfig.LOGS_REDIS_HOST
+                ? {
+                      url: serverConfig.LOGS_REDIS_HOST,
+                      options: {
+                          port: serverConfig.LOGS_REDIS_PORT,
+                          // TLS is an object that lets you define certificate, ca, etc
+                          // we just want the default config so weirdly we pass empty object to enable it
+                          tls: serverConfig.LOGS_REDIS_TLS ? {} : undefined,
+                      },
+                  }
+                : fallback
     }
 }
 
@@ -94,15 +106,15 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
             errorCounter++
             captureException(error)
             if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
-                logger.error('😡', 'Redis error encountered! Enough of this, I quit!\n', error)
+                logger.error('😡', 'Redis error encountered! url:', url, ' Enough of this, I quit!', error)
                 killGracefully()
             } else {
-                logger.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
+                logger.error('🔴', 'Redis error encountered! url:', url, ' Trying to reconnect...', error)
             }
         })
         .on('ready', () => {
             if (process.env.NODE_ENV !== 'test') {
-                logger.info('✅', 'Connected to Redis!')
+                logger.info('✅', 'Connected to Redis!', url)
             }
         })
     await redis.info()

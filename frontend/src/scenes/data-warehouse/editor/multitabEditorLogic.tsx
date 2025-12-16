@@ -44,6 +44,8 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewEmptyState } from './ViewLoadingState'
 import { draftsLogic } from './draftsLogic'
@@ -157,6 +159,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
+            endpointLogic,
+            ['setIsUpdateMode', 'setSelectedEndpointName'],
         ],
     })),
     actions(() => ({
@@ -230,6 +234,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             queryInput,
             viewId,
         }),
+        syncUrlWithQuery: true,
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -610,7 +615,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: async () => {
             actions.setFinishedLoading(false)
         },
-        setQueryInput: ({ queryInput }) => {
+        setQueryInput: async ({ queryInput }, breakpoint) => {
             // Keep suggestion payload active - let user make edits and then decide to approve/reject
             // if editing a view, track latest history id changes are based on
             if (values.activeTab?.view && values.activeTab?.view.query?.query) {
@@ -623,6 +628,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setInProgressViewEdit(values.activeTab.view.id, values.activeTab.view.latest_history_id)
                 }
             }
+
+            await breakpoint(500)
+
+            actions.syncUrlWithQuery()
         },
         saveDraft: async ({ queryInput, viewId }) => {
             if (values.activeTab) {
@@ -1084,7 +1093,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     }),
     tabAwareActionToUrl(({ values }) => ({
-        setQueryInput: () => {
+        syncUrlWithQuery: () => {
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
         createTab: () => {
@@ -1112,6 +1121,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const createQueryTab = async (): Promise<void> => {
                 if (searchParams.output_tab) {
                     actions.setActiveTab(searchParams.output_tab as OutputTab)
+                }
+                if (searchParams.endpoint_name) {
+                    actions.setIsUpdateMode(true)
+                    actions.setSelectedEndpointName(searchParams.endpoint_name)
                 }
                 if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
                     const draftId = searchParams.open_draft || hashParams.draft

@@ -69,6 +69,16 @@ class AddFieldAnalyzer(OperationAnalyzer):
     def analyze(self, op) -> OperationRisk:
         field = op.field
 
+        # ManyToMany fields don't add a column to the model's table - they create a junction table
+        # So there's no "NOT NULL without default" concern
+        if isinstance(field, models.ManyToManyField):
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="Adding ManyToMany field is safe (creates separate junction table)",
+                details={"model": op.model_name, "field": op.name},
+            )
+
         # Only null=True matters for database safety (blank=True is just form validation)
         if field.null:
             return self._analyze_nullable_field(op)
@@ -86,14 +96,9 @@ class AddFieldAnalyzer(OperationAnalyzer):
             score=1,
             reason="Adding nullable field requires brief lock",
             details={"model": op.model_name, "field": op.name},
-            guidance="""While this operation doesn't rewrite the table, it still acquires an ACCESS EXCLUSIVE lock briefly.
+            guidance="""This operation acquires a brief lock but doesn't rewrite the table.
 
-For high-traffic tables, consider:
-- Deploy during low-traffic periods
-- Monitor lock contention and query timeouts during deployment
-- Have a rollback plan ready
-
-For low-traffic tables, this operation is generally safe to deploy anytime.""",
+Deployment uses lock timeouts with automatic retries, so lock contention will cause retries rather than connection pile-up.""",
         )
 
     def _risk_not_null_no_default(self, op) -> OperationRisk:

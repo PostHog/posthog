@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use common_types::RawEvent;
-use rocksdb::{ColumnFamilyDescriptor, Options, SliceTransform};
+use rocksdb::{ColumnFamilyDescriptor, Options, SliceTransform, WriteBatch};
 use tracing::info;
 
 use crate::metrics::MetricsHelper;
@@ -20,6 +20,19 @@ pub struct DeduplicationStoreConfig {
     pub path: PathBuf,
     // Maximum capacity in bytes
     pub max_capacity: u64,
+}
+
+/// Entry for batch writing timestamp records
+pub struct TimestampBatchEntry<'a> {
+    pub key: &'a [u8],
+    pub value: &'a [u8],
+}
+
+/// Entry for batch writing UUID records (with timestamp for index)
+pub struct UuidBatchEntry<'a> {
+    pub key: &'a [u8],
+    pub value: &'a [u8],
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +113,14 @@ impl DeduplicationResult {
     }
 
     pub fn get_original_event(&self) -> Option<&RawEvent> {
+        match self {
+            DeduplicationResult::ConfirmedDuplicate(_, _, _, original) => Some(original),
+            DeduplicationResult::PotentialDuplicate(_, _, original) => Some(original),
+            _ => None,
+        }
+    }
+
+    pub fn take_original_event(self) -> Option<RawEvent> {
         match self {
             DeduplicationResult::ConfirmedDuplicate(_, _, _, original) => Some(original),
             DeduplicationResult::PotentialDuplicate(_, _, original) => Some(original),
@@ -254,6 +275,42 @@ impl DeduplicationStore {
         Ok(non_duplicated)
     }
 
+    /// Batch get timestamp records
+    pub fn multi_get_timestamp_records(&self, keys: Vec<&[u8]>) -> Result<Vec<Option<Vec<u8>>>> {
+        self.store.multi_get(Self::TIMESTAMP_CF, keys)
+    }
+
+    /// Batch get UUID records
+    pub fn multi_get_uuid_records(&self, keys: Vec<&[u8]>) -> Result<Vec<Option<Vec<u8>>>> {
+        self.store.multi_get(Self::UUID_CF, keys)
+    }
+
+    /// Batch put timestamp records
+    pub fn put_timestamp_records_batch(&self, entries: Vec<TimestampBatchEntry>) -> Result<()> {
+        let raw_entries: Vec<(&[u8], &[u8])> = entries.iter().map(|e| (e.key, e.value)).collect();
+        self.store.put_batch(Self::TIMESTAMP_CF, raw_entries)
+    }
+
+    /// Batch put UUID records (with timestamp index)
+    pub fn put_uuid_records_batch(&self, entries: Vec<UuidBatchEntry>) -> Result<()> {
+        let mut batch = WriteBatch::default();
+        let uuid_cf = self.store.get_cf_handle(Self::UUID_CF)?;
+        let index_cf = self.store.get_cf_handle(Self::UUID_TIMESTAMP_INDEX_CF)?;
+
+        for entry in entries {
+            // Add UUID record
+            batch.put_cf(&uuid_cf, entry.key, entry.value);
+
+            // Add timestamp index
+            let index_key = super::keys::UuidIndexKey::new(entry.timestamp, entry.key.to_vec());
+            let index_key_bytes: Vec<u8> = index_key.into();
+            batch.put_cf(&index_cf, &index_key_bytes, entry.key);
+        }
+
+        self.store.db.write(batch)?;
+        Ok(())
+    }
+
     pub fn cleanup_old_entries(&self) -> Result<u64> {
         // Default to 10% cleanup if no percentage specified
         self.cleanup_old_entries_with_percentage(0.10)
@@ -346,7 +403,6 @@ impl DeduplicationStore {
         // Collect UUID keys to delete first (minimize iterator lifetime)
         let index_cf = self.store.get_cf_handle(Self::UUID_TIMESTAMP_INDEX_CF)?;
         let mut uuid_keys_to_delete = Vec::new();
-        let mut kept_count = 0;
 
         {
             // Scope the iterator to release lock quickly
@@ -359,7 +415,6 @@ impl DeduplicationStore {
                 // Check if this key is within our cleanup range
                 if let Some(timestamp) = UuidIndexKey::parse_timestamp(&index_key) {
                     if timestamp >= cleanup_timestamp {
-                        kept_count += 1;
                         break; // We've reached keys that shouldn't be deleted
                     }
                     // Collect UUID key for batch deletion
@@ -382,8 +437,8 @@ impl DeduplicationStore {
         }
 
         info!(
-            "Store {}:{} - UUID cleanup: deleted {} records, keeping {} records",
-            self.topic, self.partition, deleted_count, kept_count
+            "Store {}:{} - UUID cleanup: deleted {} records",
+            self.topic, self.partition, deleted_count
         );
 
         // Now delete the index entries themselves using range delete (this is efficient as it's timestamp-prefixed)

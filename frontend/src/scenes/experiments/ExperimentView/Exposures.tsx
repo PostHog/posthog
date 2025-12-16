@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { IconCorrelationAnalysis, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, Spinner } from '@posthog/lemon-ui'
 
-import { Chart, ChartConfiguration } from 'lib/Chart'
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { useChart } from 'lib/hooks/useChart'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
 
 import {
@@ -37,95 +37,75 @@ interface ChartDataset {
 }
 
 function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
-    const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const chartRef = useRef<Chart | null>(null)
-
-    useEffect(() => {
-        if (!canvasRef.current || !exposures?.timeseries?.length) {
-            return
-        }
-
-        if (chartRef.current) {
-            chartRef.current.destroy()
-            chartRef.current = null
-        }
-
-        const ctx = canvasRef.current
-        const timeseries = exposures.timeseries
-
-        let datasets = timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
-            data: series.exposure_counts,
-            borderColor: getSeriesColor(index),
-            fill: false,
-            tension: 0.3,
-            borderWidth: 1.5,
-            pointRadius: 0,
-        }))
-
-        // If only one day, pad with a previous day of zeros
-        if (timeseries[0].days.length === 1) {
-            datasets = datasets.map((dataset: ChartDataset) => ({
-                ...dataset,
-                data: [0, ...dataset.data],
-            }))
-        }
-
-        const config: ChartConfiguration = {
-            type: 'line',
-            data: {
-                labels: datasets[0].data.map((_: any, i: number) => i),
-                datasets,
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: {
-                    duration: 0,
-                },
-                scales: {
-                    x: {
-                        display: false,
-                        grid: {
-                            display: false,
-                        },
-                    },
-                    y: {
-                        display: false,
-                        beginAtZero: true,
-                        grid: {
-                            display: false,
-                        },
-                    },
-                },
-                plugins: {
-                    legend: {
-                        display: false,
-                    },
-                    tooltip: {
-                        enabled: false,
-                    },
-                },
-                elements: {
-                    line: {
-                        borderJoinStyle: 'round',
-                    },
-                },
-            },
-        }
-
-        try {
-            chartRef.current = new Chart(ctx, config)
-        } catch (error) {
-            console.error('Error creating microchart:', error)
-        }
-
-        return () => {
-            if (chartRef.current) {
-                chartRef.current.destroy()
-                chartRef.current = null
+    const { canvasRef } = useChart({
+        getConfig: () => {
+            if (!exposures?.timeseries?.length) {
+                return null
             }
-        }
-    }, [exposures])
+
+            const timeseries = exposures.timeseries
+
+            let datasets = timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
+                data: series.exposure_counts,
+                borderColor: getSeriesColor(index),
+                fill: false,
+                tension: 0.3,
+                borderWidth: 1.5,
+                pointRadius: 0,
+            }))
+
+            if (timeseries[0].days.length === 1) {
+                datasets = datasets.map((dataset: ChartDataset) => ({
+                    ...dataset,
+                    data: [0, ...dataset.data],
+                }))
+            }
+
+            return {
+                type: 'line' as const,
+                data: {
+                    labels: datasets[0].data.map((_: any, i: number) => i),
+                    datasets,
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 0,
+                    },
+                    scales: {
+                        x: {
+                            display: false,
+                            grid: {
+                                display: false,
+                            },
+                        },
+                        y: {
+                            display: false,
+                            beginAtZero: true,
+                            grid: {
+                                display: false,
+                            },
+                        },
+                    },
+                    plugins: {
+                        legend: {
+                            display: false,
+                        },
+                        tooltip: {
+                            enabled: false,
+                        },
+                    },
+                    elements: {
+                        line: {
+                            borderJoinStyle: 'round',
+                        },
+                    },
+                },
+            }
+        },
+        deps: [exposures],
+    })
 
     if (!exposures?.timeseries?.length) {
         return null
@@ -162,11 +142,7 @@ export function Exposures(): JSX.Element {
     const { openExposureCriteriaModal } = useActions(modalsLogic)
     const colors = useChartColors()
 
-    const chartRef = useRef<Chart | null>(null)
-    const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [isCollapsed, setIsCollapsed] = useState(true)
-
-    // Calculate total exposures across all variants
 
     let totalExposures = 0
     const variants: Array<{ variant: string; count: number; percentage: number }> = []
@@ -177,7 +153,6 @@ export function Exposures(): JSX.Element {
             totalExposures += Number(count)
         }
 
-        // Calculate percentages for each variant
         for (const series of exposures.timeseries) {
             const count = exposures.total_exposures?.[series.variant] || 0
             variants.push({
@@ -188,15 +163,10 @@ export function Exposures(): JSX.Element {
         }
     }
 
-    const createChart = useCallback(
-        (ctx: HTMLCanvasElement) => {
-            if (chartRef.current) {
-                chartRef.current.destroy()
-                chartRef.current = null
-            }
-
-            if (!exposures?.timeseries?.length) {
-                return
+    const { canvasRef } = useChart({
+        getConfig: () => {
+            if (isCollapsed || !exposures?.timeseries?.length) {
+                return null
             }
 
             let labels = exposures.timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
@@ -211,7 +181,6 @@ export function Exposures(): JSX.Element {
                 pointRadius: 0,
             }))
 
-            // If only one day, pad with a previous day of zeros
             if (exposures.timeseries[0].days.length === 1) {
                 const firstDay = dayjs(exposures.timeseries[0].days[0])
                 const previousDay = firstDay.subtract(1, 'day').format('MM/DD')
@@ -223,8 +192,8 @@ export function Exposures(): JSX.Element {
                 }))
             }
 
-            const config: ChartConfiguration = {
-                type: 'line',
+            return {
+                type: 'line' as const,
                 data: {
                     labels,
                     datasets,
@@ -267,59 +236,17 @@ export function Exposures(): JSX.Element {
                                 pointStyle: 'dash',
                             },
                         },
-                        // @ts-expect-error
                         crosshair: false,
                     },
                 },
             }
-
-            try {
-                chartRef.current = new Chart(ctx, config)
-            } catch (error) {
-                console.error('Error creating chart:', error)
-            }
         },
-        [exposures, colors.EXPOSURES_AXIS_LINES]
-    )
+        deps: [exposures, colors.EXPOSURES_AXIS_LINES, isCollapsed],
+    })
 
-    const canvasRefCallback = useCallback(
-        (node: HTMLCanvasElement | null) => {
-            canvasRef.current = node
-            if (node && exposures?.timeseries?.length && !isCollapsed) {
-                // Small delay to ensure canvas is fully mounted
-                setTimeout(() => createChart(node), 50)
-            }
-        },
-        [exposures, createChart, isCollapsed]
-    )
-
-    useEffect(() => {
-        // Re-create chart when data changes and canvas exists and collapse is open
-        if (canvasRef.current && exposures?.timeseries?.length && !isCollapsed) {
-            createChart(canvasRef.current)
-        }
-    }, [exposures, createChart, isCollapsed])
-
-    const handleCollapseChange = useCallback(
-        (activeKey: string | null) => {
-            const isOpen = activeKey === 'cumulative-exposures'
-            setIsCollapsed(!isOpen)
-
-            // If opening and we have data and canvas, create chart
-            if (isOpen && canvasRef.current && exposures?.timeseries?.length) {
-                setTimeout(() => createChart(canvasRef.current!), 100)
-            }
-        },
-        [exposures, createChart]
-    )
-
-    useEffect(() => {
-        return () => {
-            if (chartRef.current) {
-                chartRef.current.destroy()
-                chartRef.current = null
-            }
-        }
+    const handleCollapseChange = useCallback((activeKey: string | null) => {
+        const isOpen = activeKey === 'cumulative-exposures'
+        setIsCollapsed(!isOpen)
     }, [])
 
     const headerContent = {
@@ -405,7 +332,7 @@ export function Exposures(): JSX.Element {
                                 </div>
                             ) : (
                                 <div className="relative h-[200px]">
-                                    <canvas ref={canvasRefCallback} />
+                                    <canvas ref={canvasRef} />
                                 </div>
                             )}
 

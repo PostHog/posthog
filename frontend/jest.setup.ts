@@ -33,3 +33,10 @@ configure({ testIdAttribute: 'data-attr' })
 
 // Mock DecompressionWorkerManager globally to avoid import.meta.url issues in tests
 jest.mock('scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager')
+
+// Mock posthog-js surveys-preview to avoid ESM import issues in tests
+jest.mock('posthog-js/dist/surveys-preview', () => ({
+    renderFeedbackWidgetPreview: jest.fn(),
+    renderSurveysPreview: jest.fn(),
+    getNextSurveyStep: jest.fn(),
+}))

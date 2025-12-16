@@ -7,117 +7,104 @@ import { getDecompressionWorkerManager } from './DecompressionWorkerManager'
 import { hasAnyWireframes, parseEncodedSnapshots, processAllSnapshots } from './process-all-snapshots'
 import { keyForSource } from './source-key'
 
-// Mock the EE exports early so modules under test see it when imported
-jest.mock('@posthog/ee/exports', () => ({
-    __esModule: true,
-    default: jest.fn().mockResolvedValue({
-        enabled: true,
-        mobileReplay: {
-            transformEventToWeb: jest.fn((event: any) => {
-                // Transform mobile FullSnapshot (wireframes) into a rrweb-like full snapshot structure
-                // Matches the real transformer structure: Document -> HTML -> [Head, Body] -> Body -> [img, ...]
-                if (event?.type === 2 && event?.data?.wireframes !== undefined) {
-                    const firstWireframe = event.data.wireframes[0]
-                    const width = firstWireframe?.width || 400
-                    const height = firstWireframe?.height || 800
-                    return {
-                        ...event,
-                        data: {
-                            node: {
-                                type: 0, // Document
+jest.mock('scenes/session-recordings/mobile-replay', () => ({
+    transformEventToWeb: jest.fn((event: any) => {
+        if (event?.type === 2 && event?.data?.wireframes !== undefined) {
+            const firstWireframe = event.data.wireframes[0]
+            const width = firstWireframe?.width || 400
+            const height = firstWireframe?.height || 800
+            return {
+                ...event,
+                data: {
+                    node: {
+                        type: 0,
+                        childNodes: [
+                            {
+                                type: 1,
+                                name: 'html',
+                                id: 2,
+                            },
+                            {
+                                type: 2,
+                                tagName: 'html',
+                                id: 3,
                                 childNodes: [
                                     {
-                                        type: 1, // DocumentType
-                                        name: 'html',
-                                        id: 2,
+                                        type: 2,
+                                        tagName: 'head',
+                                        id: 4,
+                                        childNodes: [],
                                     },
                                     {
-                                        type: 2, // Element
-                                        tagName: 'html',
-                                        id: 3,
+                                        type: 2,
+                                        tagName: 'body',
+                                        id: 5,
+                                        attributes: { 'data-rrweb-id': 5 },
                                         childNodes: [
                                             {
                                                 type: 2,
-                                                tagName: 'head',
-                                                id: 4,
+                                                tagName: 'img',
+                                                id: 100,
+                                                attributes: {
+                                                    'data-rrweb-id': 100,
+                                                    width,
+                                                    height,
+                                                    src: 'data:image/png;base64,test',
+                                                },
                                                 childNodes: [],
-                                            },
-                                            {
-                                                type: 2,
-                                                tagName: 'body',
-                                                id: 5,
-                                                attributes: { 'data-rrweb-id': 5 },
-                                                childNodes: [
-                                                    {
-                                                        type: 2,
-                                                        tagName: 'img',
-                                                        id: 100,
-                                                        attributes: {
-                                                            'data-rrweb-id': 100,
-                                                            width,
-                                                            height,
-                                                            src: 'data:image/png;base64,test',
-                                                        },
-                                                        childNodes: [],
-                                                    },
-                                                ],
                                             },
                                         ],
                                     },
                                 ],
-                                id: 1,
                             },
-                            initialOffset: { top: 0, left: 0 },
-                            href: 'https://example.com',
-                        },
-                    }
-                }
+                        ],
+                        id: 1,
+                    },
+                    initialOffset: { top: 0, left: 0 },
+                    href: 'https://example.com',
+                },
+            }
+        }
 
-                // Transform mobile IncrementalSnapshot with wireframe updates into mutation format
-                if (event?.type === 3 && event?.data?.updates && Array.isArray(event.data.updates)) {
-                    const updates = event.data.updates
-                    // Check if this has wireframe data (mobile format)
-                    if (updates.some((u: any) => u.wireframe)) {
-                        // Extract dimensions from first wireframe
-                        const firstUpdate = updates.find((u: any) => u.wireframe)
-                        const wireframe = firstUpdate?.wireframe
-                        const width = wireframe?.width || 400
-                        const height = wireframe?.height || 800
+        if (event?.type === 3 && event?.data?.updates && Array.isArray(event.data.updates)) {
+            const updates = event.data.updates
+            if (updates.some((u: any) => u.wireframe)) {
+                const firstUpdate = updates.find((u: any) => u.wireframe)
+                const wireframe = firstUpdate?.wireframe
+                const width = wireframe?.width || 400
+                const height = wireframe?.height || 800
 
-                        // Transform to mutation format with adds containing img nodes
-                        return {
-                            ...event,
-                            data: {
-                                source: 0, // IncrementalSource.Mutation
-                                adds: [
-                                    {
-                                        parentId: 5, // body id
-                                        nextId: null,
-                                        node: {
-                                            type: 2, // Element
-                                            tagName: 'img',
-                                            id: 100,
-                                            attributes: {
-                                                'data-rrweb-id': 100,
-                                                width,
-                                                height,
-                                                src: 'data:image/png;base64,test',
-                                            },
-                                            childNodes: [],
-                                        },
+                return {
+                    ...event,
+                    data: {
+                        source: 0,
+                        adds: [
+                            {
+                                parentId: 5,
+                                nextId: null,
+                                node: {
+                                    type: 2,
+                                    tagName: 'img',
+                                    id: 100,
+                                    attributes: {
+                                        'data-rrweb-id': 100,
+                                        width,
+                                        height,
+                                        src: 'data:image/png;base64,test',
                                     },
-                                ],
-                                removes: [],
-                                texts: [],
-                                attributes: [],
+                                    childNodes: [],
+                                },
                             },
-                        }
-                    }
+                        ],
+                        removes: [],
+                        texts: [],
+                        attributes: [],
+                    },
                 }
+            }
+        }
 
-                return event
-            }),
-        },
+        return event
     }),
 }))
 
@@ -153,7 +140,7 @@ describe('process all snapshots', () => {
 
             for (let i = 0; i < runs; i++) {
                 const start = performance.now()
-                const results = processAllSnapshots(
+                const results = await processAllSnapshots(
                     [
                         {
                             source: 'blob_v2',
@@ -165,7 +152,7 @@ describe('process all snapshots', () => {
                             snapshots: snapshots,
                         },
                     },
-                    {},
+                    { snapshots: {} },
                     () => {
                         return {
                             width: '100',
@@ -193,14 +180,17 @@ describe('process all snapshots', () => {
             expect(stdDev).toBeLessThan(25)
         })
 
-        it('deduplicates snapshot', async () => {
+        it.each([
+            ['sync', false],
+            ['async', true],
+        ])('deduplicates snapshot (%s)', async (_name, enableYielding) => {
             const sessionId = '1234'
             const source = {
                 source: 'blob_v2',
                 blob_key: '0',
             } as SessionRecordingSnapshotSource
             const key = keyForSource(source)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [
                     {
                         source: 'blob_v2',
@@ -211,7 +201,7 @@ describe('process all snapshots', () => {
                     [key]: {
                         snapshots: [
                             {
-                                windowId: '1',
+                                windowId: 1,
                                 timestamp: 1234567890,
                                 type: 0,
                                 data: {
@@ -221,7 +211,7 @@ describe('process all snapshots', () => {
                                 },
                             } as RecordingSnapshot,
                             {
-                                windowId: '1',
+                                windowId: 1,
                                 timestamp: 1234567890,
                                 type: 0,
                                 data: {
@@ -233,7 +223,7 @@ describe('process all snapshots', () => {
                         ],
                     },
                 },
-                {},
+                { snapshots: {} },
                 () => {
                     return {
                         width: '100',
@@ -241,11 +231,76 @@ describe('process all snapshots', () => {
                         href: 'https://example.com',
                     }
                 },
-                sessionId
+                sessionId,
+                enableYielding
             )
 
             expect(results).toHaveLength(1)
         })
+
+        it.each([
+            ['sync', false],
+            ['async', true],
+        ])(
+            'deduplicates correctly when duplicates are interspersed with unique snapshots (%s)',
+            async (_name, enableYielding) => {
+                const sessionId = '1234'
+                const source = {
+                    source: 'blob_v2',
+                    blob_key: '0',
+                } as SessionRecordingSnapshotSource
+                const key = keyForSource(source)
+                const results = await processAllSnapshots(
+                    [{ source: 'blob_v2', blob_key: '0' }],
+                    {
+                        [key]: {
+                            snapshots: [
+                                // Three snapshots at timestamp 1000: A, A (dup), B (unique)
+                                {
+                                    windowId: 1,
+                                    timestamp: 1000,
+                                    type: 3,
+                                    data: { value: 'A' },
+                                } as unknown as RecordingSnapshot,
+                                {
+                                    windowId: 1,
+                                    timestamp: 1000,
+                                    type: 3,
+                                    data: { value: 'A' },
+                                } as unknown as RecordingSnapshot, // duplicate of first
+                                {
+                                    windowId: 1,
+                                    timestamp: 1000,
+                                    type: 3,
+                                    data: { value: 'B' },
+                                } as unknown as RecordingSnapshot, // unique, should be kept
+                                // Two snapshots at timestamp 2000: C, C (dup)
+                                {
+                                    windowId: 1,
+                                    timestamp: 2000,
+                                    type: 3,
+                                    data: { value: 'C' },
+                                } as unknown as RecordingSnapshot,
+                                {
+                                    windowId: 1,
+                                    timestamp: 2000,
+                                    type: 3,
+                                    data: { value: 'C' },
+                                } as unknown as RecordingSnapshot, // duplicate
+                            ],
+                        },
+                    },
+                    { snapshots: {} },
+                    () => ({ width: '100', height: '100', href: 'https://example.com' }),
+                    sessionId,
+                    enableYielding
+                )
+
+                // Should have: A@1000, B@1000, C@2000 (3 unique snapshots)
+                expect(results).toHaveLength(3)
+                expect(results.map((r) => (r.data as any).value)).toEqual(['A', 'B', 'C'])
+            }
+        )
     })
 
     describe('hasAnyWireframes', () => {
@@ -340,7 +395,7 @@ describe('process all snapshots', () => {
 
             expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock, { isParallel: false })
             expect(result).toHaveLength(1)
-            expect(result[0].windowId).toBe('1')
+            expect(result[0].windowId).toBe(1)
             expect(result[0].timestamp).toBe(1234567890)
         })
 
@@ -424,7 +479,7 @@ describe('process all snapshots', () => {
 
             expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData, { isParallel: false })
             expect(result).toHaveLength(1)
-            expect(result[0].windowId).toBe('1')
+            expect(result[0].windowId).toBe(1)
             expect(result[0].timestamp).toBe(1234567890)
         })
     })
@@ -528,16 +583,16 @@ describe('process all snapshots', () => {
             expect(parsed[0].type).toBe(3)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '400', height: '800', href: 'https://example.com' }),
                 sessionId
             )
 
             expect(results.length).toBeGreaterThanOrEqual(2)
-            expect(results[0].windowId).toBe('1')
+            expect(results[0].windowId).toBe(1)
 
             const hasFullSnapshot = results.some((r) => r.type === 2)
             const hasIncrementalSnapshot = results.some((r) => r.type === 3)
@@ -579,16 +634,16 @@ describe('process all snapshots', () => {
             expect(parsed[0].type).toBe(2)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '400', height: '800', href: 'https://example.com' }),
                 sessionId
             )
 
             expect(results.length).toBeGreaterThanOrEqual(2) // Meta + Full
-            expect(results[0].windowId).toBe('1')
+            expect(results[0].windowId).toBe(1)
 
             const fullSnapshots = results.filter((r) => r.type === 2)
             expect(fullSnapshots).toHaveLength(1)
@@ -625,10 +680,10 @@ describe('process all snapshots', () => {
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
             // viewportForTimestamp returns undefined - should extract from mobile snapshot
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => undefined,
                 sessionId
             )
@@ -644,7 +699,7 @@ describe('process all snapshots', () => {
                 height: 667,
                 href: 'https://example.com', // From the mock transformer
             })
-            expect(firstMeta.windowId).toBe('mobile-window')
+            expect(firstMeta.windowId).toBe(1)
         })
 
         it('prefers mobile snapshot dimensions over viewportForTimestamp for mobile data', async () => {
@@ -676,10 +731,10 @@ describe('process all snapshots', () => {
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
             // viewportForTimestamp returns different dimensions - should use snapshot dimensions
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '999', height: '999', href: 'https://wrong.com' }),
                 sessionId
             )
@@ -718,14 +773,14 @@ describe('process all snapshots', () => {
 
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
             expect(parsed).toHaveLength(1)
-            expect(parsed[0].windowId).toBe('1')
+            expect(parsed[0].windowId).toBe(1)
             expect(parsed[0].type).toBe(3)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '100', height: '100', href: 'https://example.com' }),
                 sessionId
             )
@@ -762,23 +817,23 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const result = processAllSnapshots(
+            const result = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '400', height: '800', href: 'https://example.com' }),
                 sessionId
             )
 
             result.forEach((event) => {
-                expect(event.windowId).toBe('custom-window-123')
+                expect(event.windowId).toBe(1)
             })
 
             const fullSnapshot = result.find((r) => r.type === 2)
             expect(fullSnapshot?.timestamp).toBe(1999)
         })
 
-        it('handles multiple mobile events correctly (only first gets synthetic)', async () => {
+        it('handles multiple mobile screenshot events (each gets synthetic full)', async () => {
             const sessionId = 'test-mobile-session'
 
             const snapshotJson = JSON.stringify({
@@ -806,17 +861,18 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '400', height: '800', href: 'https://example.com' }),
                 sessionId
             )
 
             const fullSnapshots = results.filter((r) => r.type === 2)
-            expect(fullSnapshots).toHaveLength(1)
+            expect(fullSnapshots).toHaveLength(2)
             expect(fullSnapshots[0].timestamp).toBe(999)
+            expect(fullSnapshots[1].timestamp).toBe(1999)
 
             const incrementalSnapshots = results.filter((r) => r.type === 3)
             expect(incrementalSnapshots).toHaveLength(2)
@@ -902,10 +958,10 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => undefined,
                 sessionId
             )
@@ -922,7 +978,7 @@ describe('process all snapshots', () => {
                 height: 896,
                 href: 'unknown',
             })
-            expect(firstMeta.windowId).toBe('mobile-window')
+            expect(firstMeta.windowId).toBe(1)
         })
 
         it('handles edge cases gracefully', async () => {
@@ -954,10 +1010,10 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([emptyWireframesJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const result = processAllSnapshots(
+            const result = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '400', height: '800', href: 'https://example.com' }),
                 sessionId
             )
@@ -987,7 +1043,7 @@ describe('process all snapshots', () => {
 
             expect(result.length).toBeGreaterThan(0)
             result.forEach((event) => {
-                expect(event.windowId).toBe('1')
+                expect(event.windowId).toBe(1)
             })
         })
     })

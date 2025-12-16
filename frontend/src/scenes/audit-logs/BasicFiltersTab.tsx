@@ -66,10 +66,12 @@ export const BasicFiltersTab = (): JSX.Element => {
                         value={filters.scopes || []}
                         onChange={(scopes) => setFilters({ scopes: scopes as ActivityScope[] })}
                         options={
-                            availableFilters?.static_filters?.scopes?.map((s: any) => ({
-                                key: s.value,
-                                label: humanizeScope(s.value, true),
-                            })) || []
+                            availableFilters?.static_filters?.scopes
+                                ?.map((s: any) => ({
+                                    key: s.value,
+                                    label: humanizeScope(s.value, true),
+                                }))
+                                .sort((a, b) => a.label.localeCompare(b.label)) || []
                         }
                         placeholder="All scopes"
                         allowCustomValues={false}
@@ -88,10 +90,12 @@ export const BasicFiltersTab = (): JSX.Element => {
                         value={filters.activities || []}
                         onChange={(activities) => setFilters({ activities })}
                         options={
-                            availableFilters?.static_filters?.activities?.map((a: any) => ({
-                                key: a.value,
-                                label: humanizeActivity(a.value),
-                            })) || []
+                            availableFilters?.static_filters?.activities
+                                ?.map((a: any) => ({
+                                    key: a.value,
+                                    label: humanizeActivity(a.value),
+                                }))
+                                .sort((a, b) => a.label.localeCompare(b.label)) || []
                         }
                         placeholder="All activities"
                         allowCustomValues={false}

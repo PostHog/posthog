@@ -11,6 +11,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -102,7 +103,10 @@ export const experimentsLogic = kea<experimentsLogicType>([
             ['featureFlags'],
             router,
             ['location'],
+            teamLogic,
+            ['currentTeam'],
         ],
+        actions: [teamLogic, ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess']],
     })),
     actions({
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
@@ -112,6 +116,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             replace,
         }),
         resetFeatureFlagModalFilters: true,
+        openFeatureFlagModal: true,
     }),
     reducers({
         filters: [
@@ -144,7 +149,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setExperimentsFilters: async (_, breakpoint) => {
             /**
              * this debounces the search input. Yeah, I know.
@@ -158,6 +163,19 @@ export const experimentsLogic = kea<experimentsLogicType>([
         },
         resetFeatureFlagModalFilters: () => {
             actions.loadFeatureFlagModalFeatureFlags()
+        },
+        openFeatureFlagModal: () => {
+            actions.loadFeatureFlagModalFeatureFlags()
+        },
+        loadCurrentTeamSuccess: () => {
+            if (values.featureFlagModalFeatureFlags.results.length > 0) {
+                actions.loadFeatureFlagModalFeatureFlags()
+            }
+        },
+        updateCurrentTeamSuccess: () => {
+            if (values.featureFlagModalFeatureFlags.results.length > 0) {
+                actions.loadFeatureFlagModalFeatureFlags()
+            }
         },
     })),
     loaders(({ values }) => ({
@@ -255,12 +273,21 @@ export const experimentsLogic = kea<experimentsLogicType>([
             }),
         ],
         featureFlagModalParamsFromFilters: [
-            (s) => [s.featureFlagModalFilters],
-            (filters: FeatureFlagModalFilters) => ({
-                ...filters,
-                limit: FLAGS_PER_PAGE,
-                offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
-            }),
+            (s) => [s.featureFlagModalFilters, s.currentTeam],
+            (filters: FeatureFlagModalFilters, currentTeam) => {
+                const params: Record<string, any> = {
+                    ...filters,
+                    limit: FLAGS_PER_PAGE,
+                    offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
+                }
+
+                // Add evaluation tags filter if required by team
+                if (currentTeam?.require_evaluation_environment_tags) {
+                    params.has_evaluation_tags = true
+                }
+
+                return params
+            },
         ],
         featureFlagModalPageFromURL: [
             () => [router.selectors.searchParams],

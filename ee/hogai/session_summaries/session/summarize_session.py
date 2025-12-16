@@ -63,6 +63,7 @@ class SingleSessionSummaryLlmInputs:
 
     session_id: str
     user_id: int
+    user_distinct_id_to_log: str | None = None
     summary_prompt: str
     system_prompt: str
     simplified_events_mapping: dict[str, list[str | int | None | list[str]]]
@@ -101,7 +102,11 @@ async def get_session_data_from_db(session_id: str, team_id: int, local_reads_pr
         # Raise any unexpected errors
         raise
     session_events_columns, session_events = add_context_and_filter_events(
-        session_events_columns=session_events_columns, session_events=session_events, session_id=session_id
+        session_events_columns=session_events_columns,
+        session_events=session_events,
+        session_id=session_id,
+        session_start_time=session_metadata["start_time"],
+        session_end_time=session_metadata["end_time"],
     )
 
     # TODO Get web analytics data on URLs to better understand what the user was doing
@@ -218,7 +223,12 @@ async def prepare_data_for_single_session_summary(
 
 
 def prepare_single_session_summary_input(
-    session_id: str, user_id: int, summary_data: SingleSessionSummaryData, model_to_use: str
+    session_id: str,
+    user_id: int,
+    summary_data: SingleSessionSummaryData,
+    model_to_use: str,
+    *,
+    user_distinct_id_to_log: str | None = None,
 ) -> SingleSessionSummaryLlmInputs:
     # Checking here instead of in the preparation function to keep mypy happy
     if summary_data.prompt_data is None:
@@ -241,6 +251,7 @@ def prepare_single_session_summary_input(
     input_data = SingleSessionSummaryLlmInputs(
         session_id=session_id,
         user_id=user_id,
+        user_distinct_id_to_log=user_distinct_id_to_log,
         summary_prompt=summary_data.prompt.summary_prompt,
         system_prompt=summary_data.prompt.system_prompt,
         simplified_events_mapping=summary_data.prompt_data.simplified_events_mapping,

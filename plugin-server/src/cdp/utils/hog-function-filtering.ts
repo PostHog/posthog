@@ -153,6 +153,7 @@ export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEve
         group_2: { properties: {} },
         group_3: { properties: {} },
         group_4: { properties: {} },
+        variables: {},
     }
 
     // Handle groups from RawClickHouseEvent
@@ -222,7 +223,7 @@ export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEve
 }
 
 export function convertToHogFunctionFilterGlobal(
-    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups'>
+    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups' | 'variables'>
 ): HogFunctionFilterGlobals {
     const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
 
@@ -265,6 +266,7 @@ export function convertToHogFunctionFilterGlobal(
         group_4: {
             properties: {},
         },
+        variables: globals.variables || {},
     }
 
     for (const group of Object.values(globals.groups || {})) {

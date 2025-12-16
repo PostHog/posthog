@@ -104,4 +104,5 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                     )
                 ],
             ),
+            featured=True,
         )

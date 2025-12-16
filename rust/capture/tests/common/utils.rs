@@ -28,6 +28,7 @@ use tracing::{info, warn, Level};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
+use common_continuous_profiling::ContinuousProfilingConfig;
 use health::HealthStrategy;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
@@ -68,6 +69,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_metadata_max_age_ms: 60000,
         kafka_producer_max_retries: 2,
         kafka_producer_acks: "all".to_string(),
+        kafka_socket_timeout_ms: 60000,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -83,6 +85,13 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
     request_timeout_seconds: Some(10),
+    http1_header_read_timeout_ms: Some(5000), // 5 seconds default
+    continuous_profiling: ContinuousProfilingConfig {
+        continuous_profiling_enabled: false,
+        pyroscope_server_address: String::new(),
+        pyroscope_application_name: String::new(),
+        pyroscope_sample_rate: 100,
+    },
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -286,7 +295,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -321,7 +330,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -368,7 +377,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }

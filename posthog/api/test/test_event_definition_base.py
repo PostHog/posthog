@@ -6,6 +6,22 @@ from parameterized import parameterized
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 
 
+class TestGenerator(EventDefinitionGenerator):
+    """Minimal test generator for testing base class functionality"""
+
+    def __init__(self, version: str = "1.0.0"):
+        self._version = version
+
+    def generator_version(self) -> str:
+        return self._version
+
+    def language_name(self) -> str:
+        return "Test"
+
+    def generate(self, event_definitions, schema_map) -> str:
+        return ""  # Not needed for hash tests
+
+
 class TestEventDefinitionGeneratorBase(BaseTest):
     @parameterized.expand(
         [
@@ -101,10 +117,10 @@ class TestEventDefinitionGeneratorBase(BaseTest):
         version2 = version2 or version1
 
         events1, schema_map1 = self._build_schema(schema1_spec)
-        hash1 = EventDefinitionGenerator.calculate_schema_hash(version1, events1, schema_map1)  # type: ignore[arg-type]
+        hash1 = TestGenerator(version1).calculate_schema_hash(events1, schema_map1)  # type: ignore[arg-type]
 
         events2, schema_map2 = self._build_schema(schema2_spec)
-        hash2 = EventDefinitionGenerator.calculate_schema_hash(version2, events2, schema_map2)  # type: ignore[arg-type]
+        hash2 = TestGenerator(version2).calculate_schema_hash(events2, schema_map2)  # type: ignore[arg-type]
 
         self.assertEqual(
             hash1 == hash2,
