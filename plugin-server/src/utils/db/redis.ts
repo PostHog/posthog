@@ -107,7 +107,7 @@ function getRedisHost(url: string): string {
         const parsed = new URL(url)
         // Return host (hostname:port) if available, excluding any credentials
         // For URLs without a host (e.g., data:, file:), return a safe placeholder
-        return parsed.host || '[redis-host]'
+        return parsed.host || '[sanitized-redis-host]'
     } catch {
         // If URL parsing fails, strip any potential credentials from the string
         // Use lastIndexOf to handle edge cases with multiple @ symbols
