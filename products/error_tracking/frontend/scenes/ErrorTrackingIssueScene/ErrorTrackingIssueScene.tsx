@@ -11,6 +11,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ViewReplayButton } from 'lib/components/ViewReplayButton/ViewReplayButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconRobot } from 'lib/lemon-ui/icons'
 import {
@@ -22,6 +23,7 @@ import {
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
@@ -88,6 +90,24 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 assignee={issue.assignee}
                                                 onChange={updateAssignee}
                                                 disabled={issue.status != 'active'}
+                                            />
+                                            <ViewReplayButton
+                                                filters={{
+                                                    filter_group: {
+                                                        type: FilterLogicalOperator.And,
+                                                        values: [
+                                                            {
+                                                                key: '$exception_issue_id',
+                                                                type: PropertyFilterType.Event,
+                                                                operator: PropertyOperator.Exact,
+                                                                value: [issue.id],
+                                                            },
+                                                        ],
+                                                    },
+                                                }}
+                                                size="small"
+                                                type="secondary"
+                                                data-attr="error-tracking-issue-view-recordings"
                                             />
                                             <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                         </div>

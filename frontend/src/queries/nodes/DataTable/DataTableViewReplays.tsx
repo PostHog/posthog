@@ -20,15 +20,10 @@ export function DataTableViewReplays(): JSX.Element | null {
             type: FilterLogicalOperator.And,
             values: [
                 {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        {
-                            type: PropertyFilterType.Cohort,
-                            key: 'id',
-                            operator: PropertyOperator.In,
-                            value: cohortId,
-                        },
-                    ],
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    operator: PropertyOperator.In,
+                    value: cohortId,
                 },
             ],
         },
