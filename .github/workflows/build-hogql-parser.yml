@@ -187,4 +187,4 @@ jobs:
                   add: '["pyproject.toml", "uv.lock"]'
                   message: 'Use new hogql-parser version'
                   default_author: github_actions
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT }}
