@@ -128,20 +128,20 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             'Thinking…'
                                         ) : isThreadVisible ? (
                                             placeholder || (
-                                                <span>
+                                                <>
                                                     Ask follow-up{' '}
                                                     <span className="text-tertiary opacity-80 contrast-more:opacity-100">
                                                         / for commands
                                                     </span>
-                                                </span>
+                                                </>
                                             )
                                         ) : (
-                                            <span>
+                                            <>
                                                 Ask a question{' '}
                                                 <span className="text-tertiary opacity-80 contrast-more:opacity-100">
                                                     / for commands
                                                 </span>
-                                            </span>
+                                            </>
                                         )}
                                     </div>
                                 )}
