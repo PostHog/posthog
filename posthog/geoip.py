@@ -1,3 +1,4 @@
+import ipaddress
 from typing import Optional
 
 from django.contrib.gis.geoip2 import GeoIP2
@@ -44,14 +45,14 @@ def get_geoip_properties(ip_address: Optional[str]) -> dict[str, str]:
         $geoip_postal_code
         $geoip_time_zone
     """
-    if (
-        not ip_address
-        or not geoip
-        or ip_address == "127.0.0.1"
-        or ip_address.startswith("192.168.")
-        or ip_address.startswith("10.")
-    ):
-        # Local addresses would otherwise throw "The address 127.0.0.1 is not in the database." below
+    if not ip_address or not geoip:
+        return {}
+
+    try:
+        ip = ipaddress.ip_address(ip_address)
+        if ip.is_private or ip.is_loopback:
+            return {}
+    except ValueError:
         return {}
 
     try:
