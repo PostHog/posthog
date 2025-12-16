@@ -149,19 +149,27 @@ impl<T: Send + 'static> PartitionWorker<T> {
 
         while let Some(batch) = receiver.recv().await {
             let message_count = batch.messages.len();
+            let first_offset = batch.messages.first().map(|m| m.get_offset());
+            let last_offset = batch.messages.last().map(|m| m.get_offset());
             debug!(
-                "Processing batch of {} messages for {}:{}",
-                message_count,
-                partition.topic(),
-                partition.partition_number()
+                topic = partition.topic(),
+                partition = partition.partition_number(),
+                message_count = message_count,
+                first_offset = ?first_offset,
+                last_offset = ?last_offset,
+                "Processing batch"
             );
 
             if let Err(e) = processor.process_batch(batch.messages).await {
                 error!(
-                    "Error processing batch for {}:{}: {}",
-                    partition.topic(),
-                    partition.partition_number(),
-                    e
+                    topic = partition.topic(),
+                    partition = partition.partition_number(),
+                    message_count = message_count,
+                    first_offset = ?first_offset,
+                    last_offset = ?last_offset,
+                    error = %e,
+                    error_chain = ?e,
+                    "Error processing batch"
                 );
                 // Continue processing - don't crash the worker on errors
             }

@@ -11,6 +11,7 @@ use rocksdb::{
     WriteOptions,
 };
 use std::time::Instant;
+use tracing::error;
 
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::metrics_consts::*;
@@ -282,15 +283,27 @@ impl RocksDbStore {
 
     fn put_batch_internal(&self, cf_name: &str, entries: Vec<(&[u8], &[u8])>) -> Result<()> {
         let cf = self.get_cf_handle(cf_name)?;
+        let entry_count = entries.len();
         let mut batch = WriteBatch::default();
         for (key, value) in entries {
             batch.put_cf(&cf, key, value);
         }
+        let batch_size_bytes = batch.size_in_bytes();
         let mut write_opts = WriteOptions::default();
         write_opts.set_sync(false);
-        self.db
-            .write_opt(batch, &write_opts)
-            .context("Failed to put batch")
+        self.db.write_opt(batch, &write_opts).map_err(|e| {
+            error!(
+                cf_name = cf_name,
+                entry_count = entry_count,
+                batch_size_bytes = batch_size_bytes,
+                db_path = %self.path_location.display(),
+                rocksdb_error = %e,
+                "RocksDB write_opt failed"
+            );
+            anyhow::anyhow!(
+                "Failed to put batch ({entry_count} entries, {batch_size_bytes} bytes): {e}"
+            )
+        })
     }
 
     pub fn delete_range(&self, cf_name: &str, start: &[u8], end: &[u8]) -> Result<()> {
