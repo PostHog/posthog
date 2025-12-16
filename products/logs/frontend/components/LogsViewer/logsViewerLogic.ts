@@ -495,7 +495,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             a.href = url
             a.download = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`
             a.click()
-            URL.revokeObjectURL(url)
+            setTimeout(() => URL.revokeObjectURL(url), 0)
         },
         exportSelectedAsCsv: () => {
             const selectedLogs = values.selectedLogsArray
@@ -513,7 +513,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             a.href = url
             a.download = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`
             a.click()
-            URL.revokeObjectURL(url)
+            setTimeout(() => URL.revokeObjectURL(url), 0)
         },
     })),
 
