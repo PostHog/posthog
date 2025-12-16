@@ -3566,6 +3566,9 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "sample_ratio_mismatch": {
+                    "$ref": "#/definitions/SampleRatioMismatch"
+                },
                 "timeseries": {
                     "items": {
                         "$ref": "#/definitions/ExperimentExposureTimeSeries"
@@ -13252,6 +13255,9 @@
                     "const": "ExperimentExposureQuery",
                     "type": "string"
                 },
+                "sample_ratio_mismatch": {
+                    "$ref": "#/definitions/SampleRatioMismatch"
+                },
                 "timeseries": {
                     "items": {
                         "$ref": "#/definitions/ExperimentExposureTimeSeries"
@@ -22594,6 +22600,9 @@
                             "const": "ExperimentExposureQuery",
                             "type": "string"
                         },
+                        "sample_ratio_mismatch": {
+                            "$ref": "#/definitions/SampleRatioMismatch"
+                        },
                         "timeseries": {
                             "items": {
                                 "$ref": "#/definitions/ExperimentExposureTimeSeries"
@@ -27500,6 +27509,22 @@
                     "$ref": "#/definitions/AssistantToolCallMessage"
                 }
             ]
+        },
+        "SampleRatioMismatch": {
+            "additionalProperties": false,
+            "properties": {
+                "expected": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "p_value": {
+                    "type": "number"
+                }
+            },
+            "required": ["expected", "p_value"],
+            "type": "object"
         },
         "SamplingRate": {
             "additionalProperties": false,
