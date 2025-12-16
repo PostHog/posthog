@@ -291,6 +291,26 @@ class TestOAuthModels(TestCase):
             )
 
     @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+            "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "array"],
+        },
+    )
+    def test_unauthorized_custom_scheme_rejected(self):
+        with self.assertRaises(ValidationError):
+            OAuthApplication.objects.create(
+                name="Unauthorized Scheme App",
+                client_id="unauthorized_scheme_client_id",
+                client_secret="unauthorized_scheme_client_secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="unauthorized://callback",
+                organization=self.organization,
+                algorithm="RS256",
+            )
+
+    @override_settings(
         DEBUG=False,
         OAUTH2_PROVIDER={
             **settings.OAUTH2_PROVIDER,
@@ -459,3 +479,68 @@ class TestOAuthModels(TestCase):
         self.assertIn(id_token, self.user.oauth_id_tokens.all())
         self.assertIn(access_token, self.user.oauth_access_tokens.all())
         self.assertIn(refresh_token, self.user.oauth_refresh_tokens.all())
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+            "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "array", "myapp"],
+        },
+    )
+    def test_get_allowed_schemes_extracts_schemes_from_redirect_uris(self):
+        app = OAuthApplication.objects.create(
+            name="Multi Scheme App",
+            client_id="multi_scheme_client_id",
+            client_secret="multi_scheme_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback array://oauth http://localhost:3000/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        schemes = app.get_allowed_schemes()
+        self.assertIn("https", schemes)
+        self.assertIn("array", schemes)
+        self.assertIn("http", schemes)
+        self.assertEqual(len(schemes), 3)
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+            "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
+        },
+    )
+    def test_get_allowed_schemes_filters_against_globally_allowed(self):
+        app = OAuthApplication.objects.create(
+            name="Filtered Scheme App",
+            client_id="filtered_scheme_client_id",
+            client_secret="filtered_scheme_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        # Manually set redirect_uris to include schemes not in ALLOWED_REDIRECT_URI_SCHEMES
+        # to test filtering (bypassing validation for test purposes)
+        app.redirect_uris = "https://example.com/callback array://oauth"
+        schemes = app.get_allowed_schemes()
+        self.assertEqual(schemes, ["https"])
+        self.assertNotIn("array", schemes)
+
+    def test_get_allowed_schemes_returns_https_fallback_when_no_valid_schemes(self):
+        app = OAuthApplication.objects.create(
+            name="Fallback Scheme App",
+            client_id="fallback_scheme_client_id",
+            client_secret="fallback_scheme_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        # Manually set redirect_uris to empty to test fallback
+        app.redirect_uris = ""
+        schemes = app.get_allowed_schemes()
+        self.assertEqual(schemes, ["https"])
