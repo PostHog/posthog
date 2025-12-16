@@ -167,7 +167,7 @@ def schedule_web_analytics_warming_for_teams_task():
 
 
 @shared_task(
-    queue=CeleryQueue.ANALYTICS_LIMITED.value,
+    queue=CeleryQueue.WEB_ANALYTICS_CACHE_WARMING.value,
     ignore_result=True,
     expires=60 * 60,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),

@@ -40,3 +40,4 @@ class CeleryQueue(Enum):
     SESSION_REPLAY_PERSISTENCE = "session_replay_persistence"
     SESSION_REPLAY_GENERAL = "session_replay_general"
     INTEGRATIONS = "integrations"
+    WEB_ANALYTICS_CACHE_WARMING = "web_analytics_cache_warming"
