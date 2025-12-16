@@ -10,6 +10,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
+import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
 
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -80,51 +81,52 @@ export function Navigation({
                 Skip to content
             </a>
 
-            <PanelLayout />
+            <ProjectDragAndDropProvider>
+                <PanelLayout />
 
-            <FloatingContainerContext.Provider value={mainRef}>
-                <main
-                    ref={mainRef}
-                    role="main"
-                    tabIndex={0}
-                    id="main-content"
-                    className="@container/main-content bg-surface-tertiary"
-                    style={
-                        {
-                            '--scene-layout-rect-right': mainContentRect?.right + 'px',
-                            '--scene-layout-rect-width': mainContentRect?.width + 'px',
-                            '--scene-layout-rect-height': mainContentRect?.height + 'px',
-                            '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
-                                ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
-                                : '0px',
-                            '--scene-layout-background': sceneConfig?.canvasBackground
-                                ? 'var(--color-bg-surface-primary)'
-                                : 'var(--color-bg-primary)',
-                        } as React.CSSProperties
-                    }
-                    onScroll={(e) => {
-                        if (activeTabId) {
-                            setTabScrollDepth(activeTabId, e.currentTarget.scrollTop)
+                <FloatingContainerContext.Provider value={mainRef}>
+                    <main
+                        ref={mainRef}
+                        role="main"
+                        tabIndex={0}
+                        id="main-content"
+                        className="@container/main-content bg-surface-tertiary"
+                        style={
+                            {
+                                '--scene-layout-rect-right': mainContentRect?.right + 'px',
+                                '--scene-layout-rect-width': mainContentRect?.width + 'px',
+                                '--scene-layout-rect-height': mainContentRect?.height + 'px',
+                                '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
+                                    ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
+                                    : '0px',
+                                '--scene-layout-background': sceneConfig?.canvasBackground
+                                    ? 'var(--color-bg-surface-primary)'
+                                    : 'var(--color-bg-primary)',
+                            } as React.CSSProperties
                         }
-                    }}
-                >
-                    <SceneLayout sceneConfig={sceneConfig}>
-                        {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
-                            <div
-                                className={cn({
-                                    'px-4': sceneConfig?.layout === 'app-raw-no-header',
-                                    'pt-4': sceneConfig?.layout === 'app-raw',
-                                })}
-                            >
-                                {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
-                                {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />}
-                            </div>
-                        )}
-                        {children}
-                    </SceneLayout>
-                </main>
-                <SidePanel />
-            </FloatingContainerContext.Provider>
+                        onScroll={(e) => {
+                            if (activeTabId) {
+                                setTabScrollDepth(activeTabId, e.currentTarget.scrollTop)
+                            }
+                        }}
+                    >
+                        <SceneLayout sceneConfig={sceneConfig}>
+                            {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                                <div
+                                    className={cn({
+                                        'px-4': sceneConfig?.layout === 'app-raw-no-header',
+                                    })}
+                                >
+                                    {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
+                                    {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />}
+                                </div>
+                            )}
+                            {children}
+                        </SceneLayout>
+                    </main>
+                    <SidePanel />
+                </FloatingContainerContext.Provider>
+            </ProjectDragAndDropProvider>
         </div>
     )
 }

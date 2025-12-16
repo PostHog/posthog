@@ -2,7 +2,7 @@ import type { PostHog } from 'posthog-js'
 import snappyInit, { decompress_raw } from 'snappy-wasm'
 
 import type { DecompressionRequest, DecompressionResponse } from './decompressionWorker'
-import { yieldToMain } from './yield-scheduler'
+import { requestIdleCallback } from './yield-scheduler'
 
 interface PendingRequest {
     resolve: (data: Uint8Array) => void
@@ -18,13 +18,13 @@ interface DecompressionStats {
     totalSize: number
 }
 
-export type DecompressionMode = 'worker' | 'yielding' | 'blocking' | 'worker_and_yielding'
+export type DecompressionMode = 'worker' | 'worker_and_yielding'
 
 export function normalizeMode(mode?: string | boolean): DecompressionMode {
-    if (mode === 'worker' || mode === 'yielding' || mode === 'worker_and_yielding') {
-        return mode
+    if (mode === 'worker_and_yielding') {
+        return 'worker_and_yielding'
     }
-    return 'blocking'
+    return 'worker'
 }
 
 export class DecompressionWorkerManager {
@@ -43,8 +43,7 @@ export class DecompressionWorkerManager {
         private readonly posthog?: PostHog
     ) {
         this.mode = normalizeMode(mode)
-        this.readyPromise =
-            this.mode === 'worker' || this.mode === 'worker_and_yielding' ? this.initWorker() : this.initSnappy()
+        this.readyPromise = this.initWorker()
     }
 
     private getErrorMessage(error: unknown): string {
@@ -146,11 +145,7 @@ export class DecompressionWorkerManager {
     }
 
     private shouldUseWorker(): boolean {
-        return (
-            (this.mode === 'worker' || this.mode === 'worker_and_yielding') &&
-            this.worker !== null &&
-            !this.workerInitFailed
-        )
+        return this.worker !== null && !this.workerInitFailed
     }
 
     private async decompressWithFallback(
@@ -236,20 +231,38 @@ export class DecompressionWorkerManager {
         const startTime = performance.now()
         const dataSize = compressedData.length
 
-        try {
-            let yieldDuration = 0
-            if (this.mode === 'yielding' || this.mode === 'worker_and_yielding') {
-                const yieldStart = performance.now()
-                await yieldToMain()
-                yieldDuration = performance.now() - yieldStart
-            }
+        if (this.mode === 'worker_and_yielding') {
+            return new Promise<Uint8Array>((resolve, reject) => {
+                const idleStart = performance.now()
+                requestIdleCallback(() => {
+                    const idleDuration = performance.now() - idleStart
+                    try {
+                        const decompressStart = performance.now()
+                        const result = decompress_raw(compressedData)
+                        const decompressDuration = performance.now() - decompressStart
+                        const totalDuration = performance.now() - startTime
+                        this.updateStats(
+                            totalDuration,
+                            dataSize,
+                            idleDuration,
+                            decompressDuration,
+                            metadata?.isParallel
+                        )
+                        resolve(result)
+                    } catch (error) {
+                        console.error('Decompression error:', error)
+                        reject(error instanceof Error ? error : new Error('Unknown decompression error'))
+                    }
+                })
+            })
+        }
 
+        try {
             const decompressStart = performance.now()
             const result = decompress_raw(compressedData)
             const decompressDuration = performance.now() - decompressStart
-
             const totalDuration = performance.now() - startTime
-            this.updateStats(totalDuration, dataSize, yieldDuration, decompressDuration, metadata?.isParallel)
+            this.updateStats(totalDuration, dataSize, undefined, decompressDuration, metadata?.isParallel)
             return result
         } catch (error) {
             console.error('Decompression error:', error)

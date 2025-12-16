@@ -244,8 +244,24 @@ impl KafkaDeduplicatorService {
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
                 .with_tls(self.config.kafka_tls)
+                .with_max_partition_fetch_bytes(
+                    self.config.kafka_consumer_max_partition_fetch_bytes,
+                )
+                .with_topic_metadata_refresh_interval_ms(
+                    self.config.kafka_topic_metadata_refresh_interval_ms,
+                )
+                .with_metadata_max_age_ms(self.config.kafka_metadata_max_age_ms)
                 .with_sticky_partition_assignment(self.config.pod_hostname.as_deref())
-                .offset_reset(&self.config.kafka_consumer_offset_reset)
+                .with_offset_reset(&self.config.kafka_consumer_offset_reset)
+                // Fetch settings for throughput optimization
+                .with_fetch_min_bytes(self.config.kafka_consumer_fetch_min_bytes)
+                .with_fetch_max_bytes(self.config.kafka_consumer_fetch_max_bytes)
+                .with_fetch_wait_max_ms(self.config.kafka_consumer_fetch_wait_max_ms)
+                // Prefetch settings for batching efficiency
+                .with_queued_min_messages(self.config.kafka_consumer_queued_min_messages)
+                .with_queued_max_messages_kbytes(
+                    self.config.kafka_consumer_queued_max_messages_kbytes,
+                )
                 .build();
 
         // Create shutdown channel
@@ -286,10 +302,9 @@ impl KafkaDeduplicatorService {
         }
 
         info!(
-            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?}, checkpoint_cleanup interval = {:?})",
+            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?})",
             self.checkpoint_manager.as_ref().unwrap().export_enabled(),
             self.config.checkpoint_interval(),
-            self.config.checkpoint_cleanup_interval(),
         );
 
         // Create stateful Kafka consumer that sends to the processor pool

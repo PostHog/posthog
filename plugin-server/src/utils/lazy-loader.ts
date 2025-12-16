@@ -80,6 +80,7 @@ export class LazyLoader<T> {
     private refreshBackgroundAgeMs?: number
     private refreshJitterMs: number
     private maxSize: number
+    private cacheSize: number = 0
 
     private buffer:
         | {
@@ -130,13 +131,19 @@ export class LazyLoader<T> {
         this.lastUsed = {}
         this.cacheUntil = {}
         this.backgroundRefreshAfter = {}
+        this.cacheSize = 0
         // this.pendingLoads = {} // NOTE: We don't clear this
         this.updateCacheSizeMetric()
     }
 
     private setValues(map: LazyLoaderMap<T>): void {
         for (const [key, value] of Object.entries(map)) {
+            // Track if this is a new key being added
+            const isNewKey = !(key in this.cache)
             this.cache[key] = value ?? null
+            if (isNewKey) {
+                this.cacheSize++
+            }
             // Always update the lastUsed time
             this.lastUsed[key] = Date.now()
             const valueOrNull = value ?? null
@@ -286,19 +293,17 @@ export class LazyLoader<T> {
     }
 
     private evictLRU(): void {
-        const cacheSize = Object.keys(this.cache).length
-        if (cacheSize <= this.maxSize) {
+        if (this.cacheSize <= this.maxSize) {
             return
         }
 
-        // Sort keys by lastUsed time (oldest first)
-        const sortedKeys = Object.entries(this.lastUsed)
-            .filter(([key]) => key in this.cache)
-            .sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0))
-
         // Calculate how many to evict
-        const toEvict = cacheSize - this.maxSize
-        const keysToEvict = sortedKeys.slice(0, toEvict).map(([key]) => key)
+        const toEvict = this.cacheSize - this.maxSize
+
+        // Sort entries by lastUsed time (oldest first) and take the N oldest
+        const entries = Object.entries(this.lastUsed).filter(([key]) => key in this.cache)
+        entries.sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0))
+        const keysToEvict = entries.slice(0, toEvict).map(([key]) => key)
 
         // Evict the least recently used entries
         for (const key of keysToEvict) {
@@ -306,15 +311,11 @@ export class LazyLoader<T> {
             delete this.lastUsed[key]
             delete this.cacheUntil[key]
             delete this.backgroundRefreshAfter[key]
-        }
-
-        if (keysToEvict.length > 0) {
-            this.updateCacheSizeMetric()
+            this.cacheSize--
         }
     }
 
     private updateCacheSizeMetric(): void {
-        const cacheSize = Object.keys(this.cache).length
-        lazyLoaderCacheSize.labels({ name: this.options.name }).set(cacheSize)
+        lazyLoaderCacheSize.labels({ name: this.options.name }).set(this.cacheSize)
     }
 }
