@@ -34,7 +34,7 @@ function anyValueIsNull(object: object): boolean {
     return Object.values(object).some((value) => value === null)
 }
 
-function getEmptySeriesNames(requiredSeries: object | undefined): string[] {
+function getEmptySeriesNames(requiredSeries: Record<string, AnyEntityNode | null> | undefined): string[] {
     return Object.entries(requiredSeries || {})
         .filter(([, value]) => !value)
         .map(([key]) => key)
@@ -87,7 +87,7 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
                     <div className="flex flex-col items-start gap-2 mt-2 max-w-160">
                         {eventsToConfigure.map((event) => (
                             <ConfigureWithAIButton
-                                data-attr={`customer-analytics-configure-${event.title.toLowerCase().replace(' ', '-')}-with-ai`}
+                                data-attr={`customer-analytics-configure-${event.title.toLowerCase().replaceAll(' ', '-')}-with-ai`}
                                 to={urls.customerAnalyticsConfiguration()}
                                 type="primary"
                                 eventToHighlight={event.title}
