@@ -1168,10 +1168,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
                     // Fetch the full view with query if not already loaded
                     if (!view.query) {
-                        view = await api.dataWarehouseSavedQueries.get(viewId)
+                        try {
+                            view = await api.dataWarehouseSavedQueries.get(viewId)
+                        } catch (error) {
+                            lemonToast.error('Failed to load view details')
+                            return
+                        }
                     }
 
-                    const queryToOpen = searchParams.open_query ? searchParams.open_query : view.query?.query
+                    const queryToOpen = searchParams.open_query ? searchParams.open_query : view.query?.query ?? ''
 
                     actions.editView(queryToOpen, view)
                     tabAdded = true
