@@ -9,12 +9,10 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsFilters } from 'products/logs/frontend/components/LogsFilters'
-import { LogsSparkline } from 'products/logs/frontend/components/LogsSparkline'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
 
 import { logsLogic } from './logsLogic'
@@ -26,9 +24,17 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { tabId, parsedLogs, logsLoading, totalLogsMatchingFilters, sparklineLoading, hasMoreLogsToLoad, orderBy } =
-        useValues(logsLogic)
-    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter } = useActions(logsLogic)
+    const {
+        tabId,
+        parsedLogs,
+        logsLoading,
+        totalLogsMatchingFilters,
+        sparklineLoading,
+        hasMoreLogsToLoad,
+        orderBy,
+        sparklineData,
+    } = useValues(logsLogic)
+    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange } = useActions(logsLogic)
 
     useEffect(() => {
         runQuery()
@@ -64,8 +70,6 @@ export function LogsScene(): JSX.Element {
                 isEmpty={false}
             />
             <LogsFilters />
-            <LogsSparkline />
-            <SceneDivider />
             <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px)]">
                 <LogsViewer
                     tabId={tabId}
@@ -78,6 +82,9 @@ export function LogsScene(): JSX.Element {
                     onRefresh={runQuery}
                     onLoadMore={fetchNextLogsPage}
                     onAddFilter={addFilter}
+                    sparklineData={sparklineData}
+                    sparklineLoading={sparklineLoading}
+                    onDateRangeChange={setDateRange}
                 />
             </div>
         </SceneContent>

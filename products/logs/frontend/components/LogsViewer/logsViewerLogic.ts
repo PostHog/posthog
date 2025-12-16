@@ -34,6 +34,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
 
     actions({
+        // Timezone (IANA string, e.g. "UTC", "America/New_York")
+        setTimezone: (timezone: string) => ({ timezone }),
+
         // Display options
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
         setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
@@ -89,6 +92,16 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     reducers(({ props }) => ({
         // Synced from props via propsChanged
         logs: [props.logs, { setLogs: (_, { logs }) => logs }],
+
+        // Timezone selection (IANA string, persisted)
+        timezone: [
+            'UTC',
+            { persist: true },
+            {
+                setTimezone: (_, { timezone }) => timezone,
+            },
+        ],
+
         wrapBody: [
             true,
             { persist: true },
