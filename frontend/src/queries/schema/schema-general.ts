@@ -4212,6 +4212,7 @@ export interface WebAvgTimeOnPageTrendsItem {
 
 export interface WebAvgTimeOnPageTrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: WebAvgTimeOnPageTrendsItem[]
+    samplingRate?: SamplingRate
 }
 
 export interface WebAvgTimeOnPageTrendsQuery extends WebAnalyticsQueryBase<WebAvgTimeOnPageTrendsQueryResponse> {
