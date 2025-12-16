@@ -22,6 +22,17 @@ export interface Cluster {
     centroid_y: number // UMAP 2D y coordinate for scatter plot
 }
 
+// Parameters used for a clustering run
+export interface ClusteringParams {
+    clustering_method: string // "hdbscan" or "kmeans"
+    clustering_method_params: Record<string, unknown> // Method-specific params
+    embedding_normalization: string // "none" or "l2"
+    dimensionality_reduction_method: string // "none", "umap", or "pca"
+    dimensionality_reduction_ndims: number // Target dimensions
+    visualization_method: string // "umap", "pca", or "tsne"
+    max_samples: number // Max traces to sample
+}
+
 // Full clustering run event data
 export interface ClusteringRun {
     runId: string // $ai_clustering_run_id
@@ -30,6 +41,7 @@ export interface ClusteringRun {
     totalTracesAnalyzed: number
     clusters: Cluster[]
     timestamp: string // Event timestamp
+    clusteringParams?: ClusteringParams // Parameters used for this run
 }
 
 // Run option for the dropdown selector

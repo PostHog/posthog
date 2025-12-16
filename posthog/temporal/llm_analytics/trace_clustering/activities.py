@@ -269,6 +269,7 @@ def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
         coords_2d=np.array(inputs.coords_2d),
         centroid_coords_2d=np.array(inputs.centroid_coords_2d),
         batch_run_ids=inputs.batch_run_ids,
+        clustering_params=inputs.clustering_params,
     )
 
     return ClusteringResult(

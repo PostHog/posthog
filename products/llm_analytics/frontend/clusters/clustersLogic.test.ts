@@ -198,6 +198,7 @@ describe('clustersLogic', () => {
                     totalTracesAnalyzed: 30,
                     clusters: [mockCluster1, mockCluster2],
                     timestamp: '2025-01-08T00:00:00Z',
+                    clusteringParams: undefined,
                 }
 
                 // Set the current run via loader success action
@@ -228,6 +229,7 @@ describe('clustersLogic', () => {
                     totalTracesAnalyzed: 15,
                     clusters: [mockCluster1, mockCluster2],
                     timestamp: '2025-01-08T00:00:00Z',
+                    clusteringParams: undefined,
                 }
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
@@ -251,6 +253,7 @@ describe('clustersLogic', () => {
                     totalTracesAnalyzed: 10,
                     clusters: [clusterWithoutTitle],
                     timestamp: '2025-01-08T00:00:00Z',
+                    clusteringParams: undefined,
                 }
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
@@ -269,6 +272,7 @@ describe('clustersLogic', () => {
                     totalTracesAnalyzed: 15,
                     clusters: [mockCluster1, mockCluster2],
                     timestamp: '2025-01-08T00:00:00Z',
+                    clusteringParams: undefined,
                 }
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
@@ -291,6 +295,7 @@ describe('clustersLogic', () => {
                     totalTracesAnalyzed: 15,
                     clusters: [mockCluster1, mockNoiseCluster],
                     timestamp: '2025-01-08T00:00:00Z',
+                    clusteringParams: undefined,
                 }
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
@@ -310,6 +315,7 @@ describe('clustersLogic', () => {
                     totalTracesAnalyzed: 15,
                     clusters: [mockCluster1, mockNoiseCluster],
                     timestamp: '2025-01-08T00:00:00Z',
+                    clusteringParams: undefined,
                 }
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
@@ -330,6 +336,7 @@ describe('clustersLogic', () => {
                     totalTracesAnalyzed: 10,
                     clusters: [mockCluster1],
                     timestamp: '2025-01-08T00:00:00Z',
+                    clusteringParams: undefined,
                 }
 
                 logic.actions.loadClusteringRunSuccess(mockRun)

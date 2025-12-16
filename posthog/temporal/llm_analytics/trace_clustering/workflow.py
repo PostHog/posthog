@@ -4,22 +4,30 @@ from datetime import timedelta
 
 from temporalio import workflow
 
-with workflow.unsafe.imports_passed_through():
-    from posthog.temporal.llm_analytics.trace_clustering.activities import (
-        emit_cluster_events_activity,
-        generate_cluster_labels_activity,
-        perform_clustering_compute_activity,
-    )
-    from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
-    from posthog.temporal.llm_analytics.trace_clustering.models import (
-        ClusteringActivityInputs,
-        ClusteringComputeResult,
-        ClusteringResult,
-        ClusteringWorkflowInputs,
-        EmitEventsActivityInputs,
-        GenerateLabelsActivityInputs,
-        TraceLabelingMetadata,
-    )
+from posthog.temporal.llm_analytics.trace_clustering.activities import (
+    emit_cluster_events_activity,
+    generate_cluster_labels_activity,
+    perform_clustering_compute_activity,
+)
+from posthog.temporal.llm_analytics.trace_clustering.constants import (
+    COMPUTE_ACTIVITY_RETRY_POLICY,
+    COMPUTE_ACTIVITY_TIMEOUT,
+    EMIT_ACTIVITY_RETRY_POLICY,
+    EMIT_ACTIVITY_TIMEOUT,
+    LLM_ACTIVITY_RETRY_POLICY,
+    NOISE_CLUSTER_ID,
+    WORKFLOW_NAME,
+)
+from posthog.temporal.llm_analytics.trace_clustering.models import (
+    ClusteringActivityInputs,
+    ClusteringComputeResult,
+    ClusteringParams,
+    ClusteringResult,
+    ClusteringWorkflowInputs,
+    EmitEventsActivityInputs,
+    GenerateLabelsActivityInputs,
+    TraceLabelingMetadata,
+)
 
 
 def _compute_trace_labeling_metadata(
@@ -93,7 +101,7 @@ def _compute_trace_labeling_metadata(
     return metadata
 
 
-@workflow.defn(name="daily-trace-clustering")
+@workflow.defn(name=WORKFLOW_NAME)
 class DailyTraceClusteringWorkflow:
     """
     Daily workflow to cluster LLM traces based on their embeddings.
@@ -119,7 +127,6 @@ class DailyTraceClusteringWorkflow:
         Returns:
             ClusteringResult with clustering metrics and cluster info
         """
-        from posthog.temporal.llm_analytics.trace_clustering import constants
 
         # Calculate window from workflow time (deterministic for replays)
         now = workflow.now()
@@ -147,8 +154,8 @@ class DailyTraceClusteringWorkflow:
                     trace_filters=inputs.trace_filters,
                 )
             ],
-            start_to_close_timeout=constants.COMPUTE_ACTIVITY_TIMEOUT,
-            retry_policy=constants.COMPUTE_ACTIVITY_RETRY_POLICY,
+            start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
+            retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
         )
 
         # Compute per-trace metadata for labeling (O(n) instead of O(n × k))
@@ -170,7 +177,7 @@ class DailyTraceClusteringWorkflow:
                 )
             ],
             start_to_close_timeout=timedelta(seconds=600),  # 10 minutes for agent run
-            retry_policy=constants.LLM_ACTIVITY_RETRY_POLICY,
+            retry_policy=LLM_ACTIVITY_RETRY_POLICY,
         )
 
         # Activity 3: Emit events to ClickHouse
@@ -190,10 +197,19 @@ class DailyTraceClusteringWorkflow:
                     coords_2d=compute_result.coords_2d,
                     centroid_coords_2d=compute_result.centroid_coords_2d,
                     batch_run_ids=compute_result.batch_run_ids,
+                    clustering_params=ClusteringParams(
+                        clustering_method=inputs.clustering_method,
+                        clustering_method_params=inputs.clustering_method_params,
+                        embedding_normalization=inputs.embedding_normalization,
+                        dimensionality_reduction_method=inputs.dimensionality_reduction_method,
+                        dimensionality_reduction_ndims=inputs.dimensionality_reduction_ndims,
+                        visualization_method=inputs.visualization_method,
+                        max_samples=inputs.max_samples,
+                    ),
                 )
             ],
-            start_to_close_timeout=constants.EMIT_ACTIVITY_TIMEOUT,
-            retry_policy=constants.EMIT_ACTIVITY_RETRY_POLICY,
+            start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,
+            retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
         )
 
         return result

@@ -19,7 +19,7 @@ from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_summaries
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusterData, ClusterLabel, TraceId
+from posthog.temporal.llm_analytics.trace_clustering.models import ClusterData, ClusteringParams, ClusterLabel, TraceId
 
 
 class _TraceDistanceData(TypedDict):
@@ -45,6 +45,7 @@ def emit_cluster_events(
     coords_2d: np.ndarray,
     centroid_coords_2d: np.ndarray,
     batch_run_ids: dict[str, str] | None = None,
+    clustering_params: ClusteringParams | None = None,
 ) -> list[ClusterData]:
     """Emit $ai_trace_clusters event to ClickHouse.
 
@@ -64,6 +65,7 @@ def emit_cluster_events(
         coords_2d: UMAP 2D coordinates for each trace, shape (n_traces, 2)
         centroid_coords_2d: UMAP 2D coordinates for each centroid, shape (n_clusters, 2)
         batch_run_ids: Dict mapping trace_id -> batch_run_id for linking to summaries
+        clustering_params: Parameters used for this clustering run
 
     Returns:
         List of ClusterData objects emitted
@@ -113,6 +115,10 @@ def emit_cluster_events(
         "$ai_total_traces_analyzed": len(trace_ids),
         "$ai_clusters": [dataclasses.asdict(c) for c in clusters],
     }
+
+    # Add clustering params if provided
+    if clustering_params:
+        properties["$ai_clustering_params"] = dataclasses.asdict(clustering_params)
 
     create_event(
         event_uuid=event_uuid,

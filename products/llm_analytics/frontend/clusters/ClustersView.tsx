@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconChevronRight, IconGear, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -12,7 +12,56 @@ import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
 import { clustersAdminLogic } from './clustersAdminLogic'
 import { clustersLogic } from './clustersLogic'
-import { Cluster, NOISE_CLUSTER_ID } from './types'
+import { Cluster, ClusteringParams, NOISE_CLUSTER_ID } from './types'
+
+function ClusteringParamsTooltip({ params }: { params: ClusteringParams }): JSX.Element {
+    const formatMethodParams = (methodParams: Record<string, unknown>): string => {
+        if (!methodParams || Object.keys(methodParams).length === 0) {
+            return 'default'
+        }
+        return Object.entries(methodParams)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(', ')
+    }
+
+    return (
+        <div className="text-xs space-y-0.5 min-w-64">
+            <div className="font-semibold mb-2">Clustering parameters</div>
+            <div className="flex justify-between gap-4">
+                <span className="opacity-70 shrink-0">Clustering</span>
+                <span className="font-medium text-right">{params.clustering_method}</span>
+            </div>
+            {Object.keys(params.clustering_method_params || {}).length > 0 && (
+                <div className="flex justify-between gap-4">
+                    <span className="opacity-70 shrink-0">Method params</span>
+                    <span className="font-medium text-right">
+                        {formatMethodParams(params.clustering_method_params)}
+                    </span>
+                </div>
+            )}
+            <div className="flex justify-between gap-4">
+                <span className="opacity-70 shrink-0">Dim. reduction</span>
+                <span className="font-medium text-right">
+                    {params.dimensionality_reduction_method}
+                    {params.dimensionality_reduction_method !== 'none' &&
+                        ` (${params.dimensionality_reduction_ndims}d)`}
+                </span>
+            </div>
+            <div className="flex justify-between gap-4">
+                <span className="opacity-70 shrink-0">Visualization</span>
+                <span className="font-medium text-right">{params.visualization_method}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+                <span className="opacity-70 shrink-0">Normalization</span>
+                <span className="font-medium text-right">{params.embedding_normalization}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+                <span className="opacity-70 shrink-0">Max samples</span>
+                <span className="font-medium text-right">{params.max_samples.toLocaleString()}</span>
+            </div>
+        </div>
+    )
+}
 
 export function ClustersView(): JSX.Element {
     const {
@@ -104,6 +153,14 @@ export function ClustersView(): JSX.Element {
                                 {dayjs(currentRun.windowStart).format('MMM D')} -{' '}
                                 {dayjs(currentRun.windowEnd).format('MMM D, YYYY')}
                             </span>
+                            {currentRun.clusteringParams && (
+                                <Tooltip
+                                    title={<ClusteringParamsTooltip params={currentRun.clusteringParams} />}
+                                    placement="bottom"
+                                >
+                                    <IconInfo className="text-muted-alt cursor-help" />
+                                </Tooltip>
+                            )}
                         </div>
                     )}
 

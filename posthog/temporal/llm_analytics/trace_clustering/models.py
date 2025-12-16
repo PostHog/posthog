@@ -211,6 +211,19 @@ class GenerateLabelsActivityOutputs:
 
 
 @dataclass
+class ClusteringParams:
+    """Parameters used for a clustering run, stored with the event for debugging/analysis."""
+
+    clustering_method: str  # "hdbscan" or "kmeans"
+    clustering_method_params: dict[str, Any]  # Method-specific params
+    embedding_normalization: str  # "none" or "l2"
+    dimensionality_reduction_method: str  # "none", "umap", or "pca"
+    dimensionality_reduction_ndims: int  # Target dimensions
+    visualization_method: str  # "umap", "pca", or "tsne"
+    max_samples: int  # Max traces to sample
+
+
+@dataclass
 class EmitEventsActivityInputs:
     """Input for the event emission activity."""
 
@@ -226,3 +239,4 @@ class EmitEventsActivityInputs:
     coords_2d: list[list[float]]  # UMAP 2D coordinates per trace
     centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # trace_id -> batch_run_id for linking to summaries
+    clustering_params: ClusteringParams | None = None  # Params used for this run

@@ -12,7 +12,7 @@ import { Breadcrumb } from '~/types'
 
 import type { clustersLogicType } from './clustersLogicType'
 import { loadTraceSummaries } from './traceSummaryLoader'
-import { Cluster, ClusteringRun, ClusteringRunOption, NOISE_CLUSTER_ID, TraceSummary } from './types'
+import { Cluster, ClusteringParams, ClusteringRun, ClusteringRunOption, NOISE_CLUSTER_ID, TraceSummary } from './types'
 
 // Special color for outliers cluster
 const OUTLIER_COLOR = '#888888'
@@ -131,7 +131,8 @@ export const clustersLogic = kea<clustersLogicType>([
                             JSONExtractString(properties, '$ai_window_end') as window_end,
                             JSONExtractInt(properties, '$ai_total_traces_analyzed') as total_traces,
                             JSONExtractRaw(properties, '$ai_clusters') as clusters,
-                            timestamp
+                            timestamp,
+                            JSONExtractRaw(properties, '$ai_clustering_params') as clustering_params
                         FROM events
                         WHERE event = '$ai_trace_clusters'
                             AND JSONExtractString(properties, '$ai_clustering_run_id') = ${runId}
@@ -144,6 +145,10 @@ export const clustersLogic = kea<clustersLogicType>([
 
                     const row = response.results[0] as (string | number)[]
                     const clustersData = JSON.parse((row[4] as string) || '[]')
+                    const clusteringParamsRaw = row[6] as string | null
+                    const clusteringParams: ClusteringParams | undefined = clusteringParamsRaw
+                        ? JSON.parse(clusteringParamsRaw)
+                        : undefined
 
                     return {
                         runId: row[0] as string,
@@ -152,7 +157,8 @@ export const clustersLogic = kea<clustersLogicType>([
                         totalTracesAnalyzed: row[3] as number,
                         clusters: clustersData,
                         timestamp: row[5] as string,
-                    }
+                        clusteringParams,
+                    } as ClusteringRun
                 },
             },
         ],

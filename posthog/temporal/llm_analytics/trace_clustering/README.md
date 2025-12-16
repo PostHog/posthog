@@ -1,4 +1,4 @@
-# Daily Trace Clustering
+# LLM Analytics Trace Clustering
 
 Automated workflow for clustering LLM traces based on their semantic embeddings, discovering patterns and grouping similar traces to help users understand their LLM application behavior.
 
@@ -61,7 +61,7 @@ graph TB
         DIST --> UMAP2[UMAP 2D Projection]
     end
 
-    subgraph "Activity 2: Label (300s timeout)"
+    subgraph "Activity 2: Label (600s timeout)"
         ACT2 --> AGENT[LangGraph Labeling Agent]
         AGENT --> TOOLS[Agent Tools]
         TOOLS --> |get_clusters_overview| AGENT
@@ -95,7 +95,7 @@ graph TB
 
 ### Main Workflow
 
-**Name**: `daily-trace-clustering`
+**Name**: `llma-trace-clustering`
 
 **Inputs** (`ClusteringWorkflowInputs`):
 
@@ -119,9 +119,9 @@ The workflow uses **three separate activities** with independent timeouts and re
 
 | Activity                              | Purpose                               | Timeout | Retries | Data Size      |
 | ------------------------------------- | ------------------------------------- | ------- | ------- | -------------- |
-| `perform_clustering_compute_activity` | Fetch embeddings, HDBSCAN, distances  | 120s    | 3       | ~250 KB output |
+| `perform_clustering_compute_activity` | Fetch embeddings, HDBSCAN, distances  | 120s    | 3       | ~150 KB output |
 | `generate_cluster_labels_activity`    | LLM-based cluster labeling            | 600s    | 2       | ~4 KB output   |
-| `emit_cluster_events_activity`        | Write results to ClickHouse           | 60s     | 3       | ~100 KB output |
+| `emit_cluster_events_activity`        | Write results to ClickHouse           | 60s     | 3       | ~150 KB input  |
 
 **Benefits:**
 
@@ -144,7 +144,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 - Agent explores clusters using tools (overview, trace titles, trace details)
 - Iteratively generates distinctive labels for each cluster
 - Ensures labels differentiate clusters from each other
-- 600 second timeout for full agent run
+- 10 minute timeout for full agent run (600 seconds)
 - See `labeling_agent/README.md` for detailed agent architecture
 
 **Activity 3 (Emit)** - Database write:
@@ -194,6 +194,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 
 - `emit_cluster_events()` - Create and emit `$ai_trace_clusters` event
 - Builds cluster data with traces sorted by distance rank
+- Includes clustering params for debugging/analysis (`$ai_clustering_params`)
 
 ### Output Events
 
@@ -205,6 +206,17 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
     "$ai_window_start": "2025-01-16T00:00:00Z",
     "$ai_window_end": "2025-01-23T00:00:00Z",
     "$ai_total_traces_analyzed": 315,
+
+    # Clustering parameters used for this run (for debugging/analysis)
+    "$ai_clustering_params": {
+        "clustering_method": "hdbscan",
+        "clustering_method_params": {"min_cluster_size_fraction": 0.01, "min_samples": 5},
+        "embedding_normalization": "l2",
+        "dimensionality_reduction_method": "umap",
+        "dimensionality_reduction_ndims": 100,
+        "visualization_method": "umap",
+        "max_samples": 1000
+    },
 
     # Clusters array (native JSON, not string)
     "$ai_clusters": [
@@ -243,6 +255,7 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
 **Notes**:
 
 - `$ai_clusters` is stored as **native JSON** (not a JSON string)
+- `$ai_clustering_params` contains the parameters used for debugging/analysis (displayed in UI tooltip)
 - `traces` is a dict keyed by trace_id for easy lookup
 - Each trace includes `rank` (0-indexed, 0 = closest to centroid), `distance_to_centroid`, and 2D coordinates (`x`, `y`)
 - `centroid_x` and `centroid_y` provide 2D positions for visualization
@@ -258,7 +271,7 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
 temporal workflow start \
   --address 127.0.0.1:7233 \
   --task-queue development-task-queue \
-  --type daily-trace-clustering \
+  --type llma-trace-clustering \
   --workflow-id "trace-clustering-test-$(date +%Y%m%d-%H%M%S)" \
   --input '{"team_id": 1, "lookback_days": 7, "max_samples": 1000}'
 
@@ -325,11 +338,11 @@ Key constants in `constants.py`:
 
 | Constant                              | Default                    | Description                                      |
 | ------------------------------------- | -------------------------- | ------------------------------------------------ |
+| `WORKFLOW_NAME`                       | llma-trace-clustering      | Temporal workflow name                           |
 | `DEFAULT_LOOKBACK_DAYS`               | 7                          | Days of trace history to analyze                 |
 | `DEFAULT_MAX_SAMPLES`                 | 1000                       | Maximum traces to sample                         |
 | `MIN_TRACES_FOR_CLUSTERING`           | 20                         | Minimum traces required for workflow             |
 | `COMPUTE_ACTIVITY_TIMEOUT`            | 120s                       | Clustering compute timeout                       |
-| `LLM_ACTIVITY_TIMEOUT`                | 300s                       | LLM labeling timeout (constant)                  |
 | `EMIT_ACTIVITY_TIMEOUT`               | 60s                        | Event emission timeout                           |
 | `LABELING_AGENT_MODEL`                | claude-sonnet-4-20250514   | Claude model for labeling agent                  |
 | `LABELING_AGENT_MAX_ITERATIONS`       | 50                         | Max agent iterations before finalization         |
