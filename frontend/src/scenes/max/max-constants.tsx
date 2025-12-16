@@ -282,10 +282,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 description: 'Read an insight',
                 icon: iconForType('product_analytics'),
                 displayFormatter: (toolCall) => {
-                    if (toolCall.status === 'completed') {
-                        return toolCall.args.execute ? 'Read and query an insight' : 'Read an insight'
+                    function isExecuting(): boolean {
+                        return !!(
+                            typeof toolCall.args?.query === 'object' &&
+                            toolCall.args?.query &&
+                            'execute' in toolCall.args?.query &&
+                            toolCall.args?.query.execute
+                        )
                     }
-                    return toolCall.args.execute ? 'Reading and querying an insight...' : 'Reading an insight...'
+
+                    if (toolCall.status === 'completed') {
+                        return isExecuting() ? 'Read and queried an insight' : 'Read an insight'
+                    }
+                    return isExecuting() ? 'Reading and querying an insight...' : 'Reading an insight...'
                 },
             },
         },
