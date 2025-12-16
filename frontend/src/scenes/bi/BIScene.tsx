@@ -57,6 +57,7 @@ import {
     columnKey,
     defaultColumnForTable,
     getTableDialect,
+    getTableSourceId,
     isJsonField,
 } from './biLogic'
 
@@ -619,6 +620,17 @@ export function BIScene(): JSX.Element {
         queryString,
     ])
 
+    const openInSqlEditorQuery = useMemo(() => {
+        if (queryDialect !== 'postgres' || activeQueryPreviewLanguage !== 'postgres' || !queryResponse?.postgres) {
+            return null
+        }
+
+        const sourceId = selectedTableObject ? getTableSourceId(selectedTableObject) : null
+        const directive = sourceId ? `--direct:${sourceId}` : '--direct'
+
+        return `${directive}\n${queryResponse.postgres}`
+    }, [activeQueryPreviewLanguage, queryDialect, queryResponse?.postgres, selectedTableObject])
+
     const maxSidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, viewportWidth - MIN_MAIN_WIDTH)
     const maxChartHeight = Math.max(MIN_RESIZABLE_HEIGHT, viewportHeight - 240)
     const maxQueryPreviewHeight = Math.max(MIN_RESIZABLE_HEIGHT, viewportHeight - 260)
@@ -976,15 +988,21 @@ export function BIScene(): JSX.Element {
                                     onChange={(value) => setQueryPreviewLanguage(value)}
                                     options={queryPreviewOptions}
                                 />
-                                <div className="flex items-center gap-2">
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconExpand45 />}
-                                        onClick={() => newInternalTab(urls.sqlEditor(_queryString))}
-                                        tooltip="Open in SQL editor"
-                                    />
-                                </div>
+                                {queryDialect === 'postgres' && activeQueryPreviewLanguage === 'postgres' && (
+                                    <div className="flex items-center gap-2">
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconExpand45 />}
+                                            disabled={!openInSqlEditorQuery}
+                                            onClick={() =>
+                                                openInSqlEditorQuery &&
+                                                newInternalTab(urls.sqlEditor(openInSqlEditorQuery))
+                                            }
+                                            tooltip="Open in SQL editor"
+                                        />
+                                    </div>
+                                )}
                             </div>
                             <pre className="flex-1 overflow-auto whitespace-pre-wrap text-xs">{displayedQuery}</pre>
                         </LemonCard>

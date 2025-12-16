@@ -89,7 +89,7 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
     triggerCharacters: [' ', ',', '.', '{'],
     provideCompletionItems: async (model, position) => {
         const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
-        if (!logic || !logic.isMounted()) {
+        if (!logic || !logic.isMounted() || logic.props.disableAutocomplete) {
             return {
                 suggestions: [],
                 incomplete: false,

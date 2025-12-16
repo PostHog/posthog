@@ -53,6 +53,8 @@ export interface CodeEditorLogicProps {
     onError?: (error: string | null) => void
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
+    disableMetadata?: boolean
+    disableAutocomplete?: boolean
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -71,8 +73,17 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             {
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
-                    if (!model || !props.monaco || !METADATA_LANGUAGES.includes(props.language as HogLanguage)) {
+                    if (
+                        !model ||
+                        !props.monaco ||
+                        !METADATA_LANGUAGES.includes(props.language as HogLanguage) ||
+                        props.disableMetadata
+                    ) {
                         props.onMetadata?.(null)
+                        props.onMetadataLoading?.(false)
+                        if (model && props.monaco) {
+                            props.monaco.editor.setModelMarkers(model, 'hogql', [])
+                        }
                         return null
                     }
                     await breakpoint(300)

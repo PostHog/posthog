@@ -1152,7 +1152,7 @@ export function getTableDialect(table: DatabaseSchemaTable): 'postgres' | 'click
     return (table as any)?.source?.source_type === 'Postgres' ? 'postgres' : 'clickhouse'
 }
 
-function getTableSourceId(table: DatabaseSchemaTable): string | null {
+export function getTableSourceId(table: DatabaseSchemaTable): string | null {
     return (table as any)?.source?.id || null
 }
 

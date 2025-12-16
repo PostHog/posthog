@@ -44,6 +44,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         currentDraft,
         changesToSave,
         inProgressViewEdits,
+        isDirectQuery,
     } = useValues(multitabEditorLogic)
 
     const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, saveAsView, saveDraft, updateView } =
@@ -259,6 +260,8 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     onMetadataLoading: (loading) => {
                         setMetadataLoading(loading)
                     },
+                    disableAutocomplete: isDirectQuery,
+                    disableMetadata: isDirectQuery,
                 }}
             />
             <InternalQueryWindow tabId={tabId} />

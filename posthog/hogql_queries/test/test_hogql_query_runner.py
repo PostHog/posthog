@@ -231,3 +231,11 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         printed = parse_and_print_hogql_postgres_query(query_text, self.team)
         self.assertIn("custom_pg_function(event)", printed)
+
+    def test_direct_postgres_query_runs_without_hogql(self):
+        runner = self._create_runner(HogQLQuery(query="--direct\nSELECT 1 as value"))
+
+        response = runner.calculate()
+
+        self.assertEqual(response.postgres.strip(), "SELECT 1 as value")
+        self.assertEqual(response.results[0][0], 1)

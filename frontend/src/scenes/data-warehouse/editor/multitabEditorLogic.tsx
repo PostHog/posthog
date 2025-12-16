@@ -68,6 +68,12 @@ export interface MultitabEditorLogicProps {
 
 export const NEW_QUERY = 'Untitled'
 
+const DIRECT_QUERY_REGEX = /^\s*--\s*direct\b/i
+
+export const isDirectPostgresQuery = (query: string | null): boolean => {
+    return query ? DIRECT_QUERY_REGEX.test(query) : false
+}
+
 export interface QueryTab {
     uri: Uri
     view?: DataWarehouseSavedQuery
@@ -391,6 +397,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         fixErrorsFailure: () => {
             posthog.capture('ai-error-fixer-failure')
+        },
+        setQueryInput: ({ queryInput }) => {
+            if (isDirectPostgresQuery(queryInput)) {
+                actions.setMetadata(null)
+                actions.setMetadataLoading(false)
+            }
         },
         shareTab: () => {
             const currentTab = values.activeTab
@@ -939,6 +951,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return suggestionPayload?.source ?? null
             },
         ],
+        isDirectQuery: [(s) => [s.queryInput], (queryInput) => isDirectPostgresQuery(queryInput)],
         diffShowRunButton: [
             (s) => [s.suggestionPayload],
             (suggestionPayload) => {

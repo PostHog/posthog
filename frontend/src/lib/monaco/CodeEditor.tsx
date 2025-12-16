@@ -41,6 +41,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     onError?: (error: string | null) => void
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
+    disableMetadata?: boolean
+    disableAutocomplete?: boolean
 }
 let codeEditorIndex = 0
 
@@ -158,6 +160,8 @@ export function CodeEditor({
         onMetadata,
         onMetadataLoading,
         metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
+        disableMetadata: editorProps.disableMetadata,
+        disableAutocomplete: editorProps.disableAutocomplete,
     })
     useMountedLogic(builtCodeEditorLogic)
 

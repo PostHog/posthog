@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from collections.abc import Callable
 from datetime import datetime
@@ -142,6 +143,33 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         # Parse the directive to check for external source
         query_str = self.query.query if isinstance(self.query, HogQLQuery) else None
         directive = parse_postgres_directive(query_str)
+
+        if directive.is_direct:
+            direct_query = re.sub(r"^\s*--\s*direct(?::[^\n]+)?\s*\n?", "", query_str or "", flags=re.IGNORECASE)
+
+            results: list[Any] = []
+            columns: list[str] = []
+            with self.timings.measure("postgres_execute"):
+                if directive.source_id:
+                    results, columns = self._execute_external_postgres(directive.source_id, direct_query)
+                else:
+                    with connection.cursor() as cursor:
+                        cursor.execute(direct_query)
+                        columns = [col[0] for col in cursor.description] if cursor.description else []
+                        results = cursor.fetchall()
+
+            return HogQLQueryResponse(
+                query=self.query.query if isinstance(self.query, HogQLQuery) else None,
+                hogql=None,
+                clickhouse=None,
+                postgres=direct_query,
+                error=None,
+                timings=self.timings.to_list(),
+                results=results,
+                columns=columns,
+                modifiers=self.query.modifiers or self.modifiers,
+                metadata=None,
+            )
 
         executor = HogQLQueryExecutor(
             query=self.to_query(),
