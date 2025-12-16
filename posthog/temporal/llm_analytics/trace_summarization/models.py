@@ -53,8 +53,8 @@ class SummarizationActivityResult:
     event_count: int = 0
     skipped: bool = False
     skip_reason: str | None = None
-    embedding_success: bool = False
-    embedding_error: str | None = None
+    embedding_requested: bool = False
+    embedding_request_error: str | None = None
 
 
 @dataclass
@@ -65,8 +65,8 @@ class BatchSummarizationMetrics:
     summaries_skipped: int = 0
     summaries_failed: int = 0
     summaries_generated: int = 0
-    embeddings_succeeded: int = 0
-    embeddings_failed: int = 0
+    embedding_requests_succeeded: int = 0
+    embedding_requests_failed: int = 0
     duration_seconds: float = 0.0
 
 

@@ -162,11 +162,11 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 metrics.summaries_failed += 1
             elif result.success:
                 metrics.summaries_generated += 1
-                # Track embedding results (embedding happens inline during summarization)
-                if result.embedding_success:
-                    metrics.embeddings_succeeded += 1
+                # Track embedding request results (actual embedding happens asynchronously via Kafka)
+                if result.embedding_requested:
+                    metrics.embedding_requests_succeeded += 1
                 else:
-                    metrics.embeddings_failed += 1
+                    metrics.embedding_requests_failed += 1
             elif result.skipped:
                 metrics.summaries_skipped += 1
             else:

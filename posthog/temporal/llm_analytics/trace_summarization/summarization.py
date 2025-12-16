@@ -182,18 +182,18 @@ async def generate_and_save_summary_activity(
         summary_result, hierarchy, text_repr, team, trace_timestamp
     )
 
-    # Generate embedding immediately after saving summary
-    embedding_success = False
-    embedding_error = None
+    # Request embedding by sending to Kafka
+    embedding_requested = False
+    embedding_request_error = None
     try:
         await database_sync_to_async(_embed_summary, thread_sensitive=False)(summary_result, team)
-        embedding_success = True
+        embedding_requested = True
     except Exception as e:
-        embedding_error = str(e)
+        embedding_request_error = str(e)
         logger.exception(
-            "Failed to generate embedding for trace summary",
+            "Failed to request embedding for trace summary",
             trace_id=trace_id,
-            error=embedding_error,
+            error=embedding_request_error,
         )
 
     return SummarizationActivityResult(
@@ -201,6 +201,6 @@ async def generate_and_save_summary_activity(
         success=True,
         text_repr_length=len(text_repr),
         event_count=len(hierarchy),
-        embedding_success=embedding_success,
-        embedding_error=embedding_error,
+        embedding_requested=embedding_requested,
+        embedding_request_error=embedding_request_error,
     )

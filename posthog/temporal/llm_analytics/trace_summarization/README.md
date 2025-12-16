@@ -139,8 +139,8 @@ graph TB
   - `summaries_skipped`: Number skipped (e.g., text repr too large)
   - `summaries_failed`: Number that failed to generate
   - `summaries_generated`: Number successfully generated
-  - `embeddings_succeeded`: Number of embeddings successfully queued
-  - `embeddings_failed`: Number that failed to generate embeddings
+  - `embedding_requests_succeeded`: Number of embedding requests successfully sent to Kafka
+  - `embedding_requests_failed`: Number of embedding requests that failed to send
   - `duration_seconds`: Total workflow execution time
 
 ### Activities
@@ -385,8 +385,8 @@ Returns `BatchSummarizationResult` with:
     "summaries_skipped": 0,
     "summaries_failed": 2,
     "summaries_generated": 98,
-    "embeddings_succeeded": 98,
-    "embeddings_failed": 0,
+    "embedding_requests_succeeded": 98,
+    "embedding_requests_failed": 0,
     "duration_seconds": 315.23
   }
 }
