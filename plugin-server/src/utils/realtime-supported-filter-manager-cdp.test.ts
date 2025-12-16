@@ -42,20 +42,20 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
     describe('getRealtimeSupportedFiltersForTeam()', () => {
         it('returns empty array if no realtime cohorts exist', async () => {
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toEqual([])
+            expect(result).toEqual({ behavioral: [], person_property: [] })
         })
 
         it('returns realtime supported filters for a team', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
             const conditionHash = 'test_hash_001'
-            const filters = buildInlineFiltersForCohorts({ bytecode, conditionHash, type: 'event', key: '$browser' })
+            const filters = buildInlineFiltersForCohorts({ bytecode, conditionHash, key: '$browser' })
 
             // Create a realtime cohort
             const cohortId = await createCohort(postgres, teamId, 'Test Cohort', filters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toHaveLength(1)
-            expect(result[0]).toMatchObject({
+            expect(result.behavioral).toHaveLength(1)
+            expect(result.behavioral[0]).toMatchObject({
                 conditionHash: conditionHash,
                 bytecode: bytecode,
                 team_id: teamId,
@@ -68,7 +68,6 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const filters = buildInlineFiltersForCohorts({
                 bytecode,
                 conditionHash: 'test_hash_001',
-                type: 'event',
                 key: '$browser',
             })
 
@@ -79,8 +78,8 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             await createCohort(postgres, teamId, 'Deleted Cohort', filters, { deleted: true })
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toHaveLength(1)
-            expect(result[0].cohort_id).not.toBe('Deleted Cohort')
+            expect(result.behavioral).toHaveLength(1)
+            expect(result.behavioral[0].cohort_id).not.toBe('Deleted Cohort')
         })
 
         it('filters out cohorts without filters', async () => {
@@ -88,7 +87,7 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             await createCohort(postgres, teamId, 'No Filters Cohort', null)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toEqual([])
+            expect(result).toEqual({ behavioral: [], person_property: [] })
         })
 
         it('filters out non-realtime cohorts', async () => {
@@ -99,7 +98,7 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             await createCohort(postgres, teamId, 'Behavioral Cohort', filters, { cohort_type: 'behavioral' })
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toEqual([])
+            expect(result).toEqual({ behavioral: [], person_property: [] })
         })
 
         it('deduplicates filters by conditionHash across complex nested structures', async () => {
@@ -176,9 +175,9 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             await createCohort(postgres, teamId, 'Cohort 2', filters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toHaveLength(1) // Should be deduplicated
-            expect(result[0].conditionHash).toBe(conditionHash)
-            expect(result[0].bytecode).toEqual(combinedBytecode)
+            expect(result.behavioral).toHaveLength(1) // Should be deduplicated
+            expect(result.behavioral[0].conditionHash).toBe(conditionHash)
+            expect(result.behavioral[0].bytecode).toEqual(combinedBytecode)
         })
 
         it('handles multiple filters in single cohort with complex nested structure', async () => {
@@ -247,10 +246,13 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             await createCohort(postgres, teamId, 'Multi-Filter Cohort', filters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toHaveLength(2)
-            expect(result.map((f) => f.conditionHash).sort()).toEqual(['512ef57e6f504fc6', 'e0418e34fcd847e5'])
+            expect(result.behavioral).toHaveLength(2)
+            expect(result.behavioral.map((f) => f.conditionHash).sort()).toEqual([
+                '512ef57e6f504fc6',
+                'e0418e34fcd847e5',
+            ])
             // Verify the combined bytecode for the behavioral filter with event_filters
-            const behavioralFilter = result.find((f) => f.conditionHash === '512ef57e6f504fc6')
+            const behavioralFilter = result.behavioral.find((f) => f.conditionHash === '512ef57e6f504fc6')
             expect(behavioralFilter?.bytecode).toEqual(behavioralWithEventFilterBytecode)
         })
 
@@ -293,10 +295,13 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             await createCohort(postgres, teamId, 'Mixed Filters Cohort', filters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            // Should only return the behavioral filter, not the person property filter
-            expect(result).toHaveLength(1)
-            expect(result[0].conditionHash).toBe('e0418e34fcd847e5')
-            expect(result[0].bytecode).toEqual(behavioralBytecode)
+            // Should split behavioral and person property filters
+            expect(result.behavioral).toHaveLength(1)
+            expect(result.behavioral[0].conditionHash).toBe('e0418e34fcd847e5')
+            expect(result.behavioral[0].bytecode).toEqual(behavioralBytecode)
+            expect(result.person_property).toHaveLength(1)
+            expect(result.person_property[0].conditionHash).toBe('30b9607b69c556bf')
+            expect(result.person_property[0].bytecode).toEqual(personPropBytecode)
         })
 
         it('filters out cohort filters and only keeps event filters', async () => {
@@ -342,12 +347,12 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
 
             // Should filter out the cohort filter and only return the event filter
-            expect(result).toHaveLength(1)
-            expect(result[0].conditionHash).toBe('f9c616030a87e68f')
-            expect(result[0].bytecode).toEqual(['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11])
+            expect(result.behavioral).toHaveLength(1)
+            expect(result.behavioral[0].conditionHash).toBe('f9c616030a87e68f')
+            expect(result.behavioral[0].bytecode).toEqual(['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11])
 
             // Verify the cohort filter was filtered out
-            const cohortFilter = result.find((f) => f.conditionHash === '5e6d68bd7c7babae')
+            const cohortFilter = result.behavioral.find((f) => f.conditionHash === '5e6d68bd7c7babae')
             expect(cohortFilter).toBeUndefined()
         })
 
@@ -454,16 +459,20 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             await createCohort(postgres, teamId, 'Complex OR Cohort', filters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toHaveLength(3)
-            const hashes = result.map((f) => f.conditionHash).sort()
+            expect(result.behavioral).toHaveLength(3)
+            const hashes = result.behavioral.map((f) => f.conditionHash).sort()
             expect(hashes).toEqual(['512ef57e6f504fc6', 'e0418e34fcd847e5', 'f0bbe0140a9cfe05'])
 
             // Verify all bytecodes are correctly extracted
-            expect(result.find((f) => f.conditionHash === '512ef57e6f504fc6')?.bytecode).toEqual(
+            expect(result.behavioral.find((f) => f.conditionHash === '512ef57e6f504fc6')?.bytecode).toEqual(
                 pageviewWithBrowserBytecode
             )
-            expect(result.find((f) => f.conditionHash === 'e0418e34fcd847e5')?.bytecode).toEqual(pageleaveBytecode)
-            expect(result.find((f) => f.conditionHash === 'f0bbe0140a9cfe05')?.bytecode).toEqual(groupidentifyBytecode)
+            expect(result.behavioral.find((f) => f.conditionHash === 'e0418e34fcd847e5')?.bytecode).toEqual(
+                pageleaveBytecode
+            )
+            expect(result.behavioral.find((f) => f.conditionHash === 'f0bbe0140a9cfe05')?.bytecode).toEqual(
+                groupidentifyBytecode
+            )
         })
 
         it('handles malformed filters gracefully', async () => {
@@ -494,8 +503,8 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             await createCohort(postgres, teamId, 'Malformed Cohort', malformedFilters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toHaveLength(1) // Only valid filter should be returned
-            expect(result[0].conditionHash).toBe('valid_hash')
+            expect(result.behavioral).toHaveLength(1) // Only valid filter should be returned
+            expect(result.behavioral[0].conditionHash).toBe('valid_hash')
         })
 
         it('caches filters for subsequent calls', async () => {
@@ -503,7 +512,6 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const filters = buildInlineFiltersForCohorts({
                 bytecode,
                 conditionHash: 'cached_hash',
-                type: 'event',
                 key: '$browser',
             })
 
@@ -511,18 +519,18 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
             // First call
             const result1 = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result1).toHaveLength(1)
+            expect(result1.behavioral).toHaveLength(1)
             expect(fetchRealtimeSupportedFiltersSpy).toHaveBeenCalledTimes(1)
 
             // Second call should use cache
             const result2 = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result2).toHaveLength(1)
+            expect(result2.behavioral).toHaveLength(1)
             expect(fetchRealtimeSupportedFiltersSpy).toHaveBeenCalledTimes(1)
         })
 
         it('returns empty array for non-existent team', async () => {
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(99999)
-            expect(result).toEqual([])
+            expect(result).toEqual({ behavioral: [], person_property: [] })
         })
     })
 
@@ -532,13 +540,11 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const filters1 = buildInlineFiltersForCohorts({
                 bytecode,
                 conditionHash: 'team1_hash',
-                type: 'event',
                 key: '$browser',
             })
             const filters2 = buildInlineFiltersForCohorts({
                 bytecode,
                 conditionHash: 'team2_hash',
-                type: 'event',
                 key: '$browser',
             })
 
@@ -551,16 +557,16 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             await createCohort(postgres, team2Id, 'Team 2 Cohort', filters2)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams([teamId, team2Id])
-            expect(result[String(teamId)]).toHaveLength(1)
-            expect(result[String(teamId)]![0].conditionHash).toBe('team1_hash')
-            expect(result[String(team2Id)]).toHaveLength(1)
-            expect(result[String(team2Id)]![0].conditionHash).toBe('team2_hash')
+            expect(result[String(teamId)].behavioral).toHaveLength(1)
+            expect(result[String(teamId)].behavioral[0].conditionHash).toBe('team1_hash')
+            expect(result[String(team2Id)].behavioral).toHaveLength(1)
+            expect(result[String(team2Id)].behavioral[0].conditionHash).toBe('team2_hash')
         })
 
         it('returns empty arrays for teams with no realtime cohorts', async () => {
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams([teamId, 99999])
-            expect(result[String(teamId)]).toEqual([])
-            expect(result['99999']).toEqual([])
+            expect(result[String(teamId)]).toEqual({ behavioral: [], person_property: [] })
+            expect(result['99999']).toEqual({ behavioral: [], person_property: [] })
         })
 
         it('efficiently loads multiple teams with single database call', async () => {
@@ -568,7 +574,6 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const filters = buildInlineFiltersForCohorts({
                 bytecode,
                 conditionHash: 'test_hash',
-                type: 'event',
                 key: '$browser',
             })
 
@@ -582,9 +587,9 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
             const results = await Promise.all(promises)
             expect(fetchRealtimeSupportedFiltersSpy).toHaveBeenCalledTimes(1)
-            expect(results[0]).toHaveLength(1)
-            expect(results[1]).toHaveLength(1)
-            expect(results[2]).toHaveLength(0)
+            expect(results[0].behavioral).toHaveLength(1)
+            expect(results[1].behavioral).toHaveLength(1)
+            expect(results[2].behavioral).toHaveLength(0)
         })
 
         it('deduplicates filters across multiple teams', async () => {
@@ -603,10 +608,10 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams([teamId, team2Id])
 
             // Should be deduplicated - only one filter per team even though they have same hash
-            expect(result[String(teamId)]).toHaveLength(1)
-            expect(result[String(team2Id)]).toHaveLength(1)
-            expect(result[String(teamId)]![0].conditionHash).toBe(sharedHash)
-            expect(result[String(team2Id)]![0].conditionHash).toBe(sharedHash)
+            expect(result[String(teamId)].behavioral).toHaveLength(1)
+            expect(result[String(team2Id)].behavioral).toHaveLength(1)
+            expect(result[String(teamId)].behavioral[0].conditionHash).toBe(sharedHash)
+            expect(result[String(team2Id)].behavioral[0].conditionHash).toBe(sharedHash)
         })
     })
 
@@ -643,9 +648,9 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             })
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toHaveLength(2)
-            expect(result[0].conditionHash).toBe('newer_hash') // Should be first due to DESC order
-            expect(result[1].conditionHash).toBe('older_hash')
+            expect(result.behavioral).toHaveLength(2)
+            expect(result.behavioral[0].conditionHash).toBe('newer_hash') // Should be first due to DESC order
+            expect(result.behavioral[1].conditionHash).toBe('older_hash')
         })
     })
 })

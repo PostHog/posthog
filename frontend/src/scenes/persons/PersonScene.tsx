@@ -440,7 +440,7 @@ function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['s
             disabledReason={disabledReason}
             size={size}
         >
-            Open in Admin Panel
+            Open in admin panel
         </LemonButton>
     )
 }

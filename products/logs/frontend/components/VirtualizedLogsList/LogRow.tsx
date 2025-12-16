@@ -1,5 +1,5 @@
 import { IconChevronRight, IconPin, IconPinFilled, IconX } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
@@ -29,11 +29,12 @@ const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
 
 // Fixed column widths
 const SEVERITY_WIDTH = 8
+const CHECKBOX_WIDTH = 28
 const EXPAND_WIDTH = 28
 const TIMESTAMP_WIDTH = 180
 const MESSAGE_MIN_WIDTH = 300
 const ACTIONS_WIDTH = 70
-const FIXED_COLUMNS_TOTAL_WIDTH = SEVERITY_WIDTH + EXPAND_WIDTH + TIMESTAMP_WIDTH + ACTIONS_WIDTH
+const FIXED_COLUMNS_TOTAL_WIDTH = SEVERITY_WIDTH + CHECKBOX_WIDTH + EXPAND_WIDTH + TIMESTAMP_WIDTH + ACTIONS_WIDTH
 
 // Get width for an attribute column
 export const getAttributeColumnWidth = (
@@ -97,6 +98,10 @@ export interface LogRowProps {
     rowWidth?: number
     attributeColumns?: string[]
     attributeColumnWidths?: Record<string, number>
+    // Selection
+    isSelected?: boolean
+    onToggleSelect?: () => void
+    onShiftClick?: (logIndex: number) => void
 }
 
 export function LogRow({
@@ -115,6 +120,9 @@ export function LogRow({
     rowWidth,
     attributeColumns = [],
     attributeColumnWidths = {},
+    isSelected = false,
+    onToggleSelect,
+    onShiftClick,
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
     const flexWidth = rowWidth
@@ -125,18 +133,27 @@ export function LogRow({
 
     const severityColor = SEVERITY_BAR_COLORS[log.severity_text] ?? 'bg-muted-3000'
 
+    const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
+        if (e.shiftKey && onShiftClick) {
+            e.preventDefault()
+            onShiftClick(logIndex)
+        } else {
+            onSetCursor()
+        }
+    }
+
     return (
         <div className={cn('border-b border-border', isNew && 'VirtualizedLogsList__row--new')}>
             <div
                 className={cn(
                     'flex items-center gap-2 cursor-pointer hover:bg-fill-highlight-100 group',
+                    isSelected && 'bg-fill-highlight-100',
                     isAtCursor && 'bg-primary-highlight',
                     pinned && 'bg-warning-highlight',
                     pinned && showPinnedWithOpacity && 'opacity-50'
                 )}
-                onMouseDown={onSetCursor}
+                onMouseDown={handleMouseDown}
             >
-                {/* Severity + Expand (grouped, no gap) */}
                 <div className="flex items-center self-stretch">
                     <Tooltip title={log.severity_text.toUpperCase()}>
                         <div
@@ -146,6 +163,14 @@ export function LogRow({
                             <div className={cn('w-1 rounded-full', severityColor)} />
                         </div>
                     </Tooltip>
+                    <div className="flex items-center justify-center shrink-0" style={{ width: CHECKBOX_WIDTH }}>
+                        <LemonCheckbox
+                            checked={isSelected}
+                            onChange={() => onToggleSelect?.()}
+                            stopPropagation
+                            size="small"
+                        />
+                    </div>
                     <div
                         className="flex items-stretch self-stretch justify-center"
                         style={{ width: EXPAND_WIDTH, flexShrink: 0 }}
@@ -172,7 +197,7 @@ export function LogRow({
 
                 {/* Attribute columns */}
                 {attributeColumns.map((attributeKey) => {
-                    const attrValue = log.attributes[attributeKey]
+                    const attrValue = log.attributes[attributeKey] ?? log.resource_attributes[attributeKey]
                     return (
                         <AttributeCell
                             key={attributeKey}
@@ -198,10 +223,11 @@ export function LogRow({
                         size="xsmall"
                         noPadding
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
-                        onMouseDown={(e) => {
-                            e.stopPropagation()
+                        onClick={(e) => {
+                            e.preventDefault()
                             onTogglePin(log)
                         }}
+                        onMouseDown={(e) => e.stopPropagation()}
                         tooltip={pinned ? 'Unpin log' : 'Pin log'}
                         className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
                     />
@@ -221,6 +247,11 @@ export interface LogRowHeaderProps {
     attributeColumnWidths?: Record<string, number>
     onRemoveAttributeColumn?: (attributeKey: string) => void
     onResizeAttributeColumn?: (attributeKey: string, width: number) => void
+    // Selection
+    selectedCount?: number
+    totalCount?: number
+    onSelectAll?: () => void
+    onClearSelection?: () => void
 }
 
 export function LogRowHeader({
@@ -229,22 +260,36 @@ export function LogRowHeader({
     attributeColumnWidths = {},
     onRemoveAttributeColumn,
     onResizeAttributeColumn,
+    selectedCount = 0,
+    totalCount = 0,
+    onSelectAll,
+    onClearSelection,
 }: LogRowHeaderProps): JSX.Element {
     const flexWidth =
         rowWidth -
         getFixedColumnsWidth(attributeColumns, attributeColumnWidths) -
         attributeColumns.length * RESIZER_HANDLE_WIDTH
 
+    const allSelected = totalCount > 0 && selectedCount === totalCount
+    const someSelected = selectedCount > 0 && selectedCount < totalCount
+
     return (
         <div
             className="flex items-center gap-2 h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted sticky top-0 z-10"
             style={{ width: rowWidth }}
         >
-            {/* Severity + Expand (grouped, no gap, no labels) */}
-            <div
-                className="flex items-center self-stretch"
-                style={{ width: SEVERITY_WIDTH + EXPAND_WIDTH, flexShrink: 0 }}
-            />
+            {/* Severity + Checkbox + Expand header space */}
+            <div className="flex items-center self-stretch">
+                <div style={{ width: SEVERITY_WIDTH, flexShrink: 0 }} />
+                <div className="flex items-center justify-center shrink-0" style={{ width: CHECKBOX_WIDTH }}>
+                    <LemonCheckbox
+                        checked={someSelected ? 'indeterminate' : allSelected}
+                        onChange={() => (allSelected ? onClearSelection?.() : onSelectAll?.())}
+                        size="small"
+                    />
+                </div>
+                <div style={{ width: EXPAND_WIDTH, flexShrink: 0 }} />
+            </div>
 
             {/* Timestamp */}
             <div className="flex items-center pr-3" style={{ width: TIMESTAMP_WIDTH, flexShrink: 0 }}>

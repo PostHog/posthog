@@ -126,6 +126,15 @@ where
         db_monitor.start_monitoring().await;
     });
 
+    // Start cohort cache monitoring
+    let cohort_cache_clone = cohort_cache.clone();
+    let cohort_cache_monitor_interval = config.cohort_cache_monitor_interval_secs;
+    tokio::spawn(async move {
+        cohort_cache_clone
+            .start_monitoring(cohort_cache_monitor_interval)
+            .await;
+    });
+
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
         Duration::from_secs(config.billing_limiter_cache_ttl_secs),
         redis_client.clone(), // Limiter only reads from redis, ReadWriteClient automatically routes reads to replica

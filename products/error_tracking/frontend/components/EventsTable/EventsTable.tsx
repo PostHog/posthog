@@ -124,6 +124,7 @@ const Actions = (record: ErrorEventType): JSX.Element => {
         recordingStatus: getRecordingStatus(record.properties),
         timestamp: record.timestamp,
         inModal: true,
+        hasRecording: record.properties.has_recording as boolean | undefined,
     })
 
     return (
