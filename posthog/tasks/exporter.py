@@ -8,7 +8,7 @@ import posthoganalytics
 from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
 
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import groups
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -43,7 +43,10 @@ EXPORT_TIMER = Histogram(
     buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
 
-EXCEPTIONS_TO_RETRY = (CHQueryErrorTooManySimultaneousQueries,)
+EXCEPTIONS_TO_RETRY = (
+    CHQueryErrorS3Error,
+    CHQueryErrorTooManySimultaneousQueries,
+)
 
 
 # export_asset is used in chords/groups and so must not ignore its results

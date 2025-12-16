@@ -10,7 +10,9 @@ from celery import chain
 from prometheus_client import Histogram
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.errors import CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -18,6 +20,8 @@ from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
 from posthog.utils import wait_for_parallel_celery_group
+
+RETRIABLE_EXPORT_ERRORS = (CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries)
 
 logger = structlog.get_logger(__name__)
 
@@ -187,35 +191,47 @@ async def generate_assets_async(
 
         # Create async tasks for each asset export
         async def export_single_asset(asset: ExportedAsset) -> None:
-            try:
+            subscription_id = getattr(resource, "id", None)
+
+            @retry(
+                retry=retry_if_exception_type(RETRIABLE_EXPORT_ERRORS),
+                stop=stop_after_attempt(4),
+                wait=wait_exponential_jitter(initial=2, max=10),
+                reraise=True,
+            )
+            async def export_with_retry() -> None:
                 logger.info(
                     "generate_assets_async.exporting_asset",
                     asset_id=asset.id,
                     insight_id=asset.insight_id,
-                    subscription_id=getattr(resource, "id", None),
+                    subscription_id=subscription_id,
                     team_id=resource.team_id,
                 )
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
                     asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS
                 )
+
+            try:
+                await export_with_retry()
+                asset.exception = None
                 logger.info(
                     "generate_assets_async.asset_exported",
                     asset_id=asset.id,
                     insight_id=asset.insight_id,
-                    subscription_id=getattr(resource, "id", None),
+                    subscription_id=subscription_id,
                     team_id=resource.team_id,
                 )
             except Exception as e:
-                logger.error(
+                retyable_error = isinstance(e, RETRIABLE_EXPORT_ERRORS)
+                logger.error(  # noqa: TRY400
                     "generate_assets_async.export_failed",
                     asset_id=asset.id,
                     insight_id=asset.insight_id,
-                    subscription_id=getattr(resource, "id", None),
+                    subscription_id=subscription_id,
                     error=str(e),
-                    exc_info=True,
+                    retryable_error=retyable_error,
                     team_id=resource.team_id,
                 )
-                # Save the exception but continue with other assets
                 asset.exception = str(e)
                 await database_sync_to_async(asset.save, thread_sensitive=False)()
 
