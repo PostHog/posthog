@@ -91,8 +91,8 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Event trigger property filters',
-        sdkVersions: { 'posthog-js': '1.268.0' },
-        unsupportedSdks: ['posthog-ios', 'posthog-android', 'posthog-react-native'],
+        sdkVersions: { 'posthog-js': '1.268.0', 'posthog-react-native': '4.15.0' },
+        unsupportedSdks: ['posthog-ios', 'posthog-android'],
         check: (s) =>
             (s.conditions?.events?.values?.length ?? 0) > 0 &&
             !!s.conditions?.events?.values?.some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
