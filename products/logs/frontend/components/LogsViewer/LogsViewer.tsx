@@ -226,7 +226,7 @@ function LogsViewerContent({
     )
 
     return (
-        <>
+        <div className="flex flex-col gap-2 h-full">
             <LogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
@@ -234,9 +234,16 @@ function LogsViewerContent({
                 displayTimezone={timezone}
             />
             <SceneDivider />
+            <div className="py-2">
+                <LogsViewerToolbar
+                    totalLogsCount={totalLogsCount}
+                    orderBy={orderBy}
+                    onChangeOrderBy={onChangeOrderBy}
+                />
+            </div>
             <div
                 ref={containerRef}
-                className="flex flex-col gap-2 h-full outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 rounded"
+                className="flex flex-col gap-2 flex-1 min-h-0 outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 rounded"
                 tabIndex={0}
                 onFocus={() => {
                     setFocused(true)
@@ -244,13 +251,6 @@ function LogsViewerContent({
                 }}
                 onBlur={() => setFocused(false)}
             >
-                <div className="py-2">
-                    <LogsViewerToolbar
-                        totalLogsCount={totalLogsCount}
-                        orderBy={orderBy}
-                        onChangeOrderBy={onChangeOrderBy}
-                    />
-                </div>
                 {pinnedLogsArray.length > 0 && (
                     <div className="border rounded-t bg-bg-light shadow-sm">
                         <VirtualizedLogsList
@@ -283,6 +283,6 @@ function LogsViewerContent({
                     />
                 </div>
             </div>
-        </>
+        </div>
     )
 }
