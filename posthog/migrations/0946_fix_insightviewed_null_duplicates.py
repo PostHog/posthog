@@ -36,27 +36,13 @@ def clean_duplicates(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    atomic = False  # Required for CREATE INDEX CONCURRENTLY
+    # atomic=True (default) - cleanup runs in a transaction for safety
 
     dependencies = [
         ("posthog", "0945_scheduledchange_recurring_fields"),
     ]
 
     operations = [
-        # Step 1: Clean up existing duplicates
+        # Clean up existing duplicates before the next migration adds the unique index
         migrations.RunPython(clean_duplicates, migrations.RunPython.noop),
-        # Step 2: Add partial unique index to prevent future duplicates
-        # The existing unique constraint on (team_id, user_id, insight_id) doesn't
-        # prevent duplicates when team_id and user_id are NULL because PostgreSQL
-        # treats NULL != NULL. This partial index enforces uniqueness for that case.
-        migrations.RunSQL(
-            """
-            CREATE UNIQUE INDEX CONCURRENTLY "posthog_insightviewed_null_team_user_unique"
-            ON "posthog_insightviewed" ("insight_id")
-            WHERE "team_id" IS NULL AND "user_id" IS NULL; -- not-null-ignore
-            """,
-            reverse_sql="""
-                DROP INDEX IF EXISTS "posthog_insightviewed_null_team_user_unique";
-            """,
-        ),
     ]
