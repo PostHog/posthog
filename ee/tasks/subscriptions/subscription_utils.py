@@ -193,7 +193,7 @@ async def generate_assets_async(
 
             @retry(
                 retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
-                stop=stop_after_attempt(3),
+                stop=stop_after_attempt(4),
                 wait=wait_exponential_jitter(initial=2, max=10),
                 reraise=True,
             )
@@ -227,6 +227,7 @@ async def generate_assets_async(
                     insight_id=asset.insight_id,
                     subscription_id=subscription_id,
                     error=str(e),
+                    exc_info=True,
                     retryable_error=retyable_error,
                     team_id=resource.team_id,
                 )
