@@ -16,7 +16,6 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import nh3
-import orjson
 import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
@@ -2014,8 +2013,8 @@ def public_survey_page(request, survey_id: str):
     survey_data = serializer.data
     context = {
         "name": survey.name,
-        "survey_data": orjson.dumps(survey_data).decode("utf-8"),
-        "project_config_json": orjson.dumps(project_config).decode("utf-8"),
+        "survey_data": survey_data,
+        "project_config": project_config,
         "debug": settings.DEBUG,
     }
 

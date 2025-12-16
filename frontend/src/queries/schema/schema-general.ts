@@ -3184,11 +3184,17 @@ export interface ExperimentExposureTimeSeries {
     exposure_counts: number[]
 }
 
+export interface SampleRatioMismatch {
+    expected: Record<string, number>
+    p_value: number
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
     total_exposures: Record<string, number>
     date_range: DateRange
+    sample_ratio_mismatch?: SampleRatioMismatch
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -5008,6 +5014,7 @@ export enum ProductIntentContext {
     SURVEY_BULK_DUPLICATED = 'survey_bulk_duplicated',
     SURVEY_EDITED = 'survey_edited',
     SURVEY_ANALYZED = 'survey_analyzed',
+    QUICK_SURVEY_STARTED = 'quick_survey_started',
 
     // Revenue Analytics
     REVENUE_ANALYTICS_VIEWED = 'revenue_analytics_viewed',
