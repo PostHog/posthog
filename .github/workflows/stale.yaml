@@ -11,8 +11,6 @@ permissions:
 
 jobs:
     stale:
-        # Only unleash the stale bot on PostHog/posthog, as there's no POSTHOG_BOT_PAT token on forks
-        if: ${{ github.repository == 'PostHog/posthog' }}
         runs-on: ubuntu-24.04
         steps:
             - uses: actions/stale@v9
