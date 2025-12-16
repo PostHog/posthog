@@ -271,6 +271,8 @@ async def _get_query(
     # The number of partitions controls how many files ClickHouse writes to concurrently.
     num_partitions = num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
 
+    attempt_number = activity.info().attempt
+
     if model_name == "persons":
         if is_backfill and full_range[0] is None:
             query_template = EXPORT_TO_S3_FROM_PERSONS_BACKFILL
@@ -281,6 +283,7 @@ async def _get_query(
                     batch_export_id=batch_export_id,
                     data_interval_start=data_interval_start,
                     data_interval_end=data_interval_end,
+                    attempt_number=attempt_number,
                 ),
                 num_partitions=num_partitions,
             )
@@ -305,6 +308,7 @@ async def _get_query(
                     batch_export_id=batch_export_id,
                     data_interval_start=data_interval_start,
                     data_interval_end=data_interval_end,
+                    attempt_number=attempt_number,
                 ),
                 num_partitions=num_partitions,
                 filter_distinct_ids=filter_distinct_ids,
@@ -369,6 +373,7 @@ async def _get_query(
                 batch_export_id=batch_export_id,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
+                attempt_number=attempt_number,
             ),
             num_partitions=num_partitions,
         )
@@ -387,16 +392,24 @@ async def _get_query(
     return query, parameters
 
 
-def get_s3_staging_folder(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
-    """Get the URL for the S3 staging folder for a given batch export."""
+def get_base_s3_staging_folder(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
+    """Get the base S3 staging folder for a given batch export."""
     subfolder = "batch-exports"
     return f"{subfolder}/{batch_export_id}/{data_interval_start}-{data_interval_end}"
 
 
-def _get_clickhouse_s3_staging_folder_url(
-    batch_export_id: str, data_interval_start: str | None, data_interval_end: str
+def get_s3_staging_folder(
+    batch_export_id: str, data_interval_start: str | None, data_interval_end: str, attempt_number: int
 ) -> str:
-    """Get the URL for the S3 staging folder for a given batch export.
+    """Get the S3 staging folder for a given batch export and attempt number."""
+    base_s3_staging_folder = get_base_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
+    return f"{base_s3_staging_folder}/attempt_{attempt_number}"
+
+
+def _get_clickhouse_s3_staging_folder_url(
+    batch_export_id: str, data_interval_start: str | None, data_interval_end: str, attempt_number: int
+) -> str:
+    """Get the URL for the S3 staging folder for a given batch export and attempt number.
 
     This is passed to the ClickHouse query as the `s3_folder` parameter.
     When running the stack locally, ClickHouse and MinIO are both running in Docker so we use the hostname of the
@@ -410,7 +423,7 @@ def _get_clickhouse_s3_staging_folder_url(
     else:
         base_url = f"https://{bucket}.s3.{region}.amazonaws.com/"
 
-    folder = get_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
+    folder = get_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end, attempt_number)
     return f"{base_url}{folder}"
 
 
@@ -455,10 +468,12 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             if isinstance(query_or_model, RecordBatchModel):
+                attempt_number = activity.info().attempt
                 s3_folder = _get_clickhouse_s3_staging_folder_url(
                     batch_export_id=batch_export_id,
                     data_interval_start=data_interval_start,
                     data_interval_end=data_interval_end,
+                    attempt_number=attempt_number,
                 )
                 assert settings.OBJECT_STORAGE_ACCESS_KEY_ID is not None
                 assert settings.OBJECT_STORAGE_SECRET_ACCESS_KEY is not None
@@ -473,14 +488,18 @@ async def _write_batch_export_record_batches_to_internal_stage(
             else:
                 query = query_or_model
 
-            s3_staging_folder = get_s3_staging_folder(
+            base_s3_staging_folder = get_base_s3_staging_folder(
                 batch_export_id=batch_export_id,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
             )
+            # First delete any existing files in the staging folder.
+            # We technically don't need to do this, since the Temporal activity attempt number is used in the S3 key,
+            # however, since we only make use of the most recent attempt, we can save on storage space by deleting the
+            # files here.
             try:
                 await _delete_all_from_bucket_with_prefix(
-                    bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=s3_staging_folder
+                    bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=base_s3_staging_folder
                 )
             except Exception as e:
                 logger.exception(

@@ -294,6 +294,7 @@ async def _run_activity(
             batch_export_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            attempt_number=activity_environment.info.attempt,
         ),
         file_format="Arrow",
         compression=None,

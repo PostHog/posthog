@@ -9,7 +9,7 @@ from aiobotocore.response import StreamingBody
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.temporal.pipeline.internal_stage import get_s3_client, get_s3_staging_folder
+from products.batch_exports.backend.temporal.pipeline.internal_stage import get_base_s3_staging_folder, get_s3_client
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, slice_record_batch
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
@@ -66,16 +66,16 @@ class Producer:
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
     ):
-        folder = get_s3_staging_folder(
+        base_folder = get_base_s3_staging_folder(
             batch_export_id=batch_export_id,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
         )
 
         async with get_s3_client() as s3_client:
-            keys, common_prefix = await self._list_s3_files(s3_client, folder)
+            keys, common_prefix = await self._list_s3_files(s3_client, base_folder)
             if not keys:
-                self.logger.info(f"No files found in S3 with prefix '{folder}' -> assuming no data to export")
+                self.logger.info(f"No files found in S3 with prefix '{base_folder}' -> assuming no data to export")
                 return
             self.logger.info(f"Producer found {len(keys)} files in S3 stage, with prefix '{common_prefix}'")
 
@@ -100,15 +100,15 @@ class Producer:
             return [], folder
         keys = [obj["Key"] for obj in contents if "Key" in obj]
         # Find the max attempt number from the keys using a regex.
-        # The attempt number is present in the key as `attempt-<number>`.
+        # The attempt number is present in the key as `attempt_<number>`.
         # If no match found, assume fallback to using all files (for backwards compatibility).
-        matches = [re.search(r"attempt-(\d+)", key) for key in keys]
+        matches = [re.search(r"attempt_(\d+)", key) for key in keys]
         attempt_numbers = [int(match.group(1)) for match in matches if match is not None]
         if not attempt_numbers:
             self.logger.warning("No attempt numbers found in S3 keys, assuming fallback to using all files")
             return keys, folder
         max_attempt_number = max(attempt_numbers)
-        common_prefix = f"{folder}/attempt-{max_attempt_number}/"
+        common_prefix = f"{folder}/attempt_{max_attempt_number}/"
         return [
             key for key, attempt_number in zip(keys, attempt_numbers) if attempt_number == max_attempt_number
         ], common_prefix
