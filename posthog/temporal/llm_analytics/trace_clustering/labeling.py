@@ -12,7 +12,7 @@ from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_summaries
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent import run_labeling_agent
-from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.state import ClusterTraceData
+from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.state import ClusterTraceData, TraceMetadata
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, TraceLabelingMetadata
 
 
@@ -122,7 +122,7 @@ def _build_cluster_data(
                 centroid_x, centroid_y = float(cluster_x), float(cluster_y)
 
         # Build trace metadata for this cluster using precomputed values
-        traces_metadata: dict[str, dict] = {}
+        traces_metadata: dict[str, TraceMetadata] = {}
         for trace_idx in cluster_trace_indices:
             trace_id = trace_ids[trace_idx]
             meta = trace_metadata[trace_idx]

@@ -75,10 +75,10 @@ class TestBuildClusterData:
         trace_ids = ["trace_far", "trace_close", "trace_mid"]
         distances_matrix = np.array([[0.9], [0.1], [0.5]])  # trace_close is nearest
         centroids = [[0.0, 0.0]]
-        cluster_labels = {}
+        cluster_labels: dict[int, ClusterLabel] = {}
         coords_2d = np.array([[1.0, 0.0], [0.0, 0.0], [0.5, 0.0]])
         centroid_coords_2d = np.array([[0.0, 0.0]])
-        trace_timestamps = {}
+        trace_timestamps: dict[str, str] = {}
 
         clusters = _build_cluster_data(
             num_clusters=1,
@@ -107,7 +107,7 @@ class TestBuildClusterData:
         }
         coords_2d = np.array([[0.0, 0.0], [5.0, 5.0], [6.0, 6.0]])
         centroid_coords_2d = np.array([[0.0, 0.0]])
-        trace_timestamps = {}
+        trace_timestamps: dict[str, str] = {}
 
         clusters = _build_cluster_data(
             num_clusters=1,
@@ -134,10 +134,10 @@ class TestBuildClusterData:
         trace_ids = ["trace_close", "trace_far", "trace_mid"]
         distances_matrix = np.array([[0.2], [0.9], [0.5]])
         centroids = [[0.0, 0.0]]
-        cluster_labels = {}
+        cluster_labels: dict[int, ClusterLabel] = {}
         coords_2d = np.array([[0.5, 0.5], [3.0, 3.0], [1.5, 1.5]])
         centroid_coords_2d = np.array([[0.0, 0.0]])
-        trace_timestamps = {}
+        trace_timestamps: dict[str, str] = {}
 
         clusters = _build_cluster_data(
             num_clusters=1,
@@ -162,10 +162,10 @@ class TestBuildClusterData:
         trace_ids = ["trace_0", "trace_1"]
         distances_matrix = np.array([[0.1, 0.9], [0.9, 0.1]])
         centroids = [[1.0, 0.0], [0.0, 1.0]]
-        cluster_labels = {}  # No labels provided
+        cluster_labels: dict[int, ClusterLabel] = {}  # No labels provided
         coords_2d = np.array([[0.0, 0.0], [1.0, 1.0]])
         centroid_coords_2d = np.array([[0.0, 0.0], [1.0, 1.0]])
-        trace_timestamps = {}
+        trace_timestamps: dict[str, str] = {}
 
         clusters = _build_cluster_data(
             num_clusters=2,
@@ -187,7 +187,7 @@ class TestBuildClusterData:
         trace_ids = ["trace_0"]
         distances_matrix = np.array([[0.1]])
         centroids = [[0.0]]
-        cluster_labels = {}
+        cluster_labels: dict[int, ClusterLabel] = {}
         coords_2d = np.array([[0.0, 0.0]])
         centroid_coords_2d = np.array([[0.0, 0.0]])
         trace_timestamps = {"trace_0": "2025-01-05T10:30:00"}
@@ -211,10 +211,10 @@ class TestBuildClusterData:
         trace_ids = ["trace_0", "trace_1"]
         distances_matrix = np.array([[0.1, 0.9], [0.2, 0.8]])
         centroids = [[1.0, 0.0], [0.0, 1.0]]
-        cluster_labels = {}
+        cluster_labels: dict[int, ClusterLabel] = {}
         coords_2d = np.array([[0.0, 0.0], [0.1, 0.1]])
         centroid_coords_2d = np.array([[0.0, 0.0], [1.0, 1.0]])
-        trace_timestamps = {}
+        trace_timestamps: dict[str, str] = {}
 
         clusters = _build_cluster_data(
             num_clusters=2,

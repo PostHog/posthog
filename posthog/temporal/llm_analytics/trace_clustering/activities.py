@@ -7,6 +7,7 @@ This module contains the 3 activities that make up the clustering pipeline:
 """
 
 import asyncio
+from typing import Literal, cast
 
 from django.utils.dateparse import parse_datetime
 
@@ -179,7 +180,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
     coords_2d, centroid_coords_2d = compute_2d_coordinates(
         clustering_embeddings,
         centroids_array,
-        method=inputs.visualization_method,
+        method=cast(Literal["umap", "pca", "tsne"], inputs.visualization_method),
     )
 
     return ClusteringComputeResult(

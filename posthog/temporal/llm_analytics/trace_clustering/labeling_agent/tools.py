@@ -160,7 +160,7 @@ def execute_get_all_clusters_with_sample_titles(
         # Extract just the titles
         sample_titles: list[str] = []
         for trace_id, _ in sorted_traces[:titles_per_cluster]:
-            summary = trace_summaries.get(trace_id, {})
+            summary: dict[str, str] = trace_summaries.get(trace_id, {})
             title = summary.get("title", "Untitled")
             sample_titles.append(title)
 
@@ -190,7 +190,7 @@ def execute_get_cluster_trace_titles(
     # Build list of trace title info
     title_infos: list[TraceTitleInfo] = []
     for trace_id, metadata in traces_metadata.items():
-        summary = trace_summaries.get(trace_id, {})
+        summary: dict[str, str] = trace_summaries.get(trace_id, {})
         title_infos.append(
             TraceTitleInfo(
                 trace_id=trace_id,
