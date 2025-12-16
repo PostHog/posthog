@@ -93,20 +93,21 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
         return parse_select(
-            f"""
+            """
             SELECT
-                {self._aggregation_operation.get_outer_aggregation_name()}(total) AS total,
-                {{breakdown_select}}
+                {outer_agg} AS total,
+                {breakdown_select}
             FROM
-                {{rank_query}}
-            WHERE {{breakdown_filter}}
+                {rank_query}
+            WHERE {breakdown_filter}
             GROUP BY breakdown_value
             ORDER BY
-                {{breakdown_order_by}},
+                {breakdown_order_by},
                 total DESC,
                 breakdown_value ASC
             """,
             placeholders={
+                "outer_agg": self._aggregation_operation.get_outer_aggregation(ast.Field(chain=["total"])),
                 "breakdown_select": self._breakdown_outer_query_select(
                     self.breakdown, breakdown_limit=self._get_breakdown_limit() + 1
                 ),
@@ -178,7 +179,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     -- "Other" breakdown value
                     SELECT
                         day_start,
-                        {self._aggregation_operation.get_outer_aggregation_name()}(count) as value,
+                        {{outer_agg}} as value,
                         {{breakdown_other}} as breakdown_value
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank > {{breakdown_limit}}
@@ -222,6 +223,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     "breakdown_limit": breakdown_limit_expr,
                     "breakdown_order": self._breakdown_query_order_by(self.breakdown),
                     "all_dates": self._get_date_subqueries(),
+                    "outer_agg": self._aggregation_operation.get_outer_aggregation(ast.Field(chain=["count"])),
                     **self.query_date_range.to_placeholders(),
                 },
             )
@@ -361,12 +363,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         query = cast(
             ast.SelectQuery,
             parse_select(
-                f"""
+                """
                 SELECT
-                    {self._aggregation_operation.get_outer_aggregation_name()}(total) AS count
-                FROM {{inner_query}}
+                    {outer_agg} AS count
+                FROM {inner_query}
             """,
-                placeholders={"inner_query": inner_query},
+                placeholders={
+                    "outer_agg": self._aggregation_operation.get_outer_aggregation(ast.Field(chain=["total"])),
+                    "inner_query": inner_query,
+                },
             ),
         )
 

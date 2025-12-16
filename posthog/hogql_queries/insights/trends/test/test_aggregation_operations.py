@@ -239,24 +239,30 @@ def test_actor_id_returns_correct_field(
 
 
 @pytest.mark.parametrize(
-    "math,expected_outer_agg",
+    "math,expected_agg_name",
     [
         [PropertyMathType.MAX, "max"],
         [PropertyMathType.MIN, "min"],
+        [PropertyMathType.AVG, "avg"],
         [PropertyMathType.SUM, "sum"],
         [BaseMathType.TOTAL, "sum"],
     ],
 )
-def test_get_outer_aggregation_name(
+def test_get_outer_aggregation(
     math: Union[BaseMathType, PropertyMathType],
-    expected_outer_agg: str,
+    expected_agg_name: str,
 ):
     team = Team()
     series = EventsNode(event="$pageview", math=math)
     query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
 
     agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
-    assert agg_ops.get_outer_aggregation_name() == expected_outer_agg
+    field = ast.Field(chain=["total"])
+    result = agg_ops.get_outer_aggregation(field)
+
+    assert isinstance(result, ast.Call)
+    assert result.name == expected_agg_name
+    assert result.args == [field]
 
 
 @pytest.mark.parametrize(

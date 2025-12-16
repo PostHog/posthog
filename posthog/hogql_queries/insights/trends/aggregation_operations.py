@@ -147,18 +147,20 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def is_first_matching_event(self):
         return self.series.math == "first_matching_event_for_user"
 
-    def get_outer_aggregation_name(self) -> str:
+    def get_outer_aggregation(self, field: ast.Expr) -> ast.Expr:
         """
-        Returns the aggregation function to use when rolling up already-aggregated values.
+        Returns the aggregation expression to use when rolling up already-aggregated values.
 
         For example, if we computed max(price) per day per breakdown, rolling up across
         breakdowns should use max() not sum() - the max of maxes is the overall max.
         """
         if self.series.math == "max":
-            return "max"
+            return ast.Call(name="max", args=[field])
         elif self.series.math == "min":
-            return "min"
-        return "sum"
+            return ast.Call(name="min", args=[field])
+        elif self.series.math == "avg":
+            return ast.Call(name="avg", args=[field])
+        return ast.Call(name="sum", args=[field])
 
     def _get_math_chain(self) -> list[str | int]:
         if not self.series.math_property:
