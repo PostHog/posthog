@@ -104,8 +104,11 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
  */
 function getRedisHost(url: string): string {
     try {
-        return new URL(url).host
+        const parsed = new URL(url)
+        // Return host if available, otherwise fallback to hostname (which also excludes credentials)
+        return parsed.host || parsed.hostname || url
     } catch {
+        // If URL parsing fails, it's a plain hostname, which is safe to return
         return url
     }
 }
