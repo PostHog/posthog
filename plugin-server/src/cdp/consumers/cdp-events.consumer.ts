@@ -360,28 +360,47 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const events: HogFunctionInvocationGlobals[] = []
 
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+        // Parse all messages first to extract team IDs
+        const parsedMessages: Array<{ teamId: number; event: RawClickHouseEvent } | null> = messages.map((message) => {
+            try {
+                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                return { teamId: clickHouseEvent.team_id, event: clickHouseEvent }
+            } catch (e) {
+                logger.error('Error parsing message', e)
+                counterParseError.labels({ error: e.message }).inc()
+                return null
+            }
+        })
 
-                    const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                        this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
-                        this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
-                        this.hub.teamManager.getTeam(clickHouseEvent.team_id),
-                    ])
-
-                    if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                        return
-                    }
-
-                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
-                } catch (e) {
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
-                }
-            })
+        // Filter out failed parses and extract unique team IDs
+        const validMessages = parsedMessages.filter(
+            (msg): msg is { teamId: number; event: RawClickHouseEvent } => msg !== null
         )
+        const uniqueTeamIds = [...new Set(validMessages.map((msg) => msg.teamId))]
+
+        if (uniqueTeamIds.length === 0) {
+            return events
+        }
+
+        // Batch fetch all team data at once
+        const [teamHogFunctionsByTeam, teamHogFlowsByTeam, teamsById] = await Promise.all([
+            this.hogFunctionManager.getHogFunctionsForTeams(uniqueTeamIds, this.hogTypes),
+            this.hogFlowManager.getHogFlowsForTeams(uniqueTeamIds),
+            this.hub.teamManager.getTeams(uniqueTeamIds),
+        ])
+
+        // Process each parsed message with the pre-fetched data
+        for (const { teamId, event } of validMessages) {
+            const teamHogFunctions = teamHogFunctionsByTeam[teamId] || []
+            const teamHogFlows = teamHogFlowsByTeam[teamId] || []
+            const team = teamsById[teamId]
+
+            if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
+                continue
+            }
+
+            events.push(convertToHogFunctionInvocationGlobals(event, team, this.hub.SITE_URL))
+        }
 
         return events
     }
