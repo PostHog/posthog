@@ -9,7 +9,7 @@ from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, LogsQuery, OrderBy3, PropertyGroupFilter
+from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, OrderBy3, PropertyGroupFilter
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -17,7 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.logs.backend.log_attributes_query_runner import LogAttributesQuery, LogAttributesQueryRunner
+from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 

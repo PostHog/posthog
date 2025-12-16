@@ -23,7 +23,7 @@ from posthog.hogql.property import operator_is_negative, property_to_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -122,11 +122,7 @@ def _generate_resource_attribute_filters(
     )
 
 
-class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
-    query: LogsQuery
-    cached_response: CachedLogsQueryResponse
-    paginator: HogQLHasMorePaginator
-
+class LogsQueryRunnerMixin(QueryRunner):
     def __init__(self, query, *args, **kwargs):
         super().__init__(query, *args, **kwargs)
 
@@ -148,10 +144,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             # todo: datetime?
             return "str"
 
-        self.resource_attribute_filters = []
-        self.resource_attribute_negative_filters = []
-        self.log_filters = []
-        self.attribute_filters = []
+        self.resource_attribute_filters: list[LogPropertyFilter] = []
+        self.resource_attribute_negative_filters: list[LogPropertyFilter] = []
+        self.log_filters: list[LogPropertyFilter] = []
+        self.attribute_filters: list[LogPropertyFilter] = []
         if self.query.filterGroup and len(self.query.filterGroup.values) > 0:
             for property_group in self.query.filterGroup.values:
                 self.resource_attribute_filters = cast(
@@ -206,92 +202,46 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
                     self.attribute_filters.insert(0, property_filter)
 
-    def _calculate(self) -> LogsQueryResponse:
-        response = self.paginator.execute_hogql_query(
-            query_type="LogsQuery",
-            query=self.to_query(),
-            modifiers=self.modifiers,
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        qdr = QueryDateRange(
+            date_range=self.query.dateRange,
             team=self.team,
-            workload=Workload.LOGS,
-            timings=self.timings,
-            limit_context=self.limit_context,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
-            settings=self.settings,
+            interval=IntervalType.MINUTE,
+            interval_count=2,
+            now=dt.datetime.now(),
         )
-        results = []
-        for result in response.results:
-            results.append(
-                {
-                    "uuid": result[0],
-                    "trace_id": result[1],
-                    "span_id": result[2],
-                    "body": result[3],
-                    "attributes": result[4],
-                    "timestamp": result[5].replace(tzinfo=ZoneInfo("UTC")),
-                    "observed_timestamp": result[6].replace(tzinfo=ZoneInfo("UTC")),
-                    "severity_text": result[7],
-                    "severity_number": result[8],
-                    "level": result[9],
-                    "resource_attributes": result[10],
-                    "instrumentation_scope": result[11],
-                    "event_name": result[12],
-                    "live_logs_checkpoint": result[13],
-                }
-            )
 
-        return LogsQueryResponse(results=results, **self.paginator.response_params())
+        _step = (qdr.date_to() - qdr.date_from()) / 50
+        interval_type = IntervalType.SECOND
 
-    def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:
-        response = super().run(*args, **kwargs)
-        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
-        return response
+        def find_closest(target, arr):
+            if not arr:
+                raise ValueError("Input array cannot be empty")
+            closest_number = min(arr, key=lambda x: (abs(x - target), x))
 
-    def to_query(self) -> ast.SelectQuery:
-        # utilize a hack to fix read_in_order_optimization not working correctly
-        # from: https://github.com/ClickHouse/ClickHouse/pull/82478/
-        query = self.paginator.paginate(
-            parse_select("""
-                SELECT _part_starting_offset+_part_offset from logs
-            """)
+            return closest_number
+
+        # set the number of intervals to a "round" number of minutes
+        # it's hard to reason about the rate of logs on e.g. 13 minute intervals
+        # the min interval is 1 minute and max interval is 1 day
+        interval_count = find_closest(
+            _step.total_seconds(),
+            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
         )
-        assert isinstance(query, ast.SelectQuery)
 
-        order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
+        if _step >= dt.timedelta(minutes=1):
+            interval_type = IntervalType.MINUTE
+            interval_count //= 60
 
-        query.where = ast.And(exprs=[self.where()])
-        query.order_by = [
-            parse_order_expr("team_id"),
-            parse_order_expr(f"time_bucket {order_dir}"),
-            parse_order_expr(f"timestamp {order_dir}"),
-            parse_order_expr(f"uuid {order_dir}"),
-        ]
-        final_query = parse_select(
-            """
-            SELECT
-                uuid,
-                hex(trace_id),
-                hex(span_id),
-                body,
-                mapFilter((k, v) -> not(has(resource_attributes, k)), attributes),
-                timestamp,
-                observed_timestamp,
-                severity_text,
-                severity_number,
-                severity_text as level,
-                resource_attributes,
-                instrumentation_scope,
-                event_name,
-                (select min(max_observed_timestamp) from logs_kafka_metrics) as live_logs_checkpoint
-            FROM logs where (_part_starting_offset+_part_offset) in ({query})
-        """,
-            placeholders={"query": query},
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=interval_type,
+            interval_count=int(interval_count),
+            now=dt.datetime.now(),
+            timezone_info=ZoneInfo("UTC"),
         )
-        assert isinstance(final_query, ast.SelectQuery)
-        final_query.order_by = [
-            parse_order_expr(f"timestamp {order_dir}"),
-            parse_order_expr(f"uuid {order_dir}"),
-        ]
-        return final_query
 
     def where(self):
         exprs: list[ast.Expr] = []
@@ -410,6 +360,99 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
         return ast.Constant(value=1)
 
+
+class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
+    query: LogsQuery
+    cached_response: CachedLogsQueryResponse
+    paginator: HogQLHasMorePaginator
+
+    def _calculate(self) -> LogsQueryResponse:
+        response = self.paginator.execute_hogql_query(
+            query_type="LogsQuery",
+            query=self.to_query(),
+            modifiers=self.modifiers,
+            team=self.team,
+            workload=Workload.LOGS,
+            timings=self.timings,
+            limit_context=self.limit_context,
+            filters=HogQLFilters(dateRange=self.query.dateRange),
+            settings=self.settings,
+        )
+        results = []
+        for result in response.results:
+            results.append(
+                {
+                    "uuid": result[0],
+                    "trace_id": result[1],
+                    "span_id": result[2],
+                    "body": result[3],
+                    "attributes": result[4],
+                    "timestamp": result[5].replace(tzinfo=ZoneInfo("UTC")),
+                    "observed_timestamp": result[6].replace(tzinfo=ZoneInfo("UTC")),
+                    "severity_text": result[7],
+                    "severity_number": result[8],
+                    "level": result[9],
+                    "resource_attributes": result[10],
+                    "instrumentation_scope": result[11],
+                    "event_name": result[12],
+                    "live_logs_checkpoint": result[13],
+                }
+            )
+
+        return LogsQueryResponse(results=results, **self.paginator.response_params())
+
+    def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:
+        response = super().run(*args, **kwargs)
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        return response
+
+    def to_query(self) -> ast.SelectQuery:
+        # utilize a hack to fix read_in_order_optimization not working correctly
+        # from: https://github.com/ClickHouse/ClickHouse/pull/82478/
+        query = self.paginator.paginate(
+            parse_select("""
+                SELECT _part_starting_offset+_part_offset from logs
+            """)
+        )
+        assert isinstance(query, ast.SelectQuery)
+
+        order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
+
+        query.where = ast.And(exprs=[self.where()])
+        query.order_by = [
+            parse_order_expr("team_id"),
+            parse_order_expr(f"time_bucket {order_dir}"),
+            parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"uuid {order_dir}"),
+        ]
+        final_query = parse_select(
+            """
+            SELECT
+                uuid,
+                hex(trace_id),
+                hex(span_id),
+                body,
+                mapFilter((k, v) -> not(has(resource_attributes, k)), attributes),
+                timestamp,
+                observed_timestamp,
+                severity_text,
+                severity_number,
+                severity_text as level,
+                resource_attributes,
+                instrumentation_scope,
+                event_name,
+                (select min(max_observed_timestamp) from logs_kafka_metrics) as live_logs_checkpoint
+            FROM logs where (_part_starting_offset+_part_offset) in ({query})
+        """,
+            placeholders={"query": query},
+        )
+        assert isinstance(final_query, ast.SelectQuery)
+        final_query.order_by = [
+            parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"uuid {order_dir}"),
+        ]
+        return final_query
+
     @cached_property
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
@@ -421,45 +464,4 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             allow_experimental_join_condition=False,
             transform_null_in=False,
             allow_experimental_analyzer=True,
-        )
-
-    @cached_property
-    def query_date_range(self) -> QueryDateRange:
-        qdr = QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=IntervalType.MINUTE,
-            interval_count=2,
-            now=dt.datetime.now(),
-        )
-
-        _step = (qdr.date_to() - qdr.date_from()) / 50
-        interval_type = IntervalType.SECOND
-
-        def find_closest(target, arr):
-            if not arr:
-                raise ValueError("Input array cannot be empty")
-            closest_number = min(arr, key=lambda x: (abs(x - target), x))
-
-            return closest_number
-
-        # set the number of intervals to a "round" number of minutes
-        # it's hard to reason about the rate of logs on e.g. 13 minute intervals
-        # the min interval is 1 minute and max interval is 1 day
-        interval_count = find_closest(
-            _step.total_seconds(),
-            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
-        )
-
-        if _step >= dt.timedelta(minutes=1):
-            interval_type = IntervalType.MINUTE
-            interval_count //= 60
-
-        return QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=interval_type,
-            interval_count=int(interval_count),
-            now=dt.datetime.now(),
-            timezone_info=ZoneInfo("UTC"),
         )

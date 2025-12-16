@@ -1,7 +1,6 @@
 import datetime as dt
-from typing import Any
 
-from posthog.schema import DateRange, IntervalType, PropertyGroupFilter
+from posthog.schema import IntervalType, LogAttributesQuery, LogAttributesQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -9,10 +8,11 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.logs_query_runner import LogsQueryRunnerMixin
 
 # Read a max of 5GB from the table at a time - this should get us plenty of results
 # without having long and expensive attributes queries. Users can always search or add other
@@ -20,37 +20,13 @@ from products.logs.backend.logs_query_runner import LogsQueryRunner
 MAX_READ_BYTES = 5_000_000_000
 
 
-class LogAttributesQuery:
-    def __init__(
-        self,
-        *,
-        dateRange: DateRange,
-        attributeType: str,
-        search: str = "",
-        limit: int = 100,
-        offset: int = 0,
-        severityLevels: list[str] | None = None,
-        serviceNames: list[str] | None = None,
-        filterGroup: PropertyGroupFilter | None = None,
-    ):
-        self.dateRange = dateRange
-        self.attributeType = attributeType
-        self.search = search
-        self.limit = limit
-        self.offset = offset
-        self.severityLevels = severityLevels
-        self.serviceNames = serviceNames
-        self.filterGroup = filterGroup
-
-
-class LogAttributesQueryResponse:
-    def __init__(self, results: list[dict[str, Any]], count: int):
-        self.results = results
-        self.count = count
-
-
-class LogAttributesQueryRunner(LogsQueryRunner):
+class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse], LogsQueryRunnerMixin):
     query: LogAttributesQuery
+
+    def __init__(self, query: LogAttributesQuery, *args, **kwargs):
+        super().__init__(query, *args, **kwargs)
+        self.query = query
+        self.modifiers.convertToProjectTimezone = False
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
@@ -62,18 +38,13 @@ class LogAttributesQueryRunner(LogsQueryRunner):
             now=dt.datetime.now(),
         )
 
-    def __init__(self, query: LogAttributesQuery, *args, **kwargs):
-        super().__init__(query, *args, **kwargs)
-        self.query = query
-        self.modifiers.convertToProjectTimezone = False
-
     def to_query(self) -> ast.SelectQuery:
         # temporarily exclude resource_attributes from the log attributes results
         # this is because we are currently merging resource attributes into log attributes but will stop soon
         # once we stop merging the attributes here: https://github.com/PostHog/posthog/blob/d55f534193220eee1cd50df2c4465229925a572d/rust/capture-logs/src/log_record.rs#L91
         # and the 7 day retention period has passed, we can remove this code
         # If you see this message after 2026-01-01 tell @frank to do it already
-        exclude_expression = ast.Constant(value=1)
+        exclude_expression: ast.Expr = ast.Constant(value=1)
         if self.query.attributeType == "log":
             exclude_expression = parse_expr(
                 """(attribute_key) NOT IN (
@@ -114,7 +85,7 @@ class LogAttributesQueryRunner(LogsQueryRunner):
             """,
             placeholders={
                 "search": ast.Constant(value=f"%{self.query.search}%"),
-                "attributeType": self.query.attributeType,
+                "attributeType": ast.Constant(value=self.query.attributeType),
                 "exclude_expression": exclude_expression,
                 "limit": ast.Constant(value=self.query.limit),
                 "offset": ast.Constant(value=self.query.offset),
@@ -123,6 +94,7 @@ class LogAttributesQueryRunner(LogsQueryRunner):
             },
         )
 
+        assert isinstance(query, ast.SelectQuery)
         return query
 
     def where(self) -> ast.Expr:
