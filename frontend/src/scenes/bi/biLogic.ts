@@ -1156,6 +1156,6 @@ export function getTableSourceId(table: DatabaseSchemaTable): string | null {
     return (table as any)?.source?.id || null
 }
 
-function isDirectQueryTable(table: DatabaseSchemaTable): boolean {
+export function isDirectQueryTable(table: DatabaseSchemaTable): boolean {
     return (table as any)?.source?.is_direct_query === true
 }

@@ -58,6 +58,7 @@ import {
     defaultColumnForTable,
     getTableDialect,
     getTableSourceId,
+    isDirectQueryTable,
     isJsonField,
 } from './biLogic'
 
@@ -620,16 +621,60 @@ export function BIScene(): JSX.Element {
         queryString,
     ])
 
-    const openInSqlEditorQuery = useMemo(() => {
-        if (queryDialect !== 'postgres' || activeQueryPreviewLanguage !== 'postgres' || !queryResponse?.postgres) {
-            return null
+    const { openInSqlEditorQuery, openInSqlEditorDisabledReason } = useMemo((): {
+        openInSqlEditorQuery: string | null
+        openInSqlEditorDisabledReason: string | null
+    } => {
+        const sourceId = selectedTableObject ? getTableSourceId(selectedTableObject) : null
+        const directQueryTable = selectedTableObject ? isDirectQueryTable(selectedTableObject) : false
+
+        if (activeQueryPreviewLanguage === 'clickhouse') {
+            return {
+                openInSqlEditorQuery: null,
+                openInSqlEditorDisabledReason: "can't query clickhouse directly",
+            }
         }
 
-        const sourceId = selectedTableObject ? getTableSourceId(selectedTableObject) : null
-        const directive = sourceId ? `--direct:${sourceId}` : '--direct'
+        if (activeQueryPreviewLanguage === 'postgres') {
+            if (!queryResponse?.postgres) {
+                return {
+                    openInSqlEditorQuery: null,
+                    openInSqlEditorDisabledReason: queryResponseLoading
+                        ? 'Loading SQL…'
+                        : 'Run the query to view Postgres SQL',
+                }
+            }
 
-        return `${directive}\n${queryResponse.postgres}`
-    }, [activeQueryPreviewLanguage, queryDialect, queryResponse?.postgres, selectedTableObject])
+            const directive = sourceId ? `--direct:${sourceId}` : '--direct'
+            return {
+                openInSqlEditorQuery: `${directive}\n${queryResponse.postgres}`,
+                openInSqlEditorDisabledReason: null,
+            }
+        }
+
+        if (!queryString) {
+            return { openInSqlEditorQuery: null, openInSqlEditorDisabledReason: null }
+        }
+
+        if (queryDialect === 'postgres') {
+            if (directQueryTable && sourceId) {
+                return {
+                    openInSqlEditorQuery: `--pg:${sourceId}\n${queryString}`,
+                    openInSqlEditorDisabledReason: null,
+                }
+            }
+            return { openInSqlEditorQuery: `--pg\n${queryString}`, openInSqlEditorDisabledReason: null }
+        }
+
+        return { openInSqlEditorQuery: queryString, openInSqlEditorDisabledReason: null }
+    }, [
+        activeQueryPreviewLanguage,
+        queryDialect,
+        queryResponse?.postgres,
+        queryResponseLoading,
+        queryString,
+        selectedTableObject,
+    ])
 
     const maxSidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, viewportWidth - MIN_MAIN_WIDTH)
     const maxChartHeight = Math.max(MIN_RESIZABLE_HEIGHT, viewportHeight - 240)
@@ -974,7 +1019,7 @@ export function BIScene(): JSX.Element {
                     {showGeneratedQuery && _queryString && (
                         <LemonCard
                             hoverEffect={false}
-                            className="flex flex-col overflow-hidden"
+                            className="flex flex-col overflow-hidden p-4"
                             style={{
                                 minHeight: MIN_RESIZABLE_HEIGHT,
                                 height: queryPreviewHeight,
@@ -988,23 +1033,22 @@ export function BIScene(): JSX.Element {
                                     onChange={(value) => setQueryPreviewLanguage(value)}
                                     options={queryPreviewOptions}
                                 />
-                                {queryDialect === 'postgres' && activeQueryPreviewLanguage === 'postgres' && (
-                                    <div className="flex items-center gap-2">
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            icon={<IconExpand45 />}
-                                            disabled={!openInSqlEditorQuery}
-                                            onClick={() =>
-                                                openInSqlEditorQuery &&
-                                                newInternalTab(urls.sqlEditor(openInSqlEditorQuery))
-                                            }
-                                            tooltip="Open in SQL editor"
-                                        />
-                                    </div>
-                                )}
+                                <div className="flex items-center gap-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconExpand45 />}
+                                        disabled={!openInSqlEditorQuery}
+                                        onClick={() =>
+                                            openInSqlEditorQuery && newInternalTab(urls.sqlEditor(openInSqlEditorQuery))
+                                        }
+                                        tooltip={openInSqlEditorDisabledReason || 'Open in SQL editor'}
+                                    />
+                                </div>
                             </div>
-                            <pre className="flex-1 overflow-auto whitespace-pre-wrap text-xs">{displayedQuery}</pre>
+                            <pre className="flex-1 overflow-auto whitespace-pre-wrap text-xs mb-0">
+                                {(displayedQuery || '').trim()}
+                            </pre>
                         </LemonCard>
                     )}
 
@@ -1015,7 +1059,7 @@ export function BIScene(): JSX.Element {
                     {numericColumns.length > 0 && selectedFields.length > 0 && (
                         <LemonCard
                             hoverEffect={false}
-                            className="relative flex flex-col overflow-hidden"
+                            className="relative flex flex-col overflow-hidden p-4"
                             style={{ minHeight: MIN_RESIZABLE_HEIGHT, height: chartHeight, maxHeight: maxChartHeight }}
                         >
                             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1062,7 +1106,7 @@ export function BIScene(): JSX.Element {
                         <ResizeHandle onStart={startChartResize} ariaLabel="Resize chart" />
                     )}
 
-                    <LemonCard className="flex-1 min-h-0 flex flex-col min-w-full max-w-full" hoverEffect={false}>
+                    <LemonCard className="flex-1 min-h-0 flex flex-col min-w-full max-w-full p-4" hoverEffect={false}>
                         {selectedFields.length === 0 ? (
                             <div className="deprecated-space-y-4">
                                 <LemonBanner type="info">
