@@ -31,6 +31,7 @@ import { TriggersSummary } from 'lib/components/Triggers/TriggersSummary'
 import { UrlConfig } from 'lib/components/Triggers/UrlConfig'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/Triggers/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { isNumeric } from 'lib/utils'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
@@ -385,7 +386,11 @@ function Sampling(): JSX.Element {
 
     const updateSampling = (): void => {
         const returnRate = typeof value == 'number' ? value / 100 : 0
-        updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
+        if (returnRate > 1) {
+            lemonToast.error('Session recording sample rate must be between 0 to 100')
+        } else {
+            updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
+        }
     }
 
     return (
