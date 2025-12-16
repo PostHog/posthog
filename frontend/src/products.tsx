@@ -145,6 +145,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/prompts': ['LLMAnalytics', 'llmAnalyticsPrompts'],
     '/llm-analytics/prompts/:id': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
     '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
+    '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
+    '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
+    '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
     '/logs': ['Logs', 'logs'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
@@ -567,6 +570,10 @@ export const productUrls = {
     llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
     llmAnalyticsPrompt: (id: string): string => `/llm-analytics/prompts/${id}`,
     llmAnalyticsSettings: (): string => '/llm-analytics/settings',
+    llmAnalyticsClusters: (runId?: string): string =>
+        runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
+    llmAnalyticsCluster: (runId: string, clusterId: number): string =>
+        `/llm-analytics/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     logs: (): string => '/logs',
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
