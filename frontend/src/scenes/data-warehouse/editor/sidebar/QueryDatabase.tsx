@@ -23,7 +23,7 @@ import { renderTableCount } from '../editorSceneLogic'
 import { OutputTab } from '../outputPaneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
-export const QueryDatabase = (): JSX.Element => {
+export function QueryDatabase(): JSX.Element {
     const {
         treeData,
         searchTreeData,
