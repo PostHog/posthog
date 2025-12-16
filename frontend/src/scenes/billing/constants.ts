@@ -15,6 +15,10 @@ export const USAGE_TYPES = [
     { label: 'Destinations Trigger Events', value: 'cdp_billable_invocations_in_period' },
     { label: 'Rows Exported', value: 'rows_exported_in_period' },
     { label: 'PostHog AI', value: 'ai_credits_used_in_period' },
+    { label: 'Workflow Emails', value: 'workflow_emails_sent_in_period' },
+    { label: 'Workflow Destinations', value: 'workflow_billable_invocations_in_period' },
+    { label: 'Workflow Push', value: 'workflow_push_sent_in_period' },
+    { label: 'Workflow SMS', value: 'workflow_sms_sent_in_period' },
 ] as const
 
 export type UsageTypeOption = (typeof USAGE_TYPES)[number]
