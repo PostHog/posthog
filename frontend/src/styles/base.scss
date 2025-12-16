@@ -1095,6 +1095,23 @@
         outline: 2px solid var(--color-accent);
     }
 
+    .input-like {
+        border-radius: var(--radius);
+        outline: 0 solid transparent;
+        box-shadow: 0 0 0 0 transparent;
+        transition: box-shadow 0.1s ease-in-out;
+
+        & input,
+        & textarea {
+            box-shadow: none;
+        }
+
+        &:not([disabled]):focus-visible,
+        &:not([disabled]):focus-within {
+            box-shadow: 0 0 0 3px var(--color-bg-fill-highlight-75);
+        }
+    }
+
     body {
         font-size: 14px;
         font-weight: 400;
