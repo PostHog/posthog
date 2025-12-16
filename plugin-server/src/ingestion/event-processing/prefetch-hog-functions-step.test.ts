@@ -172,19 +172,6 @@ describe('prefetchHogFunctionsStep', () => {
         expect(mockHogTransformer.fetchAndCacheHogFunctionStates).not.toHaveBeenCalled()
     })
 
-    it('skips prefetching when sample rate is 0', async () => {
-        const step = createPrefetchHogFunctionsStep(mockHogTransformer, 0)
-        const inputs = [createTestInput(createTestTeam({ id: 1 }))]
-
-        const results = await step(inputs)
-
-        expect(results).toHaveLength(1)
-        expect(results[0].type).toBe(PipelineResultType.OK)
-        expect(mockHogTransformer.clearHogFunctionStates).toHaveBeenCalledTimes(1)
-        expect(mockGetHogFunctionIdsForTeams).not.toHaveBeenCalled()
-        expect(mockHogTransformer.fetchAndCacheHogFunctionStates).not.toHaveBeenCalled()
-    })
-
     describe('sampling rate', () => {
         let mockRandom: jest.SpyInstance
 
@@ -206,6 +193,7 @@ describe('prefetchHogFunctionsStep', () => {
 
             await step(inputs)
 
+            expect(mockHogTransformer.clearHogFunctionStates).toHaveBeenCalled()
             expect(mockGetHogFunctionIdsForTeams).toHaveBeenCalled()
             expect(mockHogTransformer.fetchAndCacheHogFunctionStates).toHaveBeenCalledWith(['func-1'])
         })
@@ -218,6 +206,7 @@ describe('prefetchHogFunctionsStep', () => {
 
             await step(inputs)
 
+            expect(mockHogTransformer.clearHogFunctionStates).not.toHaveBeenCalled()
             expect(mockGetHogFunctionIdsForTeams).not.toHaveBeenCalled()
             expect(mockHogTransformer.fetchAndCacheHogFunctionStates).not.toHaveBeenCalled()
         })
@@ -231,6 +220,7 @@ describe('prefetchHogFunctionsStep', () => {
             await step(inputs)
 
             // 0.3 < 0.3 is false, so should skip
+            expect(mockHogTransformer.clearHogFunctionStates).not.toHaveBeenCalled()
             expect(mockGetHogFunctionIdsForTeams).not.toHaveBeenCalled()
         })
 
@@ -244,18 +234,19 @@ describe('prefetchHogFunctionsStep', () => {
 
             await step(inputs)
 
+            expect(mockHogTransformer.clearHogFunctionStates).toHaveBeenCalled()
             expect(mockGetHogFunctionIdsForTeams).toHaveBeenCalled()
         })
 
-        it('never prefetches when sample rate is 0', async () => {
-            mockRandom.mockReturnValue(0)
+        it('skips prefetching when sample rate is 0', async () => {
+            mockRandom.mockReturnValue(0.5)
 
             const step = createPrefetchHogFunctionsStep(mockHogTransformer, 0)
             const inputs = [createTestInput(createTestTeam({ id: 1 }))]
 
             await step(inputs)
 
-            // 0 < 0 is false, so should skip
+            expect(mockHogTransformer.clearHogFunctionStates).not.toHaveBeenCalled()
             expect(mockGetHogFunctionIdsForTeams).not.toHaveBeenCalled()
         })
     })

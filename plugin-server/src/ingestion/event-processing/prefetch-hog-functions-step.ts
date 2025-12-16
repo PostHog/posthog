@@ -12,14 +12,14 @@ export function createPrefetchHogFunctionsStep<TInput extends PrefetchHogFunctio
     sampleRate: number
 ): BatchProcessingStep<TInput, TInput> {
     return async function prefetchHogFunctionsStep(events: TInput[]): Promise<PipelineResult<TInput>[]> {
-        // Clear cached hog function states before fetching new ones
-        hogTransformer.clearHogFunctionStates()
-
         // Skip prefetching if sampling determines we shouldn't run hog watcher
         const shouldRunHogWatcher = Math.random() < sampleRate
         if (!shouldRunHogWatcher) {
             return events.map((event) => ok(event))
         }
+
+        // Clear cached hog function states before fetching new ones
+        hogTransformer.clearHogFunctionStates()
 
         // Extract unique team IDs from the batch
         const teamIds = new Set<number>()
