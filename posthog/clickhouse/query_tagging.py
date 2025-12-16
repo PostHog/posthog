@@ -11,6 +11,8 @@ from typing import Any, Optional
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
+from posthog.schema import ProductKey
+
 
 class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
@@ -87,7 +89,7 @@ class QueryTags(BaseModel):
     api_key_mask: Optional[str] = None
     api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
-    product: Optional[str] = None  # Product identifier - can be Product enum value or frontend ProductKey
+    product: Optional[Product | ProductKey] = None
 
     # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
