@@ -96,6 +96,14 @@ impl<T: Send + 'static> PartitionWorker<T> {
         self.sender.capacity() > 0
     }
 
+    /// Get a clone of the sender for use outside of DashMap guards
+    ///
+    /// This allows callers to release DashMap guards before awaiting on send operations,
+    /// preventing blocking of other DashMap operations during backpressure.
+    pub fn sender(&self) -> mpsc::Sender<PartitionBatch<T>> {
+        self.sender.clone()
+    }
+
     /// Get the current capacity of the channel
     pub fn capacity(&self) -> usize {
         self.sender.capacity()

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration, time::Instant};
 
 use anyhow::{Context, Result};
 use axum::async_trait;
@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use crate::kafka::types::Partition;
 use crate::{
@@ -20,7 +20,9 @@ use crate::{
     metrics::MetricsHelper,
     metrics_const::{
         DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
-        DUPLICATE_EVENTS_TOTAL_COUNTER, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
+        DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
+        PARTITION_BATCH_PROCESSING_DURATION_MS, ROCKSDB_MULTI_GET_DURATION_MS,
+        ROCKSDB_PUT_BATCH_DURATION_MS, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
         TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER,
         TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
         TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
@@ -181,11 +183,17 @@ impl BatchDeduplicationProcessor {
         partition: Partition,
         messages: Vec<&KafkaMessage<CapturedEvent>>,
     ) -> Result<()> {
+        let batch_start = Instant::now();
+        let message_count = messages.len();
+
         // Parse events in parallel (CPU-bound work - good use of rayon)
         // Use block_in_place to avoid blocking the async runtime thread pool
+        let parsing_start = Instant::now();
         let parsed_events: Vec<Result<RawEvent>> = tokio::task::block_in_place(|| {
             messages.par_iter().map(Self::parse_raw_event).collect()
         });
+        let parsing_duration = parsing_start.elapsed();
+        metrics::histogram!(EVENT_PARSING_DURATION_MS).record(parsing_duration.as_millis() as f64);
 
         // Collect successful parses and extract metadata sequentially
         // This avoids cloning the entire message - we just copy the small pieces we need
@@ -288,6 +296,23 @@ impl BatchDeduplicationProcessor {
             }
         }
 
+        // Record total partition batch processing time
+        let batch_duration = batch_start.elapsed();
+        metrics::histogram!(PARTITION_BATCH_PROCESSING_DURATION_MS)
+            .record(batch_duration.as_millis() as f64);
+
+        // Warn on slow partition batches (> 2 seconds indicates potential issues)
+        if batch_duration.as_secs() > 2 {
+            warn!(
+                topic = partition.topic(),
+                partition = partition.partition_number(),
+                message_count = message_count,
+                duration_ms = batch_duration.as_millis(),
+                parsing_duration_ms = parsing_duration.as_millis(),
+                "Slow partition batch processing"
+            );
+        }
+
         Ok(())
     }
 
@@ -340,7 +365,11 @@ impl BatchDeduplicationProcessor {
             .map(|e| e.timestamp_key_bytes.as_slice())
             .collect();
 
+        let ts_read_start = Instant::now();
         let timestamp_results = store.multi_get_timestamp_records(timestamp_keys_refs)?;
+        let ts_read_duration = ts_read_start.elapsed();
+        metrics::histogram!(ROCKSDB_MULTI_GET_DURATION_MS, "cf" => "timestamp")
+            .record(ts_read_duration.as_millis() as f64);
 
         // Step 3: Batch read for UUID-based deduplication (only for events with UUIDs that pass timestamp check)
         let uuid_keys_to_check: Vec<(usize, &[u8])> = enriched_events
@@ -361,7 +390,12 @@ impl BatchDeduplicationProcessor {
         let uuid_keys_refs: Vec<&[u8]> = uuid_keys_to_check.iter().map(|(_, key)| *key).collect();
 
         let uuid_results = if !uuid_keys_refs.is_empty() {
-            store.multi_get_uuid_records(uuid_keys_refs)?
+            let uuid_read_start = Instant::now();
+            let results = store.multi_get_uuid_records(uuid_keys_refs)?;
+            let uuid_read_duration = uuid_read_start.elapsed();
+            metrics::histogram!(ROCKSDB_MULTI_GET_DURATION_MS, "cf" => "uuid")
+                .record(uuid_read_duration.as_millis() as f64);
+            results
         } else {
             vec![]
         };
@@ -495,7 +529,11 @@ impl BatchDeduplicationProcessor {
                     value: value.as_slice(),
                 })
                 .collect();
+            let ts_write_start = Instant::now();
             store.put_timestamp_records_batch(entries)?;
+            let ts_write_duration = ts_write_start.elapsed();
+            metrics::histogram!(ROCKSDB_PUT_BATCH_DURATION_MS, "cf" => "timestamp")
+                .record(ts_write_duration.as_millis() as f64);
         }
 
         // UUID writes need to also update the timestamp index
@@ -508,7 +546,11 @@ impl BatchDeduplicationProcessor {
                     timestamp: *timestamp,
                 })
                 .collect();
+            let uuid_write_start = Instant::now();
             store.put_uuid_records_batch(entries)?;
+            let uuid_write_duration = uuid_write_start.elapsed();
+            metrics::histogram!(ROCKSDB_PUT_BATCH_DURATION_MS, "cf" => "uuid")
+                .record(uuid_write_duration.as_millis() as f64);
         }
 
         Ok(dedup_results)
@@ -606,10 +648,15 @@ impl BatchDeduplicationProcessor {
             record = record.headers(h.clone());
         }
 
-        match producer
+        let send_start = Instant::now();
+        let result = producer
             .send(record, Timeout::After(self.config.producer_send_timeout))
-            .await
-        {
+            .await;
+        let send_duration = send_start.elapsed();
+        metrics::histogram!(KAFKA_PRODUCER_SEND_DURATION_MS)
+            .record(send_duration.as_millis() as f64);
+
+        match result {
             Ok(_) => {
                 debug!(
                     "Successfully published non-duplicate event with key {} to {}",

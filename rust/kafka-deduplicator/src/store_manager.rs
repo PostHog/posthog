@@ -11,7 +11,8 @@ use tracing::{debug, error, info, warn};
 use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::{
-    CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM, CLEANUP_OPERATIONS_COUNTER,
+    ACTIVE_STORE_COUNT, CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM,
+    CLEANUP_OPERATIONS_COUNTER, STORE_CREATION_DURATION_MS, STORE_CREATION_EVENTS,
 };
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 
@@ -152,6 +153,7 @@ impl StoreManager {
 
         // Slow path: need to create the store
         // DashMap's entry API ensures only one worker creates the store
+        let creation_start = std::time::Instant::now();
         let result = self
             .stores
             .entry(partition_key.clone())
@@ -162,8 +164,10 @@ impl StoreManager {
                 // Note: This is inside the closure so only the creating thread does this
                 self.ensure_directory_exists(&store_path)?;
                 info!(
-                    "Creating new deduplication store for partition {}:{} at path: {}",
-                    topic, partition, store_path
+                    topic = topic,
+                    partition = partition,
+                    path = store_path,
+                    "Creating new deduplication store"
                 );
 
                 let mut partition_config = self.store_config.clone();
@@ -177,10 +181,37 @@ impl StoreManager {
                     })
             });
 
+        let creation_duration = creation_start.elapsed();
         match result {
             Ok(entry) => {
-                info!("Successfully created deduplication store for partition {topic}:{partition}",);
-                Ok(entry.clone())
+                metrics::histogram!(STORE_CREATION_DURATION_MS)
+                    .record(creation_duration.as_millis() as f64);
+                metrics::counter!(STORE_CREATION_EVENTS, "outcome" => "success").increment(1);
+                let store = entry.clone();
+                // Drop the entry reference before accessing stores.len() to avoid deadlock
+                drop(entry);
+                let store_count = self.stores.len();
+                metrics::gauge!(ACTIVE_STORE_COUNT).set(store_count as f64);
+
+                // Warn on slow store creation (> 5 seconds indicates potential issues)
+                if creation_duration.as_secs() > 5 {
+                    warn!(
+                        topic = topic,
+                        partition = partition,
+                        duration_ms = creation_duration.as_millis(),
+                        active_stores = store_count,
+                        "Slow deduplication store creation"
+                    );
+                } else {
+                    info!(
+                        topic = topic,
+                        partition = partition,
+                        duration_ms = creation_duration.as_millis(),
+                        active_stores = store_count,
+                        "Successfully created deduplication store"
+                    );
+                }
+                Ok(store)
             }
             Err(e) => {
                 // This could happen if:
@@ -190,12 +221,15 @@ impl StoreManager {
                 // Check if another worker succeeded
                 if let Some(store) = self.stores.get(&partition_key) {
                     warn!(
-                        "Store for {}:{} was created by another worker, using existing store",
-                        topic, partition
+                        topic = topic,
+                        partition = partition,
+                        "Store was created by another worker, using existing store"
                     );
                     Ok(store.clone())
                 } else {
                     // Real failure - no one succeeded in creating the store
+                    metrics::counter!(STORE_CREATION_EVENTS, "outcome" => "failure").increment(1);
+
                     // Build the complete error chain
                     let mut error_chain = vec![format!("{:?}", e)];
                     let mut source = e.source();
@@ -205,10 +239,11 @@ impl StoreManager {
                     }
 
                     error!(
-                        "Failed to create store for {}:{} - {}",
-                        topic,
-                        partition,
-                        error_chain.join(" -> ")
+                        topic = topic,
+                        partition = partition,
+                        duration_ms = creation_duration.as_millis(),
+                        error = error_chain.join(" -> "),
+                        "Failed to create deduplication store"
                     );
 
                     Err(e)
@@ -312,11 +347,17 @@ impl StoreManager {
             return Ok(0);
         }
 
-        // Calculate total size across all stores
+        // Collect store clones first to release DashMap guards before slow operations.
+        // This prevents blocking other DashMap operations during size calculation and cleanup.
+        let stores: Vec<DeduplicationStore> = self
+            .stores
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+
+        // Calculate total size across all stores (no longer holding DashMap guards)
         let mut total_size = 0u64;
-        for entry in self.stores.iter() {
-            let store = entry.value();
-            // Get size of all column families for this store
+        for store in &stores {
             if let Ok(size) = store.get_total_size() {
                 total_size += size;
             }
@@ -346,12 +387,9 @@ impl StoreManager {
             bytes_to_free
         );
 
-        // Cleanup stores with the calculated percentage
+        // Cleanup stores with the calculated percentage (no longer holding DashMap guards)
         let mut total_bytes_freed = 0u64;
-
-        // Clean up all stores with the same percentage to ensure fair distribution
-        for entry in self.stores.iter() {
-            let store = entry.value();
+        for store in &stores {
             match store.cleanup_old_entries_with_percentage(cleanup_percentage) {
                 Ok(bytes_freed) => {
                     total_bytes_freed += bytes_freed;
@@ -404,9 +442,16 @@ impl StoreManager {
             return false;
         }
 
+        // Collect store clones first to release DashMap guards before slow operations
+        let stores: Vec<DeduplicationStore> = self
+            .stores
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+
         let mut total_size = 0u64;
-        for entry in self.stores.iter() {
-            if let Ok(size) = entry.value().get_total_size() {
+        for store in &stores {
+            if let Ok(size) = store.get_total_size() {
                 total_size += size;
             }
         }

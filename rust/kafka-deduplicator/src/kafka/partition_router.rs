@@ -132,15 +132,23 @@ where
     ) -> Result<()> {
         let batch = PartitionBatch::new(partition.clone(), messages);
 
-        let worker_ref = self.workers.get(&partition).ok_or_else(|| {
-            anyhow!(
-                "No worker for partition {}:{} - was it assigned?",
-                partition.topic(),
-                partition.partition_number()
-            )
-        })?;
+        // Clone the sender and release the DashMap guard before awaiting.
+        // This prevents blocking other partitions if this partition's channel
+        // is full and backpressures.
+        let sender = self
+            .workers
+            .get(&partition)
+            .ok_or_else(|| {
+                anyhow!(
+                    "No worker for partition {}:{} - was it assigned?",
+                    partition.topic(),
+                    partition.partition_number()
+                )
+            })?
+            .sender();
+        // DashMap guard is now released
 
-        worker_ref.send(batch).await.map_err(|_| {
+        sender.send(batch).await.map_err(|_| {
             anyhow!(
                 "Failed to send batch to worker for {}:{}: channel closed",
                 partition.topic(),
