@@ -80,7 +80,12 @@ function LineageNode({ data, edges, tabId }: LineageNodeProps): JSX.Element {
             if (view) {
                 // Fetch the full view with query if not already loaded
                 if (!view.query) {
-                    view = await api.dataWarehouseSavedQueries.get(view.id)
+                    try {
+                        view = await api.dataWarehouseSavedQueries.get(view.id)
+                    } catch (error) {
+                        // Silently fail - user can't edit if fetch fails
+                        return
+                    }
                 }
                 if (view?.query?.query) {
                     editView(view.query.query, view)
