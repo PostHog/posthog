@@ -119,7 +119,7 @@ async fn apply_config_fields(
     };
 
     // Handle conversations widget config (domains returned for SDK-side filtering)
-    response.config.conversations = if team.conversations_enabled.unwrap_or(false) {
+    response.config.conversations = if team.conversations_enabled {
         Some(serde_json::json!({
             "enabled": true,
             "greetingText": team.conversations_greeting_text.as_deref().unwrap_or("Hey, how can I help you today?"),
@@ -270,7 +270,7 @@ mod tests {
             inject_web_apps: None,
             surveys_opt_in: None,
             heatmaps_opt_in: None,
-            conversations_enabled: None,
+            conversations_enabled: false,
             conversations_greeting_text: None,
             conversations_color: None,
             conversations_public_token: None,

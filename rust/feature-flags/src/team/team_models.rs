@@ -22,7 +22,8 @@ pub struct Team {
     pub inject_web_apps: Option<bool>,
     pub surveys_opt_in: Option<bool>,
     pub heatmaps_opt_in: Option<bool>,
-    pub conversations_enabled: Option<bool>,
+    #[serde(default)]
+    pub conversations_enabled: bool,
     pub conversations_greeting_text: Option<String>,
     pub conversations_color: Option<String>,
     pub conversations_public_token: Option<String>,

@@ -2977,7 +2977,7 @@ async fn test_config_conversations_enabled() -> Result<()> {
     let token = team.api_token.clone();
 
     // Enable conversations on the team
-    team.conversations_enabled = Some(true);
+    team.conversations_enabled = true;
     team.conversations_greeting_text = Some("Hey, how can I help you today?".to_string());
     team.conversations_color = Some("#1d4aff".to_string());
     team.conversations_public_token = Some("test_public_token_123".to_string());
@@ -3043,7 +3043,7 @@ async fn test_config_conversations_disabled() -> Result<()> {
     let token = team.api_token.clone();
 
     // Explicitly disable conversations
-    team.conversations_enabled = Some(false);
+    team.conversations_enabled = false;
 
     // Update the team in Redis
     let serialized_team = serde_json::to_string(&team).unwrap();
@@ -3097,7 +3097,7 @@ async fn test_config_conversations_returns_empty_domains() -> Result<()> {
     let token = team.api_token.clone();
 
     // Enable conversations with empty domains list
-    team.conversations_enabled = Some(true);
+    team.conversations_enabled = true;
     team.conversations_public_token = Some("test_token".to_string());
     team.conversations_widget_domains = Some(vec![]);
 
@@ -3153,7 +3153,7 @@ async fn test_config_conversations_returns_domains_for_sdk_filtering() -> Result
     let token = team.api_token.clone();
 
     // Enable conversations with specific domains
-    team.conversations_enabled = Some(true);
+    team.conversations_enabled = true;
     team.conversations_public_token = Some("test_token".to_string());
     team.conversations_widget_domains = Some(vec![
         "https://example.com".to_string(),

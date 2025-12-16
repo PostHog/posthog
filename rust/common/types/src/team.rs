@@ -60,7 +60,8 @@ pub struct Team {
     pub cookieless_server_hash_mode: Option<i16>,
     #[serde(default = "default_timezone")]
     pub timezone: String,
-    pub conversations_enabled: Option<bool>,
+    #[serde(default)]
+    pub conversations_enabled: bool,
     pub conversations_greeting_text: Option<String>,
     pub conversations_color: Option<String>,
     pub conversations_public_token: Option<String>,
