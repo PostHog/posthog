@@ -258,10 +258,16 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
     })
 
     return (
-        <SceneSection title="Playground">
-            Send API requests to your endpoints, play with setting different parameters in the request body and see what
-            the resulting JSON response would look like. <br />
-            Once you're done experimenting, find the code snippet for your use case below.
+        <SceneSection
+            title="Playground"
+            description={
+                <>
+                    Send API requests to your endpoints, play with setting different parameters in the request body and
+                    see what the resulting JSON response would look like. <br />
+                    Once you're done experimenting, find the code snippet for your use case below.
+                </>
+            }
+        >
             <div className="flex gap-4">
                 <div className="flex-1 flex flex-col gap-2">
                     <LemonField.Pure
@@ -307,7 +313,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                                     Array.isArray(parsed.results) &&
                                     parsed.results.length === 0
                                 ) {
-                                    return <LemonField.Pure error="No results" info="" />
+                                    return <LemonField.Pure error="No results" />
                                 }
                             } catch {
                                 // Invalid JSON, don't show anything
