@@ -1,11 +1,11 @@
 name: 'Handle stale PRs'
 on:
-    workflow_dispatch:
     schedule:
         - cron: '30 7 * * 1-5'
 
 permissions:
     contents: read
+    actions: write
     issues: write
     pull-requests: write
 
