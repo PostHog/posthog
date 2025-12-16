@@ -495,16 +495,15 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Missing filters" in response.json().get("detail", "")
         mock_get_user_blast_radius.assert_not_called()
 
-    def test_hog_flow_user_blast_radius_returns_counts_and_batch_flag(self):
+    def test_hog_flow_user_blast_radius_returns_counts(self):
         with patch("posthog.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             mock_get_user_blast_radius.return_value = (4, 10)
 
-            with self.settings(BATCH_WORKFLOWS_MAX_SIZE=3):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-                    {"filters": {"properties": []}},
-                )
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
 
         assert response.status_code == 200, response.json()
-        assert response.json() == {"users_affected": 4, "total_users": 10, "batch_is_too_large": True}
+        assert response.json() == {"users_affected": 4, "total_users": 10}
         mock_get_user_blast_radius.assert_called_once_with(self.team, {"properties": []})

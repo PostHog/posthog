@@ -21,7 +21,7 @@ const TriggerPopover = ({
     props: WorkflowLogicProps
 }): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
-    const { workflow, variableValues, inputs } = useValues(logic)
+    const { workflow, variableValues, inputs, isScheduleTrigger } = useValues(logic)
     const { setInput, clearInputs, triggerManualWorkflow, triggerBatchWorkflow } = useActions(logic)
 
     const { blastRadius } = useValues(
@@ -31,26 +31,14 @@ const TriggerPopover = ({
         })
     )
 
-    const isScheduleTrigger =
-        (workflow?.trigger?.type === 'schedule' || workflow?.trigger?.type === 'batch') &&
-        Boolean(workflow?.trigger?.scheduled_at)
+    const blastRadiusSuffix = (): string =>
+        workflow?.trigger?.type === 'batch' && blastRadius
+            ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users`
+            : ''
 
-    const getButtonCopy = (): string => {
-        switch (workflow?.trigger?.type) {
-            case 'manual':
-                return 'Run workflow'
-            case 'batch': {
-                const forBlastRadius = blastRadius ? `for ${humanFriendlyNumber(blastRadius.users_affected)} users` : ''
-                if (isScheduleTrigger) {
-                    return `Schedule workflow ${forBlastRadius}`
-                }
-                return `Run workflow ${forBlastRadius}`
-            }
-            case 'schedule':
-                return 'Schedule workflow'
-            default:
-                return 'Run workflow'
-        }
+    const getButtonText = (): string => {
+        const action = isScheduleTrigger ? 'Schedule workflow' : 'Run workflow'
+        return `${action}${blastRadiusSuffix()}`
     }
 
     const variablesSection =
@@ -127,7 +115,7 @@ const TriggerPopover = ({
                     data-attr="run-workflow-btn"
                     sideIcon={isScheduleTrigger ? <IconClock /> : <IconPlayFilled />}
                 >
-                    {getButtonCopy()}
+                    {getButtonText()}
                 </LemonButton>
             </div>
         </div>

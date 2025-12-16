@@ -77,5 +77,11 @@ export const hogFlowManualTriggerButtonLogic = kea<hogFlowManualTriggerButtonLog
                 )
             },
         ],
+        isScheduleTrigger: [
+            (s) => [s.workflow],
+            (workflow: any): boolean =>
+                (workflow?.trigger?.type === 'schedule' || workflow?.trigger?.type === 'batch') &&
+                Boolean(workflow?.trigger?.scheduled_at),
+        ],
     }),
 ])
