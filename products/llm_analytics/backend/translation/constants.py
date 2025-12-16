@@ -3,8 +3,9 @@
 import json
 from pathlib import Path
 
-# Feature flag
+# Feature flags
 LLM_ANALYTICS_TRANSLATION = "llm-analytics-translation"
+EARLY_ADOPTERS_FEATURE_FLAG = "llm-analytics-early-adopters"
 
 # Load supported languages from shared JSON file
 _LANGUAGES_JSON_PATH = Path(__file__).parent.parent.parent / "shared" / "supported_languages.json"

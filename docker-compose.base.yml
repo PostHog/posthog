@@ -84,7 +84,7 @@ services:
         healthcheck:
             test: ['CMD-SHELL', 'pg_isready -U posthog']
             interval: 5s
-            timeout: 5s
+            timeout: 30s
         volumes:
             - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
 
@@ -328,7 +328,7 @@ services:
             COOKIELESS_REDIS_PORT: 6379
 
     livestream:
-        image: 'ghcr.io/posthog/livestream:main'
+        image: 'ghcr.io/posthog/posthog/livestream:master'
         restart: on-failure
         depends_on:
             kafka:
@@ -436,7 +436,7 @@ services:
             kafka:
                 condition: service_started
     otel-collector:
-        image: otel/opentelemetry-collector-contrib:latest
+        image: otel/opentelemetry-collector-contrib:0.142.0
         container_name: otel-collector-local
         command: [--config=/etc/otel-collector-config.yaml]
         user: '0:0' # have to run as root to read the docker logs
@@ -464,7 +464,7 @@ services:
             - ./rust/docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
 
     jaeger:
-        image: jaegertracing/all-in-one:latest
+        image: jaegertracing/all-in-one:1.76.0
         container_name: jaeger-local
         ports:
             - '16686:16686' # Jaeger UI
@@ -475,7 +475,7 @@ services:
 
     localstack:
         container_name: '${LOCALSTACK_DOCKER_NAME:-localstack-main}'
-        image: localstack/localstack
+        image: localstack/localstack:4.12.0
         ports:
             - '127.0.0.1:4566:4566' # LocalStack Gateway
             - '127.0.0.1:4510-4559:4510-4559' # external services port range
@@ -486,11 +486,32 @@ services:
 
     seaweedfs:
         container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
-        image: chrislusf/seaweedfs:latest
+        image: chrislusf/seaweedfs:4.03
         ports:
             - '127.0.0.1:8333:8333' # S3 API
             - '127.0.0.1:9333:9333' # Master server (for admin UI)
-        command: server -s3 -s3.port=8333 -dir=/data
+        entrypoint:
+            - /bin/sh
+            - -c
+            - |
+                /usr/bin/weed "$$@" &
+                WEED_PID=$$!
+                echo "Waiting for SeaweedFS to initialize..."
+                while true; do
+                    sleep 5
+                    echo "Checking if posthog bucket exists..."
+                    if echo "s3.bucket.list" | /usr/bin/weed shell -master=localhost:9333 2>&1 | grep -q "posthog"; then
+                        echo "Bucket posthog exists!"
+                        break
+                    fi
+                    echo "Bucket not found, attempting to create..."
+                    echo "s3.bucket.create -name posthog" | /usr/bin/weed shell -master=localhost:9333 2>&1 || true
+                    echo "Retrying in 5s..."
+                done
+                echo "SeaweedFS ready with posthog bucket"
+                wait $$WEED_PID
+            - --
+        command: ['server', '-s3', '-s3.port=8333', '-dir=/data']
 
 networks:
     otel_network:

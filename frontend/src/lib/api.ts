@@ -129,6 +129,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LLMPrompt,
     LineageGraph,
     LinearTeamType,
     LinkType,
@@ -151,6 +152,7 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
+    ProductTour,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -993,13 +995,20 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
     }
 
-    public featureFlagDeleteScheduledChange(
+    public featureFlagScheduledChange(
         teamId: TeamType['id'],
         scheduledChangeId: ScheduledChangeType['id']
     ): ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('scheduled_changes')
             .addPathComponent(`${scheduledChangeId}`)
+    }
+
+    public featureFlagDeleteScheduledChange(
+        teamId: TeamType['id'],
+        scheduledChangeId: ScheduledChangeType['id']
+    ): ApiRequest {
+        return this.featureFlagScheduledChange(teamId, scheduledChangeId)
     }
 
     // # Features
@@ -1063,6 +1072,15 @@ export class ApiRequest {
             return this.survey(id, teamId).addPathComponent('activity')
         }
         return this.surveys(teamId).addPathComponent('activity')
+    }
+
+    // Product tours
+    public productTours(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('product_tours')
+    }
+
+    public productTour(id: ProductTour['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.productTours(teamId).addPathComponent(id)
     }
 
     // Error tracking
@@ -1635,6 +1653,14 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
 
+    public llmPrompts(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_prompts')
+    }
+
+    public llmPrompt(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_prompts').addPathComponent(id)
+    }
+
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
     }
@@ -1865,6 +1891,13 @@ const api = {
             scheduledChangeId: ScheduledChangeType['id']
         ): Promise<{ scheduled_change: ScheduledChangeType }> {
             return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
+        },
+        async updateScheduledChange(
+            teamId: TeamType['id'],
+            scheduledChangeId: ScheduledChangeType['id'],
+            data: Partial<ScheduledChangeType>
+        ): Promise<ScheduledChangeType> {
+            return await new ApiRequest().featureFlagScheduledChange(teamId, scheduledChangeId).update({ data })
         },
         async getStatus(
             teamId: TeamType['id'],
@@ -3774,13 +3807,10 @@ const api = {
             async get(taskId: Task['id'], runId: TaskRun['id']): Promise<TaskRun> {
                 return await new ApiRequest().taskRun(taskId, runId).get()
             },
-            async getLogs(taskId: Task['id'], runId: TaskRun['id'], noCache: boolean = false): Promise<string> {
+            async getLogs(taskId: Task['id'], runId: TaskRun['id']): Promise<string> {
                 const run = await new ApiRequest().taskRun(taskId, runId).get()
                 if (run.log_url) {
-                    const url = noCache
-                        ? `${run.log_url}${run.log_url.includes('?') ? '&' : '?'}t=${Date.now()}`
-                        : run.log_url // TRICKY: We add a timestamp to bypass the browser cache
-                    const response = await fetch(url, {
+                    const response = await fetch(run.log_url, {
                         cache: 'no-store',
                         headers: {
                             'Cache-Control': 'no-cache',
@@ -3911,6 +3941,24 @@ const api = {
         },
         async getArchivedResponseUuids(surveyId: Survey['id']): Promise<string[]> {
             return await new ApiRequest().survey(surveyId).withAction('archived-response-uuids').get()
+        },
+    },
+
+    productTours: {
+        async list(): Promise<PaginatedResponse<ProductTour>> {
+            return await new ApiRequest().productTours().get()
+        },
+        async get(tourId: ProductTour['id']): Promise<ProductTour> {
+            return await new ApiRequest().productTour(tourId).get()
+        },
+        async create(data: Partial<ProductTour>): Promise<ProductTour> {
+            return await new ApiRequest().productTours().create({ data })
+        },
+        async update(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
+            return await new ApiRequest().productTour(tourId).update({ data })
+        },
+        async delete(tourId: ProductTour['id']): Promise<void> {
+            await new ApiRequest().productTour(tourId).delete()
         },
     },
 
@@ -4625,6 +4673,13 @@ const api = {
         get(conversationId: string): Promise<ConversationDetail> {
             return new ApiRequest().conversation(conversationId).get()
         },
+
+        appendMessage(conversationId: string, content: string): Promise<{ id: string }> {
+            return new ApiRequest()
+                .conversation(conversationId)
+                .withAction('append_message')
+                .create({ data: { content } })
+        },
     },
 
     datasets: {
@@ -4692,6 +4747,29 @@ const api = {
 
         async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
             return await new ApiRequest().datasetItem(datasetItemId).update({ data })
+        },
+    },
+
+    llmPrompts: {
+        list(params?: {
+            search?: string
+            order_by?: string
+            offset?: number
+            limit?: number
+        }): Promise<CountedPaginatedResponse<LLMPrompt>> {
+            return new ApiRequest().llmPrompts().withQueryString(params).get()
+        },
+
+        get(promptId: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPrompt(promptId).get()
+        },
+
+        async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPrompts().create({ data })
+        },
+
+        async update(promptId: string, data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPrompt(promptId).update({ data })
         },
     },
 

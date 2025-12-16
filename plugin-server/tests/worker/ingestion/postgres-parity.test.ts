@@ -95,7 +95,8 @@ describe('postgres parity', () => {
             null,
             true,
             uuid,
-            [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
+            { distinctId: 'distinct1' },
+            [{ distinctId: 'distinct2' }]
         )
         if (!result.success) {
             throw new Error('Failed to create person')
@@ -187,7 +188,8 @@ describe('postgres parity', () => {
             null,
             false,
             uuid,
-            [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
+            { distinctId: 'distinct1' },
+            [{ distinctId: 'distinct2' }]
         )
         if (!result.success) {
             throw new Error('Failed to create person')
@@ -275,7 +277,7 @@ describe('postgres parity', () => {
             null,
             true,
             uuid,
-            [{ distinctId: 'distinct1' }]
+            { distinctId: 'distinct1' }
         )
         if (!result.success) {
             throw new Error('Failed to create person')
@@ -294,7 +296,7 @@ describe('postgres parity', () => {
             null,
             true,
             uuid2,
-            [{ distinctId: 'another_distinct_id' }]
+            { distinctId: 'another_distinct_id' }
         )
         if (!result2.success) {
             throw new Error('Failed to create person')
@@ -372,7 +374,7 @@ describe('postgres parity', () => {
             null,
             false,
             uuid,
-            [{ distinctId: 'distinct1' }]
+            { distinctId: 'distinct1' }
         )
         if (!result.success) {
             throw new Error('Failed to create person')
@@ -390,7 +392,7 @@ describe('postgres parity', () => {
             null,
             true,
             uuid2,
-            [{ distinctId: 'another_distinct_id' }]
+            { distinctId: 'another_distinct_id' }
         )
         if (!result2.success) {
             throw new Error('Failed to create person')

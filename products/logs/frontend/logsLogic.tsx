@@ -19,7 +19,14 @@ import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import {
+    JsonType,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
@@ -37,12 +44,6 @@ const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
-
-export enum SparklineTimezone {
-    UTC = 'utc',
-    Project = 'project',
-    Device = 'device',
-}
 
 const parseLogAttributes = (logs: LogMessage[]): void => {
     logs.forEach((row) => {
@@ -238,11 +239,16 @@ export const logsLogic = kea<logsLogicType>([
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         zoomDateRange: (multiplier: number) => ({ multiplier }),
-        setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
-        addFilter: (key: string, value: string, operator: PropertyOperator = PropertyOperator.Exact) => ({
+        addFilter: (
+            key: string,
+            value: string,
+            operator: PropertyOperator = PropertyOperator.Exact,
+            propertyType: PropertyFilterType = PropertyFilterType.LogAttribute
+        ) => ({
             key,
             value,
             operator,
+            propertyType,
         }),
         togglePinLog: (logId: string) => ({ logId }),
         pinLog: (log: LogMessage) => ({ log }),
@@ -264,7 +270,6 @@ export const logsLogic = kea<logsLogicType>([
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
-        setSparklineTimezone: (sparklineTimezone: SparklineTimezone) => ({ sparklineTimezone }),
     }),
 
     reducers({
@@ -414,13 +419,6 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setLiveTailRunning: (_, { enabled }) => enabled,
                 runQuery: () => false,
-            },
-        ],
-        sparklineTimezone: [
-            SparklineTimezone.UTC as SparklineTimezone,
-            { persist: true },
-            {
-                setSparklineTimezone: (_, { sparklineTimezone }) => sparklineTimezone,
             },
         ],
         liveTailPollInterval: [
@@ -769,22 +767,6 @@ export const logsLogic = kea<logsLogicType>([
             const newDateRange = zoomDateRange(values.dateRange, multiplier)
             actions.setDateRange(newDateRange)
         },
-        setDateRangeFromSparkline: ({ startIndex, endIndex }) => {
-            const dates = values.sparklineData.dates
-            const dateFrom = dates[startIndex]
-            const dateTo = dates[endIndex + 1]
-
-            if (!dateFrom) {
-                return
-            }
-
-            // NOTE: I don't know how accurate this really is but its a good starting point
-            const newDateRange = {
-                date_from: dateFrom,
-                date_to: dateTo,
-            }
-            actions.setDateRange(newDateRange)
-        },
         expireLiveTail: async ({}, breakpoint) => {
             await breakpoint(30000)
             if (values.liveTailRunning) {
@@ -792,7 +774,17 @@ export const logsLogic = kea<logsLogicType>([
             }
             actions.setLiveTailExpired(true)
         },
-        addFilter: ({ key, value, operator }) => {
+        addFilter: ({
+            key,
+            value,
+            operator,
+            propertyType,
+        }: {
+            key: string
+            value: string
+            operator: string
+            propertyType: PropertyFilterType
+        }) => {
             const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
 
             const newGroup: UniversalFiltersGroup = {
@@ -803,8 +795,8 @@ export const logsLogic = kea<logsLogicType>([
                         key,
                         value: [value],
                         operator,
-                        type: PropertyFilterType.Log,
-                    },
+                        type: propertyType,
+                    } as UniversalFiltersGroupValue,
                 ],
             }
 

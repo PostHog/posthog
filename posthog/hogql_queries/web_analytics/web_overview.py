@@ -42,6 +42,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             self.modifiers
             and self.modifiers.useWebAnalyticsPreAggregatedTables
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
+            and not self.query.conversionGoal
         )
 
         if not should_use_preaggregated:

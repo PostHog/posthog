@@ -15,12 +15,24 @@ from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
 from ee.models.assistant import Conversation
 
-_conversation_fields = ["id", "status", "title", "user", "created_at", "updated_at", "type"]
+_conversation_fields = [
+    "id",
+    "status",
+    "title",
+    "user",
+    "created_at",
+    "updated_at",
+    "type",
+    "is_internal",
+    "slack_thread_key",
+    "slack_workspace_domain",
+]
 
 
 CONVERSATION_TYPE_MAP: dict[Conversation.Type, tuple[type[AssistantGraph], type[AssistantMaxGraphState]]] = {
     Conversation.Type.ASSISTANT: (AssistantGraph, AssistantState),
     Conversation.Type.TOOL_CALL: (AssistantGraph, AssistantState),
+    Conversation.Type.SLACK: (AssistantGraph, AssistantState),
 }
 
 

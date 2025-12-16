@@ -267,11 +267,12 @@ class SessionSummaryVideoValidator:
         # Call LLM with the validation prompt
         updates_raw = await call_llm(
             input_prompt=validation_prompt,
-            user_key=self.user.id,
+            user_id=self.user.id,
             session_id=self.session_id,
             model=model_to_use,
             system_prompt=system_prompt,
             trace_id=self.trace_id or str(uuid.uuid4()),
+            user_distinct_id=self.user.distinct_id,
         )
         updates_content = get_raw_content(updates_raw)
         if not updates_content:

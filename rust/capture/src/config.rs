@@ -1,5 +1,6 @@
 use std::{net::SocketAddr, num::NonZeroU32};
 
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use health::HealthStrategy;
 use tracing::Level;
@@ -117,6 +118,14 @@ pub struct Config {
 
     // if set in env, will configure a request timeout on the server's Axum router
     pub request_timeout_seconds: Option<u64>,
+
+    // HTTP/1 header read timeout in milliseconds - closes connections that don't
+    // send complete headers within this duration (slow loris protection).
+    // Set env var to enable; unset to disable.
+    pub http1_header_read_timeout_ms: Option<u64>,
+
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
 }
 
 #[derive(Envconfig, Clone)]
