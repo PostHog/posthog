@@ -5,6 +5,7 @@ import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
@@ -42,9 +43,10 @@ function Header(): JSX.Element {
     })
 
     return (
-        <>
+        <div className="flex items-center gap-2">
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
+                    <LiveRecordingsCount />
                     <LemonMenu
                         items={[
                             {
@@ -74,7 +76,7 @@ function Header(): JSX.Element {
                     </LemonButton>
                 </AccessControlAction>
             )}
-        </>
+        </div>
     )
 }
 

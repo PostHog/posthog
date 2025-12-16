@@ -1,5 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
+import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { ingestionLagGauge } from '../../main/ingestion-queues/metrics'
 import { EventHeaders, ProjectId, RawKafkaEvent, TimestampFormat } from '../../types'
@@ -39,8 +41,12 @@ describe('emit-event-step', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
     let config: EmitEventStepConfig
     let mockRawEvent: RawKafkaEvent
+    let mockHeaders: EventHeaders
+    let mockMessage: Message
 
     beforeEach(() => {
+        mockHeaders = createTestEventHeaders()
+        mockMessage = createTestMessage()
         jest.clearAllMocks()
 
         mockKafkaProducer = {
@@ -71,13 +77,14 @@ describe('emit-event-step', () => {
             person_properties: JSON.stringify({}),
             person_created_at: testTimestamp,
             person_mode: 'full',
+            historical_migration: false,
         }
     })
 
     describe('createEmitEventStep', () => {
         it('should emit event successfully when eventToEmit is present', async () => {
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent }
+            const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
 
             const result = await step(input)
 
@@ -98,42 +105,12 @@ describe('emit-event-step', () => {
             expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
         })
 
-        it('should return OK result with no side effects when eventToEmit is undefined', async () => {
-            const step = createEmitEventStep(config)
-            const input = { eventToEmit: undefined }
-
-            const result = await step(input)
-
-            expect(isOkResult(result)).toBe(true)
-            if (isOkResult(result)) {
-                expect(result.value).toBeUndefined()
-            }
-            expect(result.sideEffects).toHaveLength(0)
-            expect(mockKafkaProducer.produce).not.toHaveBeenCalled()
-            expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
-        })
-
-        it('should return OK result with no side effects when eventToEmit is not present', async () => {
-            const step = createEmitEventStep(config)
-            const input = {} as any
-
-            const result = await step(input)
-
-            expect(isOkResult(result)).toBe(true)
-            if (isOkResult(result)) {
-                expect(result.value).toBeUndefined()
-            }
-            expect(result.sideEffects).toHaveLength(0)
-            expect(mockKafkaProducer.produce).not.toHaveBeenCalled()
-            expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
-        })
-
         it('should handle MessageSizeTooLarge error and capture ingestion warning', async () => {
             const messageSizeTooLargeError = new MessageSizeTooLarge('Message too large', new Error('Kafka error'))
             mockKafkaProducer.produce.mockRejectedValue(messageSizeTooLargeError)
 
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent }
+            const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
 
             const result = await step(input)
 
@@ -159,7 +136,7 @@ describe('emit-event-step', () => {
             mockKafkaProducer.produce.mockRejectedValue(genericError)
 
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent }
+            const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
 
             const result = await step(input)
 
@@ -175,7 +152,7 @@ describe('emit-event-step', () => {
 
         it('should serialize event correctly for Kafka', async () => {
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: mockRawEvent }
+            const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
 
             await step(input)
 
@@ -193,7 +170,7 @@ describe('emit-event-step', () => {
                 clickhouseJsonEventsTopic: 'custom_topic',
             }
             const step = createEmitEventStep(customConfig)
-            const input = { eventToEmit: mockRawEvent }
+            const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
 
             await step(input)
 
@@ -211,7 +188,7 @@ describe('emit-event-step', () => {
                 ...mockRawEvent,
                 uuid: 'different-uuid',
             }
-            const input = { eventToEmit: eventWithDifferentUuid }
+            const input = { eventToEmit: eventWithDifferentUuid, inputHeaders: mockHeaders, inputMessage: mockMessage }
 
             await step(input)
 
@@ -226,6 +203,8 @@ describe('emit-event-step', () => {
         it('should work with generic input types that have eventToEmit property', async () => {
             interface CustomInput {
                 eventToEmit: RawKafkaEvent
+                inputHeaders: EventHeaders
+                inputMessage: Message
                 customProperty: string
                 lastStep: string
             }
@@ -233,6 +212,8 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep<CustomInput>(config)
             const input: CustomInput = {
                 eventToEmit: mockRawEvent,
+                inputHeaders: mockHeaders,
+                inputMessage: mockMessage,
                 customProperty: 'test',
                 lastStep: 'testStep',
             }
@@ -251,7 +232,9 @@ describe('emit-event-step', () => {
         it('should work with EventPipelineResult type', async () => {
             interface EventPipelineResult {
                 lastStep: string
-                eventToEmit?: RawKafkaEvent
+                eventToEmit: RawKafkaEvent
+                inputHeaders: EventHeaders
+                inputMessage: Message
                 error?: string
             }
 
@@ -259,6 +242,8 @@ describe('emit-event-step', () => {
             const input: EventPipelineResult = {
                 lastStep: 'createEventStep',
                 eventToEmit: mockRawEvent,
+                inputHeaders: mockHeaders,
+                inputMessage: mockMessage,
             }
 
             const result = await step(input)
@@ -272,33 +257,10 @@ describe('emit-event-step', () => {
             })
         })
 
-        it('should handle heatmap results (no eventToEmit) gracefully', async () => {
-            interface EventPipelineResult {
-                lastStep: string
-                eventToEmit?: RawKafkaEvent
-                error?: string
-            }
-
-            const step = createEmitEventStep<EventPipelineResult>(config)
-            const heatmapInput: EventPipelineResult = {
-                lastStep: 'extractHeatmapDataStep',
-                eventToEmit: undefined,
-            }
-
-            const result = await step(heatmapInput)
-
-            expect(isOkResult(result)).toBe(true)
-            if (isOkResult(result)) {
-                expect(result.value).toBeUndefined()
-            }
-            expect(result.sideEffects).toHaveLength(0)
-            expect(mockKafkaProducer.produce).not.toHaveBeenCalled()
-        })
-
         describe('metrics tracking', () => {
             it('should increment eventProcessedAndIngestedCounter when event is successfully emitted', async () => {
                 const step = createEmitEventStep(config)
-                const input = { eventToEmit: mockRawEvent }
+                const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
 
                 const result = await step(input)
 
@@ -312,24 +274,12 @@ describe('emit-event-step', () => {
                 expect(mockKafkaProducer.produce).toHaveBeenCalledTimes(1)
             })
 
-            it('should not increment metric when no event to emit', async () => {
-                const step = createEmitEventStep(config)
-                const input = { eventToEmit: undefined }
-
-                const result = await step(input)
-
-                expect(isOkResult(result)).toBe(true)
-                expect(result.sideEffects).toHaveLength(0)
-                expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
-                expect(mockKafkaProducer.produce).not.toHaveBeenCalled()
-            })
-
             it('should not increment metric when Kafka produce fails', async () => {
                 const kafkaError = new Error('Kafka connection failed')
                 mockKafkaProducer.produce.mockRejectedValue(kafkaError)
 
                 const step = createEmitEventStep(config)
-                const input = { eventToEmit: mockRawEvent }
+                const input = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
 
                 const result = await step(input)
 
@@ -345,8 +295,12 @@ describe('emit-event-step', () => {
 
             it('should increment metric only once per successful emit', async () => {
                 const step = createEmitEventStep(config)
-                const input1 = { eventToEmit: mockRawEvent }
-                const input2 = { eventToEmit: { ...mockRawEvent, uuid: 'different-uuid' } }
+                const input1 = { eventToEmit: mockRawEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
+                const input2 = {
+                    eventToEmit: { ...mockRawEvent, uuid: 'different-uuid' },
+                    inputHeaders: mockHeaders,
+                    inputMessage: mockMessage,
+                }
 
                 // First emit
                 const result1 = await step(input1)
@@ -365,7 +319,7 @@ describe('emit-event-step', () => {
         it('should emit AI events with llma product track header', async () => {
             const aiEvent = { ...mockRawEvent, event: '$ai_generation' }
             const step = createEmitEventStep(config)
-            const input = { eventToEmit: aiEvent }
+            const input = { eventToEmit: aiEvent, inputHeaders: mockHeaders, inputMessage: mockMessage }
 
             await step(input)
 
@@ -416,6 +370,7 @@ describe('emit-event-step', () => {
 
         const createHeaders = (overrides: Partial<EventHeaders> = {}): EventHeaders => ({
             force_disable_person_processing: false,
+            historical_migration: false,
             ...overrides,
         })
 
@@ -457,19 +412,6 @@ describe('emit-event-step', () => {
                 eventToEmit: mockRawEvent,
                 inputHeaders: createHeaders(),
                 inputMessage: createMessage(),
-            }
-
-            await step(input)
-
-            expect(mockIngestionLagGauge.labels).not.toHaveBeenCalled()
-            expect(mockSetFn).not.toHaveBeenCalled()
-        })
-
-        it('should not record ingestion lag when inputMessage is missing', async () => {
-            const step = createEmitEventStep(config)
-            const input = {
-                eventToEmit: mockRawEvent,
-                inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
             }
 
             await step(input)
@@ -539,19 +481,6 @@ describe('emit-event-step', () => {
                 partition: '0',
                 groupId: 'test-group-id',
             })
-        })
-
-        it('should still emit event even if lag metric data is missing', async () => {
-            const step = createEmitEventStep(config)
-            const input = {
-                eventToEmit: mockRawEvent,
-            }
-
-            const result = await step(input)
-
-            expect(isOkResult(result)).toBe(true)
-            expect(mockKafkaProducer.produce).toHaveBeenCalled()
-            expect(mockIngestionLagGauge.labels).not.toHaveBeenCalled()
         })
     })
 })

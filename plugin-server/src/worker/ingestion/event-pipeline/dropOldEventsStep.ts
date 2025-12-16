@@ -2,13 +2,13 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { Team } from '../../../types'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
-import { EventPipelineRunner } from './runner'
 
 export async function dropOldEventsStep(
-    runner: EventPipelineRunner,
+    kafkaProducer: KafkaProducerWrapper,
     event: PluginEvent,
     team: Team
 ): Promise<PluginEvent | null> {
@@ -25,7 +25,7 @@ export async function dropOldEventsStep(
     // If the event is older than the threshold, drop it
     if (ageInSeconds > team.drop_events_older_than_seconds) {
         await captureIngestionWarning(
-            runner.hub.db.kafkaProducer,
+            kafkaProducer,
             team.id,
             'event_dropped_too_old',
             {

@@ -86,18 +86,20 @@ def _prepare_user_param(user_key: int) -> str:
 
 async def stream_llm(
     input_prompt: str,
-    user_key: int,
+    *,
     session_id: str,
     model: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
     trace_id: str | None = None,
+    user_id: int,
+    user_distinct_id: str | None = None,
 ) -> AsyncStream[ChatCompletionChunk]:
     """
     LLM streaming call.
     """
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
-    user_param = _prepare_user_param(user_key)
+    user_param = _prepare_user_param(user_id)
     client = get_async_openai_client()
     if model not in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
         msg = (
@@ -113,24 +115,27 @@ async def stream_llm(
         user=user_param,
         stream=True,
         posthog_trace_id=trace_id,
+        posthog_distinct_id=user_distinct_id,
     )
     return stream
 
 
 async def call_llm(
     input_prompt: str,
-    user_key: int,
+    *,
     session_id: str,
     model: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
     trace_id: str | None = None,
+    user_id: int,
+    user_distinct_id: str | None = None,
 ) -> ChatCompletion | OpenAIResponse:
     """
     LLM non-streaming call.
     """
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
-    user_param = _prepare_user_param(user_key)
+    user_param = _prepare_user_param(user_id)
     client = get_async_openai_client()
     if model in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
         result = await client.chat.completions.create(  # type: ignore[call-overload]
@@ -139,6 +144,7 @@ async def call_llm(
             temperature=SESSION_SUMMARIES_TEMPERATURE,
             user=user_param,
             posthog_trace_id=trace_id,
+            posthog_distinct_id=user_distinct_id,
         )
     elif model in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
         result = await client.responses.create(  # type: ignore[call-overload]
@@ -147,6 +153,7 @@ async def call_llm(
             reasoning={"effort": SESSION_SUMMARIES_REASONING_EFFORT},
             user=user_param,
             posthog_trace_id=trace_id,
+            posthog_distinct_id=user_distinct_id,
         )
     else:
         msg = (

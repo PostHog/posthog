@@ -6,8 +6,11 @@ from datetime import datetime, timedelta
 import structlog
 import temporalio
 
-from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.llm_analytics.trace_summarization import constants
@@ -31,7 +34,7 @@ async def embed_summaries_activity(
     workflow_start_time: str,
 ) -> EmbeddingActivityResult:
     """
-    Fetch summaries from ClickHouse and queue embeddings via Kafka.
+    Fetch summaries from ClickHouse using HogQL and queue embeddings via Kafka.
 
     Uses workflow_start_time to efficiently filter events to a narrow time window.
     """
@@ -39,52 +42,58 @@ async def embed_summaries_activity(
     def _fetch_summaries_and_setup(
         trace_ids: list[str], team_id: int, mode: str, workflow_start_time: str
     ) -> tuple[list[SummaryRow], LLMTracesSummarizerEmbedder, str]:
-        """Fetch summaries from ClickHouse and setup embedder (sync operations)."""
-        timestamp_filter = "AND timestamp >= %(time_from)s AND timestamp <= %(time_to)s"
+        """Fetch summaries using HogQL and setup embedder (sync operations)."""
+        team = Team.objects.get(id=team_id)
 
-        # Fetch summaries from ClickHouse events
-        # Always filter for 'detailed' mode to get richest embeddings
-        query = f"""
-            SELECT
-                JSONExtractString(properties, '$ai_trace_id') as trace_id,
-                JSONExtractString(properties, '$ai_summary_title') as title,
-                JSONExtractString(properties, '$ai_summary_flow_diagram') as flow_diagram,
-                JSONExtractString(properties, '$ai_summary_bullets') as bullets,
-                JSONExtractString(properties, '$ai_summary_interesting_notes') as notes
-            FROM events
-            WHERE team_id = %(team_id)s
-                AND event = %(event_name)s
-                AND JSONExtractString(properties, '$ai_trace_id') IN %(trace_ids)s
-                AND JSONExtractString(properties, '$ai_summary_mode') = %(summary_mode)s
-                {timestamp_filter}
-            ORDER BY timestamp DESC
-        """
-
-        params = {
-            "team_id": team_id,
-            "event_name": constants.EVENT_NAME_TRACE_SUMMARY,
-            "trace_ids": trace_ids,
-            "summary_mode": constants.DEFAULT_MODE,  # Always use 'detailed' for richest embeddings
-        }
-
-        # Add timestamp params for efficient filtering
-        # Use strftime to produce ClickHouse-compatible format (no timezone offset)
-        # Window covers workflow start minus buffer, to workflow start plus max execution time plus buffer
+        # Calculate time window for efficient filtering
         start_dt = datetime.fromisoformat(workflow_start_time.replace("Z", "+00:00"))
         time_from = start_dt - timedelta(minutes=constants.EMBEDDING_QUERY_BUFFER_BEFORE_MINUTES)
         time_to = start_dt + timedelta(
             minutes=constants.WORKFLOW_EXECUTION_TIMEOUT_MINUTES + constants.EMBEDDING_QUERY_BUFFER_AFTER_MINUTES
         )
-        params["time_from"] = time_from.strftime("%Y-%m-%d %H:%M:%S.%f")
-        params["time_to"] = time_to.strftime("%Y-%m-%d %H:%M:%S.%f")
 
-        results = sync_execute(query, params, workload=Workload.OFFLINE)
+        # Build HogQL query for fetching summaries
+        # Always filter for 'detailed' mode to get richest embeddings
+        query = parse_select(
+            """
+            SELECT
+                properties.$ai_trace_id as trace_id,
+                properties.$ai_summary_title as title,
+                properties.$ai_summary_flow_diagram as flow_diagram,
+                properties.$ai_summary_bullets as bullets,
+                properties.$ai_summary_interesting_notes as notes
+            FROM events
+            WHERE event = {event_name}
+                AND properties.$ai_trace_id IN {trace_ids}
+                AND properties.$ai_summary_mode = {summary_mode}
+                AND timestamp >= {time_from}
+                AND timestamp <= {time_to}
+            ORDER BY timestamp DESC
+            """
+        )
 
-        team = Team.objects.get(id=team_id)
+        # Build trace_ids tuple for IN clause
+        trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
+
+        # Execute query with proper tagging
+        with tags_context(product=Product.LLM_ANALYTICS):
+            result = execute_hogql_query(
+                query_type="TraceSummariesForEmbedding",
+                query=query,
+                placeholders={
+                    "event_name": ast.Constant(value=constants.EVENT_NAME_TRACE_SUMMARY),
+                    "trace_ids": trace_ids_tuple,
+                    "summary_mode": ast.Constant(value=constants.DEFAULT_MODE),
+                    "time_from": ast.Constant(value=time_from),
+                    "time_to": ast.Constant(value=time_to),
+                },
+                team=team,
+            )
+
         embedder = LLMTracesSummarizerEmbedder(team=team)
         rendering = f"llma_trace_{mode}"
 
-        return results, embedder, rendering
+        return result.results or [], embedder, rendering
 
     async def generate_single_embedding(row: SummaryRow) -> SingleEmbeddingResult:
         """Generate a single embedding with error handling."""

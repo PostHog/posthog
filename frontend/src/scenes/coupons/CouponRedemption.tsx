@@ -5,6 +5,7 @@ import { IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
+import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -16,13 +17,17 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
-import { CampaignConfig } from './campaigns/types'
+import { campaignConfigs } from './campaigns'
 import { couponLogic } from './couponLogic'
 
 interface CouponRedemptionProps {
     campaign: string
-    config: CampaignConfig
     requiresBilling?: boolean
+    showHero?: boolean
+    /** Custom render for action buttons after claim/already claimed. If not provided, shows default "View in billing" buttons */
+    renderSuccessActions?: () => React.ReactNode
+    /** Additional content to render at the bottom (e.g., skip button for onboarding) */
+    renderFooter?: () => React.ReactNode
 }
 
 const BillingUpgradeCTAWrapper: React.FC<{ platformAndSupportProduct: BillingProductV2Type }> = ({
@@ -43,7 +48,15 @@ const BillingUpgradeCTAWrapper: React.FC<{ platformAndSupportProduct: BillingPro
     )
 }
 
-export function CouponRedemption({ campaign, config, requiresBilling = true }: CouponRedemptionProps): JSX.Element {
+export function CouponRedemption({
+    campaign,
+    requiresBilling = true,
+    showHero = true,
+    renderSuccessActions,
+    renderFooter,
+}: CouponRedemptionProps): JSX.Element {
+    const config = campaignConfigs[campaign]
+
     const logic = couponLogic({ campaign })
     const {
         claimed,
@@ -54,8 +67,24 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
         getClaimedCouponForCampaign,
     } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
-
     const alreadyClaimed = getClaimedCouponForCampaign(campaign)
+
+    if (!config) {
+        return (
+            <NotFound
+                object="coupon campaign"
+                caption={
+                    campaign ? (
+                        <>
+                            The campaign "{campaign}" does not exist or is not available.
+                            <br />
+                            Please check the URL and try again.
+                        </>
+                    ) : undefined
+                }
+            />
+        )
+    }
 
     const platformAndSupportProduct = billing?.products?.find(
         (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
@@ -81,13 +110,15 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
     return (
         <div className="mx-auto max-w-[1200px]">
             {/* Hero section */}
-            <div className="flex flex-col items-center mb-8 mt-8">
-                {config.HeroImage && <config.HeroImage className="h-auto w-full max-w-100 mb-4" />}
-                <div className="text-center">
-                    <h2 className="text-2xl sm:text-3xl font-bold mb-2">{config.heroTitle}</h2>
-                    <h3 className="text-base sm:text-lg text-muted">{config.heroSubtitle}</h3>
+            {showHero && (
+                <div className="flex flex-col items-center mb-8 mt-8">
+                    {config.HeroImage && <config.HeroImage className="h-auto w-full max-w-100 mb-4" />}
+                    <div className="text-center">
+                        <h2 className="text-2xl sm:text-3xl font-bold mb-2">{config.heroTitle}</h2>
+                        <h3 className="text-base sm:text-lg text-muted">{config.heroSubtitle}</h3>
+                    </div>
                 </div>
-            </div>
+            )}
 
             <div className="grid md:grid-cols-2 gap-8 mb-8">
                 {/* Left: Benefits & Eligibility */}
@@ -181,18 +212,26 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                                     {claimedDetails?.expires_at &&
                                         ` Valid until ${dayjs(claimedDetails.expires_at).format('LL')}.`}
                                 </p>
-                                <div className="flex gap-2">
-                                    <LemonButton
-                                        type="primary"
-                                        to={urls.organizationBilling()}
-                                        disableClientSideRouting
-                                    >
-                                        View in billing
-                                    </LemonButton>
-                                    <LemonButton type="secondary" to={urls.projectHomepage()} disableClientSideRouting>
-                                        Return to PostHog
-                                    </LemonButton>
-                                </div>
+                                {renderSuccessActions ? (
+                                    renderSuccessActions()
+                                ) : (
+                                    <div className="flex gap-2">
+                                        <LemonButton
+                                            type="primary"
+                                            to={urls.organizationBilling()}
+                                            disableClientSideRouting
+                                        >
+                                            View in billing
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="secondary"
+                                            to={urls.projectHomepage()}
+                                            disableClientSideRouting
+                                        >
+                                            Return to PostHog
+                                        </LemonButton>
+                                    </div>
+                                )}
                             </div>
                         ) : alreadyClaimed ? (
                             <div className="space-y-4">
@@ -205,9 +244,17 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                                     {alreadyClaimed.expires_at &&
                                         ` Valid until ${dayjs(alreadyClaimed.expires_at).format('LL')}.`}
                                 </p>
-                                <LemonButton type="primary" to={urls.organizationBilling()} disableClientSideRouting>
-                                    View in billing
-                                </LemonButton>
+                                {renderSuccessActions ? (
+                                    renderSuccessActions()
+                                ) : (
+                                    <LemonButton
+                                        type="primary"
+                                        to={urls.organizationBilling()}
+                                        disableClientSideRouting
+                                    >
+                                        View in billing
+                                    </LemonButton>
+                                )}
                             </div>
                         ) : (
                             <Form
@@ -229,15 +276,17 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                                     <LemonInput placeholder="XXX-XXXXXXXXXXX" />
                                 </LemonField>
 
-                                <LemonButton
-                                    type="primary"
-                                    htmlType="submit"
-                                    className="mt-4"
-                                    loading={isCouponSubmitting}
-                                    disabledReason={isCouponSubmitting ? 'Redeeming coupon...' : undefined}
-                                >
-                                    Redeem coupon
-                                </LemonButton>
+                                <div className="flex gap-2 mt-4">
+                                    <LemonButton
+                                        type="primary"
+                                        htmlType="submit"
+                                        loading={isCouponSubmitting}
+                                        disabledReason={isCouponSubmitting ? 'Redeeming coupon...' : undefined}
+                                    >
+                                        Redeem coupon
+                                    </LemonButton>
+                                    {renderFooter && renderFooter()}
+                                </div>
 
                                 {/* Form-level error */}
                                 <LemonField name="_form">

@@ -186,10 +186,6 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     // not sure if there is a better way to do this
     useValues(newDashboardLogic)
 
-    const showSessionReplayStep =
-        useFeatureFlag('ONBOARDING_SESSION_REPLAY_SEPARATE_STEP', 'test') &&
-        !selectedProducts.includes(ProductKey.SESSION_REPLAY)
-
     const options: ProductConfigOption[] = [
         {
             title: 'Autocapture frontend interactions',
@@ -239,9 +235,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         },
     ]
 
-    const filteredOptions = showSessionReplayStep
-        ? options.filter((option) => option.teamProperty !== 'session_recording_opt_in')
-        : options
+    const filteredOptions = options.filter((option) => option.teamProperty !== 'session_recording_opt_in')
 
     return (
         <OnboardingWrapper>
@@ -255,9 +249,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 options={filteredOptions}
             />
 
-            {showSessionReplayStep && (
-                <OnboardingSessionReplayConfiguration stepKey={OnboardingStepKey.SESSION_REPLAY} />
-            )}
+            <OnboardingSessionReplayConfiguration stepKey={OnboardingStepKey.SESSION_REPLAY} />
         </OnboardingWrapper>
     )
 }

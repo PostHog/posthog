@@ -53,20 +53,23 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
             >
                 <div
                     className={clsx(
-                        'relative flex items-center text-xs font-medium justify-between gap-1 overflow-hidden',
+                        'relative flex items-center text-xs justify-between gap-1 overflow-hidden',
                         !isFloating
                             ? 'w-[calc(100%-1rem)] px-1.5 pt-2 pb-1 -m-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                             : `w-full px-2 pb-1 pt-0.5`
                     )}
                 >
                     <TruncatedHorizontalCollection>
-                        <span className="shrink-0">Tools:</span>
+                        <span className="shrink-0 text-secondary">Tools:</span>
                         {toolsInReverse.map((tool) => {
                             const toolDef = getToolDefinition(tool.identifier)
                             return (
                                 // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
                                 // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
-                                <em className="relative inline-flex items-center gap-1" key={tool.identifier}>
+                                <em
+                                    className="relative inline-flex items-center gap-1 text-secondary"
+                                    key={tool.identifier}
+                                >
                                     <span className="flex text-sm">{toolDef?.icon || <IconWrench />}</span>
                                     {/* Controls how the create_and_query_insight tool displays its name */}
                                     <span className="flex items-center gap-1">
@@ -178,6 +181,9 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                 .reduce(
                     (tools, tool) => {
                         const toolDef = tool.identifier ? TOOL_DEFINITIONS[tool.identifier] : undefined
+                        if (toolDef?.flag && !featureFlags[toolDef.flag]) {
+                            return tools // Skip flagged tools that are not enabled
+                        }
                         if (toolDef?.subtools) {
                             tools.push(...Object.values(toolDef.subtools))
                         } else {

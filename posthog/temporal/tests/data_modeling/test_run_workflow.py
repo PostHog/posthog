@@ -299,7 +299,6 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     s3_objects = await minio_client.list_objects_v2(
@@ -362,7 +361,6 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     table = delta_table.to_pyarrow_table(columns=["now_converted", "now"])
@@ -407,7 +405,6 @@ async def test_materialize_model_nullable_nothing_column(ateam, bucket_name, min
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     table = delta_table.to_pyarrow_table(columns=["nullable_nothing_column", "nullable_nothing_column_type"])
@@ -450,7 +447,6 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -981,13 +977,81 @@ async def test_run_workflow_revert_materialization(
         assert query.is_materialized is False
 
 
+async def test_run_workflow_timeout_exceeded(
+    minio_client,
+    ateam,
+    bucket_name,
+    pageview_events,
+    saved_queries,
+    temporal_client,
+):
+    workflow_id = str(uuid.uuid4())
+    inputs = RunWorkflowInputs(team_id=ateam.pk)
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        freeze_time(TEST_TIME),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table") as mock_hogql_table,
+        unittest.mock.patch(
+            "posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"
+        ) as mock_pause_saved_query_schedule,
+    ):
+        mock_hogql_table.side_effect = Exception(
+            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.11.66 (official build))"
+        )
+
+        async with temporalio.worker.Worker(
+            temporal_client,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
+            workflows=[RunWorkflow],
+            activities=[
+                start_run_activity,
+                build_dag_activity,
+                run_dag_activity,
+                finish_run_activity,
+                create_job_model_activity,
+                fail_jobs_activity,
+                cleanup_running_jobs_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            # Ensure the team exists in the DB context before running workflow
+            await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
+            await temporal_client.execute_workflow(
+                RunWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    # Temporal shouldn't reattempt the activity
+    assert mock_hogql_table.call_count == 1
+    mock_pause_saved_query_schedule.assert_called()
+
+    job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
+    assert job is not None
+    assert job.status == DataModelingJob.Status.FAILED
+
+    for query in saved_queries:
+        await database_sync_to_async(query.refresh_from_db)()
+        assert query.is_materialized is False
+        assert query.sync_frequency_interval is None
+
+
 async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
     model_label = "model-under-test"
     ducklake_model = DuckLakeCopyModelInput(
         model_label=model_label,
         saved_query_id=str(uuid.uuid4()),
         table_uri="s3://source/table",
-        file_uris=["s3://source/table/part-0.parquet"],
     )
 
     @temporal_activity.defn
@@ -1031,7 +1095,7 @@ async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
     monkeypatch.setattr(run_workflow_module, "finish_run_activity", finish_run_stub)
     monkeypatch.setattr(run_workflow_module, "fail_jobs_activity", fail_jobs_stub)
 
-    with override_settings(DATA_MODELING_TASK_QUEUE="ducklake-test"):
+    with override_settings(DUCKLAKE_TASK_QUEUE="ducklake-test"):
         child_ducklake_workflow_runs.clear()
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with temporalio.worker.Worker(
@@ -1108,7 +1172,6 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     await database_sync_to_async(saved_query.refresh_from_db)()
@@ -1171,7 +1234,6 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1244,7 +1306,6 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1382,7 +1443,6 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
         # Verify final state
@@ -1422,7 +1482,6 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1472,7 +1531,6 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
         assert key == saved_query.normalized_name
@@ -1521,7 +1579,6 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client, tru
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
         assert key == saved_query.normalized_name
@@ -1569,7 +1626,6 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 

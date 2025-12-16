@@ -43,6 +43,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
+    allowNonCapturedEvents?: boolean
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -79,6 +80,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         showNumericalPropsOnly,
         dataWarehousePopoverFields,
         maxContextOptions,
+        allowNonCapturedEvents,
         width,
         placement,
         ...buttonPropsRest
@@ -129,6 +131,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     showNumericalPropsOnly={showNumericalPropsOnly}
                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                     maxContextOptions={maxContextOptions}
+                    allowNonCapturedEvents={allowNonCapturedEvents}
                     width={width}
                 />
             }

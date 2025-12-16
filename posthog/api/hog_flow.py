@@ -74,7 +74,14 @@ class HogFlowActionSerializer(serializers.Serializer):
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
             elif data.get("config", {}).get("type") == "batch":
-                pass
+                filters = data.get("config", {}).get("filters", {})
+                if not filters:
+                    raise serializers.ValidationError({"filters": "Filters are required for batch triggers."})
+                if not isinstance(filters, dict):
+                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                properties = filters.get("properties", None)
+                if properties is not None and not isinstance(properties, list):
+                    raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
             else:
                 raise serializers.ValidationError({"config": "Invalid trigger type"})
 
@@ -100,6 +107,13 @@ class HogFlowActionSerializer(serializers.Serializer):
             data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
 
         conditions = data.get("config", {}).get("conditions", [])
+
+        single_condition = data.get("config", {}).get("condition", None)
+        if conditions and single_condition:
+            raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
+        if single_condition:
+            conditions = [single_condition]
+
         if conditions:
             for condition in conditions:
                 filters = condition.get("filters")
@@ -395,7 +409,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if "filters" not in request.data:
             raise exceptions.ValidationError("Missing filters for which to get blast radius")
 
-        filters = request.data.get("filters") or {}
+        filters = request.data.get("filters", {})
 
         users_affected, total_users = get_user_blast_radius(self.team, filters)
 

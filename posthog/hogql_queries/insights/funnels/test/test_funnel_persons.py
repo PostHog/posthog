@@ -14,7 +14,15 @@ from posthog.test.base import (
 
 from django.utils import timezone
 
-from posthog.schema import ActorsQuery, BaseMathType, FunnelsActorsQuery, FunnelsQuery
+from posthog.schema import (
+    ActorsQuery,
+    BaseMathType,
+    DateRange,
+    EventsNode,
+    FunnelsActorsQuery,
+    FunnelsFilter,
+    FunnelsQuery,
+)
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
@@ -60,9 +68,7 @@ def get_actors(
     return response.results
 
 
-class BaseTestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
-    __test__ = False
-
+class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data_multiple_dropoffs(self):
         for i in range(35):
             bulk_create_persons([{"distinct_ids": [f"user_{i}"], "team_id": self.team.pk}])
@@ -717,6 +723,91 @@ class BaseTestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
         self.assertCountEqual(set(results[1][1]["distinct_ids"]), {"person2", "anon2"})
 
+    def test_optional_funnel_step_actors_query(self):
+        journeys_for(
+            {
+                "user_skips_optional_step": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 0, 0, 0)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 0, 2, 0)},
+                ],
+            },
+            self.team,
+        )
 
-class TestFunnelPersons(BaseTestFunnelPersons):
-    __test__ = True
+        funnels_query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two", optionalInFunnel=True),
+                EventsNode(event="step three"),
+            ],
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 00:00:00",
+            ),
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=7, funnelWindowIntervalUnit="day"),
+        )
+
+        funnel_actors_query = FunnelsActorsQuery(
+            source=funnels_query,
+            funnelStep=3,
+        )
+
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["id", "person"],
+        )
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+        results = response.results
+
+        self.assertEqual(len(results), 1)
+
+    def test_optional_funnel_step_dropoff_actors_query(self):
+        journeys_for(
+            {
+                "user_does_step1_only": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 0, 0, 0)},
+                ],
+                "user_does_step1_and_2_only": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 0, 0, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 0, 1, 0)},
+                ],
+                "user_does_all_steps": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 0, 0, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 0, 1, 0)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 0, 2, 0)},
+                ],
+            },
+            self.team,
+        )
+
+        funnels_query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two", optionalInFunnel=True),
+                EventsNode(event="step three"),
+            ],
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 00:00:00",
+            ),
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=7, funnelWindowIntervalUnit="day"),
+        )
+
+        # Dropoff at step 3: users who did step 1 (required) but not step 3
+        # This should include both users who skipped the optional step 2 and users who did it
+        funnel_actors_query = FunnelsActorsQuery(
+            source=funnels_query,
+            funnelStep=-3,
+        )
+
+        actors_query = ActorsQuery(
+            source=funnel_actors_query,
+            select=["id", "person"],
+        )
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+        results = response.results
+
+        # Should return 2 users: user_does_step1_only and user_does_step1_and_2_only
+        self.assertEqual(len(results), 2)

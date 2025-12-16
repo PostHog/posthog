@@ -145,7 +145,7 @@ export function LemonRichContentEditor({
     })
 
     return (
-        <div ref={dropRef} className="LemonRichContentEditor flex flex-col border rounded divide-y mt-4">
+        <div ref={dropRef} className="LemonRichContentEditor flex flex-col border rounded divide-y mt-4 input-like">
             {isPreviewShown && ttEditor ? (
                 <RichContent editor={ttEditor} className="bg-fill-input" />
             ) : (

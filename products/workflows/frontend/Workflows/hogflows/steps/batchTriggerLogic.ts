@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, path, props, propsChanged, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -29,17 +29,14 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
             null as { users_affected: number; total_users: number } | null,
             {
                 loadBlastRadius: async () => {
+                    if (!props.filters) {
+                        return null
+                    }
                     return await api.hogFlows.getBatchTriggerBlastRadius(props.filters)
                 },
             },
         ],
     })),
-    selectors({
-        isBlastRadiusTooLarge: [
-            (s) => [s.blastRadius],
-            (blastRadius: { users_affected: number } | null) => blastRadius && blastRadius.users_affected > 1500,
-        ],
-    }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps || !objectsEqual(props.filters, oldProps.filters)) {
             actions.loadBlastRadius()

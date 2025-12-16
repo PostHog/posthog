@@ -104,7 +104,7 @@ where
 
     let cohort_cache = Arc::new(CohortCacheManager::new(
         database_pools.non_persons_reader.clone(),
-        Some(config.cache_max_cohort_entries),
+        Some(config.cohort_cache_capacity_bytes),
         Some(config.cache_ttl_seconds),
     ));
 
@@ -124,6 +124,15 @@ where
     let db_monitor = DatabasePoolMonitor::new(database_pools.clone(), &config);
     tokio::spawn(async move {
         db_monitor.start_monitoring().await;
+    });
+
+    // Start cohort cache monitoring
+    let cohort_cache_clone = cohort_cache.clone();
+    let cohort_cache_monitor_interval = config.cohort_cache_monitor_interval_secs;
+    tokio::spawn(async move {
+        cohort_cache_clone
+            .start_monitoring(cohort_cache_monitor_interval)
+            .await;
     });
 
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
