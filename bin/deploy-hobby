@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Hobby deployment script for self-hosted PostHog instances
 
 set -e
 
