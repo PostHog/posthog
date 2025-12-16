@@ -16,6 +16,8 @@ from .constants import (
     MAX_UNPARSED_DISPLAY_LENGTH,
     PRESERVE_HEADER_LINES,
     SAMPLED_VIEW_HEADER,
+    SAMPLING_MAX_ITERATIONS,
+    SAMPLING_REDUCTION_FACTOR,
 )
 
 
@@ -127,13 +129,16 @@ def reduce_by_uniform_sampling(
 
     _, _, result = sample_lines(target_body_lines)
 
-    max_iterations = 5
     iteration = 0
-    while len(result) > max_length and iteration < max_iterations:
-        reduction_factor = max_length / len(result) * 0.9
+    while len(result) > max_length and iteration < SAMPLING_MAX_ITERATIONS:
+        reduction_factor = max_length / len(result) * SAMPLING_REDUCTION_FACTOR
         target_body_lines = max(int(target_body_lines * reduction_factor), 1)
         _, _, result = sample_lines(target_body_lines)
         iteration += 1
+
+    # Hard truncate as final fallback to guarantee max_length contract
+    if len(result) > max_length:
+        result = result[:max_length]
 
     return result, True
 

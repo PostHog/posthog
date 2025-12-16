@@ -22,6 +22,10 @@ PRESERVE_HEADER_LINES = 5  # Number of header lines to always keep when sampling
 SAMPLED_VIEW_HEADER = (
     "[SAMPLED VIEW: Showing ~{percent:.0f}% of {total:,} lines. Gaps in line numbers indicate omitted content.]"
 )
+# Iterative sampling refinement: initial estimate uses average line length, but sampled
+# lines may be longer. These control convergence to fit within max_length.
+SAMPLING_MAX_ITERATIONS = 10  # Max refinement iterations (typically converges in 2-3)
+SAMPLING_REDUCTION_FACTOR = 0.9  # Safety margin when reducing target line count
 
 # Tool formatting
 DEFAULT_TOOLS_COLLAPSE_THRESHOLD = 5  # Collapse tool lists longer than this
