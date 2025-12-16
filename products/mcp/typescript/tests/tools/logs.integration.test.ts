@@ -11,9 +11,9 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import logsQueryTool from '@/tools/logs/query'
-import logsListAttributesTool from '@/tools/logs/listAttributes'
 import logsListAttributeValuesTool from '@/tools/logs/listAttributeValues'
+import logsListAttributesTool from '@/tools/logs/listAttributes'
+import logsQueryTool from '@/tools/logs/query'
 import type { Context } from '@/tools/types'
 
 describe('Logs', { concurrent: false }, () => {

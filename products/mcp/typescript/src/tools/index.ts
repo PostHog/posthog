@@ -17,10 +17,6 @@ import searchDocs from './documentation/searchDocs'
 // Error Tracking
 import errorDetails from './errorTracking/errorDetails'
 import listErrors from './errorTracking/listErrors'
-// Logs
-import logsQuery from './logs/query'
-import logsListAttributes from './logs/listAttributes'
-import logsListAttributeValues from './logs/listAttributeValues'
 // Experiments
 import createExperiment from './experiments/create'
 import deleteExperiment from './experiments/delete'
@@ -43,6 +39,10 @@ import queryInsight from './insights/query'
 import updateInsight from './insights/update'
 // LLM Observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
+import logsListAttributeValues from './logs/listAttributeValues'
+import logsListAttributes from './logs/listAttributes'
+// Logs
+import logsQuery from './logs/query'
 // Organizations
 import getOrganizationDetails from './organizations/getDetails'
 import getOrganizations from './organizations/getOrganizations'

@@ -38,9 +38,7 @@ export const LogsListAttributeValuesInputSchema = z.object({
     attributeType: z
         .enum(['log', 'resource'])
         .optional()
-        .describe(
-            'Type of attribute: "log" for log attributes, "resource" for resource attributes (default: log)'
-        ),
+        .describe('Type of attribute: "log" for log attributes, "resource" for resource attributes (default: log)'),
     search: z.string().optional().describe('Search filter for attribute values'),
 })
 

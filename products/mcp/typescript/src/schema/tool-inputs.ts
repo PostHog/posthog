@@ -7,13 +7,9 @@ import {
     UpdateDashboardInputSchema,
 } from './dashboards'
 import { ErrorDetailsSchema, ListErrorsSchema } from './errors'
-import {
-    LogsQueryInputSchema,
-    LogsListAttributesInputSchema,
-    LogsListAttributeValuesInputSchema,
-} from './logs'
 import { FilterGroupsSchema, UpdateFeatureFlagInputSchema } from './flags'
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
+import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
 import { InsightQuerySchema } from './query'
 import {
     CreateSurveyInputSchema,
