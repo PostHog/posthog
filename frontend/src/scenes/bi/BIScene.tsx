@@ -63,7 +63,7 @@ import {
 
 const COLORS = ['#5375ff', '#ff7a9e', '#2bc4ff', '#f6a700', '#7a49ff']
 
-const DEFAULT_CHART_HEIGHT = 200
+const DEFAULT_CHART_HEIGHT = 250
 const MIN_RESIZABLE_HEIGHT = 140
 const MIN_SIDEBAR_WIDTH = 240
 const MIN_MAIN_WIDTH = 360

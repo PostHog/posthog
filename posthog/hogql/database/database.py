@@ -1159,8 +1159,10 @@ class Database(BaseModel):
                             fields[col_name] = DateTimeDatabaseField(name=col_name)
                         elif col_type in ("date",):
                             fields[col_name] = DateDatabaseField(name=col_name)
+                        elif "json" in col_type:
+                            fields[col_name] = StringJSONDatabaseField(name=col_name)
                         else:
-                            # Default to string for text, varchar, char, json, jsonb, uuid, etc.
+                            # Default to string for text, varchar, char, uuid, etc.
                             fields[col_name] = StringDatabaseField(name=col_name)
 
                     # Create PostgresTable with actual postgres table name
