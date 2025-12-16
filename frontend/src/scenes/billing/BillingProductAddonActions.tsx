@@ -96,7 +96,7 @@ export const BillingProductAddonActions = ({
                     You're on a trial for this add-on
                 </LemonTag>
             </Tooltip>
-            {addon.type !== 'enterprise' && (
+            {(addon.type !== 'enterprise' || billing?.trial?.silence_notifications === false) && (
                 <LemonButton
                     type="primary"
                     size="small"
