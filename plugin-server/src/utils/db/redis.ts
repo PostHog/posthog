@@ -105,13 +105,13 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
 function getRedisHost(url: string): string {
     try {
         const parsed = new URL(url)
-        // Return host if available, otherwise fallback to hostname (which also excludes credentials)
-        // If both are empty (unusual schemes like data: or file:), return a safe placeholder
+        // Return host (includes port) if available, otherwise fallback to hostname (excludes port)
+        // Both exclude credentials by design. If both are empty, return a safe placeholder
         return parsed.host || parsed.hostname || '[redis-host]'
     } catch {
         // If URL parsing fails, strip any potential credentials from the string
-        // (e.g., 'user:password@host:6379' -> 'host:6379')
-        const atIndex = url.indexOf('@')
+        // Use lastIndexOf to handle multiple @ symbols (e.g., 'user:pass@host:pass@domain')
+        const atIndex = url.lastIndexOf('@')
         return atIndex >= 0 ? url.substring(atIndex + 1) : url
     }
 }
