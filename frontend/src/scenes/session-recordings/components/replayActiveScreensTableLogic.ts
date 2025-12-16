@@ -40,7 +40,7 @@ export const replayActiveScreensTableLogic = kea<replayActiveScreensTableLogicTy
             LIMIT 10
                 `
 
-                const qResponse = await api.queryHogQL(q)
+                const qResponse = await api.SHAMEFULLY_UNTAGGED_queryHogQL(q)
 
                 breakpoint()
 

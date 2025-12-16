@@ -204,17 +204,13 @@ describe('processAllSnapshots - inline meta patching', () => {
         const source = createSource()
         const sources = [source]
         const snapshots = [createFullSnapshot()]
-        const snapshotsBySource = createSnapshotsBySource(source, snapshots)
-        const processingCache: ProcessingCache = { snapshots: {} }
 
         jest.spyOn(posthog, 'captureException')
 
         expect(posthog.captureException).toHaveBeenCalledTimes(0)
-        await processAllSnapshots(sources, snapshotsBySource, processingCache, mockViewportForTimestampNoData, '12345')
-        expect(posthog.captureException).toHaveBeenCalledTimes(1)
         await processAllSnapshots(
             sources,
-            snapshotsBySource,
+            createSnapshotsBySource(source, snapshots),
             { snapshots: {} },
             mockViewportForTimestampNoData,
             '12345'
@@ -222,7 +218,15 @@ describe('processAllSnapshots - inline meta patching', () => {
         expect(posthog.captureException).toHaveBeenCalledTimes(1)
         await processAllSnapshots(
             sources,
-            snapshotsBySource,
+            createSnapshotsBySource(source, snapshots),
+            { snapshots: {} },
+            mockViewportForTimestampNoData,
+            '12345'
+        )
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
+        await processAllSnapshots(
+            sources,
+            createSnapshotsBySource(source, snapshots),
             { snapshots: {} },
             mockViewportForTimestampNoData,
             '54321'
@@ -386,13 +390,12 @@ describe('processAllSnapshots - inline meta patching', () => {
         const snapshots = [createFullSnapshot()]
         const source = createSource()
         const sources = [source]
-        const snapshotsBySource = createSnapshotsBySource(source, snapshots)
 
         // First call with fresh cache
         const processingCache1: ProcessingCache = { snapshots: {} }
         const result1 = await processAllSnapshots(
             sources,
-            snapshotsBySource,
+            createSnapshotsBySource(source, snapshots),
             processingCache1,
             mockViewportForTimestamp,
             '12345'
@@ -402,7 +405,7 @@ describe('processAllSnapshots - inline meta patching', () => {
         const processingCache2: ProcessingCache = { snapshots: {} }
         const result2 = await processAllSnapshots(
             sources,
-            snapshotsBySource,
+            createSnapshotsBySource(source, snapshots),
             processingCache2,
             mockViewportForTimestamp,
             '12345'

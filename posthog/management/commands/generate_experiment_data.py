@@ -76,11 +76,17 @@ class VariantConfig(BaseModel):
     actions: list[ActionConfig]
 
 
+class ExposurePropertyOption(BaseModel):
+    value: Union[str, int, float, bool, None]
+    probability: float
+
+
 class ExperimentConfig(BaseModel):
     number_of_users: int
     start_timestamp: datetime
     end_timestamp: datetime
     variants: dict[str, VariantConfig]
+    exposure_properties: dict[str, list[ExposurePropertyOption]] = Field(default_factory=dict)
 
 
 def get_default_funnel_experiment_config() -> ExperimentConfig:
@@ -502,6 +508,13 @@ class Command(BaseCommand):
                 )
                 persons_created += 1
 
+            # Generate exposure properties based on configured probabilities
+            exposure_props: dict[str, Any] = {}
+            for prop_key, prop_options in experiment_config.exposure_properties.items():
+                values = [opt.value for opt in prop_options]
+                weights = [opt.probability for opt in prop_options]
+                exposure_props[prop_key] = random.choices(values, weights=weights)[0]
+
             posthoganalytics.capture(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
@@ -511,6 +524,7 @@ class Command(BaseCommand):
                     "$feature_flag_response": variant,
                     "$feature_flag": experiment_id,
                     "$session_id": session_id,
+                    **exposure_props,
                 },
             )
 

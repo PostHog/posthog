@@ -4,8 +4,7 @@ import { offset } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { ReactNode, useEffect, useState } from 'react'
-import React from 'react'
+import React, { ReactNode, useEffect, useState } from 'react'
 
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
@@ -111,20 +110,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 {/* Have to increase z-index to overlay ToolsDisplay */}
                 <div className="relative w-full flex flex-col z-1">
                     {children}
-                    <div
+                    <label
+                        htmlFor="question-input"
                         className={clsx(
-                            'flex flex-col',
+                            'input-like flex flex-col',
                             'border border-[var(--color-border-primary)]',
                             'bg-[var(--color-bg-fill-input)]',
-                            'hover:border-border-bold focus-within:border-border-bold',
-                            isThreadVisible ? 'border-primary m-0.5 rounded-[10px]' : 'rounded-lg'
+                            isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg'
                         )}
-                        onClick={(e) => {
-                            // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
-                            if (!(e.target as HTMLElement).closest('button')) {
-                                textAreaRef?.current?.focus()
-                            }
-                        }}
                     >
                         {!isSharedThread && (
                             <div className="pt-2">
@@ -141,6 +134,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
+                                id="question-input"
                                 ref={textAreaRef}
                                 value={isSharedThread ? '' : question}
                                 onChange={(value) => setQuestion(value)}
@@ -163,10 +157,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 minRows={1}
                                 maxRows={10}
                                 className="!border-none !bg-transparent min-h-0 py-2 pl-2 pr-12"
-                                autoFocus="true-without-pulse"
+                                hideFocus
                             />
                         </SlashCommandAutocomplete>
-                    </div>
+                    </label>
                     <div
                         className={clsx(
                             'absolute flex items-center',
@@ -189,6 +183,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             <LemonButton
                                 type={(isThreadVisible && !question) || threadLoading ? 'secondary' : 'primary'}
                                 onClick={() => {
+                                    if (submissionDisabledReason) {
+                                        textAreaRef?.current?.focus()
+                                        return
+                                    }
                                     if (threadLoading) {
                                         stopGeneration()
                                     } else {
@@ -196,8 +194,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     }
                                 }}
                                 tooltip={
-                                    threadLoading ? (
-                                        "Let's bail"
+                                    disabledReason ? (
+                                        disabledReason
+                                    ) : threadLoading ? (
+                                        <>
+                                            Let's bail <KeyboardShortcut enter />
+                                        </>
                                     ) : (
                                         <>
                                             Let's go! <KeyboardShortcut enter />
@@ -205,7 +207,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     )
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
-                                disabledReason={disabledReason}
+                                // disabledReason={disabledReason}
+                                className={disabledReason || threadLoading ? 'opacity-[0.5]' : ''}
                                 size="small"
                                 icon={
                                     threadLoading ? (
