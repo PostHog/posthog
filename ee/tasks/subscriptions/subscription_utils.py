@@ -215,7 +215,6 @@ async def generate_assets_async(
 
             try:
                 await export_with_retry()
-                asset.exception = None
                 logger.info(
                     "generate_assets_async.asset_exported",
                     asset_id=asset.id,

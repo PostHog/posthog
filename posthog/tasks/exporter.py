@@ -136,6 +136,7 @@ def export_asset_direct(
             },
             groups=groups(team.organization, team),
         )
+        exported_asset.exception = None
     except Exception as e:
         is_retriable = isinstance(e, EXCEPTIONS_TO_RETRY)
 
