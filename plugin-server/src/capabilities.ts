@@ -18,7 +18,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
-                cdpCyclotronProducerBatch: true,
+                cdpBatchHogFlow: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
@@ -37,7 +37,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
-                cdpCyclotronProducerBatch: true,
+                cdpBatchHogFlow: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
@@ -117,7 +117,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             }
         case PluginServerMode.cdp_cyclotron_producer_batch:
             return {
-                cdpCyclotronProducerBatch: true,
+                cdpBatchHogFlow: true,
             }
         case PluginServerMode.cdp_data_warehouse_events:
             return {

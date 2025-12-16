@@ -13,6 +13,7 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
+import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-cyclotron-producer-batch.producer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -20,7 +21,6 @@ import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
-import { CdpCyclotronProducerBatch } from './cdp/producers/cdp-batch-hogflow.consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -292,9 +292,9 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.cdpCyclotronProducerBatch) {
+            if (capabilities.cdpBatchHogFlow) {
                 serviceLoaders.push(async () => {
-                    const producer = new CdpCyclotronProducerBatch(hub)
+                    const producer = new CdpBatchHogFlowRequestsConsumer(hub)
                     await producer.start()
                     return producer.service
                 })

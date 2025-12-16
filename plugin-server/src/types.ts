@@ -558,7 +558,7 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
-    cdpCyclotronProducerBatch?: boolean
+    cdpBatchHogFlow?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean

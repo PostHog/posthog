@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0930_user_shortcut_position"),
+        ("posthog", "0944_organization_is_active_and_more"),
     ]
 
     operations = [

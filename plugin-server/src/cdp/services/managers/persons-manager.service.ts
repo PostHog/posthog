@@ -54,11 +54,15 @@ export class PersonsManagerService {
         return await this.personRepository.countPersonsByProperties(filters)
     }
 
-    public async streamMany(
-        filters: BatchPersonGetArgs,
-        options?: { limit?: number },
-        onPerson?: (personId: string) => Promise<void>
-    ): Promise<void> {
+    public async streamMany({
+        filters,
+        options,
+        onPerson,
+    }: {
+        filters: BatchPersonGetArgs
+        options?: { limit?: number }
+        onPerson?: ({ personId, distinctId }: { personId: string; distinctId: string }) => void
+    }): Promise<void> {
         const opt = {
             limit: options?.limit || 500,
             offset: 0,
@@ -66,9 +70,9 @@ export class PersonsManagerService {
         let personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, ...opt })
         while (personBatch.length > 0) {
             for (const personRow of personBatch) {
-                await onPerson?.({
-                    id: personRow.uuid,
-                    distinct_id: personRow.distinct_id,
+                onPerson?.({
+                    personId: personRow.uuid,
+                    distinctId: personRow.distinct_id,
                 })
             }
             opt.offset += opt.limit

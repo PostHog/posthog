@@ -319,6 +319,99 @@ export class PostgresPersonRepository
         }))
     }
 
+    async countPersonsByProperties(teamPersons: {
+        teamId: TeamId
+        properties: Record<string, any>[]
+    }): Promise<number> {
+        if (teamPersons.properties.length === 0) {
+            return 0
+        }
+
+        const teamId = teamPersons.teamId
+        const propertiesConditions = teamPersons.properties
+
+        // Build WHERE conditions for each properties filter
+        const whereConditions = propertiesConditions.map((_, index) => {
+            return `posthog_person.properties @> $${index + 2}::jsonb`
+        })
+
+        const queryString = `
+            SELECT COUNT(*) as count
+            FROM posthog_person
+            WHERE posthog_person.team_id = $1
+              AND (${whereConditions.join(' OR ')})
+        `
+
+        const values = [teamId, ...propertiesConditions.map((props) => JSON.stringify(props))]
+
+        const { rows } = await this.postgres.query<{ count: string }>(
+            PostgresUse.PERSONS_READ,
+            queryString,
+            values,
+            'countPersonsByProperties'
+        )
+
+        return parseInt(rows[0]?.count || '0', 10)
+    }
+
+    async fetchPersonsByProperties(teamPersons: {
+        teamId: TeamId
+        properties: Record<string, any>[]
+        options?: { limit?: number; offset?: number }
+    }): Promise<InternalPersonWithDistinctId[]> {
+        if (teamPersons.properties.length === 0) {
+            return []
+        }
+
+        const teamId = teamPersons.teamId
+        const propertiesConditions = teamPersons.properties
+        const { limit = 1000, offset = 0 } = teamPersons.options || {}
+
+        // Build WHERE conditions for each properties filter
+        const whereConditions = propertiesConditions.map((_, index) => {
+            return `posthog_person.properties @> $${index + 2}::jsonb`
+        })
+
+        const queryString = `
+            SELECT DISTINCT
+                posthog_person.id,
+                posthog_person.uuid,
+                posthog_person.created_at,
+                posthog_person.team_id,
+                posthog_person.properties,
+                posthog_person.properties_last_updated_at,
+                posthog_person.properties_last_operation,
+                posthog_person.is_user_id,
+                posthog_person.version,
+                posthog_person.is_identified,
+                posthog_persondistinctid.distinct_id
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (
+                posthog_persondistinctid.person_id = posthog_person.id
+                AND posthog_persondistinctid.team_id = posthog_person.team_id
+            )
+            WHERE posthog_person.team_id = $1
+              AND (${whereConditions.join(' OR ')})
+            ORDER BY posthog_person.id
+            LIMIT $${propertiesConditions.length + 2}
+            OFFSET $${propertiesConditions.length + 3}
+        `
+
+        const values = [teamId, ...propertiesConditions.map((props) => JSON.stringify(props)), limit, offset]
+
+        const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
+            PostgresUse.PERSONS_READ,
+            queryString,
+            values,
+            'fetchPersonsByProperties'
+        )
+
+        return rows.map((row) => ({
+            ...this.toPerson(row),
+            distinct_id: row.distinct_id,
+        }))
+    }
+
     async createPerson(
         createdAt: DateTime,
         properties: Properties,

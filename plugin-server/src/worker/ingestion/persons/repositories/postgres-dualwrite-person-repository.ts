@@ -14,7 +14,6 @@ import {
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { TwoPhaseCommitCoordinator } from '../../../../utils/db/two-phase'
-import { logger as _logger } from '../../../../utils/logger'
 import { dualWriteComparisonCounter, dualWriteDataMismatchCounter } from '../metrics'
 import { PersonUpdate } from '../person-update-batch'
 import { DualWritePersonRepositoryTransaction } from './dualwrite-person-repository-transaction'
@@ -63,6 +62,23 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         useReadReplica: boolean = true
     ): Promise<InternalPersonWithDistinctId[]> {
         return await this.primaryRepo.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
+    }
+
+    // a read, just use the primary as the source of truth
+    async countPersonsByProperties(teamPersons: {
+        teamId: TeamId
+        properties: Record<string, any>[]
+    }): Promise<number> {
+        return await this.primaryRepo.countPersonsByProperties(teamPersons)
+    }
+
+    // a read, just use the primary as the source of truth
+    async fetchPersonsByProperties(teamPersons: {
+        teamId: TeamId
+        properties: Record<string, any>[]
+        options?: { limit?: number; offset?: number }
+    }): Promise<InternalPersonWithDistinctId[]> {
+        return await this.primaryRepo.fetchPersonsByProperties(teamPersons)
     }
 
     /*
