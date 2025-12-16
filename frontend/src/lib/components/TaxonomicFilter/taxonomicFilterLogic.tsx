@@ -51,7 +51,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, DateRange, NodeKind } from '~/queries/schema/schema-general'
+import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
@@ -266,7 +266,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventOrdering: string | null,
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
-                endpointFilters: Record<string, any> | undefined,
+                endpointFilters: Record<string, any> | undefined
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -595,13 +595,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.LogAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
                             attribute_type: 'log',
-                            ...endpointFilters
+                            ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
                             combineUrl(`api/environments/${projectId}/logs/values`, {
                                 attribute_type: 'log',
                                 key: key,
-                                ...endpointFilters
+                                ...endpointFilters,
                             }).url,
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
@@ -613,13 +613,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.LogResourceAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
                             attribute_type: 'resource',
-                            ...endpointFilters
+                            ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
                             combineUrl(`api/environments/${projectId}/logs/values`, {
                                 attribute_type: 'resource',
                                 key: key,
-                                ...endpointFilters
+                                ...endpointFilters,
                             }).url,
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
