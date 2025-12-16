@@ -11,7 +11,7 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isValidFunnelQuery } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { ProductKey, QuerySchema } from '~/queries/schema/schema-general'
+import { AnyEntityNode, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import {
