@@ -46,7 +46,7 @@ export function JSONEditorInput({
     return (
         <div className="JsonEditorInput" onFocus={onFocus} onBlur={onBlur}>
             <CodeEditor
-                className="border"
+                className="border input-like"
                 language="json"
                 height={height}
                 value={valString}

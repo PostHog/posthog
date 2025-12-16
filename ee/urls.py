@@ -103,6 +103,9 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
+    from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
+        backfill_precalculated_person_properties_view,
+    )
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
 
@@ -121,6 +124,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
+        ),
+        path(
+            "admin/backfill-precalculated-person-properties/",
+            admin.site.admin_view(backfill_precalculated_person_properties_view),
+            name="backfill-precalculated-person-properties",
         ),
         path(
             "admin/logout/",
