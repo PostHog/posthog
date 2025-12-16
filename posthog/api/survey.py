@@ -876,6 +876,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         else:
             return SurveySerializer
 
+    def safely_get_queryset(self, queryset):
+        return queryset.exclude(product_tour__isnull=False)
+
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         related_targeting_flag = instance.targeting_flag
