@@ -577,7 +577,8 @@ grep POSTHOG_APP_TAG .env
         if not self.droplet or not self.domain or not self.record:
             return
         droplet_id = self.droplet.id
-        self.destroy_environment(droplet_id, self.domain, self.record["domain_record"]["id"], retries=retries)
+        record_id = self.record["domain_record"]["id"]
+        self.destroy_environment(droplet_id=droplet_id, record_id=record_id, retries=retries)
 
     @staticmethod
     def destroy_environment(droplet_id, record_id, retries=3):
@@ -1060,7 +1061,7 @@ def main():
             print("❌ DIGITALOCEAN_TOKEN not set")
             exit(1)
 
-        droplet = HobbyTester.find_existing_droplet_for_pr(pr_number, token)
+        droplet = HobbyTester.find_existing_droplet_for_pr(token=token, pr_number=pr_number)
         if not droplet:
             print(f"No droplet found for PR #{pr_number}")
             exit(0)

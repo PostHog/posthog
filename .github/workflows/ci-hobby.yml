@@ -1,7 +1,11 @@
-# This workflow runs e2e smoke test for Preview
-# To check on the status of the instance if this fails go to DO open the instance
-# Instance name should look like `do-ci-hobby-deploy-xxxx`
-# SSH onto the instance and `tail -f /var/log/cloud-init-output.log`
+# Hobby deployment smoke test and preview workflow
+#
+# Two modes:
+# - Smoke test (default): Creates ephemeral droplet, runs tests, destroys
+# - Preview (hobby-preview label): Creates/updates persistent droplet for manual testing
+#
+# Note: 'labeled' event ignores path filters - adding hobby-preview label always triggers.
+# Debug: SSH to droplet and run `tail -f /var/log/cloud-init-output.log`
 name: e2e - hobby smoke test
 on:
     push:
@@ -265,7 +269,7 @@ jobs:
                   echo "HOBBY_COMMENT_ID=${{ needs.wait-for-docker-image.outputs.comment-id }}" >> $GITHUB_ENV
                   echo "HOBBY_DEPLOYMENT_ID=${{ needs.wait-for-docker-image.outputs.deployment-id }}" >> $GITHUB_ENV
             - name: Setup DO Hobby Instance
-              run: uv run bin/hobby-ci.py create "$GITHUB_HEAD_REF" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}" 2>&1 | tee /tmp/hobby-ci-output.txt
+              run: uv run bin/hobby-ci.py create "${{ github.head_ref || github.ref_name }}" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}" 2>&1 | tee /tmp/hobby-ci-output.txt
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
