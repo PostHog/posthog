@@ -12,7 +12,15 @@ import { Breadcrumb } from '~/types'
 
 import type { clustersLogicType } from './clustersLogicType'
 import { loadTraceSummaries } from './traceSummaryLoader'
-import { Cluster, ClusteringParams, ClusteringRun, ClusteringRunOption, NOISE_CLUSTER_ID, TraceSummary } from './types'
+import {
+    Cluster,
+    ClusteringParams,
+    ClusteringRun,
+    ClusteringRunOption,
+    NOISE_CLUSTER_ID,
+    TraceSummary,
+    getTimestampBoundsFromRunId,
+} from './types'
 
 // Special color for outliers cluster
 const OUTLIER_COLOR = '#888888'
@@ -125,6 +133,8 @@ export const clustersLogic = kea<clustersLogicType>([
             null as ClusteringRun | null,
             {
                 loadClusteringRun: async (runId: string) => {
+                    const { dayStart, dayEnd } = getTimestampBoundsFromRunId(runId)
+
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -137,6 +147,8 @@ export const clustersLogic = kea<clustersLogicType>([
                                 JSONExtractRaw(properties, '$ai_clustering_params') as clustering_params
                             FROM events
                             WHERE event = '$ai_trace_clusters'
+                                AND timestamp >= ${dayStart}
+                                AND timestamp <= ${dayEnd}
                                 AND JSONExtractString(properties, '$ai_clustering_run_id') = ${runId}
                             LIMIT 1
                         `,
@@ -284,7 +296,12 @@ export const clustersLogic = kea<clustersLogicType>([
             actions.setTraceSummariesLoading(true)
 
             try {
-                const summaries = await loadTraceSummaries(allTraceIds, values.traceSummaries)
+                const summaries = await loadTraceSummaries(
+                    allTraceIds,
+                    values.traceSummaries,
+                    run.windowStart,
+                    run.windowEnd
+                )
                 actions.setTraceSummaries(summaries)
             } catch (error) {
                 console.error('Failed to load trace summaries:', error)
@@ -296,14 +313,20 @@ export const clustersLogic = kea<clustersLogicType>([
         toggleClusterExpanded: async ({ clusterId }) => {
             // Load trace summaries when expanding a cluster (fallback for lazy loading)
             if (values.expandedClusterIds.has(clusterId)) {
-                const cluster = values.currentRun?.clusters.find((c: Cluster) => c.cluster_id === clusterId)
-                if (cluster) {
+                const run = values.currentRun
+                const cluster = run?.clusters.find((c: Cluster) => c.cluster_id === clusterId)
+                if (cluster && run) {
                     const traceIds = Object.keys(cluster.traces)
 
                     actions.setTraceSummariesLoading(true)
 
                     try {
-                        const summaries = await loadTraceSummaries(traceIds, values.traceSummaries)
+                        const summaries = await loadTraceSummaries(
+                            traceIds,
+                            values.traceSummaries,
+                            run.windowStart,
+                            run.windowEnd
+                        )
                         actions.setTraceSummaries(summaries)
                     } catch (error) {
                         console.error('Failed to load trace summaries:', error)

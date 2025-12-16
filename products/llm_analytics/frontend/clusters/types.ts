@@ -1,5 +1,37 @@
+import { dayjs } from 'lib/dayjs'
+
 // Noise/outlier cluster ID from HDBSCAN
 export const NOISE_CLUSTER_ID = -1
+
+/**
+ * Extract day bounds from a clustering run ID for efficient timestamp filtering.
+ * Run IDs are formatted as `<team_id>_<YYYYMMDD>_<HHMMSS>`.
+ * Returns start and end of the day to ensure we capture the event.
+ * Falls back to last 7 days if parsing fails.
+ */
+export function getTimestampBoundsFromRunId(runId: string): { dayStart: string; dayEnd: string } {
+    const parts = runId.split('_')
+    if (parts.length >= 3) {
+        // Parts: [team_id, YYYYMMDD, HHMMSS]
+        const dateStr = parts[1]
+        const timeStr = parts[2]
+
+        // Parse YYYYMMDD_HHMMSS format
+        const parsed = dayjs(`${dateStr}_${timeStr}`, 'YYYYMMDD_HHmmss')
+        if (parsed.isValid()) {
+            return {
+                dayStart: parsed.startOf('day').toISOString(),
+                dayEnd: parsed.endOf('day').toISOString(),
+            }
+        }
+    }
+
+    // Fallback to last 7 days
+    return {
+        dayStart: dayjs().subtract(7, 'day').startOf('day').toISOString(),
+        dayEnd: dayjs().endOf('day').toISOString(),
+    }
+}
 
 // Cluster trace info from the $ai_trace_clusters event
 export interface ClusterTraceInfo {
