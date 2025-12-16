@@ -64,18 +64,21 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             null as { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null,
             {
                 loadClusterData: async () => {
-                    const response = await api.queryHogQL(hogql`
-                        SELECT
-                            JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                            JSONExtractString(properties, '$ai_window_start') as window_start,
-                            JSONExtractString(properties, '$ai_window_end') as window_end,
-                            JSONExtractRaw(properties, '$ai_clusters') as clusters,
-                            timestamp
-                        FROM events
-                        WHERE event = '$ai_trace_clusters'
-                            AND JSONExtractString(properties, '$ai_clustering_run_id') = ${props.runId}
-                        LIMIT 1
-                    `)
+                    const response = await api.queryHogQL(
+                        hogql`
+                            SELECT
+                                JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
+                                JSONExtractString(properties, '$ai_window_start') as window_start,
+                                JSONExtractString(properties, '$ai_window_end') as window_end,
+                                JSONExtractRaw(properties, '$ai_clusters') as clusters,
+                                timestamp
+                            FROM events
+                            WHERE event = '$ai_trace_clusters'
+                                AND JSONExtractString(properties, '$ai_clustering_run_id') = ${props.runId}
+                            LIMIT 1
+                        `,
+                        { productKey: 'llm_analytics', scene: 'LLMAnalyticsCluster' }
+                    )
 
                     if (!response.results?.length) {
                         return null

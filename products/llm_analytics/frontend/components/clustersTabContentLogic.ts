@@ -47,6 +47,7 @@ export const clustersTabContentLogic = kea<clustersTabContentLogicType>([
                             ORDER BY timestamp DESC
                             LIMIT 20
                         `,
+                        { productKey: 'llm_analytics', scene: 'LLMAnalytics' },
                         { refresh: 'force_blocking' }
                     )
 

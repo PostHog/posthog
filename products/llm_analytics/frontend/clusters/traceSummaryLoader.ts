@@ -22,20 +22,23 @@ export async function loadTraceSummaries(
         return {}
     }
 
-    const response = await api.queryHogQL(hogql`
-        SELECT
-            JSONExtractString(properties, '$ai_trace_id') as trace_id,
-            argMax(JSONExtractString(properties, '$ai_summary_title'), timestamp) as title,
-            argMax(JSONExtractString(properties, '$ai_summary_flow_diagram'), timestamp) as flow_diagram,
-            argMax(JSONExtractString(properties, '$ai_summary_bullets'), timestamp) as bullets,
-            argMax(JSONExtractString(properties, '$ai_summary_interesting_notes'), timestamp) as interesting_notes,
-            max(timestamp) as timestamp
-        FROM events
-        WHERE event = '$ai_trace_summary'
-            AND JSONExtractString(properties, '$ai_trace_id') IN ${missingTraceIds}
-        GROUP BY trace_id
-        LIMIT 10000
-    `)
+    const response = await api.queryHogQL(
+        hogql`
+            SELECT
+                JSONExtractString(properties, '$ai_trace_id') as trace_id,
+                argMax(JSONExtractString(properties, '$ai_summary_title'), timestamp) as title,
+                argMax(JSONExtractString(properties, '$ai_summary_flow_diagram'), timestamp) as flow_diagram,
+                argMax(JSONExtractString(properties, '$ai_summary_bullets'), timestamp) as bullets,
+                argMax(JSONExtractString(properties, '$ai_summary_interesting_notes'), timestamp) as interesting_notes,
+                max(timestamp) as timestamp
+            FROM events
+            WHERE event = '$ai_trace_summary'
+                AND JSONExtractString(properties, '$ai_trace_id') IN ${missingTraceIds}
+            GROUP BY trace_id
+            LIMIT 10000
+        `,
+        { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' }
+    )
 
     const summaries: Record<string, TraceSummary> = {}
     for (const row of response.results || []) {
