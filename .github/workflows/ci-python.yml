@@ -185,7 +185,7 @@ jobs:
                   fi
 
                   # Check actual job result
-                  if [[ "${{ needs.code-quality.result }}" != "success" ]]; then
+                  if [[ "${{ needs.code-quality.result }}" != "success" && "${{ needs.code-quality.result }}" != "skipped" ]]; then
                     echo "Python code quality checks failed."
                     exit 1
                   fi
