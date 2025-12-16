@@ -137,7 +137,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                                 label: endpoint.name,
                             }))}
                             placeholder="Select an endpoint to update"
-                            className="w-1/3"
+                            className="max-w-prose"
                         />
                     </LemonField.Pure>
                 ) : (
@@ -147,7 +147,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                             type="text"
                             onChange={setEndpointName}
                             value={endpointName || ''}
-                            className="w-1/3"
+                            className="max-w-prose"
                         />
                     </LemonField.Pure>
                 )}
@@ -158,7 +158,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                         maxRows={3}
                         onChange={setEndpointDescription}
                         value={endpointDescription || ''}
-                        className="w-1/3"
+                        className="max-w-prose"
                     />
                 </LemonField.Pure>
 

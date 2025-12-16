@@ -144,6 +144,31 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.plugins_access_level, 3)
 
+    def test_is_active_fields_are_read_only(self):
+        """Test that is_active and is_not_active_reason are returned but cannot be updated via API."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Verify fields are returned in GET response
+        response = self.client.get(f"/api/organizations/{self.organization.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("is_active", response.json())
+        self.assertIn("is_not_active_reason", response.json())
+        self.assertEqual(response.json()["is_active"], True)
+        self.assertIsNone(response.json()["is_not_active_reason"])
+
+        # Attempt to update is_active - should be ignored
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}",
+            {"is_active": False, "is_not_active_reason": "Test reason"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify fields were not updated
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_active, True)
+        self.assertIsNone(self.organization.is_not_active_reason)
+
     @patch("posthoganalytics.capture")
     def test_enforce_2fa_for_everyone(self, mock_capture):
         # Only admins should be able to enforce 2fa

@@ -168,6 +168,7 @@ export enum Scene {
     NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
+    OrganizationDeactivated = 'OrganizationDeactivated',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null

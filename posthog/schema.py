@@ -2624,6 +2624,7 @@ class ProductIntentContext(StrEnum):
     SURVEY_BULK_DUPLICATED = "survey_bulk_duplicated"
     SURVEY_EDITED = "survey_edited"
     SURVEY_ANALYZED = "survey_analyzed"
+    QUICK_SURVEY_STARTED = "quick_survey_started"
     REVENUE_ANALYTICS_VIEWED = "revenue_analytics_viewed"
     REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
     REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
@@ -4830,6 +4831,7 @@ class HogQLQueryModifiers(BaseModel):
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
     useMaterializedViews: bool | None = None
+    usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(
         default=None,
         description="Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
