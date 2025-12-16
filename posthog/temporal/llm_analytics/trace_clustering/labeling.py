@@ -7,7 +7,6 @@ iteratively explore cluster structure and generate high-quality labels.
 from datetime import datetime
 
 import numpy as np
-import structlog
 
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
@@ -15,8 +14,6 @@ from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_sum
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent import run_labeling_agent
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.state import ClusterTraceData
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, TraceLabelingMetadata
-
-logger = structlog.get_logger(__name__)
 
 
 def generate_cluster_labels(
@@ -66,14 +63,6 @@ def generate_cluster_labels(
         batch_run_ids=batch_run_ids or {},
         window_start=window_start,
         window_end=window_end,
-    )
-
-    logger.info(
-        "cluster_labeling_starting",
-        team_id=team.id,
-        num_clusters=len(cluster_data),
-        num_traces=len(trace_ids),
-        num_summaries_fetched=len(all_trace_summaries),
     )
 
     # Run the labeling agent

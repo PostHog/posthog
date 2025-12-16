@@ -203,13 +203,9 @@ def fetch_trace_embeddings_for_clustering(
 
     rows = result.results or []
 
-    logger.info(
-        "fetch_trace_embeddings_for_clustering: query result",
+    logger.debug(
+        "fetch_trace_embeddings_for_clustering_result",
         num_rows=len(rows),
-        window_start=str(window_start),
-        window_end=str(window_end),
-        max_samples=max_samples,
-        sample_document_ids=[row[0] for row in rows[:5]] if rows else [],
     )
 
     # Build all maps in single loop to ensure trace_ids, embeddings_map, and batch_run_ids are aligned
@@ -303,20 +299,8 @@ def fetch_trace_summaries(
             team=team,
         )
 
-    # Log generated SQL for troubleshooting query issues
-    logger.debug(
-        "fetch_trace_summaries: HogQL query details",
-        clickhouse_sql=result.clickhouse if hasattr(result, "clickhouse") else "N/A",
-        num_results=len(result.results or []),
-        window_start=str(window_start),
-        window_end=str(window_end),
-        sample_trace_ids=trace_ids[:5],
-    )
-
     rows = result.results or []
     trace_summaries: TraceSummaries = {}
-    missing_timestamp_traces: list[TraceId] = []
-    null_timestamp_raw_values: list[tuple[TraceId, str]] = []
     skipped_wrong_batch = 0
 
     for row in rows:
@@ -336,10 +320,6 @@ def fetch_trace_summaries(
         trace_ts = row[5]
         trace_ts_str = trace_ts.isoformat() if trace_ts else ""
 
-        if not trace_ts:
-            missing_timestamp_traces.append(trace_id)
-            null_timestamp_raw_values.append((trace_id, repr(trace_ts)))
-
         trace_summaries[trace_id] = {
             "title": row[1],
             "flow_diagram": row[2],
@@ -348,36 +328,11 @@ def fetch_trace_summaries(
             "trace_timestamp": trace_ts_str,
         }
 
-    # Detailed debug logging
-    logger.info(
-        "fetch_trace_summaries: processing complete",
+    logger.debug(
+        "fetch_trace_summaries_result",
         total_rows=len(rows),
-        skipped_wrong_batch=skipped_wrong_batch,
         unique_trace_ids=len(trace_summaries),
-        traces_with_timestamp=len(trace_summaries) - len(missing_timestamp_traces),
-        traces_without_timestamp=len(missing_timestamp_traces),
-        null_timestamp_raw_values=null_timestamp_raw_values[:10],
+        skipped_wrong_batch=skipped_wrong_batch,
     )
-
-    # Log summary of results
-    returned_ids = set(trace_summaries.keys())
-    requested_ids = set(trace_ids)
-    missing_ids = requested_ids - returned_ids
-
-    if missing_ids:
-        logger.warning(
-            "fetch_trace_summaries: some requested traces not found in results",
-            requested_count=len(trace_ids),
-            returned_count=len(trace_summaries),
-            missing_count=len(missing_ids),
-            missing_trace_ids=list(missing_ids)[:10],  # Log first 10 to avoid huge logs
-        )
-
-    if missing_timestamp_traces:
-        logger.warning(
-            "fetch_trace_summaries: some traces have null trace_timestamp",
-            count=len(missing_timestamp_traces),
-            trace_ids=missing_timestamp_traces[:10],  # Log first 10
-        )
 
     return trace_summaries

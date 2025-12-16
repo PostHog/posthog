@@ -70,11 +70,9 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         trace_filters=inputs.trace_filters if inputs.trace_filters else None,
     )
 
-    logger.info(
-        "perform_clustering_compute: fetched embeddings",
-        num_trace_ids=len(trace_ids),
-        num_embeddings=len(embeddings_map),
-        sample_trace_ids=trace_ids[:5] if trace_ids else [],
+    logger.debug(
+        "perform_clustering_compute_fetched_embeddings",
+        num_traces=len(trace_ids),
     )
 
     # Need at least 2 traces to perform clustering

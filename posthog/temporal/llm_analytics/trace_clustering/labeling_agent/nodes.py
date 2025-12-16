@@ -81,15 +81,6 @@ def agent_node(state: ClusterLabelingState, config: dict | None = None) -> dict[
         messages.append(HumanMessage(content="Please begin labeling the clusters."))
 
     # Invoke LLM
-    logger.info(
-        "cluster_labeling_agent_iteration_start",
-        team_id=state["team_id"],
-        iteration=state["iterations"] + 1,
-        max_iterations=state["max_iterations"],
-        labels_so_far=len(state["current_labels"]),
-        total_clusters=len(state["cluster_data"]),
-    )
-
     try:
         response = llm_with_tools.invoke(messages)
     except Exception as e:
@@ -109,18 +100,6 @@ def agent_node(state: ClusterLabelingState, config: dict | None = None) -> dict[
             ],
             "iterations": state["iterations"] + 1,
         }
-
-    # Log tool calls
-    tool_calls_summary = []
-    if hasattr(response, "tool_calls") and response.tool_calls:
-        tool_calls_summary = [tc["name"] for tc in response.tool_calls]
-
-    logger.info(
-        "cluster_labeling_agent_iteration_complete",
-        team_id=state["team_id"],
-        iteration=state["iterations"] + 1,
-        tool_calls=tool_calls_summary,
-    )
 
     return {
         "messages": [response],
@@ -149,13 +128,6 @@ def tools_node(state: ClusterLabelingState) -> dict[str, Any]:
         tool_args = tool_call["args"]
         tool_id = tool_call["id"]
 
-        logger.debug(
-            "cluster_labeling_tool_executing",
-            tool_name=tool_name,
-            tool_args=tool_args,
-            team_id=state["team_id"],
-        )
-
         try:
             result = execute_tool(tool_name, tool_args, state)
 
@@ -169,16 +141,6 @@ def tools_node(state: ClusterLabelingState) -> dict[str, Any]:
                 if "current_labels" not in state_updates:
                     state_updates["current_labels"] = dict(state["current_labels"])
                 state_updates["current_labels"][cluster_id] = new_label
-
-                logger.info(
-                    "cluster_labeling_label_set",
-                    team_id=state["team_id"],
-                    cluster_id=cluster_id,
-                    title=new_label.title,
-                    labels_complete=len(state_updates["current_labels"]),
-                    total_clusters=len(state["cluster_data"]),
-                )
-
                 result_str = confirmation
             elif tool_name == "bulk_set_labels":
                 # Result is (dict[int, ClusterLabel], confirmation_message)
@@ -188,16 +150,6 @@ def tools_node(state: ClusterLabelingState) -> dict[str, Any]:
                 if "current_labels" not in state_updates:
                     state_updates["current_labels"] = dict(state["current_labels"])
                 state_updates["current_labels"].update(new_labels)
-
-                logger.info(
-                    "cluster_labeling_bulk_labels_set",
-                    team_id=state["team_id"],
-                    num_labels_set=len(new_labels),
-                    cluster_ids=list(new_labels.keys()),
-                    labels_complete=len(state_updates["current_labels"]),
-                    total_clusters=len(state["cluster_data"]),
-                )
-
                 result_str = confirmation
             elif tool_name == "finalize_labels":
                 # Just return the message, routing will handle the transition

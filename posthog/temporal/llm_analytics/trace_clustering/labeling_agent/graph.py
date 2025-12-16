@@ -1,6 +1,5 @@
 """LangGraph StateGraph assembly for the cluster labeling agent."""
 
-import structlog
 from langgraph.graph import END, StateGraph
 
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.nodes import (
@@ -11,8 +10,6 @@ from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.nodes import
 )
 from posthog.temporal.llm_analytics.trace_clustering.labeling_agent.state import ClusterLabelingState, ClusterTraceData
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, TraceSummary
-
-logger = structlog.get_logger(__name__)
 
 
 def build_labeling_graph() -> StateGraph:
@@ -80,14 +77,6 @@ def run_labeling_agent(
     if max_iterations is None:
         max_iterations = LABELING_AGENT_MAX_ITERATIONS
 
-    logger.info(
-        "cluster_labeling_agent_starting",
-        team_id=team_id,
-        num_clusters=len(cluster_data),
-        total_traces=sum(cd["size"] for cd in cluster_data.values()),
-        max_iterations=max_iterations,
-    )
-
     # Build and compile graph
     graph = build_labeling_graph()
     compiled_graph = graph.compile()
@@ -122,30 +111,14 @@ def run_labeling_agent(
             if label is not None:
                 result[cluster_id] = label
 
-        logger.info(
-            "cluster_labeling_agent_completed",
-            team_id=team_id,
-            num_labels=len(result),
-            iterations=last_state.get("iterations", 0),
-        )
-
         return result
 
-    except (RecursionError, Exception) as e:
+    except (RecursionError, Exception):
         # On error, return whatever labels we've generated so far
         labels = last_state.get("current_labels", {})
         result: dict[int, ClusterLabel] = {}
         for cluster_id, label in labels.items():
             if label is not None:
                 result[cluster_id] = label
-
-        logger.warning(
-            "cluster_labeling_agent_error_returning_partial",
-            team_id=team_id,
-            error=str(e),
-            error_type=type(e).__name__,
-            num_labels_recovered=len(result),
-            iterations=last_state.get("iterations", 0),
-        )
 
         return result
