@@ -270,8 +270,9 @@ def perform_hdbscan_clustering(
     if n_samples == 0:
         raise ValueError("Cannot cluster empty embeddings array")
 
-    # Calculate min_cluster_size from fraction, with minimum of 5
-    min_cluster_size = max(5, int(n_samples * min_cluster_size_fraction))
+    # Calculate min_cluster_size from fraction, with minimum of 5 but capped at n_samples
+    # HDBSCAN requires min_cluster_size <= n_samples
+    min_cluster_size = min(n_samples, max(5, int(n_samples * min_cluster_size_fraction)))
 
     # Adjust min_samples if needed
     effective_min_samples = min(min_samples, min_cluster_size)
