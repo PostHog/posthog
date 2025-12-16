@@ -6,6 +6,7 @@ import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
+import { SessionTracker } from './session-tracker'
 
 export interface SessionBatchManagerConfig {
     /** Maximum raw size (before compression) of a batch in bytes before it should be flushed */
@@ -24,6 +25,8 @@ export interface SessionBatchManagerConfig {
     consoleLogStore: SessionConsoleLogStore
     /** Optional switchover date for v2 metadata logic */
     metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
+    /** Optional session tracker for new session detection */
+    sessionTracker?: SessionTracker
 }
 
 /**
@@ -71,6 +74,7 @@ export class SessionBatchManager {
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
     private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
+    private readonly sessionTracker?: SessionTracker
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -81,6 +85,7 @@ export class SessionBatchManager {
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
         this.metadataSwitchoverDate = config.metadataSwitchoverDate
+        this.sessionTracker = config.sessionTracker
 
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
@@ -88,7 +93,8 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.metadataSwitchoverDate,
-            this.maxEventsPerSessionPerBatch
+            this.maxEventsPerSessionPerBatch,
+            this.sessionTracker
         )
         this.lastFlushTime = Date.now()
     }
@@ -112,7 +118,8 @@ export class SessionBatchManager {
             this.metadataStore,
             this.consoleLogStore,
             this.metadataSwitchoverDate,
-            this.maxEventsPerSessionPerBatch
+            this.maxEventsPerSessionPerBatch,
+            this.sessionTracker
         )
         this.lastFlushTime = Date.now()
     }

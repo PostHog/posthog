@@ -83,7 +83,8 @@ describe('SessionBatchManager', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             new Date('2025-01-02'),
-            Number.MAX_SAFE_INTEGER
+            Number.MAX_SAFE_INTEGER,
+            undefined
         )
 
         const secondBatch = manager.getCurrentBatch()
@@ -170,7 +171,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 new Date('2025-01-02'),
-                500
+                500,
+                undefined
             )
         })
 
@@ -194,7 +196,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 new Date('2025-01-02'),
-                250
+                250,
+                undefined
             )
         })
 
@@ -216,7 +219,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 new Date('2025-01-02'),
-                0
+                0,
+                undefined
             )
         })
 
@@ -238,7 +242,8 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 new Date('2025-01-02'),
-                Number.MAX_SAFE_INTEGER
+                Number.MAX_SAFE_INTEGER,
+                undefined
             )
         })
     })

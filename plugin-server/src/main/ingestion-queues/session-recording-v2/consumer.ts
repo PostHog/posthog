@@ -40,6 +40,7 @@ import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionMetadataStore } from './sessions/session-metadata-store'
+import { SessionTracker } from './sessions/session-tracker'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
@@ -160,6 +161,8 @@ export class SessionRecordingIngester {
               )
             : new BlackholeSessionBatchFileStorage()
 
+        const sessionTracker = new SessionTracker(this.redisPool)
+
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.hub.SESSION_RECORDING_MAX_BATCH_AGE_MS,
@@ -169,6 +172,7 @@ export class SessionRecordingIngester {
             metadataStore,
             consoleLogStore,
             metadataSwitchoverDate,
+            sessionTracker,
         })
     }
 
