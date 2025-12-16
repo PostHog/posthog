@@ -33,7 +33,12 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.rate_limit import LLMAnalyticsTextReprBurstThrottle, LLMAnalyticsTextReprSustainedThrottle
 
-from products.llm_analytics.backend.text_repr.formatters import format_event_text_repr, format_trace_text_repr
+from products.llm_analytics.backend.text_repr.formatters import (
+    format_event_text_repr,
+    format_trace_text_repr,
+    reduce_by_uniform_sampling,
+)
+from products.llm_analytics.backend.text_repr.formatters.constants import DEFAULT_MAX_LENGTH
 
 logger = structlog.get_logger(__name__)
 
@@ -45,7 +50,7 @@ TEXT_REPR_CACHE_TIMEOUT = 3600
 class TextReprOptionsSerializer(serializers.Serializer):
     max_length = serializers.IntegerField(
         required=False,
-        help_text="Maximum length of generated text (default: 4000000)",
+        help_text="Maximum length of generated text (default: 2000000)",
     )
     truncated = serializers.BooleanField(
         required=False,
@@ -231,7 +236,7 @@ into formatted text representations suitable for display, logging, or analysis.
 - `$ai_trace`: Full traces with hierarchical structure
 
 **Options:**
-- `max_length`: Maximum character count (default: 4000000)
+- `max_length`: Maximum character count (default: 2000000)
 - `truncated`: Enable middle-content truncation within events (default: true)
 - `truncate_buffer`: Characters at start/end when truncating (default: 1000)
 - `include_markers`: Use interactive markers vs plain text indicators (default: true)
@@ -307,9 +312,10 @@ The response includes the formatted text and metadata about the rendering.
                 return Response(cached_result, status=status.HTTP_200_OK)
 
             # Cache miss - generate text representation
-            # The formatter will handle max_length by uniform sampling if needed
+            # Apply max_length constraint by uniform sampling if needed
             start_time = time.time()
             truncated_by_max_length = False
+            max_length = options.get("max_length", DEFAULT_MAX_LENGTH)
             if event_type == "$ai_trace":
                 # For traces, expect data to have trace and hierarchy
                 text, truncated_by_max_length = format_trace_text_repr(
@@ -318,31 +324,12 @@ The response includes the formatted text and metadata about the rendering.
                     options=options,
                 )
             else:
-                # For $ai_generation and $ai_span
+                # For $ai_generation, $ai_span, $ai_embedding
                 text = format_event_text_repr(event=data, options=options)
+                # Apply max_length constraint via uniform sampling (same as traces)
+                if max_length and len(text) > max_length:
+                    text, truncated_by_max_length = reduce_by_uniform_sampling(text, max_length)
             duration_seconds = time.time() - start_time
-
-            # For UI display, fail if truncation was needed - let frontend fallback to collapsed view
-            # This prevents showing a wall of "[...3 lines...]" markers for extreme outliers
-            if truncated_by_max_length:
-                max_length = options.get("max_length")
-                logger.info(
-                    "Text representation exceeded max_length, returning error for fallback",
-                    event_type=event_type,
-                    entity_id=entity_id,
-                    team_id=self.team_id,
-                    char_count=len(text),
-                    max_length=max_length,
-                )
-                # Format max_length for display, with fallback if not set
-                max_length_display = f"{max_length:,}" if max_length else "the configured limit"
-                return Response(
-                    {
-                        "error": "Trace too large for text view",
-                        "detail": f"This trace exceeds the maximum size for text view ({max_length_display} chars). Use the collapsed view instead.",
-                    },
-                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                )
 
             # Build response with metadata
             # Extract trace_id - different location for traces vs events
@@ -359,7 +346,7 @@ The response includes the formatted text and metadata about the rendering.
                     "trace_id": trace_id,
                     "rendering": "detailed",
                     "char_count": len(text),
-                    "truncated": False,  # We now fail instead of returning truncated content
+                    "truncated": truncated_by_max_length,
                 },
             }
 
