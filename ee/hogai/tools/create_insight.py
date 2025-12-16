@@ -16,7 +16,7 @@ from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, NodePath
 
 INSIGHT_TOOL_PROMPT = """
-Use this tool to generate an insight from a structured plan. It will return a visualization that the user can analyze and a textual representation for your analysis. This tool can be used to create new insights or to edit existing insights. To edit an existing insight, you need to generate a new one based on the schema of the existing insight.
+Use this tool to generate an insight from a structured plan. It will return a visualization that the user can analyze and a textual representation for your analysis. This tool can be used to create new insights or to edit existing insights. To edit an existing insight, you need to generate a new plan based on the schema of the existing insight.
 
 The tool only generates a single insight per a call. If the user asks for multiple insights, you need to decompose a query into multiple subqueries and call the tool for each subquery.
 

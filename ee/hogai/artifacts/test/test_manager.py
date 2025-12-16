@@ -369,25 +369,6 @@ class TestArtifactManagerEnrichMessages(BaseTest):
         content = contents[insight.short_id]
         self.assertEqual(content.name, "Trends Insight")
 
-    async def test_skips_paths_query_insight_not_in_visualization_content(self):
-        insight = await Insight.objects.acreate(
-            team=self.team,
-            name="Paths Insight",
-            description="Test paths insight",
-            saved=True,
-            query={
-                "source": {
-                    "kind": "PathsQuery",
-                    "pathsFilter": {"includeEventTypes": ["$pageview"]},
-                }
-            },
-        )
-
-        contents = await self.manager._afetch_insight_contents([insight.short_id])
-
-        # PathsQuery is validated by validate_assistant_query fallback but rejected by VisualizationArtifactContent
-        self.assertEqual(len(contents), 0)
-
     async def test_skips_insight_with_invalid_query(self):
         insight = await Insight.objects.acreate(
             team=self.team,

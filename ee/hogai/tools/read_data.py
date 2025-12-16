@@ -46,7 +46,7 @@ You MUST use this tool when:
 
 # Insight
 
-Retrieves and optionally retrieves data for an existing insight by its ID.
+Retrieves and optionally queries data for an existing insight by its ID.
 
 ## Use this when:
 - You have an insight ID and want to retrieve the data for that insight or read the insight schema.
@@ -241,7 +241,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             )
             return text_result, None
 
-        # Create a new artfiact message, so the user can see the results in the UI
+        # Create a new artifact message, so the user can see the results in the UI
         artifact_message = ArtifactRefMessage(
             content_type=ArtifactContentType.VISUALIZATION,
             artifact_id=artifact_or_insight_id,

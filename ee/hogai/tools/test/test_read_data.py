@@ -152,8 +152,24 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
             can_read_artifacts=True,
         )
-        assert "# Artifacts" not in tool.description
+        assert "# Artifacts" in tool.description
         assert "billing_info" not in tool.description
+
+    async def test_create_tool_class_without_artifacts(self):
+        """Test that tool has artifacts in description when can_read_artifacts is True."""
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        tool = await ReadDataTool.create_tool_class(
+            team=team,
+            user=user,
+            state=state,
+            context_manager=context_manager,
+            can_read_artifacts=False,
+        )
+        assert "# Artifacts" not in tool.description
 
     async def test_create_tool_class_with_artifacts_and_billing_access(self):
         """Test that tool has artifacts and billing in description when can_read_artifacts and can_read_billing are True."""
@@ -169,7 +185,7 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
             can_read_artifacts=True,
         )
-        assert "# Artifacts" not in tool.description
+        assert "# Artifacts" in tool.description
         assert "billing_info" in tool.description
         assert "Billing information" in tool.description
 

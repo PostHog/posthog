@@ -278,8 +278,8 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 },
             },
             insight: {
-                name: 'Read an insight',
-                description: 'Read an insight',
+                name: 'Retrieve an insight',
+                description: 'Retrieve an insight data',
                 icon: iconForType('product_analytics'),
                 displayFormatter: (toolCall) => {
                     function isExecuting(): boolean {
@@ -292,9 +292,9 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     }
 
                     if (toolCall.status === 'completed') {
-                        return isExecuting() ? 'Read and queried an insight' : 'Read an insight'
+                        return isExecuting() ? 'Analyzed an insight' : 'Retrieved an insight'
                     }
-                    return isExecuting() ? 'Reading and querying an insight...' : 'Reading an insight...'
+                    return isExecuting() ? 'Analyzing an insight...' : 'Retrieving an insight...'
                 },
             },
         },

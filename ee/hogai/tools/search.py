@@ -4,15 +4,12 @@ from django.conf import settings
 
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from ee.hogai.chat_agent.insights.nodes import InsightSearchNode, NoInsightsException
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
-from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SEARCH_TOOL_PROMPT = """
 Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog.
@@ -209,20 +206,3 @@ class InkeepDocsSearchTool(MaxSubtool):
 EMPTY_DATABASE_ERROR_MESSAGE = """
 The user doesn't have any insights created yet.
 """.strip()
-
-
-class InsightSearchTool(MaxSubtool):
-    async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        try:
-            node = InsightSearchNode(self._team, self._user)
-            copied_state = self._state.model_copy(
-                deep=True, update={"search_insights_query": query, "root_tool_call_id": tool_call_id}
-            )
-            chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
-            result = await chain.ainvoke(copied_state)
-            return "", ToolMessagesArtifact(messages=result.messages) if result else None
-        except NoInsightsException:
-            raise MaxToolFatalError(
-                "No insights available: The team has not created any insights yet. "
-                "Insights must be created before they can be searched. You can create insights using the query generation tools."
-            )
