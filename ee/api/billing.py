@@ -25,7 +25,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.utils import relative_date_parse
 
 from ee.billing.billing_manager import BillingManager, build_billing_token
-from ee.billing.billing_types import BillingProvider
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -123,16 +122,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if "include_forecasting" in request.query_params:
             query["include_forecasting"] = request.query_params.get("include_forecasting")
         response = billing_manager.get_billing(org, query)
-
-        from posthog.models import OrganizationIntegration
-
-        has_vercel_integration = OrganizationIntegration.objects.filter(
-            organization=org,
-            kind=BillingProvider.VERCEL,
-        ).exists()
-
-        if has_vercel_integration:
-            response["billing_provider"] = "vercel"
 
         return Response(response)
 
