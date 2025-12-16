@@ -258,22 +258,38 @@ impl StoreManager {
     /// - Removes the store from the map
     /// - Drops the store (closing RocksDB)
     /// - Deletes ALL files for this partition from disk (including old timestamp directories)
+    ///
+    /// NOTE: For rebalance scenarios, prefer using `remove_from_map()` followed by
+    /// `delete_partition_files()` after workers are shut down, to avoid race conditions.
     pub fn remove(&self, topic: &str, partition: i32) -> Result<()> {
+        self.remove_from_map(topic, partition);
+        self.delete_partition_files(topic, partition)
+    }
+
+    /// Remove a store from the DashMap without deleting files.
+    ///
+    /// This is used during rebalance to prevent workers from creating new stores
+    /// while they're being shut down. Files should be deleted separately using
+    /// `delete_partition_files()` after workers are fully stopped.
+    pub fn remove_from_map(&self, topic: &str, partition: i32) {
         let partition_key = Partition::new(topic.to_string(), partition);
 
-        // Remove the store from the map
         if let Some((_, store)) = self.stores.remove(&partition_key) {
             info!(
-                "Removing deduplication store for partition {}:{}",
-                topic, partition
+                topic = topic,
+                partition = partition,
+                "Removing deduplication store from map"
             );
-
-            // Drop the store explicitly to close RocksDB before deleting files
+            // Drop the store explicitly to close RocksDB
             drop(store);
         }
+    }
 
-        // Delete the entire topic_partition directory (not just the current timestamp subdirectory)
-        // This ensures we clean up all historical data for this partition
+    /// Delete all files for a partition from disk.
+    ///
+    /// This should only be called after workers are fully shut down to avoid
+    /// race conditions where a worker tries to write to a deleted directory.
+    pub fn delete_partition_files(&self, topic: &str, partition: i32) -> Result<()> {
         let partition_dir = format!(
             "{}/{}_{}",
             self.store_config.path.display(),
@@ -286,23 +302,28 @@ impl StoreManager {
             match std::fs::remove_dir_all(&partition_path) {
                 Ok(_) => {
                     info!(
-                        "Deleted entire partition directory for {}:{} at path {}",
-                        topic, partition, partition_dir
+                        topic = topic,
+                        partition = partition,
+                        path = partition_dir,
+                        "Deleted partition directory"
                     );
                 }
                 Err(e) => {
-                    // Log but don't fail - this might happen if another process
-                    // is already recreating the store
                     warn!(
-                        "Failed to remove partition directory for {}:{} at path {}: {}. This is usually harmless.",
-                        topic, partition, partition_dir, e
+                        topic = topic,
+                        partition = partition,
+                        path = partition_dir,
+                        error = %e,
+                        "Failed to remove partition directory (usually harmless)"
                     );
                 }
             }
         } else {
             debug!(
-                "Partition directory for {}:{} doesn't exist at path {}",
-                topic, partition, partition_dir
+                topic = topic,
+                partition = partition,
+                path = partition_dir,
+                "Partition directory doesn't exist"
             );
         }
 
