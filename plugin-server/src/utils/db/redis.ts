@@ -98,11 +98,12 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
 /**
  * Sanitizes a Redis URL for safe logging by extracting only the host portion.
  * This prevents leaking credentials that may be embedded in the URL.
- * 
- * @param url - Redis URL (e.g., 'redis://:password@localhost:6379') or plain hostname (e.g., 'posthog-redis')
+ *
+ * @param url - Redis URL (e.g., 'rediss://:password@localhost:6379') or plain hostname (e.g., 'posthog-redis')
+ * @param options - Optional Redis options that may include the port
  * @returns The host portion without credentials (e.g., 'localhost:6379'), or the plain hostname if not a URL
  */
-function getRedisHost(url: string): string {
+function getRedisHost(url: string, options?: RedisOptions): string {
     try {
         const parsed = new URL(url)
         // Return host (hostname:port) if available, excluding any credentials
@@ -112,7 +113,12 @@ function getRedisHost(url: string): string {
         // If URL parsing fails, strip any potential credentials from the string
         // Use lastIndexOf to handle edge cases with multiple @ symbols
         const atIndex = url.lastIndexOf('@')
-        return atIndex >= 0 ? url.substring(atIndex + 1) : url
+        const hostname = atIndex >= 0 ? url.substring(atIndex + 1) : url
+        // Append port from options if available and not already in hostname
+        if (options?.port && !hostname.includes(':')) {
+            return `${hostname}:${options.port}`
+        }
+        return hostname
     }
 }
 
@@ -122,7 +128,7 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
         maxRetriesPerRequest: -1,
     })
     let errorCounter = 0
-    const redisHost = getRedisHost(url)
+    const redisHost = getRedisHost(url, options)
     redis
         .on('error', (error) => {
             errorCounter++
