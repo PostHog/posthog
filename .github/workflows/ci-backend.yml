@@ -43,6 +43,7 @@ env:
 permissions:
     contents: write
     pull-requests: write
+    actions: write
 
 jobs:
     # Job to decide if we should run backend ci
@@ -176,7 +177,6 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version: 3.12.12
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
@@ -605,8 +605,6 @@ jobs:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
-                  # Use PostHog Bot token when not on forks to enable proper snapshot updating
-                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_PAT || github.token }}
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -674,7 +672,6 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version: ${{ matrix.python-version }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv-tests
@@ -949,7 +946,6 @@ jobs:
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
                   fetch-depth: 1
 
             - name: Download all snapshot patches
@@ -991,7 +987,7 @@ jobs:
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
