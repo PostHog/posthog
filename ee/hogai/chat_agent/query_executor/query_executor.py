@@ -10,6 +10,7 @@ from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
+from posthoganalytics import capture_exception
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -155,9 +156,8 @@ class AssistantQueryExecutor:
                     )
                 return formatted_results, False  # No fallback used
             except Exception as err:
-                if isinstance(err, NotImplementedError):
-                    # Re-raise NotImplementedError for unsupported query types
-                    raise
+                if not isinstance(err, NotImplementedError):
+                    capture_exception(err, properties={"tag": "max_ai"})
                 # Fallback to raw JSON if formatting fails - ensures robustness
                 fallback_start = time.time()
                 fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))

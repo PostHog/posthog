@@ -139,9 +139,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertFalse(used_fallback)
         self.assertIn("Date|test", result)
 
+    @patch("ee.hogai.chat_agent.query_executor.query_executor.capture_exception")
     @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
-    async def test_run_and_format_query_with_fallback_on_compression_error(self, mock_process_query):
-        """Test fallback to JSON when compression fails"""
+    async def test_run_and_format_query_with_fallback_on_compression_error(self, mock_process_query, mock_capture):
+        """Test fallback to JSON when compression fails and capture_exception is called"""
         mock_process_query.return_value = {"results": [{"invalid": "data"}]}
 
         # Use a query that will cause compression to fail
@@ -157,6 +158,30 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertTrue(used_fallback)
         # Should be JSON formatted
         self.assertIn('{"invalid":"data"}', result)
+        # Should capture the exception for non-NotImplementedError
+        mock_capture.assert_called_once()
+
+    @patch("ee.hogai.chat_agent.query_executor.query_executor.capture_exception")
+    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    async def test_run_and_format_query_with_fallback_on_not_implemented_error_no_capture(
+        self, mock_process_query, mock_capture
+    ):
+        """Test fallback to JSON when NotImplementedError is raised - should NOT capture exception"""
+        mock_process_query.return_value = {"results": [{"path": "data"}]}
+
+        query = AssistantTrendsQuery(series=[])
+
+        with patch.object(
+            self.query_runner,
+            "_compress_results",
+            side_effect=NotImplementedError("Unsupported query type"),
+        ):
+            result, used_fallback = await self.query_runner.arun_and_format_query(query)
+
+        self.assertIsInstance(result, str)
+        self.assertTrue(used_fallback)
+        # Should NOT capture NotImplementedError
+        mock_capture.assert_not_called()
 
     @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_api_exception(self, mock_process_query):
