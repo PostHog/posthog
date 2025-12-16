@@ -815,7 +815,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         )
                     GROUP BY event` as HogQLQueryString
 
-                const response = await api.queryHogQL(query, {
+                const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                     queryParams: {
                         filters: {
                             properties: values.propertyFilters,
@@ -863,7 +863,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
                     ) AS PersonsWithBothEvents` as HogQLQueryString
 
-                const response = await api.queryHogQL(query, {
+                const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                     queryParams: {
                         filters: {
                             properties: values.propertyFilters, // Property filters applied in WHERE
@@ -907,7 +907,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     ORDER BY events.timestamp DESC
                     LIMIT ${limit}` as HogQLQueryString
 
-                const responseJSON = await api.queryHogQL(query, {
+                const responseJSON = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                     queryParams: {
                         filters: {
                             properties: values.propertyFilters,
@@ -2167,7 +2167,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 try {
                     const parsedAnswerFilters = JSON.parse(searchParams.answerFilters)
                     if (Array.isArray(parsedAnswerFilters) && parsedAnswerFilters.length > 0) {
-                        actions.setAnswerFilters(parsedAnswerFilters, false)
+                        const mergedFilters =
+                            values.answerFilters.length > 0
+                                ? values.answerFilters.map((existingFilter) => {
+                                      const urlFilter = parsedAnswerFilters.find(
+                                          (f: EventPropertyFilter) => f.key === existingFilter.key
+                                      )
+                                      return urlFilter ?? existingFilter
+                                  })
+                                : parsedAnswerFilters
+                        actions.setAnswerFilters(mergedFilters, false)
                     }
                 } catch (e) {
                     console.error('Failed to parse answerFilters from URL:', e)

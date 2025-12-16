@@ -113,6 +113,7 @@ def create_mock_config():
     """Create a properly structured mock config for testing."""
     mock_config = MagicMock()
     mock_config.hypercache.batch_load_fn = None
+    mock_config.hypercache.expiry_sorted_set_key = None  # Disable expiry tracking by default
     mock_config.cache_display_name = "test cache"
     return mock_config
 
@@ -136,6 +137,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             "cache_miss": 0,
             "cache_match": 0,
             "cache_mismatch": 0,
+            "expiry_missing": 0,
             "error": 0,
             "fixed": 0,
             "fix_failed": 0,
@@ -178,6 +180,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             "cache_miss": 0,
             "cache_match": 0,
             "cache_mismatch": 0,
+            "expiry_missing": 0,
             "error": 0,
             "fixed": 0,
             "fix_failed": 0,
@@ -210,6 +213,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             "cache_miss": 0,
             "cache_match": 0,
             "cache_mismatch": 0,
+            "expiry_missing": 0,
             "error": 0,
             "fixed": 0,
             "fix_failed": 0,
@@ -352,3 +356,271 @@ class TestRunVerificationErrorHandling(BaseTest):
             assert "Failed to update cache metrics" in output
             # Verification should still have completed
             assert "Verification Results" in output
+
+
+def create_mock_config_with_expiry(expiry_sorted_set_key: str = "test_expiry_set"):
+    """Create a mock config with expiry tracking enabled."""
+    mock_config = MagicMock()
+    mock_config.hypercache.batch_load_fn = None
+    mock_config.hypercache.expiry_sorted_set_key = expiry_sorted_set_key
+    mock_config.hypercache.redis_url = "redis://test"
+    mock_config.hypercache.get_cache_identifier = lambda team: team.api_token
+    mock_config.cache_display_name = "test cache"
+    mock_config.update_fn = MagicMock(return_value=True)
+    return mock_config
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test", TEST=True)
+class TestExpiryTrackingVerification(BaseTest):
+    """Test expiry tracking verification functionality."""
+
+    def test_batch_check_expiry_returns_all_true_when_no_expiry_key_configured(self):
+        """Test that batch_check_expiry_tracking returns all True when expiry tracking is disabled."""
+        from posthog.storage.hypercache_manager import batch_check_expiry_tracking
+
+        mock_config = create_mock_config()  # No expiry_sorted_set_key
+
+        result = batch_check_expiry_tracking([self.team], mock_config)
+
+        # All teams should be considered "tracked" when expiry tracking is disabled
+        assert len(result) == 1
+        assert all(v is True for v in result.values())
+
+    def test_batch_check_expiry_uses_pipelining(self):
+        """Test that batch_check_expiry_tracking uses Redis pipelining."""
+        from posthog.storage.hypercache_manager import batch_check_expiry_tracking
+
+        mock_config = create_mock_config_with_expiry()
+
+        with patch("posthog.storage.hypercache_manager.get_client") as mock_get_client:
+            mock_redis = MagicMock()
+            mock_pipeline = MagicMock()
+            mock_pipeline.execute.return_value = [1234567890.0]  # Score indicates team is tracked
+            mock_redis.pipeline.return_value = mock_pipeline
+            mock_get_client.return_value = mock_redis
+
+            result = batch_check_expiry_tracking([self.team], mock_config)
+
+            # Pipeline should have been created and executed
+            mock_redis.pipeline.assert_called_once_with(transaction=False)
+            mock_pipeline.zscore.assert_called_once()
+            mock_pipeline.execute.assert_called_once()
+
+            # Team should be marked as tracked (score was not None)
+            assert result[self.team.api_token] is True
+
+    def test_batch_check_expiry_returns_false_for_missing_teams(self):
+        """Test that batch_check_expiry_tracking returns False for teams not in sorted set."""
+        from posthog.storage.hypercache_manager import batch_check_expiry_tracking
+
+        mock_config = create_mock_config_with_expiry()
+
+        with patch("posthog.storage.hypercache_manager.get_client") as mock_get_client:
+            mock_redis = MagicMock()
+            mock_pipeline = MagicMock()
+            mock_pipeline.execute.return_value = [None]  # None indicates team is not tracked
+            mock_redis.pipeline.return_value = mock_pipeline
+            mock_get_client.return_value = mock_redis
+
+            result = batch_check_expiry_tracking([self.team], mock_config)
+
+            # Team should be marked as NOT tracked (score was None)
+            assert result[self.team.api_token] is False
+
+    def test_expiry_missing_incremented_when_team_not_in_sorted_set(self):
+        """Test that expiry_missing stat is incremented when team is not in expiry sorted set."""
+        mock_config = create_mock_config_with_expiry()
+
+        command = ConcreteHyperCacheCommand(mock_config=mock_config)
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {
+            "total": 0,
+            "cache_miss": 0,
+            "cache_match": 0,
+            "cache_mismatch": 0,
+            "expiry_missing": 0,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+        }
+        mismatches: list[dict[str, Any]] = []
+
+        with patch("posthog.storage.hypercache_manager.get_client") as mock_get_client:
+            mock_redis = MagicMock()
+            mock_pipeline = MagicMock()
+            mock_pipeline.execute.return_value = [None]  # Team not in sorted set
+            mock_redis.pipeline.return_value = mock_pipeline
+            mock_get_client.return_value = mock_redis
+
+            command._verify_teams_batch([self.team], stats, mismatches, verbose=False, fix=False)
+
+        assert stats["cache_match"] == 1  # Cache data is valid
+        assert stats["expiry_missing"] == 1  # But expiry tracking is missing
+        assert len(mismatches) == 1
+        assert mismatches[0]["issue"] == "EXPIRY_MISSING"
+
+    def test_expiry_missing_not_incremented_when_team_in_sorted_set(self):
+        """Test that expiry_missing is not incremented when team is properly tracked."""
+        mock_config = create_mock_config_with_expiry()
+
+        command = ConcreteHyperCacheCommand(mock_config=mock_config)
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {
+            "total": 0,
+            "cache_miss": 0,
+            "cache_match": 0,
+            "cache_mismatch": 0,
+            "expiry_missing": 0,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+        }
+        mismatches: list[dict[str, Any]] = []
+
+        with patch("posthog.storage.hypercache_manager.get_client") as mock_get_client:
+            mock_redis = MagicMock()
+            mock_pipeline = MagicMock()
+            mock_pipeline.execute.return_value = [1234567890.0]  # Team is tracked
+            mock_redis.pipeline.return_value = mock_pipeline
+            mock_get_client.return_value = mock_redis
+
+            command._verify_teams_batch([self.team], stats, mismatches, verbose=False, fix=False)
+
+        assert stats["cache_match"] == 1
+        assert stats["expiry_missing"] == 0
+        assert len(mismatches) == 0
+
+    def test_fix_team_cache_calls_update_fn(self):
+        """Test that _fix_team_cache calls the update_fn to refresh cache and track expiry."""
+        mock_config = create_mock_config_with_expiry()
+
+        command = ConcreteHyperCacheCommand(mock_config=mock_config)
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {"fixed": 0, "fix_failed": 0}
+
+        result = command._fix_team_cache(self.team, stats, "expiry tracking", mock_config)
+
+        assert result is True
+        assert stats["fixed"] == 1
+        mock_config.update_fn.assert_called_once_with(self.team)
+
+    def test_fix_team_cache_handles_update_fn_failure(self):
+        """Test that _fix_team_cache handles update_fn returning False."""
+        mock_config = create_mock_config_with_expiry()
+        mock_config.update_fn.return_value = False
+
+        command = ConcreteHyperCacheCommand(mock_config=mock_config)
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {"fixed": 0, "fix_failed": 0}
+
+        result = command._fix_team_cache(self.team, stats, "expiry tracking", mock_config)
+
+        assert result is False
+        assert stats["fix_failed"] == 1
+
+    def test_fix_team_cache_handles_exception(self):
+        """Test that _fix_team_cache handles exceptions from update_fn."""
+        mock_config = create_mock_config_with_expiry()
+        mock_config.update_fn.side_effect = Exception("Redis error")
+
+        command = ConcreteHyperCacheCommand(mock_config=mock_config)
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {"fixed": 0, "fix_failed": 0}
+
+        result = command._fix_team_cache(self.team, stats, "expiry tracking", mock_config)
+
+        assert result is False
+        assert stats["fix_failed"] == 1
+
+    def test_expiry_check_failure_continues_verification(self):
+        """Test that failure in expiry check doesn't stop verification."""
+        mock_config = create_mock_config_with_expiry()
+
+        command = ConcreteHyperCacheCommand(mock_config=mock_config)
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {
+            "total": 0,
+            "cache_miss": 0,
+            "cache_match": 0,
+            "cache_mismatch": 0,
+            "expiry_missing": 0,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+        }
+        mismatches: list[dict[str, Any]] = []
+
+        with patch("posthog.storage.hypercache_manager.get_client") as mock_get_client:
+            mock_get_client.side_effect = ConnectionError("Redis unavailable")
+
+            command._verify_teams_batch([self.team], stats, mismatches, verbose=False, fix=False)
+
+        # Verification should still have completed
+        assert stats["cache_match"] == 1
+        assert stats["expiry_missing"] == 0  # Expiry check was skipped
+        output = command.stdout.getvalue()
+        assert "Expiry tracking check failed" in output
+
+    def test_print_verification_results_shows_expiry_missing(self):
+        """Test that verification results include expiry_missing count."""
+        mock_config = MagicMock(spec=HyperCacheManagementConfig)
+        mock_config.cache_display_name = "test cache"
+
+        command = ConcreteHyperCacheCommand(mock_config=mock_config)
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {
+            "total": 10,
+            "cache_miss": 0,
+            "cache_match": 10,
+            "cache_mismatch": 0,
+            "expiry_missing": 3,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+        }
+
+        command._print_verification_results(stats, mismatches=[], verbose=False, fix=False)
+
+        output = command.stdout.getvalue()
+        assert "Expiry missing:" in output
+        assert "3" in output
+        assert "30.0%" in output
+
+    def test_verification_success_requires_no_expiry_missing(self):
+        """Test that verification only shows success when expiry_missing is 0."""
+        mock_config = MagicMock(spec=HyperCacheManagementConfig)
+        mock_config.cache_display_name = "test cache"
+
+        command = ConcreteHyperCacheCommand(mock_config=mock_config)
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        # All caches match, but some have expiry issues
+        stats = {
+            "total": 10,
+            "cache_miss": 0,
+            "cache_match": 10,
+            "cache_mismatch": 0,
+            "expiry_missing": 2,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+        }
+        mismatches = [
+            {"team_id": 1, "team_name": "Test1", "issue": "EXPIRY_MISSING", "details": "test"},
+            {"team_id": 2, "team_name": "Test2", "issue": "EXPIRY_MISSING", "details": "test"},
+        ]
+
+        command._print_verification_results(stats, mismatches=mismatches, verbose=False, fix=False)
+
+        output = command.stdout.getvalue()
+        # Should NOT show success message
+        assert "All test cache caches verified successfully" not in output
+        # Should show issues found
+        assert "Found issues" in output

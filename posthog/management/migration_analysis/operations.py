@@ -69,6 +69,16 @@ class AddFieldAnalyzer(OperationAnalyzer):
     def analyze(self, op) -> OperationRisk:
         field = op.field
 
+        # ManyToMany fields don't add a column to the model's table - they create a junction table
+        # So there's no "NOT NULL without default" concern
+        if isinstance(field, models.ManyToManyField):
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="Adding ManyToMany field is safe (creates separate junction table)",
+                details={"model": op.model_name, "field": op.name},
+            )
+
         # Only null=True matters for database safety (blank=True is just form validation)
         if field.null:
             return self._analyze_nullable_field(op)

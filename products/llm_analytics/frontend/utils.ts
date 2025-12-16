@@ -635,9 +635,29 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
 
     // Input message
     if (isAnthropicRoleBasedMessage(rawMessage)) {
-        // Content is a nested array (tool responses, etc.)
+        // Check for top-level tool_calls (already normalized by SDK)
+        const topLevelToolCalls =
+            'tool_calls' in rawMessage && isOpenAICompatToolCallsArray(rawMessage.tool_calls)
+                ? parseOpenAIToolCalls(rawMessage.tool_calls)
+                : undefined
+
         if (Array.isArray(rawMessage.content)) {
-            return rawMessage.content.map((content) => normalizeMessage(content, roleToUse)).flat()
+            // If we have top-level tool_calls, skip tool_use blocks in content (they're duplicates with incomplete data)
+            const contentToProcess = topLevelToolCalls
+                ? rawMessage.content.filter((item) => !isAnthropicToolCallMessage(item))
+                : rawMessage.content
+
+            const contentMessages = contentToProcess.map((content) => normalizeMessage(content, roleToUse)).flat()
+
+            if (topLevelToolCalls && topLevelToolCalls.length > 0) {
+                contentMessages.push({
+                    role: roleToUse,
+                    content: '',
+                    tool_calls: topLevelToolCalls,
+                })
+            }
+
+            return contentMessages
         }
 
         return [
@@ -842,7 +862,7 @@ export async function queryEvaluationRuns(params: {
         LIMIT 100
     `
 
-    const response = await api.queryHogQL(query, {
+    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
         ...(forceRefresh && { refresh: 'force_blocking' }),
     })
 

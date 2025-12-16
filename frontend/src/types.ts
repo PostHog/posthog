@@ -14,6 +14,7 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { UrlTriggerConfig } from 'lib/components/Triggers/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
@@ -280,6 +281,7 @@ export enum AccessControlResourceType {
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
+    ProductTour = 'product_tour',
     Experiment = 'experiment',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
@@ -325,6 +327,7 @@ export interface UserType extends UserBaseType {
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
+    allow_impersonation: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
     id: number
@@ -419,6 +422,8 @@ export interface OrganizationBasicType {
     membership_level: OrganizationMembershipLevel | null
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
+    is_active: boolean | null
+    is_not_active_reason: string | null
 }
 
 interface OrganizationMetadata {
@@ -610,8 +615,8 @@ export interface TeamType extends TeamBasicType {
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
-    session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
-    session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
+    session_recording_url_trigger_config?: UrlTriggerConfig[]
+    session_recording_url_blocklist_config?: UrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
     session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
@@ -863,7 +868,10 @@ export enum PropertyFilterType {
     /** Feature flag dependency */
     Flag = 'flag',
     Log = 'log',
+    LogAttribute = 'log_attribute',
+    LogResourceAttribute = 'log_resource_attribute',
     WorkflowVariable = 'workflow_variable',
+    Empty = 'empty',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -941,8 +949,13 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export type LogPropertyFilterType =
+    | PropertyFilterType.Log
+    | PropertyFilterType.LogAttribute
+    | PropertyFilterType.LogResourceAttribute
+
 export interface LogPropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Log
+    type: LogPropertyFilterType
     operator: PropertyOperator
 }
 
@@ -967,7 +980,7 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
 }
 
 export interface EmptyPropertyFilter {
-    type?: never
+    type?: PropertyFilterType.Empty
     value?: never
     operator?: never
     key?: never
@@ -1063,9 +1076,9 @@ export type EncodedRecordingSnapshot = {
 // this way if we want to reference one of the valid string values for SnapshotSourceType
 // we have a strongly typed way to do it
 export const SnapshotSourceType = {
-    blob: 'blob',
-    file: 'file',
     blob_v2: 'blob_v2',
+    blob_v2_lts: 'blob_v2_lts',
+    file: 'file',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
@@ -1079,26 +1092,20 @@ export interface SessionRecordingSnapshotSource {
 
 export type SessionRecordingSnapshotParams = (
     | {
-          source: 'blob'
-          blob_key?: string
-      }
-    | {
-          source: 'blob_v2'
+          source: 'blob_v2_lts'
           blob_key?: string
       }
     | {
           source: 'blob_v2'
           start_blob_key?: string
           end_blob_key?: string
+          blob_key?: string
       }
 ) & {
     decompress?: false
 }
 
 export interface SessionRecordingSnapshotSourceResponse {
-    // v1 loaded each source separately
-    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'> | 'processed'
-    // with v2 we can load multiple sources at once
     sources?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]
     snapshots?: RecordingSnapshot[]
     // we process snapshots to make them rrweb vanilla playable
@@ -3229,6 +3236,53 @@ export interface ConsolidatedSurveyResults {
 export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
+// Product Tours
+export interface ProductTourStep {
+    id: string
+    selector: string
+    /** Rich text content in tiptap JSONContent format */
+    content: Record<string, any> | null
+    position?: 'top' | 'bottom' | 'left' | 'right'
+}
+
+/** Tracks a snapshot of steps at a point in time for funnel analysis */
+export interface StepOrderVersion {
+    id: string
+    /** Full snapshot of steps as they existed when this version was created */
+    steps: ProductTourStep[]
+    /** When this version became active */
+    created_at: string
+}
+
+export interface ProductTourContent {
+    steps: ProductTourStep[]
+    appearance?: Record<string, any>
+    conditions?: {
+        url?: string
+        urlMatchType?: 'exact' | 'contains' | 'regex'
+        selector?: string
+    }
+    /** History of step order changes for funnel analysis */
+    step_order_history?: StepOrderVersion[]
+}
+
+export interface ProductTour {
+    id: string
+    name: string
+    description: string
+    internal_targeting_flag: FeatureFlagBasicType | null
+    feature_flag_key: string | null
+    targeting_flag_filters: FeatureFlagFilters | null
+    content: ProductTourContent
+    auto_launch: boolean
+    start_date: string | null
+    end_date: string | null
+    created_at: string
+    created_by: UserBasicType | null
+    updated_at: string
+    archived: boolean
+}
+
 export interface Survey extends WithAccessControl {
     /** UUID */
     id: string
@@ -3602,6 +3656,13 @@ export enum ScheduledChangeOperationType {
     UpdateVariants = 'update_variants',
 }
 
+// Keep in sync with posthog/models/scheduled_change.py RecurrenceInterval
+export enum RecurrenceInterval {
+    Daily = 'daily',
+    Weekly = 'weekly',
+    Monthly = 'monthly',
+}
+
 export type ScheduledChangePayload =
     | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
     | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
@@ -3621,6 +3682,10 @@ export interface ScheduledChangeType {
     failure_reason: string | null
     created_at: string | null
     created_by: UserBasicType
+    is_recurring: boolean
+    recurrence_interval: RecurrenceInterval | null
+    last_executed_at: string | null
+    end_date: string | null
 }
 
 export interface PrevalidatedInvite {
@@ -3801,6 +3866,8 @@ export enum PropertyDefinitionType {
     Meta = 'meta',
     Resource = 'resource',
     Log = 'log',
+    LogAttribute = 'log_attribute',
+    LogResourceAttribute = 'log_resource_attribute',
     FlagValue = 'flag_value',
     WorkflowVariable = 'workflow_variable',
 }
@@ -4198,6 +4265,8 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Action/event filter defition */
         action?: ActionFilter | null
         yAxisID?: string
+        /** Total number of respondents for survey questions (for per-respondent percentage calculation) */
+        totalResponses?: number
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
@@ -4483,6 +4552,7 @@ export enum ExporterFormat {
     WEBM = 'video/webm',
     MP4 = 'video/mp4',
     GIF = 'image/gif',
+    HCL = 'text/hcl',
 }
 
 /** Exporting directly from the browser to a file */
@@ -4583,6 +4653,7 @@ export type APIScopeObject =
     | 'action'
     | 'access_control'
     | 'activity_log'
+    | 'alert'
     | 'annotation'
     | 'batch_export'
     | 'cohort'
@@ -4603,12 +4674,15 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'llm_prompt'
+    | 'llm_provider_key'
     | 'logs'
     | 'notebook'
     | 'organization'
     | 'organization_member'
     | 'person'
     | 'plugin'
+    | 'product_tour'
     | 'project'
     | 'property_definition'
     | 'query'
@@ -5479,6 +5553,15 @@ export interface CyclotronJobFilterEvents extends CyclotronJobFilterBase {
     type: 'events'
 }
 
+export interface CyclotronJobFilterDataWarehouse extends CyclotronJobFilterBase {
+    type: 'data_warehouse'
+    uuid: string
+    table_name: string
+    id_field: string
+    timestamp_field: string
+    distinct_id_field: string
+}
+
 export interface CyclotronJobFilterActions extends CyclotronJobFilterBase {
     type: 'actions'
 }
@@ -5493,8 +5576,9 @@ export type CyclotronJobFilterPropertyFilter =
     | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
-    source?: 'events' | 'person-updates'
+    source?: 'events' | 'person-updates' | 'data-warehouse-table'
     events?: CyclotronJobFilterEvents[]
+    data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
@@ -5698,11 +5782,6 @@ export type AppMetricsV2RequestParams = {
     breakdown_by?: 'name' | 'kind'
 }
 
-export type SessionReplayUrlTriggerConfig = {
-    url: string
-    matching: 'regex'
-}
-
 export type ReplayTemplateType = {
     key: string
     name: string
@@ -5806,6 +5885,9 @@ export interface Conversation {
     type: ConversationType
     has_unsupported_content?: boolean
     agent_mode?: string | null
+    slack_thread_key?: string | null
+    slack_workspace_domain?: string | null
+    is_internal?: boolean
 }
 
 export interface ConversationDetail extends Conversation {
@@ -6034,8 +6116,6 @@ export enum OnboardingStepKey {
     PRODUCT_CONFIGURATION = 'configure',
     REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
-    DASHBOARD_TEMPLATE = 'dashboard_template',
-    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
     SESSION_REPLAY = 'session_replay',
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
@@ -6069,6 +6149,17 @@ export interface DatasetItem {
     created_by: UserBasicType
     updated_at: string
     created_at: string
+    deleted: boolean
+}
+
+export interface LLMPrompt {
+    id: string
+    name: string
+    prompt: string
+    version: number
+    created_by: UserBasicType
+    created_at: string
+    updated_at: string
     deleted: boolean
 }
 

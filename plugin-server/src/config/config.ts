@@ -21,6 +21,9 @@ export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
 export function getDefaultConfig(): PluginsServerConfig {
     return {
+        CONTINUOUS_PROFILING_ENABLED: false,
+        PYROSCOPE_SERVER_ADDRESS: '',
+        PYROSCOPE_APPLICATION_NAME: '',
         INSTRUMENT_THREAD_PERFORMANCE: false,
         OTEL_EXPORTER_OTLP_ENDPOINT: isDevEnv() ? 'http://localhost:4317' : '',
         OTEL_SDK_DISABLED: isDevEnv() ? false : true,
@@ -223,13 +226,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
 
-        // Heap dump configuration
-        HEAP_DUMP_ENABLED: false,
-        HEAP_DUMP_S3_BUCKET: '',
-        HEAP_DUMP_S3_PREFIX: 'heap-dumps',
-        HEAP_DUMP_S3_ENDPOINT: '',
-        HEAP_DUMP_S3_REGION: '',
-
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
@@ -337,6 +333,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSONS_DUAL_WRITE_ENABLED: false,
         PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
+        PERSONS_PREFETCH_ENABLED: false,
         GROUPS_DUAL_WRITE_ENABLED: false,
         GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,

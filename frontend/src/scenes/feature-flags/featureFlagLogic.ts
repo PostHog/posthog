@@ -17,6 +17,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -60,6 +61,7 @@ import {
     PropertyOperator,
     QueryBasedInsightModel,
     RecordingUniversalFilters,
+    RecurrenceInterval,
     ScheduledChangeOperationType,
     ScheduledChangeType,
     Survey,
@@ -344,6 +346,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             payloads?: Record<string, any> | null
         ) => ({ filters, active, errors, variants, payloads }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
+        setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
+        setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
+        setEndDate: (endDate: Dayjs | null) => ({ endDate }),
+        stopRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
+        resumeRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
@@ -614,6 +621,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ScheduledChangeOperationType.AddReleaseCondition as ScheduledChangeOperationType,
             {
                 setScheduledChangeOperation: (_, { changeType }) => changeType,
+            },
+        ],
+        isRecurring: [
+            false,
+            {
+                setIsRecurring: (_, { isRecurring }) => isRecurring,
+                // Reset when operation changes away from UpdateStatus
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : false,
+            },
+        ],
+        recurrenceInterval: [
+            null as RecurrenceInterval | null,
+            {
+                setRecurrenceInterval: (_, { interval }) => interval,
+                // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
+            },
+        ],
+        endDate: [
+            null as Dayjs | null,
+            {
+                setEndDate: (_, { endDate }) => endDate,
+                // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
+                setScheduledChangeOperation: (state, { changeType }) =>
+                    changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
             },
         ],
     }),
@@ -1033,6 +1067,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             value: payloadValue,
                         },
                         scheduled_at: scheduleDateMarker.toISOString(),
+                        is_recurring: values.isRecurring,
+                        recurrence_interval: values.recurrenceInterval,
+                        // Use end-of-day in project timezone to ensure consistent behavior
+                        // across all users in the project
+                        end_date: values.endDate
+                            ? values.endDate
+                                  .tz(values.currentTeam?.timezone || 'UTC')
+                                  .endOf('day')
+                                  .toISOString()
+                            : null,
                     }
 
                     return await api.featureFlags.createScheduledChange(currentProjectId, data)
@@ -1200,6 +1244,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
+                actions.setIsRecurring(false)
+                actions.setRecurrenceInterval(null)
+                actions.setEndDate(null)
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
             }
@@ -1243,6 +1290,34 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (scheduledChange) {
                 lemonToast.success('Change has been deleted')
                 actions.loadScheduledChanges()
+            }
+        },
+        stopRecurringScheduledChange: async ({ scheduledChangeId }) => {
+            const { currentProjectId } = values
+            if (currentProjectId) {
+                try {
+                    await api.featureFlags.updateScheduledChange(currentProjectId, scheduledChangeId, {
+                        is_recurring: false,
+                    })
+                    lemonToast.success('Recurring schedule has been paused')
+                    actions.loadScheduledChanges()
+                } catch {
+                    lemonToast.error('Failed to pause recurring schedule')
+                }
+            }
+        },
+        resumeRecurringScheduledChange: async ({ scheduledChangeId }) => {
+            const { currentProjectId } = values
+            if (currentProjectId) {
+                try {
+                    await api.featureFlags.updateScheduledChange(currentProjectId, scheduledChangeId, {
+                        is_recurring: true,
+                    })
+                    lemonToast.success('Recurring schedule has been resumed')
+                    actions.loadScheduledChanges()
+                } catch {
+                    lemonToast.error('Failed to resume recurring schedule')
+                }
             }
         },
         setRemoteConfigEnabled: ({ enabled }) => {

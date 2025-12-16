@@ -27,13 +27,13 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                     const query = hogql`
                         SELECT DISTINCT properties.$lib_custom_api_host AS lib_custom_api_host
                         FROM events
-                        WHERE timestamp >= now() - INTERVAL 1 DAY 
+                        WHERE timestamp >= now() - INTERVAL 1 DAY
                         AND timestamp <= now()
                         AND properties.$lib_custom_api_host IS NOT NULL
                         AND event IN ('$pageview', '$screen')
                         LIMIT 10`
 
-                    const res = await api.queryHogQL(query)
+                    const res = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query)
                     return !!res.results?.find((x) => !!x[0])
                 },
             },

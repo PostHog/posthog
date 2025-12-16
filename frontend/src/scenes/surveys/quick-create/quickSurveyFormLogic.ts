@@ -16,6 +16,7 @@ import {
     LinkSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
+    SurveyQuestion,
     SurveyQuestionType,
     SurveyType,
 } from '~/types'
@@ -37,6 +38,7 @@ export interface QuickSurveyFormValues {
     question: string
     description?: string
     questionType: QuickSurveyQuestionType
+    scaleType?: 'number' | 'emoji'
     ratingLowerBound?: string
     ratingUpperBound?: string
     buttonText?: string
@@ -44,6 +46,8 @@ export interface QuickSurveyFormValues {
     conditions: Survey['conditions']
     appearance: Survey['appearance']
     linkedFlagId?: number | null
+    followUpQuestion?: string
+    followUpEnabled?: boolean
 }
 
 export interface QuickSurveyFormLogicProps {
@@ -54,6 +58,20 @@ export interface QuickSurveyFormLogicProps {
     onSuccess?: () => void
 }
 
+function buildSurveyQuestions(formValues: QuickSurveyFormValues): SurveyQuestion[] {
+    const questions = [buildSurveyQuestion(formValues)]
+
+    if (formValues.followUpEnabled && formValues.followUpQuestion?.trim()) {
+        questions.push({
+            type: SurveyQuestionType.Open,
+            question: formValues.followUpQuestion,
+            optional: true,
+        })
+    }
+
+    return questions
+}
+
 function buildSurveyQuestion(
     formValues: QuickSurveyFormValues
 ): BasicSurveyQuestion | RatingSurveyQuestion | LinkSurveyQuestion {
@@ -62,10 +80,11 @@ function buildSurveyQuestion(
             type: SurveyQuestionType.Rating,
             question: formValues.question,
             optional: false,
-            display: 'emoji',
+            display: formValues.scaleType || 'emoji',
             scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
             lowerBoundLabel: formValues.ratingLowerBound || DEFAULT_RATING_LOWER_LABEL,
             upperBoundLabel: formValues.ratingUpperBound || DEFAULT_RATING_UPPER_LABEL,
+            skipSubmitButton: true,
         }
     } else if (formValues.questionType === SurveyQuestionType.Link) {
         return {
@@ -134,7 +153,7 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
                 const surveyData: Partial<Survey> = {
                     name: formValues.name,
                     type: SurveyType.Popover,
-                    questions: [buildSurveyQuestion(formValues)],
+                    questions: buildSurveyQuestions(formValues),
                     conditions: formValues.conditions,
                     appearance: formValues.appearance,
                     ...(formValues.linkedFlagId ? { linked_flag_id: formValues.linkedFlagId } : {}),
@@ -196,7 +215,7 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
                     id: 'new',
                     name: surveyForm.name,
                     type: SurveyType.Popover,
-                    questions: [buildSurveyQuestion(surveyForm)],
+                    questions: buildSurveyQuestions(surveyForm),
                     conditions: surveyForm.conditions,
                     appearance: surveyForm.appearance,
                 }) as NewSurvey,

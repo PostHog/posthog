@@ -593,6 +593,7 @@ def update_all_orgs_billing_quotas(
     period_start, period_end = period
 
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
+    _, exception_metrics = get_teams_with_exceptions_captured_in_period(period_start, period_end)
 
     # Check if AI billing usage report is enabled
     is_ai_billing_enabled = posthoganalytics.feature_enabled(
@@ -604,9 +605,7 @@ def update_all_orgs_billing_quotas(
         "teams_with_event_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_billable_event_count_in_period(period_start, period_end)
         ),
-        "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_exceptions_captured_in_period(period_start, period_end)
-        ),
+        "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(exception_metrics),
         "teams_with_recording_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_recording_count_in_period(period_start, period_end)
         ),

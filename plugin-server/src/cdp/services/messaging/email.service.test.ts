@@ -289,5 +289,66 @@ describe('EmailService', () => {
                 }
             `)
         })
+
+        it('should not include replyTo if not in params', async () => {
+            await service.ses.verifyDomainIdentity({ Domain: 'posthog-test.com' }).promise()
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(sendEmailSpy.mock.calls[0][0].ReplyToAddresses).toBeUndefined()
+        })
+
+        it('should include single replyTo address if in params', async () => {
+            await service.ses.verifyDomainIdentity({ Domain: 'posthog-test.com' }).promise()
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                replyTo: 'Customer Service <reply@example.com>',
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(sendEmailSpy.mock.calls[0][0].ReplyToAddresses).toEqual(['Customer Service <reply@example.com>'])
+        })
+
+        it('should split multiple comma-separated replyTo addresses', async () => {
+            await service.ses.verifyDomainIdentity({ Domain: 'posthog-test.com' }).promise()
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                replyTo: 'reply1@example.com, reply2@example.com, Customer Service <reply3@example.com>',
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(sendEmailSpy.mock.calls[0][0].ReplyToAddresses).toEqual([
+                'reply1@example.com',
+                'reply2@example.com',
+                'Customer Service <reply3@example.com>',
+            ])
+        })
+
+        it('should not include preheader span if not in params', async () => {
+            await service.ses.verifyDomainIdentity({ Domain: 'posthog-test.com' }).promise()
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                html: '<tbody>Test email content</tbody>',
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const htmlData = sendEmailSpy.mock.calls[0][0].Message.Body.Html.Data
+            expect(htmlData).not.toContain('<tbody><span')
+        })
+
+        it('should include preheader at top of HTML if in params', async () => {
+            await service.ses.verifyDomainIdentity({ Domain: 'posthog-test.com' }).promise()
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                html: '<tbody>Test email content</tbody>',
+                preheader: 'This is a preview text',
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const htmlData = sendEmailSpy.mock.calls[0][0].Message.Body.Html.Data
+            expect(htmlData).toMatch(/<tbody><span style=\".*\">This is a preview text<\/span>/)
+        })
     })
 })

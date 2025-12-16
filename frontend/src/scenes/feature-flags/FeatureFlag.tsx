@@ -48,6 +48,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
@@ -166,6 +167,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
         reportUserFeedbackButtonClicked(SURVEY_CREATED_SOURCE.FEATURE_FLAGS, {
             existingSurvey: hasVariantSurvey,
+        })
+
+        void addProductIntentForCrossSell({
+            from: ProductKey.FEATURE_FLAGS,
+            to: ProductKey.SURVEYS,
+            intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
         })
 
         if (hasVariantSurvey) {
@@ -828,15 +835,22 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                                 }}
                                 actions={
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => editFeatureFlag(true)}
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                    </>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.FeatureFlag}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={featureFlag.user_access_level}
+                                    >
+                                        {({ disabledReason }) => (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                disabledReason={disabledReason}
+                                                onClick={() => editFeatureFlag(true)}
+                                            >
+                                                Edit
+                                            </LemonButton>
+                                        )}
+                                    </AccessControlAction>
                                 }
                             />
                             <LemonTabs
@@ -1518,6 +1532,9 @@ function FeatureFlagRollout({
                                     onRemoveVariant={removeVariant}
                                     onDistributeEqually={distributeVariantsEqually}
                                     canEditVariant={canEditVariant}
+                                    hasExperiment={hasExperiment ?? false}
+                                    experimentId={experiment?.id}
+                                    experimentName={experiment?.name}
                                     isDraftExperiment={isDraftExperiment}
                                     onVariantChange={(index, field, value) => {
                                         const currentVariants = [...variants]

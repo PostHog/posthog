@@ -47,13 +47,13 @@ const loadClickhouseEvents = async (
     { date_from, date_to }: { date_from?: string; date_to?: string }
 ): Promise<any[]> => {
     const query = hogql`
-        SELECT uuid, distinct_id, event, timestamp, properties, elements_chain, person.id, person.properties, person.created_at 
+        SELECT uuid, distinct_id, event, timestamp, properties, elements_chain, person.id, person.properties, person.created_at
         FROM events
         WHERE uuid in (${hogql.raw(eventIds.map((x) => `'${x}'`).join(','))})
         AND timestamp > {filters.dateRange.from}
         AND timestamp < {filters.dateRange.to}`
 
-    const response = await api.queryHogQL(query, {
+    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
         refresh: 'force_blocking',
         filtersOverride: {
             date_from: date_from,

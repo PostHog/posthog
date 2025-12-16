@@ -1,6 +1,7 @@
 import { SurveyQuestionType } from 'posthog-js'
 
 import { EventsNode } from '~/queries/schema/schema-general'
+import { SurveyMatchType } from '~/types'
 
 import { SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from '../constants'
 import { toSurveyEvent } from '../utils/opportunityDetection'
@@ -82,6 +83,71 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                     question: 'Hog mode is now available!',
                     description: 'You can never have too many hedgehogs.',
                     buttonText: 'Check it out 👉',
+                },
+            }
+
+        case QuickSurveyType.ERROR_TRACKING:
+            return {
+                key: `error-tracking-${context.exceptionType}-${randomId}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.ERROR_TRACKING,
+                defaults: {
+                    name: `${context.exceptionType} feedback (${randomId})`,
+                    question: 'Looks like we hit a snag - how disruptive was this?',
+                    questionType: SurveyQuestionType.Rating,
+                    scaleType: 'number',
+                    ratingLowerBound: 'Minor glitch',
+                    ratingUpperBound: "Can't continue",
+                    followUpEnabled: true,
+                    followUpQuestion: 'What were you trying to do?',
+                    conditions: {
+                        actions: null,
+                        events: {
+                            values: [
+                                {
+                                    name: '$exception',
+                                    propertyFilters: {
+                                        $exception_types: { values: [context.exceptionType], operator: 'exact' },
+                                        ...(context.exceptionMessage
+                                            ? {
+                                                  $exception_values: {
+                                                      values: [context.exceptionMessage],
+                                                      operator: 'icontains',
+                                                  },
+                                              }
+                                            : {}),
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                },
+            }
+
+        case QuickSurveyType.WEB_PATH:
+            return {
+                key: `web-path-${context.path}-${randomId}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.WEB_ANALYTICS,
+                defaults: {
+                    name: `Survey users on ${context.path} (${randomId})`,
+                    question: 'How was your experience on this page?',
+                    questionType: SurveyQuestionType.Rating,
+                    scaleType: 'emoji',
+                    ratingLowerBound: 'Terrible',
+                    ratingUpperBound: 'Amazing',
+                    followUpEnabled: true,
+                    followUpQuestion: 'What could we improve?',
+                    conditions: {
+                        actions: null,
+                        events: null,
+                        url: context.path,
+                        urlMatchType: SurveyMatchType.Contains,
+                    },
+                    appearance: {
+                        ...defaultSurveyAppearance,
+                        surveyPopupDelaySeconds: 15,
+                    },
                 },
             }
     }

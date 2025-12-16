@@ -9,11 +9,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from posthog.middleware import impersonated_session_logout, login_as_user_read_only
 from posthog.views import api_key_search_view, redis_values_view
 
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
-from ee.api.vercel import vercel_sso
+from ee.api.vercel import vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
@@ -102,6 +103,9 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
+    from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
+        backfill_precalculated_person_properties_view,
+    )
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
 
@@ -121,6 +125,21 @@ if settings.ADMIN_PORTAL_ENABLED:
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
         ),
+        path(
+            "admin/backfill-precalculated-person-properties/",
+            admin.site.admin_view(backfill_precalculated_person_properties_view),
+            name="backfill-precalculated-person-properties",
+        ),
+        path(
+            "admin/logout/",
+            admin.site.admin_view(impersonated_session_logout),
+            name="loginas-logout",
+        ),
+        path(
+            "admin/login/user/<str:user_id>/read-only/",
+            login_as_user_read_only,
+            name="loginas-user-login-read-only",
+        ),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]
@@ -134,6 +153,7 @@ urlpatterns: list[Any] = [
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     path("login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     path("login/vercel/continue", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
+    path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
     path("scim/v2/<uuid:domain_id>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
     path(
         "scim/v2/<uuid:domain_id>/Users/<int:user_id>",
