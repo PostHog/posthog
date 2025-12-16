@@ -44,7 +44,7 @@ from posthog.models import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.chat_agent.query_executor.format import (
+from ee.hogai.context.insight.format import (
     FunnelResultsFormatter,
     RetentionResultsFormatter,
     RevenueAnalyticsGrossRevenueResultsFormatter,
@@ -54,12 +54,7 @@ from ee.hogai.chat_agent.query_executor.format import (
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.query import validate_assistant_query
-from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
-
-from ee.hogai.chat_agent.query_executor.prompts import (
+from ee.hogai.context.insight.prompts import (
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,
     FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
@@ -73,6 +68,10 @@ from ee.hogai.chat_agent.query_executor.prompts import (
     SQL_EXAMPLE_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
 )
+from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.utils.prompt import format_prompt_string
+from ee.hogai.utils.query import validate_assistant_query
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
 
 logger = structlog.get_logger(__name__)
 

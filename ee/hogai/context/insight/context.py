@@ -6,7 +6,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.models import Team
 
-from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
+from ee.hogai.context.insight.query_executor import execute_and_format_query
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery

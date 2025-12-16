@@ -149,7 +149,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[])
 
         with patch(
-            "ee.hogai.chat_agent.query_executor.format.TrendsResultsFormatter.format",
+            "ee.hogai.context.insight.format.TrendsResultsFormatter.format",
             side_effect=Exception("Compression failed"),
         ):
             result, used_fallback = await self.query_runner.arun_and_format_query(query)

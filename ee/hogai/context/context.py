@@ -27,8 +27,8 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ArtifactManager
-from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
