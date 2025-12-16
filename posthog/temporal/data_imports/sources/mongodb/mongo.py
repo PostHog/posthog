@@ -24,7 +24,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 
 # Schema inference settings
 SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
-SCHEMA_INFERENCE_TIMEOUT_MS = 30_000  # 30 seconds
+SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
 
 
 def _process_nested_value(value: Any) -> Any:
