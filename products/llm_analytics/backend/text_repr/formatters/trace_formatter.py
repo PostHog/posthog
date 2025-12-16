@@ -318,7 +318,7 @@ def _render_tree(
 
 def format_trace_text_repr(
     trace: dict[str, Any], hierarchy: list[dict[str, Any]], options: FormatterOptions | None = None
-) -> str:
+) -> tuple[str, bool]:
     """
     Format a complete trace with hierarchical event structure.
 
@@ -337,7 +337,7 @@ def format_trace_text_repr(
         options: Formatting options
 
     Returns:
-        Formatted text representation of the trace with tree structure
+        Tuple of (formatted_text, was_sampled) - the text representation and whether uniform sampling was applied
     """
     lines: list[str] = []
     props = trace.get("properties", {})
@@ -396,7 +396,8 @@ def format_trace_text_repr(
     # Apply max_length constraint by uniformly sampling lines if needed
     # Defaults to 2M chars to fit within LLM context windows
     max_length = options.get("max_length", DEFAULT_MAX_LENGTH) if options else DEFAULT_MAX_LENGTH
+    was_sampled = False
     if max_length and len(formatted_text) > max_length:
-        formatted_text = reduce_by_uniform_sampling(formatted_text, max_length)
+        formatted_text, was_sampled = reduce_by_uniform_sampling(formatted_text, max_length)
 
-    return formatted_text
+    return formatted_text, was_sampled

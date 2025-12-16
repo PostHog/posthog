@@ -65,7 +65,7 @@ def reduce_by_uniform_sampling(
     text: str,
     max_length: int,
     preserve_header_lines: int = PRESERVE_HEADER_LINES,
-) -> str:
+) -> tuple[str, bool]:
     """
     Reduce text to fit within max_length by uniformly sampling lines.
 
@@ -79,22 +79,22 @@ def reduce_by_uniform_sampling(
         preserve_header_lines: Number of lines at the start to never drop
 
     Returns:
-        Sampled text with header note explaining sampling ratio
+        Tuple of (text, was_sampled) - sampled text and whether sampling occurred
     """
     if len(text) <= max_length:
-        return text
+        return text, False
 
     lines = text.split("\n")
     total_lines = len(lines)
 
     if total_lines <= preserve_header_lines:
-        return text
+        return text, False
 
     header_lines = lines[:preserve_header_lines]
     body_lines = lines[preserve_header_lines:]
 
     if not body_lines:
-        return text
+        return text, False
 
     sample_header_template_size = len(SAMPLED_VIEW_HEADER.format(percent=100, total=total_lines)) + 1
 
@@ -103,13 +103,13 @@ def reduce_by_uniform_sampling(
 
     available_for_body = max_length - header_size
     if available_for_body <= 0:
-        return text
+        return text, False
 
     avg_line_length = sum(len(line) + 1 for line in body_lines) / len(body_lines)
     target_body_lines = int(available_for_body / avg_line_length)
 
     if target_body_lines >= len(body_lines):
-        return text
+        return text, False
 
     target_body_lines = max(target_body_lines, 1)
 
@@ -135,7 +135,7 @@ def reduce_by_uniform_sampling(
         _, _, result = sample_lines(target_body_lines)
         iteration += 1
 
-    return result
+    return result, True
 
 
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:

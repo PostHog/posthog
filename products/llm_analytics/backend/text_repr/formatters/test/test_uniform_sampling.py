@@ -17,25 +17,29 @@ def _create_numbered_text(num_lines: int, line_content_length: int = 50) -> str:
 class TestReduceByUniformSampling:
     def test_text_under_max_length_unchanged(self):
         text = _create_numbered_text(10, line_content_length=20)
-        result = reduce_by_uniform_sampling(text, max_length=10000)
+        result, was_sampled = reduce_by_uniform_sampling(text, max_length=10000)
         assert result == text
+        assert was_sampled is False
 
     def test_text_exactly_at_max_length_unchanged(self):
         text = _create_numbered_text(10, line_content_length=20)
-        result = reduce_by_uniform_sampling(text, max_length=len(text))
+        result, was_sampled = reduce_by_uniform_sampling(text, max_length=len(text))
         assert result == text
+        assert was_sampled is False
 
     def test_large_text_is_sampled(self):
         text = _create_numbered_text(1000, line_content_length=100)
         max_length = 5000
-        result = reduce_by_uniform_sampling(text, max_length=max_length)
+        result, was_sampled = reduce_by_uniform_sampling(text, max_length=max_length)
         assert len(result) <= max_length
+        assert was_sampled is True
 
     def test_sampled_text_contains_header_note(self):
         text = _create_numbered_text(1000, line_content_length=100)
-        result = reduce_by_uniform_sampling(text, max_length=5000)
+        result, was_sampled = reduce_by_uniform_sampling(text, max_length=5000)
         assert "[SAMPLED VIEW:" in result
         assert "Gaps in line numbers indicate omitted content" in result
+        assert was_sampled is True
 
     def test_header_lines_are_preserved(self):
         lines = [f"L{str(i).zfill(3)}: Header {i}" for i in range(1, PRESERVE_HEADER_LINES + 1)]
@@ -43,14 +47,14 @@ class TestReduceByUniformSampling:
             lines.append(f"L{str(i).zfill(4)}: Body line {i}")
         text = "\n".join(lines)
 
-        result = reduce_by_uniform_sampling(text, max_length=3000)
+        result, _ = reduce_by_uniform_sampling(text, max_length=3000)
 
         for i in range(1, PRESERVE_HEADER_LINES + 1):
             assert f"Header {i}" in result
 
     def test_sampled_lines_show_gaps_in_line_numbers(self):
         text = _create_numbered_text(100, line_content_length=100)
-        result = reduce_by_uniform_sampling(text, max_length=2000)
+        result, _ = reduce_by_uniform_sampling(text, max_length=2000)
         result_lines = result.split("\n")
 
         line_numbers = []
@@ -67,7 +71,7 @@ class TestReduceByUniformSampling:
 
     def test_sample_header_inserted_after_first_two_lines(self):
         text = _create_numbered_text(1000, line_content_length=100)
-        result = reduce_by_uniform_sampling(text, max_length=5000)
+        result, _ = reduce_by_uniform_sampling(text, max_length=5000)
         result_lines = result.split("\n")
 
         assert result_lines[0].startswith("L")
@@ -85,26 +89,28 @@ class TestReduceByUniformSampling:
     )
     def test_result_fits_within_max_length(self, num_lines: int, max_length: int):
         text = _create_numbered_text(num_lines, line_content_length=100)
-        result = reduce_by_uniform_sampling(text, max_length=max_length)
+        result, _ = reduce_by_uniform_sampling(text, max_length=max_length)
         assert len(result) <= max_length
 
     def test_very_small_max_length_reduces_aggressively(self):
         text = _create_numbered_text(100, line_content_length=50)
-        result = reduce_by_uniform_sampling(text, max_length=1000)
+        result, _ = reduce_by_uniform_sampling(text, max_length=1000)
         assert len(result) <= 1000
 
     def test_text_with_only_header_lines_unchanged(self):
         text = _create_numbered_text(PRESERVE_HEADER_LINES, line_content_length=20)
-        result = reduce_by_uniform_sampling(text, max_length=100)
+        result, was_sampled = reduce_by_uniform_sampling(text, max_length=100)
         assert result == text
+        assert was_sampled is False
 
     def test_empty_text_unchanged(self):
-        result = reduce_by_uniform_sampling("", max_length=1000)
+        result, was_sampled = reduce_by_uniform_sampling("", max_length=1000)
         assert result == ""
+        assert was_sampled is False
 
     def test_percentage_in_header_is_accurate(self):
         text = _create_numbered_text(1000, line_content_length=100)
-        result = reduce_by_uniform_sampling(text, max_length=10000)
+        result, _ = reduce_by_uniform_sampling(text, max_length=10000)
 
         import re
 

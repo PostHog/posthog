@@ -307,11 +307,12 @@ The response includes the formatted text and metadata about the rendering.
                 return Response(cached_result, status=status.HTTP_200_OK)
 
             # Cache miss - generate text representation
-            # The formatter will handle max_length by randomly dropping lines if needed
+            # The formatter will handle max_length by uniform sampling if needed
             start_time = time.time()
+            truncated_by_max_length = False
             if event_type == "$ai_trace":
                 # For traces, expect data to have trace and hierarchy
-                text = format_trace_text_repr(
+                text, truncated_by_max_length = format_trace_text_repr(
                     trace=data.get("trace", {}),
                     hierarchy=data.get("hierarchy", []),
                     options=options,
@@ -320,10 +321,6 @@ The response includes the formatted text and metadata about the rendering.
                 # For $ai_generation and $ai_span
                 text = format_event_text_repr(event=data, options=options)
             duration_seconds = time.time() - start_time
-
-            # Check if text was reduced by looking for dropped chunk markers
-            # Markers look like: "L10-L12: [...3 lines...]"
-            truncated_by_max_length = "[..." in text and "lines...]" in text
 
             # For UI display, fail if truncation was needed - let frontend fallback to collapsed view
             # This prevents showing a wall of "[...3 lines...]" markers for extreme outliers
