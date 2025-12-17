@@ -20,6 +20,11 @@ fn classify_client_type(user_agent: Option<&str>) -> &'static str {
         return "unknown";
     };
 
+    // Empty string means header was present but empty - semantically same as missing
+    if ua.is_empty() {
+        return "unknown";
+    }
+
     // PostHog JS SDK (browser)
     if ua.starts_with("posthog-js/") {
         return "posthog-js";
@@ -247,7 +252,7 @@ pub fn try_parse_with_fallbacks(
                 );
                 tracing::info!(
                     client_type = client_type,
-                    "Successfully parsed request using base64 fallback"
+                    "Successfully parsed request after base64 fallback decoding"
                 );
                 return Ok(request);
             }
@@ -560,7 +565,7 @@ mod tests {
         #[case(Some("curl/7.68.0"), "curl")]
         #[case(Some("python-requests/2.28.0"), "python-requests")]
         #[case(Some("custom-client/1.0"), "other")]
-        #[case(Some(""), "other")]
+        #[case(Some(""), "unknown")]
         #[case(None, "unknown")]
         fn test_classify_client_type(#[case] user_agent: Option<&str>, #[case] expected: &str) {
             assert_eq!(classify_client_type(user_agent), expected);
