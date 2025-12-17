@@ -1309,6 +1309,82 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             dialect="clickhouse",
         )
 
+    def test_direct_query_reverse_foreign_key_lazy_join(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="direct_source",
+            connection_id="connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="",
+            is_direct_query=True,
+            job_inputs={"schema": "posthog"},
+        )
+
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="posthog_dashboard",
+            source=source,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer"},
+                    ],
+                    "primary_key": ["id"],
+                }
+            },
+        )
+
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="posthog_dashboarditem",
+            source=source,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer"},
+                        {"name": "dashboard_id", "data_type": "integer"},
+                    ],
+                    "primary_key": ["id"],
+                    "foreign_keys": [
+                        {"column": "dashboard_id", "target_table": "posthog_dashboard", "target_column": "id"}
+                    ],
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team)
+        dashboard_table = database.get_table("postgres.posthog_dashboard")
+
+        assert dashboard_table is not None
+        assert isinstance(dashboard_table, Table)
+
+        reverse_join = dashboard_table.fields.get("items")
+
+        assert isinstance(reverse_join, LazyJoin)
+        assert reverse_join.from_field == ["id"]
+        assert reverse_join.to_field == ["dashboard_id"]
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+
+        prepare_and_print_ast(
+            parse_select("SELECT count(items.id) FROM postgres.posthog_dashboard"),
+            context,
+            dialect="clickhouse",
+        )
+
+        serialized_database = database.serialize(context)
+
+        dashboard_schema = serialized_database.get("postgres.posthog_dashboard")
+        assert dashboard_schema is not None
+        assert dashboard_schema.schema_metadata is not None
+        assert any(
+            fk.column == "items"
+            and fk.target_table == "postgres.posthog_dashboarditem"
+            and fk.target_column == "dashboard_id"
+            for fk in dashboard_schema.schema_metadata.foreign_keys or []
+        )
+
     def test_foreign_key_lazy_join_uses_target_table_in_subquery(self):
         join_table = Table(name="postgres.posthog_team", fields={"id": IntegerDatabaseField(name="id")})
 

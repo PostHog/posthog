@@ -308,6 +308,7 @@ class Database(BaseModel):
 
         self._week_start_day = week_start_day
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
+        self._reverse_foreign_keys: dict[str, list[DatabaseSchemaForeignKey]] = {}
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
@@ -318,6 +319,13 @@ class Database(BaseModel):
     def get_serialization_errors(self) -> dict[str, str]:
         """Return any errors encountered during serialization."""
         return self._serialization_errors.copy()
+
+    def add_reverse_foreign_key(self, table_name: str, foreign_key: DatabaseSchemaForeignKey) -> None:
+        reverse_keys = self._reverse_foreign_keys.setdefault(table_name, [])
+        reverse_keys.append(foreign_key)
+
+    def get_reverse_foreign_keys(self, table_name: str) -> list[DatabaseSchemaForeignKey]:
+        return self._reverse_foreign_keys.get(table_name, [])
 
     def has_table(self, table_name: str | list[str]) -> bool:
         if isinstance(table_name, str):
@@ -560,6 +568,10 @@ class Database(BaseModel):
                 )
                 fields_dict = {field.name: field for field in fields}
 
+                schema_metadata = _merge_schema_metadata_foreign_keys(
+                    schema_metadata, self.get_reverse_foreign_keys(table_key)
+                )
+
                 tables[table_key] = DatabaseSchemaDataWarehouseTable(
                     fields=fields_dict,
                     id=str(warehouse_table.id),
@@ -735,6 +747,10 @@ class Database(BaseModel):
                     fields=target_fields,
                     id=str(target_table.id) if isinstance(target_table, SavedQuery) else field_name,
                 )
+
+            schema_metadata = _merge_schema_metadata_foreign_keys(
+                schema_metadata, self.get_reverse_foreign_keys(table_key)
+            )
 
             tables[table_key] = DatabaseSchemaDataWarehouseTable(
                 fields=fields_dict,
@@ -1079,7 +1095,7 @@ class Database(BaseModel):
                 with timings.measure(f"table_{table.name}"):
                     s3_table = table.hogql_definition(modifiers)
 
-                    _add_foreign_key_lazy_joins(s3_table, table)
+                    _add_foreign_key_lazy_joins(s3_table, table, database)
 
                     # If the warehouse table has no _properties_ field, then set it as a virtual table
                     if s3_table.fields.get("properties") is None:
@@ -1173,7 +1189,7 @@ class Database(BaseModel):
                         fields=fields,
                     )
 
-                    _add_foreign_key_lazy_joins(pg_table, dq_schema)
+                    _add_foreign_key_lazy_joins(pg_table, dq_schema, database)
 
                     # Add to warehouse tables using dot notation chain
                     table_chain = table_key.split(".")
@@ -1600,8 +1616,25 @@ def _foreign_key_join_function(
     return _join_function
 
 
+def _reverse_foreign_key_field_name(from_table: str, target_table: str) -> str:
+    from_base = from_table.split(".")[-1]
+    target_base = target_table.split(".")[-1]
+
+    if from_base.startswith(target_base):
+        reverse_name = from_base[len(target_base) :].lstrip("_") or from_base
+    else:
+        reverse_name = from_base
+
+    if not reverse_name.endswith("s"):
+        reverse_name = f"{reverse_name}s"
+
+    return reverse_name
+
+
 def _add_foreign_key_lazy_joins(
-    hogql_table: Table, warehouse_table: DataWarehouseTable | ExternalDataSchema | DirectQuerySchemaInfo
+    hogql_table: Table,
+    warehouse_table: DataWarehouseTable | ExternalDataSchema | DirectQuerySchemaInfo,
+    database: None | Database = None,
 ) -> None:
     schemas_attr = getattr(warehouse_table, "externaldataschema_set", None)
 
@@ -1666,6 +1699,59 @@ def _add_foreign_key_lazy_joins(
             join_table=join_table,
             join_function=_foreign_key_join_function(from_field, to_field),
         )
+
+        if database is None:
+            continue
+
+        target_table_name: str | None
+        if isinstance(join_table, Table) and isinstance(join_table.name, str):
+            target_table_name = join_table.name
+        elif isinstance(join_table, str):
+            target_table_name = join_table
+        else:
+            target_table_name = None
+
+        source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
+
+        if target_table_name is None or source_table_name is None:
+            continue
+
+        reverse_field_name = _reverse_foreign_key_field_name(source_table_name, target_table_name)
+
+        try:
+            target_table = database.get_table(target_table_name)
+        except QueryError:
+            target_table = None
+
+        if isinstance(target_table, Table) and target_table.fields.get(reverse_field_name) is None:
+            target_table.fields[reverse_field_name] = LazyJoin(
+                from_field=to_field,
+                to_field=from_field,
+                join_table=hogql_table,
+                join_function=_foreign_key_join_function(to_field, from_field),
+            )
+
+        database.add_reverse_foreign_key(
+            target_table_name,
+            DatabaseSchemaForeignKey(
+                column=reverse_field_name,
+                target_table=source_table_name,
+                target_column=column,
+            ),
+        )
+
+
+def _merge_schema_metadata_foreign_keys(
+    schema_metadata: DatabaseSchemaMetadata | None, reverse_foreign_keys: list[DatabaseSchemaForeignKey]
+) -> DatabaseSchemaMetadata | None:
+    if not reverse_foreign_keys:
+        return schema_metadata
+
+    if schema_metadata is None:
+        return DatabaseSchemaMetadata(foreign_keys=list(reverse_foreign_keys))
+
+    schema_metadata.foreign_keys = (schema_metadata.foreign_keys or []) + list(reverse_foreign_keys)
+    return schema_metadata
 
 
 def serialize_fields(
