@@ -122,7 +122,7 @@ const recordingDisabledReason = (
                 not all recordings are captured.
             </>
         )
-    } else if (!hasRecording) {
+    } else if (hasRecording === false) {
         return 'No recording for this event'
     }
     return null

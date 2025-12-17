@@ -15148,6 +15148,56 @@ class StickinessActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class VisualizationItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantHogQLQuery
+    )
+    initiator: str | None = None
+    plan: str | None = None
+    query: str | None = ""
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantHogQLQuery
+    )
+    id: str | None = None
+    initiator: str | None = None
+    parent_tool_call_id: str | None = None
+    plan: str | None = None
+    query: str | None = ""
+    short_id: str | None = None
+    type: Literal["ai/viz"] = "ai/viz"
+
+
 class NamedArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15390,6 +15440,17 @@ class FunnelsActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class MultiVisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    commentary: str | None = None
+    id: str | None = None
+    parent_tool_call_id: str | None = None
+    type: Literal["ai/multi_viz"] = "ai/multi_viz"
+    visualizations: list[VisualizationItem]
+
+
 class PathsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15614,97 +15675,6 @@ class QueryResponseAlternative(
     )
 
 
-class VisualizationArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content_type: Literal["visualization"] = Field(
-        default="visualization", description="Visualization artifact (chart, graph, etc.)"
-    )
-    description: str | None = None
-    name: str | None = None
-    query: (
-        AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantHogQLQuery
-        | TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-    )
-
-
-class VisualizationItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: (
-        AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantHogQLQuery
-        | TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-    )
-    initiator: str | None = None
-    plan: str | None = None
-    query: str | None = ""
-
-
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: (
-        AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantHogQLQuery
-        | TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-    )
-    id: str | None = None
-    initiator: str | None = None
-    parent_tool_call_id: str | None = None
-    plan: str | None = None
-    query: str | None = ""
-    short_id: str | None = None
-    type: Literal["ai/viz"] = "ai/viz"
-
-
-class AgentArtifactContent(RootModel[DocumentArtifactContent | VisualizationArtifactContent]):
-    root: DocumentArtifactContent | VisualizationArtifactContent
-
-
-class ArtifactMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    artifact_id: str = Field(..., description="The ID of the artifact (short_id for both drafts and saved insights)")
-    content: VisualizationArtifactContent | NotebookArtifactContent = Field(..., description="Content of artifact")
-    id: str | None = None
-    parent_tool_call_id: str | None = None
-    source: ArtifactSource = Field(..., description="Source of artifact - determines which model to fetch from")
-    type: Literal["ai/artifact"] = "ai/artifact"
-
-
 class DatabaseSchemaQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15784,17 +15754,6 @@ class InsightVizNode(BaseModel):
     suppressSessionAnalysisWarning: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: VizSpecificOptions | None = None
-
-
-class MultiVisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    commentary: str | None = None
-    id: str | None = None
-    parent_tool_call_id: str | None = None
-    type: Literal["ai/multi_viz"] = "ai/multi_viz"
-    visualizations: list[VisualizationItem]
 
 
 class WebVitalsQuery(BaseModel):
@@ -16289,6 +16248,18 @@ class DataTableNode(BaseModel):
     ) = Field(..., description="Source of the events")
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ArtifactMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., description="The ID of the artifact (short_id for both drafts and saved insights)")
+    content: VisualizationArtifactContent | NotebookArtifactContent = Field(..., description="Content of artifact")
+    id: str | None = None
+    parent_tool_call_id: str | None = None
+    source: ArtifactSource = Field(..., description="Source of artifact - determines which model to fetch from")
+    type: Literal["ai/artifact"] = "ai/artifact"
 
 
 class HogQLAutocomplete(BaseModel):
@@ -17046,6 +17017,88 @@ class SourceFieldSwitchGroupConfig(BaseModel):
     label: str
     name: str
     type: Literal["switch-group"] = "switch-group"
+
+
+class VisualizationArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content_type: Literal["visualization"] = Field(
+        default="visualization", description="Visualization artifact (chart, graph, etc.)"
+    )
+    description: str | None = None
+    name: str | None = None
+    query: (
+        AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantHogQLQuery
+        | EventsNode
+        | ActionsNode
+        | PersonsNode
+        | DataWarehouseNode
+        | EventsQuery
+        | SessionsQuery
+        | ActorsQuery
+        | GroupsQuery
+        | InsightActorsQuery
+        | InsightActorsQueryOptions
+        | SessionsTimelineQuery
+        | HogQuery
+        | HogQLQuery
+        | HogQLMetadata
+        | HogQLAutocomplete
+        | HogQLASTQuery
+        | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | ErrorTrackingQuery
+        | ErrorTrackingSimilarIssuesQuery
+        | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingIssueCorrelationQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | ExperimentQuery
+        | ExperimentExposureQuery
+        | DocumentSimilarityQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | WebPageURLSearchQuery
+        | WebAnalyticsExternalSummaryQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
+        | NonIntegratedConversionsTableQuery
+        | DataVisualizationNode
+        | DataTableNode
+        | SavedInsightNode
+        | InsightVizNode
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | FunnelCorrelationQuery
+        | DatabaseSchemaQuery
+        | LogsQuery
+        | SuggestedQuestionsQuery
+        | TeamTaxonomyQuery
+        | EventTaxonomyQuery
+        | ActorsPropertyTaxonomyQuery
+        | TracesQuery
+        | TraceQuery
+        | VectorSearchQuery
+        | UsageMetricsQuery
+    )
 
 
 ProsemirrorJSONContent.model_rebuild()

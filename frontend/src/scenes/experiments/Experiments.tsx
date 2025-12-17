@@ -18,6 +18,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { pluralize } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -400,9 +401,7 @@ const ExperimentsTable = ({
             {count ? (
                 <div>
                     <span className="text-secondary">
-                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} experiment${
-                            count === 1 ? '' : 's'
-                        }`}
+                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'experiment')}`}
                     </span>
                 </div>
             ) : null}

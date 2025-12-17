@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0945_scheduledchange_recurring_fields"),
+        ("posthog", "0947_insightviewed_null_unique_index"),
     ]
 
     operations = [
