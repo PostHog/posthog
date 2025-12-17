@@ -57,6 +57,7 @@ from posthog.schema import (
     TrendsQuery,
     UsageMetricsQuery,
     VectorSearchQuery,
+    WebAvgTimeOnPageTrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -175,6 +176,7 @@ RunnableQueryNode = Union[
     WebStatsTableQuery,
     WebGoalsQuery,
     WebTrendsQuery,
+    WebAvgTimeOnPageTrendsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsAggregatedQuery,
@@ -421,6 +423,17 @@ def get_query_runner(
         from .web_analytics.web_trends_query_runner import WebTrendsQueryRunner
 
         return WebTrendsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "WebAvgTimeOnPageTrendsQuery":
+        from .web_analytics.web_avg_time_on_page_trends_query_runner import WebAvgTimeOnPageTrendsQueryRunner
+
+        return WebAvgTimeOnPageTrendsQueryRunner(
             query=query,
             team=team,
             timings=timings,

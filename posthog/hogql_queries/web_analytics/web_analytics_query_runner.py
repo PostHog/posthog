@@ -15,6 +15,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     SamplingRate,
     SessionPropertyFilter,
+    WebAvgTimeOnPageTrendsQuery,
     WebExternalClicksTableQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -47,6 +48,7 @@ WebQueryNode = Union[
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
     WebTrendsQuery,
+    WebAvgTimeOnPageTrendsQuery,
 ]
 
 WAR = typing.TypeVar("WAR", bound=AnalyticsQueryResponseProtocol)
