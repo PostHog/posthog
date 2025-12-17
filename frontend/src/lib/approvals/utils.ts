@@ -13,8 +13,8 @@ export function handleApprovalRequired(
     if (error?.status === 409) {
         lemonToast.warning(error.detail || 'This action requires approval.')
 
-        import('scenes/approvals/pendingChangeRequestLogic').then(({ pendingChangeRequestLogic }) => {
-            pendingChangeRequestLogic({
+        import('scenes/approvals/changeRequestsLogic').then(({ changeRequestsLogic }) => {
+            changeRequestsLogic({
                 resourceType,
                 resourceId: String(resourceId),
             }).actions.loadChangeRequests()

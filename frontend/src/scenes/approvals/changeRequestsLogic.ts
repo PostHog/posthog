@@ -6,19 +6,39 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ChangeRequest } from '~/types'
+import { ChangeRequest, ChangeRequestState } from '~/types'
 
-import type { pendingChangeRequestLogicType } from './pendingChangeRequestLogicType'
+import type { changeRequestsLogicType } from './changeRequestsLogicType'
 
-export interface PendingChangeRequestLogicProps {
+export interface ChangeRequestsLogicProps {
     resourceType: string
     resourceId: string | number
     actionKey?: string
 }
 
-export const pendingChangeRequestLogic = kea<pendingChangeRequestLogicType>([
-    path(['scenes', 'approvals', 'pendingChangeRequestLogic']),
-    props({} as PendingChangeRequestLogicProps),
+export interface ChangeRequestButtonVisibility {
+    showApproveButton: boolean
+    showRejectButton: boolean
+    showCancelButton: boolean
+}
+
+export function getChangeRequestButtonVisibility(changeRequest: ChangeRequest): ChangeRequestButtonVisibility {
+    const isPending = changeRequest.state === ChangeRequestState.Pending
+    const canApprove = changeRequest.can_approve
+    const canCancel = changeRequest.can_cancel
+    const isRequester = changeRequest.is_requester
+    const hasVoted = !!changeRequest.user_decision
+
+    return {
+        showApproveButton: isPending && canApprove && !hasVoted,
+        showRejectButton: isPending && canApprove && !isRequester && !hasVoted,
+        showCancelButton: isPending && isRequester && canCancel,
+    }
+}
+
+export const changeRequestsLogic = kea<changeRequestsLogicType>([
+    path(['scenes', 'approvals', 'changeRequestsLogic']),
+    props({} as ChangeRequestsLogicProps),
     key((props) => `${props.resourceType}-${props.resourceId}`),
 
     connect({
@@ -62,7 +82,6 @@ export const pendingChangeRequestLogic = kea<pendingChangeRequestLogicType>([
         pendingChangeRequest: [
             (s) => [s.changeRequests],
             (changeRequests): ChangeRequest | null => {
-                // Return the most recent pending or approved CR
                 const pending = changeRequests.filter((cr) => cr.state === 'pending' || cr.state === 'approved')
                 return pending.length > 0 ? pending[0] : null
             },
@@ -72,6 +91,16 @@ export const pendingChangeRequestLogic = kea<pendingChangeRequestLogicType>([
             (s) => [s.pendingChangeRequest],
             (pendingChangeRequest): boolean => {
                 return pendingChangeRequest !== null
+            },
+        ],
+
+        buttonVisibility: [
+            (s) => [s.pendingChangeRequest],
+            (pendingChangeRequest): ChangeRequestButtonVisibility | null => {
+                if (!pendingChangeRequest) {
+                    return null
+                }
+                return getChangeRequestButtonVisibility(pendingChangeRequest)
             },
         ],
     }),
@@ -84,11 +113,9 @@ export const pendingChangeRequestLogic = kea<pendingChangeRequestLogicType>([
                     {}
                 )
 
-                // Check if it was auto-applied
                 if (response.status === 'applied') {
                     lemonToast.success('Change request approved and applied successfully')
 
-                    // Reload the page after 2 seconds to show the applied changes
                     setTimeout(() => {
                         window.location.reload()
                     }, 2000)
@@ -128,7 +155,6 @@ export const pendingChangeRequestLogic = kea<pendingChangeRequestLogicType>([
     afterMount(({ actions, props }) => {
         actions.loadChangeRequests()
 
-        // Set up event listener for change request creation
         const handleChangeRequestCreated = (event: CustomEvent): void => {
             const { resourceType, resourceId } = event.detail
             if (resourceType === props.resourceType && String(resourceId) === String(props.resourceId)) {
@@ -138,7 +164,6 @@ export const pendingChangeRequestLogic = kea<pendingChangeRequestLogicType>([
 
         window.addEventListener('change-request-created', handleChangeRequestCreated as EventListener)
 
-        // Cleanup function
         return () => {
             window.removeEventListener('change-request-created', handleChangeRequestCreated as EventListener)
         }

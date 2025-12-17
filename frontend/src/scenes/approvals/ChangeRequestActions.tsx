@@ -1,9 +1,10 @@
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 
+import { getChangeRequestButtonVisibility } from 'scenes/approvals/changeRequestsLogic'
 import { urls } from 'scenes/urls'
 
-import { ChangeRequest, ChangeRequestState } from '~/types'
+import { ChangeRequest } from '~/types'
 
 export interface ChangeRequestActionsProps {
     changeRequest: ChangeRequest
@@ -20,15 +21,7 @@ export function ChangeRequestActions({
     onCancel,
     showViewButton = false,
 }: ChangeRequestActionsProps): JSX.Element {
-    const canApprove = changeRequest.can_approve
-    const canCancel = changeRequest.can_cancel
-    const isRequester = changeRequest.is_requester
-    const userDecision = changeRequest.user_decision
-    const isPending = changeRequest.state === ChangeRequestState.Pending
-
-    const showApproveButton = isPending && canApprove && !userDecision
-    const showRejectButton = isPending && canApprove && !isRequester && !userDecision
-    const showCancelButton = isPending && isRequester && canCancel
+    const { showApproveButton, showRejectButton, showCancelButton } = getChangeRequestButtonVisibility(changeRequest)
 
     const handleApprove = (): void => {
         LemonDialog.open({

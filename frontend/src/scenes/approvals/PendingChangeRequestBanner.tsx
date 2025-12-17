@@ -7,10 +7,10 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { getApprovalActionDescription } from 'scenes/approvals/utils'
 
 import { ChangeRequestActions } from './ChangeRequestActions'
-import { PendingChangeRequestLogicProps, pendingChangeRequestLogic } from './pendingChangeRequestLogic'
+import { ChangeRequestsLogicProps, changeRequestsLogic } from './changeRequestsLogic'
 
-export function PendingChangeRequestBanner(props: PendingChangeRequestLogicProps): JSX.Element | null {
-    const logic = pendingChangeRequestLogic(props)
+export function PendingChangeRequestBanner(props: ChangeRequestsLogicProps): JSX.Element | null {
+    const logic = changeRequestsLogic(props)
     const { pendingChangeRequest, shouldShowBanner } = useValues(logic)
     const { approveRequest, rejectRequest, cancelRequest } = useActions(logic)
 

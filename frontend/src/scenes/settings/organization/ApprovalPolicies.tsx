@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonInputSelect, LemonSelect, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInputSelect, LemonSelect, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -270,11 +271,15 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                     <LemonSwitch
                         checked={allowSelfApprove}
                         onChange={setAllowSelfApprove}
-                        label="Allow self-approval"
+                        label={
+                            <div className="flex items-center gap-2">
+                                <span>Allow self-approval</span>
+                                <Tooltip title="If enabled, the person requesting the change can also approve it. They still need to be in the approver list.">
+                                    <IconInfo className="text-muted-alt w-4 h-4" />
+                                </Tooltip>
+                            </div>
+                        }
                     />
-                    <p className="text-xs text-secondary mt-1">
-                        If enabled, the person requesting the change can also approve it
-                    </p>
                 </div>
             </div>
         </LemonModal>
