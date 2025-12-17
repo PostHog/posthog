@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from posthog.schema import EventsNode, TrendsQuery
 
-from ee.hogai.context.dashboard.context import DashboardContext, InsightData
+from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 
 
 class TestDashboardContext(BaseTest):
@@ -32,7 +32,7 @@ class TestDashboardContext(BaseTest):
         mock_execute.return_value = "Insight results: 100 users"
 
         insights_data = [
-            InsightData(
+            DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Test Insight",
                 description="Test description",
@@ -67,7 +67,7 @@ class TestDashboardContext(BaseTest):
         ]
 
         insights_data = [
-            InsightData(
+            DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name=f"Insight {i}",
                 insight_id=f"insight-{i}",
@@ -104,7 +104,7 @@ class TestDashboardContext(BaseTest):
         ]
 
         insights_data = [
-            InsightData(
+            DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name=f"Insight {i}",
                 insight_id=f"insight-{i}",
@@ -147,13 +147,13 @@ class TestDashboardContext(BaseTest):
     async def test_format_schema_with_insights(self):
         """Test that format_schema returns insight schemas without execution"""
         insights_data = [
-            InsightData(
+            DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Schema Insight 1",
                 description="First insight",
                 insight_id="insight-1",
             ),
-            InsightData(
+            DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="click")]),
                 name="Schema Insight 2",
                 insight_id="insight-2",
@@ -185,7 +185,7 @@ class TestDashboardContext(BaseTest):
         mock_format_schema.side_effect = Exception("Schema error")
 
         insights_data = [
-            InsightData(
+            DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Failing Insight",
                 insight_id="fail",
@@ -238,7 +238,7 @@ class TestDashboardContext(BaseTest):
         mock_execute.return_value = "Concurrent result"
 
         insights_data = [
-            InsightData(
+            DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name=f"Insight {i}",
                 insight_id=f"insight-{i}",
@@ -268,7 +268,7 @@ class TestDashboardContext(BaseTest):
         mock_execute.return_value = "Custom template result"
 
         insights_data = [
-            InsightData(
+            DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Custom Template Insight",
                 insight_id="custom-1",

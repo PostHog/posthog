@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Sequence
 from functools import cached_property
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from uuid import uuid4
 
 from langchain_core.prompts import PromptTemplate
@@ -27,7 +27,7 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ArtifactManager
-from ee.hogai.context.dashboard.context import DashboardContext, InsightData
+from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
@@ -156,16 +156,26 @@ class AssistantContextManager(AssistantContextMixin):
                     dashboard.filters.model_dump() if hasattr(dashboard, "filters") and dashboard.filters else None
                 )
 
-                # Build InsightData models for this dashboard
-                insights_data = []
+                # Build DashboardInsightContext models for this dashboard
+                insights_data: list[DashboardInsightContext] = []
                 if dashboard.insights:
                     for insight in dashboard.insights:
+                        filters_override = (
+                            insight.filtersOverride.model_dump(mode="json") if insight.filtersOverride else None
+                        )
+                        variables_override = (
+                            {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
+                            if insight.variablesOverride
+                            else None
+                        )
                         insights_data.append(
-                            InsightData(
+                            DashboardInsightContext(
                                 query=insight.query,
                                 name=insight.name,
                                 description=insight.description,
-                                insight_id=insight.id,
+                                short_id=insight.id,
+                                filters_override=filters_override,
+                                variables_override=variables_override,
                             )
                         )
 
@@ -180,10 +190,10 @@ class AssistantContextManager(AssistantContextMixin):
                 )
 
                 try:
-                    dashboard_text = await dashboard_ctx.execute(
-                        prompt_template=ROOT_DASHBOARD_CONTEXT_PROMPT,
+                    dashboard_text = await dashboard_ctx.execute()
+                    dashboard_contexts.append(
+                        format_prompt_string(ROOT_DASHBOARD_CONTEXT_PROMPT, content=dashboard_text)
                     )
-                    dashboard_contexts.append(dashboard_text)
                 except Exception as e:
                     capture_exception(
                         e,
@@ -203,9 +213,7 @@ class AssistantContextManager(AssistantContextMixin):
         # Build standalone insights context
         insights_context = ""
         if ui_context.insights:
-            insight_contexts = [
-                self._build_insight_context(insight=insight, dashboard_filters=None) for insight in ui_context.insights
-            ]
+            insight_contexts = [self._build_insight_context(insight) for insight in ui_context.insights]
 
             # Execute all standalone insights in parallel
             insight_tasks = [self._execute_and_format_insight(ctx) for ctx in insight_contexts]
@@ -213,7 +221,7 @@ class AssistantContextManager(AssistantContextMixin):
 
             # Filter out failed results
             insights_results: list[str] = [
-                result
+                cast(str, result)
                 for result in insight_results
                 if result is not None and not isinstance(result, Exception) and result
             ]

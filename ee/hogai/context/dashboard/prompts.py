@@ -6,18 +6,9 @@ Dashboard ID: {{{dashboard_id}}}
 {{#description}}
 Description: {{{description}}}
 {{/description}}
+{{#insights}}
 
+Dashboard insights:
 {{{insights}}}
-""".strip()
-
-ROOT_DASHBOARD_CONTEXT_PROMPT = """
-## Dashboard: {{{name}}}
-{{#description}}
-
-Description: {{.}}
-{{/description}}
-
-### Dashboard insights:
-
-{{{insights}}}
+{{/insights}}
 """.strip()

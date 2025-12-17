@@ -17,7 +17,7 @@ from ee.hogai.artifacts.manager import ModelArtifactResult
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.context.dashboard.context import DashboardContext, InsightData
+from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
@@ -33,6 +33,7 @@ from ee.hogai.tools.read_data.prompts import (
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
 )
 from ee.hogai.utils.prompt import format_prompt_string
+from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantState, NodePath
 
 
@@ -210,6 +211,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             name=insight_name,
             description=result.content.description,
             insight_id=artifact_or_insight_id,
+            insight_model_id=result.model.id if isinstance(result, ModelArtifactResult) else None,
         )
 
         # The agent wants to read the schema, just return it
@@ -226,9 +228,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         )
 
         # Execute the query and return the results
-        text_result = await context.execute(
-            insight_model_id=result.model.id if isinstance(result, ModelArtifactResult) else None
-        )
+        text_result = await context.execute()
         tool_call_message = AssistantToolCallMessage(
             content=text_result,
             id=str(uuid4()),
@@ -328,7 +328,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 .aget(id=int(dashboard_id), team=self._team, deleted=False)
             )
         except (Dashboard.DoesNotExist, ValueError):
-            raise MaxToolRetryableError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
         tiles = [
@@ -336,8 +336,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             async for tile in dashboard.tiles.exclude(insight__deleted=True, deleted=True).select_related("insight")
         ]
 
-        # Build InsightData models for all tiles
-        insights_data = []
+        # Build DashboardInsightContext models for all tiles
+        insights_data: list[DashboardInsightContext] = []
         for tile in tiles:
             insight = tile.insight
             if not insight or not insight.query:
@@ -352,7 +352,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 if not query:
                     continue
                 # Convert dict to proper query model
-                from ee.hogai.utils.query import validate_assistant_query
 
                 try:
                     query = validate_assistant_query(query)
@@ -361,11 +360,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
             insight_name = insight.name or insight.derived_name or f"Insight {insight.short_id}"
             insights_data.append(
-                InsightData(
+                DashboardInsightContext(
                     query=query,
                     name=insight_name,
                     description=insight.description,
                     insight_id=insight.short_id,
+                    insight_model_id=insight.id,
                 )
             )
 

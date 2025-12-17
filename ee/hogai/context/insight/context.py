@@ -1,5 +1,3 @@
-from typing import Optional
-
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
@@ -30,6 +28,7 @@ class InsightContext:
         name: str | None = None,
         description: str | None = None,
         insight_id: str | None = None,
+        insight_model_id: int | None = None,
         # Optional dashboard filter handling
         dashboard_filters: dict | None = None,
         filters_override: dict | None = None,
@@ -40,12 +39,15 @@ class InsightContext:
         self.name = name
         self.description = description
         self.insight_id = insight_id
+        self.insight_model_id = insight_model_id
         self.dashboard_filters = dashboard_filters
         self.filters_override = filters_override
         self.variables_override = variables_override
 
     async def execute(
-        self, prompt_template: str = INSIGHT_RESULT_TEMPLATE, insight_model_id: Optional[int] = None
+        self,
+        prompt_template: str = INSIGHT_RESULT_TEMPLATE,
+        return_exceptions: bool = False,
     ) -> str:
         """Execute query and format results."""
         effective_query = self._get_effective_query()
@@ -55,15 +57,19 @@ class InsightContext:
             results = await execute_and_format_query(
                 self.team,
                 effective_query,
-                insight_id=insight_model_id,
+                insight_id=self.insight_model_id,
             )
         except Exception as e:
-            raise MaxToolRetryableError(f"Error executing query: {str(e)}")
+            error_message = f"Error executing query: {str(e)}"
+            if return_exceptions:
+                results = error_message
+            else:
+                raise MaxToolRetryableError(error_message)
 
         return format_prompt_string(
             prompt_template,
             insight_name=self.name or "Insight",
-            insight_id=self.insight_id,
+            insight_id=self.insight_model_id,
             insight_description=self.description,
             query_schema=query_schema,
             results=results,

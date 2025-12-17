@@ -21,15 +21,7 @@ The user has provided the following dashboards.
 """.strip()
 
 ROOT_DASHBOARD_CONTEXT_PROMPT = """
-## Dashboard: {{{name}}}
-{{#description}}
-
-Description: {{.}}
-{{/description}}
-
-### Dashboard insights:
-
-{{{insights}}}
+## {{{content}}}
 """.strip()
 
 ROOT_INSIGHTS_CONTEXT_PROMPT = """

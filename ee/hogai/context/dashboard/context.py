@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Sequence
+from typing import Generic
 
-from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
 from posthog.models import Team
@@ -13,13 +13,16 @@ from ee.hogai.utils.types.base import AnyPydanticModelQuery
 from .prompts import DASHBOARD_RESULT_TEMPLATE
 
 
-class InsightData(BaseModel):
+class DashboardInsightContext(BaseModel, Generic[AnyPydanticModelQuery]):
     """Data structure for creating an InsightContext within a dashboard."""
 
     query: AnyPydanticModelQuery
     name: str | None = None
     description: str | None = None
-    insight_id: str | None = None
+    short_id: str | None = None
+    db_id: int | None = None
+    filters_override: dict | None = None
+    variables_override: dict | None = None
 
 
 class DashboardContext:
@@ -33,21 +36,19 @@ class DashboardContext:
     def __init__(
         self,
         team: Team,
-        insights_data: Sequence[InsightData],
+        insights_data: Sequence[DashboardInsightContext],
         name: str | None = None,
         description: str | None = None,
         dashboard_id: str | None = None,
         dashboard_filters: dict | None = None,
-        filters_override: dict | None = None,
-        variables_override: dict | None = None,
-        max_concurrent_queries: int = 3,
+        max_concurrent_queries: int = 5,
     ):
         """
         Initialize DashboardContext.
 
         Args:
             team: Team instance
-            insights_data: List of InsightData models containing insight query and metadata
+            insights_data: List of DashboardInsightContext models containing insight query and metadata
             name: Dashboard name
             description: Dashboard description
             dashboard_id: Dashboard ID
@@ -61,33 +62,17 @@ class DashboardContext:
         self.description = description
         self.dashboard_id = dashboard_id
         self.dashboard_filters = dashboard_filters
-        self.filters_override = filters_override
-        self.variables_override = variables_override
         self._semaphore = asyncio.Semaphore(max_concurrent_queries)
 
-        # Create InsightContext objects from InsightData models
+        # Create InsightContext objects from DashboardInsightContext models
         self.insights = [self._create_insight_context(data) for data in insights_data]
-
-    def _create_insight_context(self, data: InsightData) -> InsightContext:
-        """Create an InsightContext from InsightData model."""
-        return InsightContext(
-            team=self.team,
-            query=data.query,
-            name=data.name,
-            description=data.description,
-            insight_id=data.insight_id,
-            dashboard_filters=self.dashboard_filters,
-            filters_override=self.filters_override,
-            variables_override=self.variables_override,
-        )
 
     async def execute(self, prompt_template: str = DASHBOARD_RESULT_TEMPLATE) -> str:
         """Execute all insight queries in parallel and format combined results."""
         if not self.insights:
             return format_prompt_string(
                 prompt_template,
-                name=self.name or "Dashboard",  # For ROOT_DASHBOARD_CONTEXT_PROMPT
-                dashboard_name=self.name or "Dashboard",  # For DASHBOARD_RESULT_TEMPLATE
+                dashboard_name=self.name or "Dashboard",
                 dashboard_id=self.dashboard_id,
                 description=self.description,
                 insights="",
@@ -95,22 +80,14 @@ class DashboardContext:
 
         # Run all insights in parallel with semaphore control
         insight_tasks = [self._execute_insight_with_semaphore(insight) for insight in self.insights]
-        insight_results = await asyncio.gather(*insight_tasks, return_exceptions=True)
-
-        # Filter out failed results
-        valid_results = [
-            result for result in insight_results if result is not None and not isinstance(result, Exception)
-        ]
-
-        insights_text = "\n\n".join(valid_results) if valid_results else ""
+        insight_results = await asyncio.gather(*insight_tasks)
 
         return format_prompt_string(
             prompt_template,
-            name=self.name or "Dashboard",  # For ROOT_DASHBOARD_CONTEXT_PROMPT
-            dashboard_name=self.name or "Dashboard",  # For DASHBOARD_RESULT_TEMPLATE
+            dashboard_name=self.name or "Dashboard",
             dashboard_id=self.dashboard_id,
             description=self.description,
-            insights=insights_text,
+            insights="\n\n".join(insight_results),
         )
 
     def format_schema(self, prompt_template: str = DASHBOARD_RESULT_TEMPLATE) -> str:
@@ -118,22 +95,15 @@ class DashboardContext:
         if not self.insights:
             return format_prompt_string(
                 prompt_template,
-                name=self.name or "Dashboard",  # For ROOT_DASHBOARD_CONTEXT_PROMPT
-                dashboard_name=self.name or "Dashboard",  # For DASHBOARD_RESULT_TEMPLATE
+                dashboard_name=self.name or "Dashboard",
                 dashboard_id=self.dashboard_id,
                 description=self.description,
-                insights="",
             )
 
         insight_schemas = []
         for insight in self.insights:
-            try:
-                schema = insight.format_schema()
-                insight_schemas.append(schema)
-            except Exception as e:
-                # Log but continue processing other insights
-                capture_exception(e)
-                continue
+            schema = insight.format_schema()
+            insight_schemas.append(schema)
 
         insights_text = "\n\n".join(insight_schemas) if insight_schemas else ""
 
@@ -146,12 +116,21 @@ class DashboardContext:
             insights=insights_text,
         )
 
-    async def _execute_insight_with_semaphore(self, insight: InsightContext) -> str | None:
+    async def _execute_insight_with_semaphore(self, insight: InsightContext) -> str:
         """Execute a single insight with semaphore control."""
         async with self._semaphore:
-            try:
-                return await insight.execute()
-            except Exception as e:
-                # Log but don't fail the entire dashboard
-                capture_exception(e)
-                return None
+            return await insight.execute(return_exceptions=True)
+
+    def _create_insight_context(self, data: DashboardInsightContext) -> InsightContext:
+        """Create an InsightContext from DashboardInsightContext model."""
+        return InsightContext(
+            team=self.team,
+            query=data.query,
+            name=data.name,
+            description=data.description,
+            insight_id=data.short_id,
+            insight_model_id=data.db_id,
+            dashboard_filters=self.dashboard_filters,
+            filters_override=data.filters_override,
+            variables_override=data.variables_override,
+        )

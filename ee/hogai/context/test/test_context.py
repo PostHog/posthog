@@ -60,7 +60,7 @@ class TestAssistantContextManager(ClickhouseTestMixin, BaseTest):
 
         insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
         result = await self.context_manager._execute_and_format_insight(insight_ctx)
-
+        assert result is not None
         # Check the key parts of the result
         self.assertIn("## Name: User Trends", result)
         self.assertIn("Insight ID: 123", result)
@@ -82,7 +82,7 @@ class TestAssistantContextManager(ClickhouseTestMixin, BaseTest):
 
         insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
         result = await self.context_manager._execute_and_format_insight(insight_ctx)
-
+        assert result is not None
         # Check the key parts of the result
         self.assertIn("## Name: Conversion Funnel", result)
         self.assertIn("Insight ID: 456", result)
@@ -107,7 +107,7 @@ class TestAssistantContextManager(ClickhouseTestMixin, BaseTest):
 
         insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
         result = await self.context_manager._execute_and_format_insight(insight_ctx)
-
+        assert result is not None
         # Check the key parts of the result
         self.assertIn("## Name: Insight", result)  # Falls back to "Insight" when no name
         self.assertIn("Insight ID: 789", result)
@@ -127,7 +127,7 @@ class TestAssistantContextManager(ClickhouseTestMixin, BaseTest):
 
         insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
         result = await self.context_manager._execute_and_format_insight(insight_ctx)
-
+        assert result is not None
         # Check the key parts of the result
         self.assertIn("## Name: Custom Query", result)
         self.assertIn("Insight ID: 101", result)
