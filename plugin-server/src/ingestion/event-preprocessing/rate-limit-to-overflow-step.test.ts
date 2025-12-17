@@ -1,18 +1,23 @@
-import { EventHeaders } from '../../types'
+import { createTestMessage } from '../../../tests/helpers/kafka-message'
+import { EventHeaders, PipelineEvent, Team } from '../../types'
 import { PipelineResultType } from '../pipelines/results'
 import { MemoryRateLimiter } from '../utils/overflow-detector'
 import { RateLimitToOverflowStepInput, createRateLimitToOverflowStep } from './rate-limit-to-overflow-step'
 
-const createMockHeaders = (token: string, distinctId: string, now?: Date): EventHeaders => ({
-    token,
-    distinct_id: distinctId,
-    now: now ?? new Date(),
-    force_disable_person_processing: false,
-    historical_migration: false,
-})
-
 const createMockEvent = (token: string, distinctId: string, now?: Date): RateLimitToOverflowStepInput => ({
-    headers: createMockHeaders(token, distinctId, now),
+    headers: {
+        token,
+        distinct_id: distinctId,
+        now: now ?? new Date(),
+        force_disable_person_processing: false,
+        historical_migration: false,
+    },
+    eventWithTeam: {
+        message: createTestMessage(),
+        event: { distinct_id: distinctId, token } as PipelineEvent,
+        team: { id: 1 } as Team,
+        headers: {} as EventHeaders,
+    },
 })
 
 describe('createRateLimitToOverflowStep', () => {

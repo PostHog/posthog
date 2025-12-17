@@ -1,9 +1,10 @@
-import { EventHeaders } from '../../types'
+import { EventHeaders, IncomingEventWithTeam } from '../../types'
 import { PipelineResult, ok, redirect } from '../pipelines/results'
 import { MemoryRateLimiter } from '../utils/overflow-detector'
 
 export interface RateLimitToOverflowStepInput {
     headers: EventHeaders
+    eventWithTeam: IncomingEventWithTeam
 }
 
 export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepInput>(
@@ -18,11 +19,14 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
         }
 
         // Count events by token:distinct_id and track first timestamp
+        // NOTE: headers.token and headers.now are safe to use as they don't change during processing.
+        // However, headers.distinct_id is NOT safe because cookieless processing may change the
+        // distinct_id from the sentinel value - use eventWithTeam.event.distinct_id instead.
         const keyStats = new Map<string, { count: number; firstTimestamp: number }>()
 
-        for (const { headers } of inputs) {
+        for (const { headers, eventWithTeam } of inputs) {
             const token = headers.token ?? ''
-            const distinctId = headers.distinct_id ?? ''
+            const distinctId = eventWithTeam.event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
             const timestamp = headers.now?.getTime() ?? Date.now()
 
@@ -44,9 +48,9 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
 
         // Build results in original order
         return inputs.map((input) => {
-            const { headers } = input
+            const { headers, eventWithTeam } = input
             const token = headers.token ?? ''
-            const distinctId = headers.distinct_id ?? ''
+            const distinctId = eventWithTeam.event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
 
             if (shouldRedirectKey.get(eventKey)) {
