@@ -1283,11 +1283,89 @@ function SchemaEditorView({
     onSave,
 }: SchemaEditorViewProps): JSX.Element {
     const [historyOpen, setHistoryOpen] = useState(false)
+    const [expandedSchemaItems, setExpandedSchemaItems] = useState<string[]>(['folder-schema'])
     const activeTableName = selectedTable?.name || null
     const orderedVersions = [...versions]
     const lastSaved = orderedVersions[orderedVersions.length - 1] || null
     const generatedTemplate = selectedTable ? buildCreateTableStatement(selectedTable, databaseName) : ''
     const editorValue = draft || generatedTemplate
+
+    const schemaTreeData = useMemo<TreeDataItem[]>(() => {
+        const groupedTables: Record<string, TreeDataItem> = {}
+
+        tables.forEach((table) => {
+            const folderName = getDatabaseNameFromTableName(table.name)
+            const tableName = table.name.includes('.') ? table.name.split('.').slice(1).join('.') : table.name
+            const tableDisplayName = `${tableName}.sql`
+
+            if (!groupedTables[folderName]) {
+                groupedTables[folderName] = {
+                    id: `schema-folder-${folderName}`,
+                    name: folderName,
+                    displayName: folderName,
+                    type: 'node',
+                    record: { type: 'folder', databaseName: folderName },
+                    children: [],
+                    icon: <IconStack />,
+                }
+            }
+
+            groupedTables[folderName].children?.push({
+                id: `schema-table-${table.name}`,
+                name: tableDisplayName,
+                displayName: tableDisplayName,
+                type: 'node',
+                record: { type: 'table', tableName: table.name },
+                icon: <IconStack />,
+            })
+        })
+
+        const schemaChildren = Object.values(groupedTables)
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((group) => ({
+                ...group,
+                children: (group.children || []).sort((a, b) => a.name.localeCompare(b.name)),
+            }))
+
+        return [
+            {
+                id: 'folder-schema',
+                name: 'schema',
+                displayName: 'schema',
+                type: 'node',
+                record: { type: 'folder', databaseName },
+                children: schemaChildren,
+                icon: <IconStack />,
+            },
+            {
+                id: 'folder-scripts',
+                name: 'scripts',
+                displayName: 'scripts',
+                type: 'node',
+                record: { type: 'folder' },
+                children: [],
+                icon: <IconBrackets />,
+            },
+        ]
+    }, [databaseName, tables])
+
+    useEffect(() => {
+        const folderIds = schemaTreeData.flatMap((item) => {
+            const ids: string[] = item.record?.type === 'folder' ? [item.id] : []
+
+            if (item.children) {
+                ids.push(...item.children.filter((child) => child.record?.type === 'folder').map((child) => child.id))
+            }
+
+            return ids
+        })
+
+        setExpandedSchemaItems((current) => {
+            const preserved = current.filter((id) => folderIds.includes(id))
+            const missing = folderIds.filter((id) => !preserved.includes(id))
+            return [...preserved, ...missing]
+        })
+    }, [schemaTreeData])
 
     const handleSave = (): void => {
         if (!activeTableName) {
@@ -1322,28 +1400,19 @@ function SchemaEditorView({
                             )}
                         </div>
                         <div className="flex-1 overflow-y-auto">
-                            {tables.length === 0 ? (
-                                <div className="text-muted text-sm">No tables available for this database.</div>
-                            ) : (
-                                tables.map((table) => (
-                                    <LemonButton
-                                        key={table.name}
-                                        fullWidth
-                                        className="justify-start"
-                                        type={table.name === activeTableName ? 'primary' : 'tetriary'}
-                                        onClick={() => onSelectTable(table.name)}
-                                    >
-                                        <div className="flex flex-col items-start">
-                                            <span className="font-semibold">{table.name}</span>
-                                            {table.schema_metadata?.engine && (
-                                                <span className="text-muted text-xs">
-                                                    {table.schema_metadata.engine}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </LemonButton>
-                                ))
-                            )}
+                            <LemonTree
+                                data={schemaTreeData}
+                                expandedItemIds={expandedSchemaItems}
+                                onSetExpandedItemIds={setExpandedSchemaItems}
+                                isItemActive={(item) =>
+                                    item.record?.type === 'table' && item.record.tableName === activeTableName
+                                }
+                                onItemClick={(item) => {
+                                    if (item.record?.type === 'table') {
+                                        onSelectTable(item.record.tableName)
+                                    }
+                                }}
+                            />
                         </div>
                     </div>
                 </ResizableElement>
