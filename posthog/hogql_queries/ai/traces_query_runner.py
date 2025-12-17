@@ -28,6 +28,7 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.storage.ai_blob_storage import transform_blob_properties
 
 logger = structlog.get_logger(__name__)
 
@@ -383,11 +384,13 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
     def _map_event(
         self, event_uuid: UUID, event_name: str, event_timestamp: datetime, event_properties: str
     ) -> LLMTraceEvent:
+        properties = orjson.loads(event_properties)
+        transform_blob_properties(properties)
         generation: dict[str, Any] = {
             "id": str(event_uuid),
             "event": event_name,
             "createdAt": event_timestamp.isoformat(),
-            "properties": orjson.loads(event_properties),
+            "properties": properties,
         }
         return LLMTraceEvent.model_validate(generation)
 
