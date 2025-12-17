@@ -226,7 +226,7 @@ class VercelIntegration:
                 "description": "Usage-based analytics. First 1M events free. View pricing: https://posthog.com/pricing",
                 "scope": "installation",
                 "paymentMethodRequired": True,
-                "preauthorizationAmount": "0.5",
+                "preauthorizationAmount": 0.5,
                 "details": [
                     {"label": "Pricing details", "value": "https://posthog.com/pricing"},
                     {"label": "Data retention", "value": "7 years"},
