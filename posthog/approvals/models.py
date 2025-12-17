@@ -6,6 +6,7 @@ from django.db import models
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 if TYPE_CHECKING:
+    from posthog.approvals.actions.base import BaseAction
     from posthog.approvals.models import ApprovalPolicy as ApprovalPolicyType
 
 
@@ -87,6 +88,12 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         from posthog.approvals.policies import PolicyEngine
 
         return PolicyEngine().get_policy(self.action_key, self.team, self.organization)
+
+    def get_action_class(self) -> Optional[type["BaseAction"]]:
+        """Get the action class for this change request from the registry."""
+        from posthog.approvals.actions.registry import get_action
+
+        return get_action(self.action_key)
 
 
 class ApprovalDecision(models.TextChoices):

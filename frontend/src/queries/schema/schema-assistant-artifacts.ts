@@ -1,6 +1,4 @@
 // Agent Artifact Types - these will be auto-generated to Python via pnpm schema:build
-import { VisualizationArtifactContent } from './schema-assistant-messages'
-
 export interface MarkdownBlock {
     type: 'markdown'
     content: string
@@ -23,8 +21,3 @@ export type DocumentBlock = MarkdownBlock | VisualizationBlock | SessionReplayBl
 export interface DocumentArtifactContent {
     blocks: DocumentBlock[]
 }
-
-// Re-export for convenience
-export type { VisualizationArtifactContent }
-
-export type AgentArtifactContent = DocumentArtifactContent | VisualizationArtifactContent

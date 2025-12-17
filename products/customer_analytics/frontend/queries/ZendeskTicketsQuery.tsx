@@ -96,7 +96,7 @@ export const zendeskGroupTicketsQuery = ({
         source: {
             kind: NodeKind.HogQLQuery,
             query: hogql`
-            select t.id, t.url, t.subject, t.status, t.priority, t.created_at, t.updated_at
+            select t.id, t.url, t.subject, t.status, t.priority, t.created_at as created_at, t.updated_at as updated_at
             from zendesk_organizations o
             inner join zendesk_tickets t on o.id = t.organization_id
             where ${hogql.raw(conditions.join(' AND '))}
