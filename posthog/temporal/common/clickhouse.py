@@ -648,7 +648,11 @@ class ClickHouseClient:
             query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
             query_id=f"{query_id}-CHECK-PROCESS-LIST",
         )
-        return bool(resp)
+        if not resp:
+            return False
+
+        result = resp.decode("utf-8").strip()
+        return result == "1"
 
     async def acancel_query(self, query_id: str) -> None:
         """Cancel a running query in ClickHouse.
