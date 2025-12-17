@@ -46,16 +46,16 @@ Use this tool to read user data created in PostHog. This tool returns data that 
 Read the SQL ClickHouse schema (tables, views, and columns) for the user's data.
 
 ## Available operations:
-- `list_tables`: Returns core PostHog tables (events, groups, persons, sessions) with their full schemas, plus a list of available data warehouse tables and views (names only). Use this first to see what data is available.
-- `table_schema`: Returns the full schema for a specific data warehouse table or view. Use this after `list_tables` to get details on specific tables you need.
+- `data_warehouse_schema`: Returns core PostHog tables (events, groups, persons, sessions) with their full schemas, plus a list of available data warehouse tables and views (names only). Use this first to see what data is available.
+- `data_warehouse_table`: Returns the full schema for a specific data warehouse table or view. Use this after `data_warehouse_schema` to get details on specific tables you need.
 
 You MUST use this tool when:
 - Working with SQL.
 - The request is about data warehouse, connected data sources, etc.
 
 Workflow:
-1. Start with `list_tables` to see available tables
-2. Use `table_schema` with a specific `table_name` to get schema details for warehouse tables you need
+1. Start with `data_warehouse_schema` to see available tables
+2. Use `data_warehouse_table` with a specific `table_name` to get schema details for warehouse tables you need
 
 # Insight
 
@@ -106,13 +106,13 @@ Query definition:
 class ReadDataWarehouseSchema(BaseModel):
     """Returns core PostHog tables (events, groups, persons, sessions) with their full schemas, plus a list of available data warehouse tables and views (names only)."""
 
-    kind: Literal["list_tables"] = "list_tables"
+    kind: Literal["data_warehouse_schema"] = "data_warehouse_schema"
 
 
 class ReadDataWarehouseTableSchema(BaseModel):
     """Returns the full schema with columns for a specific data warehouse table or view."""
 
-    kind: Literal["table_schema"] = "table_schema"
+    kind: Literal["data_warehouse_table"] = "data_warehouse_table"
     table_name: str = Field(description="The name of the table to read the schema for.")
 
 
@@ -228,8 +228,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return result, None
             case ReadDataWarehouseSchema():
                 return await self._read_data_warehouse_schema(), None
-            case ReadDataWarehouseTableSchema() as table_schema:
-                return await self._read_data_warehouse_table_schema(table_schema.table_name), None
+            case ReadDataWarehouseTableSchema() as data_warehouse_table:
+                return await self._read_data_warehouse_table_schema(data_warehouse_table.table_name), None
             case ReadArtifacts():
                 return await self._read_artifacts()
             case ReadInsight() as schema:
@@ -331,14 +331,14 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         if warehouse_tables:
             lines.append("# Data warehouse tables")
-            lines.append("Use `table_schema` with the table name to get the full schema.\n")
+            lines.append("Use `data_warehouse_table` with the table name to get the full schema.\n")
             for name in sorted(warehouse_tables):
                 lines.append(f"- {name}")
             lines.append("")
 
         if views:
             lines.append("# Views")
-            lines.append("Use `table_schema` with the view name to get the full schema.\n")
+            lines.append("Use `data_warehouse_table` with the view name to get the full schema.\n")
             for name in sorted(views):
                 lines.append(f"- {name}")
             lines.append("")
