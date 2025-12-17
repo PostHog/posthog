@@ -65,7 +65,7 @@ class ReadDashboard(BaseModel):
     """Retrieves an existing dashboard by its ID."""
 
     kind: Literal["dashboard"] = "dashboard"
-    dashboard_id: str = Field(description="The numeric ID of the dashboard (found in URLs like /dashboard/123).")
+    dashboard_id: str = Field(description="The numeric ID of the dashboard.")
     execute: bool = Field(
         default=False,
         description="If true, executes all insight queries in the dashboard and returns results. If false, returns only the dashboard and insight definitions.",
