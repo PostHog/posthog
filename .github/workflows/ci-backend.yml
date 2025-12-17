@@ -197,10 +197,7 @@ jobs:
 
             - name: Pre-build wheels for sdist-only packages
               if: steps.check-bazel.outputs.has_products == 'true'
-              run: |
-                  # Some packages only have sdist and use distutils (removed in Python 3.12)
-                  mkdir -p /tmp/bazel-wheels
-                  uv pip wheel thrift==0.20.0 zstd fastuuid psycopg2-binary -w /tmp/bazel-wheels
+              run: ./bin/build-bazel-wheels
 
             - name: Generate requirements_lock.txt for Bazel
               if: steps.check-bazel.outputs.has_products == 'true'
@@ -334,11 +331,7 @@ jobs:
               run: bazel run //:requirements.update
 
             - name: Pre-build wheels for sdist-only packages
-              run: |
-                  # Some packages (thrift, zstd, fastuuid) only have sdist on PyPI and use
-                  # distutils which was removed in Python 3.12. Build wheels with uv.
-                  mkdir -p /tmp/bazel-wheels
-                  uv pip wheel thrift==0.20.0 zstd fastuuid psycopg2-binary -w /tmp/bazel-wheels
+              run: ./bin/build-bazel-wheels
 
             - name: Run Bazel tests
               run: |

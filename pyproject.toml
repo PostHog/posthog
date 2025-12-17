@@ -188,6 +188,15 @@ dependencies = [
 ]
 
 [dependency-groups]
+# Packages that only have sdist on PyPI and use distutils (removed in Python 3.12).
+# Bazel's rules_python can't build these, so we pre-build wheels with uv.
+# Used by: bin/build-bazel-wheels and CI workflow.
+bazel-wheels = [
+    "thrift==0.20.0",
+    "zstd",
+    "fastuuid",
+]
+
 dev = [
     "aioresponses==0.7.6",
     "autoevals==0.0.129",

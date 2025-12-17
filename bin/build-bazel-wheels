@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Build wheels for packages that only have sdist on PyPI.
+# These packages use distutils which was removed in Python 3.12.
+#
+# Package list is defined in pyproject.toml [dependency-groups] bazel-wheels.
+# Uses uv to export the group, then pip to build wheels.
+
+set -euo pipefail
+
+WHEEL_DIR="${1:-/tmp/bazel-wheels}"
+
+mkdir -p "$WHEEL_DIR"
+
+# Export packages from pyproject.toml bazel-wheels group using uv
+REQUIREMENTS=$(uv export --only-group bazel-wheels --no-hashes 2>/dev/null | grep -v "^#" | grep -v "^$")
+
+if [ -z "$REQUIREMENTS" ]; then
+    echo "No packages found in [dependency-groups] bazel-wheels"
+    exit 0
+fi
+
+echo "Building wheels for:"
+echo "$REQUIREMENTS"
+echo ""
+echo "Output directory: $WHEEL_DIR"
+
+# Write to temp requirements file
+TMPFILE=$(mktemp)
+echo "$REQUIREMENTS" > "$TMPFILE"
+
+# Use uv to run pip wheel (uv provides setuptools for distutils compatibility)
+uv run --with pip pip wheel --no-deps --wheel-dir "$WHEEL_DIR" -r "$TMPFILE"
+
+rm -f "$TMPFILE"
+
+echo ""
+echo "Done. Wheels in $WHEEL_DIR:"
+ls -la "$WHEEL_DIR"/*.whl 2>/dev/null || echo "(no wheels built)"

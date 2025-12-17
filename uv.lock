@@ -4552,6 +4552,11 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+bazel-wheels = [
+    { name = "fastuuid" },
+    { name = "thrift" },
+    { name = "zstd" },
+]
 dev = [
     { name = "aioresponses" },
     { name = "autoevals" },
@@ -4803,6 +4808,11 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+bazel-wheels = [
+    { name = "fastuuid" },
+    { name = "thrift", specifier = "==0.20.0" },
+    { name = "zstd" },
+]
 dev = [
     { name = "aioresponses", specifier = "==0.7.6" },
     { name = "autoevals", specifier = "==0.0.129" },
