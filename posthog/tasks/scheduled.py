@@ -16,7 +16,10 @@ from posthog.tasks.alerts.checks import (
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.feature_flags import cleanup_stale_flags_expiry_tracking_task, refresh_expiring_flags_cache_entries
-from posthog.tasks.hypercache_verification import verify_and_fix_hypercaches_task
+from posthog.tasks.hypercache_verification import (
+    verify_and_fix_flags_cache_task,
+    verify_and_fix_team_metadata_cache_task,
+)
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
@@ -191,14 +194,24 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="flags cache expiry tracking cleanup",
     )
 
-    # HyperCache verification - hourly at minute 30
-    # Verifies all teams for both team_metadata and flags caches,
-    # automatically fixing any cache misses, mismatches, or expiry tracking issues
+    # HyperCache verification - split into separate tasks for independent time budgets
+    # Tasks have 4-hour time limits to handle large deployments, so expiry must match
+    # Team metadata cache verification - hourly at minute 20
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="*", minute="30"),
-        verify_and_fix_hypercaches_task.s(),
-        name="verify and fix hypercaches",
+        crontab(hour="*", minute="20"),
+        verify_and_fix_team_metadata_cache_task.s(),
+        name="verify and fix team metadata cache",
+        expires_seconds=4 * 60 * 60,
+    )
+
+    # Flags cache verification - hourly at minute 40
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="40"),
+        verify_and_fix_flags_cache_task.s(),
+        name="verify and fix flags cache",
+        expires_seconds=4 * 60 * 60,
     )
 
     # Update events table partitions twice a week
