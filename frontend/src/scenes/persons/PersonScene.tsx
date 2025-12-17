@@ -41,6 +41,8 @@ import { Query } from '~/queries/Query/Query'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
 
+import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
+
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
@@ -244,7 +246,7 @@ export function PersonScene(): JSX.Element | null {
 
             <SceneDivider />
             <PersonDeleteModal />
-
+            <FeedbackBanner feedbackButtonId="person-profile" />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => {

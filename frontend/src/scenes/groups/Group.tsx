@@ -40,6 +40,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
 import { GroupFeedCanvas } from 'products/customer_analytics/frontend/components/GroupFeedCanvas/GroupFeedCanvas'
 
 import { GroupOverview } from './GroupOverview'
@@ -102,6 +103,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
             />
             <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
             <SceneDivider />
+            <FeedbackBanner feedbackButtonId="group-profile" />
             <LemonTabs
                 sceneInset
                 activeKey={activeTab}
