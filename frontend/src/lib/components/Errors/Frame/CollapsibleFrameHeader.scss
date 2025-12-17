@@ -20,6 +20,10 @@
         }
     }
 
+    .frame-function::-webkit-scrollbar {
+        display: none; /* Chrome, Safari, Edge */
+    }
+
     .frame-source {
         display: flex;
         flex: 1 1 auto;
