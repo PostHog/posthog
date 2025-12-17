@@ -1,11 +1,35 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::{
     config::{Credentials, Region},
+    error::SdkError,
     primitives::ByteStream,
     Client,
 };
 use bytes::Bytes;
+use metrics::{counter, histogram};
+use std::time::Instant;
 use tracing::{error, info};
+
+// Metric names
+const S3_UPLOAD_BODY_SIZE_BYTES: &str = "capture_s3_upload_body_size_bytes";
+const S3_UPLOAD_DURATION_SECONDS: &str = "capture_s3_upload_duration_seconds";
+const S3_UPLOAD_TOTAL: &str = "capture_s3_upload_total";
+
+/// Extract error reason from SdkError for metrics labeling
+fn extract_error_reason<E: std::fmt::Debug>(err: &SdkError<E>) -> String {
+    match err {
+        SdkError::ConstructionFailure(_) => "construction_failure".to_string(),
+        SdkError::TimeoutError(_) => "timeout".to_string(),
+        SdkError::DispatchFailure(_) => "connection_error".to_string(),
+        SdkError::ResponseError(err) => {
+            format!("response_error_{}", err.raw().status().as_u16())
+        }
+        SdkError::ServiceError(err) => {
+            format!("status_{}", err.raw().status().as_u16())
+        }
+        _ => "unknown".to_string(),
+    }
+}
 
 /// Generic S3 client wrapper for uploading data.
 #[derive(Clone)]
@@ -67,25 +91,41 @@ impl S3Client {
         data: Bytes,
         content_type: &str,
     ) -> Result<(), S3Error> {
-        self.client
+        let body_size = data.len();
+        histogram!(S3_UPLOAD_BODY_SIZE_BYTES).record(body_size as f64);
+
+        let start = Instant::now();
+        let result = self
+            .client
             .put_object()
             .bucket(&self.bucket)
             .key(key)
             .body(ByteStream::from(data))
             .content_type(content_type)
             .send()
-            .await
-            .map_err(|e| {
+            .await;
+
+        let duration = start.elapsed().as_secs_f64();
+        histogram!(S3_UPLOAD_DURATION_SECONDS).record(duration);
+
+        match result {
+            Ok(_) => {
+                counter!(S3_UPLOAD_TOTAL, "outcome" => "success", "reason" => "ok").increment(1);
+                Ok(())
+            }
+            Err(e) => {
+                let reason = extract_error_reason(&e);
+                counter!(S3_UPLOAD_TOTAL, "outcome" => "error", "reason" => reason.clone()).increment(1);
                 error!(
                     bucket = self.bucket,
                     key = key,
                     error = %e,
+                    reason = reason,
                     "Failed to upload to S3"
                 );
-                S3Error::UploadFailed(e.to_string())
-            })?;
-
-        Ok(())
+                Err(S3Error::UploadFailed(e.to_string()))
+            }
+        }
     }
 
     /// Check S3 connectivity by verifying bucket access.
