@@ -2476,7 +2476,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.get("/api/environments/@current/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertIsNone(response_data.get("conversations_enabled"))
+        self.assertFalse(response_data.get("conversations_enabled"))
         self.assertIsNone(response_data.get("conversations_greeting_text"))
         self.assertIsNone(response_data.get("conversations_color"))
         self.assertIsNone(response_data.get("conversations_public_token"))
