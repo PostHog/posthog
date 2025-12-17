@@ -56,11 +56,11 @@ describe('alertHclExporter test', () => {
             expect(hcl).toContain('series_index = 0')
             expect(hcl).toContain('check_ongoing_interval = true')
             expect(hcl).toContain('skip_weekend = true')
-            expect(hcl).toContain('insight_id = 456')
+            expect(hcl).toContain('insight = 456')
 
-            // Should warn about hardcoded insight_id
+            // Should warn about hardcoded insight id
             expect(result.warnings).toContain(
-                '`insight_id` is hardcoded. Consider referencing the Terraform resource instead (e.g., `posthog_insight.my_insight.id`).'
+                '`insight id` is hardcoded. Consider referencing the Terraform resource instead (e.g., `posthog_insight.my_insight.id`).'
             )
         })
 
@@ -93,7 +93,7 @@ describe('alertHclExporter test', () => {
             expect(hcl).not.toContain('import {')
         })
 
-        it('uses TF reference for insight_id when provided', () => {
+        it('uses TF reference for insight id when provided', () => {
             const alert = createTestAlert({
                 id: 'alert-789',
                 name: 'Test Alert',
@@ -105,12 +105,12 @@ describe('alertHclExporter test', () => {
             const result = generateAlertHCL(alert, { insightTfReference: 'posthog_insight.my_insight.id' })
             const hcl = result.hcl
 
-            expect(hcl).toContain('insight_id = posthog_insight.my_insight.id')
-            expect(hcl).not.toContain('insight_id = 456')
+            expect(hcl).toContain('insight = posthog_insight.my_insight.id')
+            expect(hcl).not.toContain('insight = 456')
 
-            // Should not warn about hardcoded insight_id when using TF reference
+            // Should not warn about hardcoded insight id when using TF reference
             expect(result.warnings).not.toContain(
-                '`insight_id` is hardcoded. Consider referencing the Terraform resource instead (e.g., `posthog_insight.my_insight.id`).'
+                '`insight id` is hardcoded. Consider referencing the Terraform resource instead (e.g., `posthog_insight.my_insight.id`).'
             )
         })
 

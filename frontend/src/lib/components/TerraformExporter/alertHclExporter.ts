@@ -7,7 +7,7 @@ import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, gene
 import { generateHogFunctionHCL } from './hogFunctionHclExporter'
 
 export interface AlertHclExportOptions extends HclExportOptions {
-    /** When provided, uses TF reference instead of hardcoded insight_id */
+    /** When provided, uses TF reference instead of hardcoded insight id */
     insightTfReference?: string
     /** Child hog functions to include in export */
     hogFunctions?: HogFunctionType[]
@@ -75,7 +75,7 @@ const ALERT_FIELD_MAPPINGS: FieldMapping<Partial<AlertType>, AlertHclExportOptio
     },
     {
         source: 'insight',
-        target: 'insight_id',
+        target: 'insight',
         shouldInclude: (_, alert) => alert.insight?.id !== undefined,
         transform: (_, alert, options) => {
             const insightId = alert.insight?.id
@@ -107,10 +107,10 @@ function validateAlert(alert: Partial<AlertType>, options?: AlertHclExportOption
         warnings.push('Missing required field: threshold_type. The alert will fail to apply without this value.')
     }
 
-    // Only warn about hardcoded insight_id if not using TF reference
+    // Only warn about hardcoded insight id if not using TF reference
     if (!options?.insightTfReference && alert.insight?.id) {
         warnings.push(
-            '`insight_id` is hardcoded. Consider referencing the Terraform resource instead (e.g., `posthog_insight.my_insight.id`).'
+            '`insight id` is hardcoded. Consider referencing the Terraform resource instead (e.g., `posthog_insight.my_insight.id`).'
         )
     }
 
