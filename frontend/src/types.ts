@@ -4881,7 +4881,8 @@ export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
     name: string
-    query: HogQLQuery
+    /** Only included when fetching a single saved query, not in list responses */
+    query?: HogQLQuery
     columns: DatabaseSchemaField[]
     last_run_at?: string
     sync_frequency?: string
