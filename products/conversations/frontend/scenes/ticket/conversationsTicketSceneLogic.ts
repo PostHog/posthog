@@ -35,7 +35,7 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
         setAssignedTo: (assignedTo: number | string) => ({ assignedTo }),
-        setPollingInterval: (interval: NodeJS.Timeout | null) => ({ interval }),
+        setPollingInterval: (interval: ReturnType<typeof setInterval> | null) => ({ interval }),
     }),
     reducers({
         ticket: [
@@ -111,7 +111,7 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
             },
         ],
         pollingInterval: [
-            null as NodeJS.Timeout | null,
+            null as ReturnType<typeof setInterval> | null,
             {
                 setPollingInterval: (_, { interval }) => interval,
             },

@@ -18,7 +18,7 @@ export const conversationsTicketsSceneLogic = kea<conversationsTicketsSceneLogic
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         loadTickets: true,
         setAutoUpdate: (enabled: boolean) => ({ enabled }),
-        setPollingInterval: (interval: NodeJS.Timeout | null) => ({ interval }),
+        setPollingInterval: (interval: ReturnType<typeof setInterval> | null) => ({ interval }),
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
     }),
@@ -86,7 +86,7 @@ export const conversationsTicketsSceneLogic = kea<conversationsTicketsSceneLogic
             },
         ],
         pollingInterval: [
-            null as NodeJS.Timeout | null,
+            null as ReturnType<typeof setInterval> | null,
             {
                 setPollingInterval: (_, { interval }) => interval,
             },
