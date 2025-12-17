@@ -20,7 +20,7 @@ class TestDashboardContext(BaseTest):
             dashboard_id="123",
         )
 
-        result = await dashboard_ctx.execute()
+        result = await dashboard_ctx.execute_and_format()
 
         self.assertIn("Dashboard name: Empty Dashboard", result)
         self.assertIn("Dashboard ID: 123", result)
@@ -48,7 +48,7 @@ class TestDashboardContext(BaseTest):
             dashboard_id="456",
         )
 
-        result = await dashboard_ctx.execute()
+        result = await dashboard_ctx.execute_and_format()
 
         self.assertIn("Dashboard name: Test Dashboard", result)
         self.assertIn("Dashboard ID: 456", result)
@@ -82,7 +82,7 @@ class TestDashboardContext(BaseTest):
             dashboard_id="789",
         )
 
-        result = await dashboard_ctx.execute()
+        result = await dashboard_ctx.execute_and_format()
 
         self.assertIn("Dashboard name: Multi-Insight Dashboard", result)
         self.assertIn("Insight 1", result)
@@ -118,7 +118,7 @@ class TestDashboardContext(BaseTest):
             dashboard_id="101",
         )
 
-        result = await dashboard_ctx.execute()
+        result = await dashboard_ctx.execute_and_format()
 
         self.assertIn("Dashboard name: Partially Failed Dashboard", result)
         self.assertIn("Success result", result)
@@ -253,7 +253,7 @@ class TestDashboardContext(BaseTest):
         # Verify semaphore is set correctly
         self.assertEqual(dashboard_ctx._semaphore._value, 5)
 
-        result = await dashboard_ctx.execute()
+        result = await dashboard_ctx.execute_and_format()
 
         self.assertIn("Concurrent Dashboard", result)
         self.assertEqual(mock_execute.call_count, 10)
@@ -279,7 +279,7 @@ class TestDashboardContext(BaseTest):
         )
 
         custom_template = "Custom: {{{dashboard_name}}} - {{{insights}}}"
-        result = await dashboard_ctx.execute(prompt_template=custom_template)
+        result = await dashboard_ctx.execute_and_format(prompt_template=custom_template)
 
         self.assertIn("Custom: Custom Template Dashboard", result)
         self.assertIn("Custom template result", result)

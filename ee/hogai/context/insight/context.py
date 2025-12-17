@@ -45,7 +45,7 @@ class InsightContext:
         self.filters_override = filters_override
         self.variables_override = variables_override
 
-    async def execute(
+    async def execute_and_format(
         self,
         prompt_template: str = INSIGHT_RESULT_TEMPLATE,
         return_exceptions: bool = False,

@@ -191,7 +191,7 @@ class AssistantContextManager(AssistantContextMixin):
                 )
 
                 try:
-                    dashboard_text = await dashboard_ctx.execute()
+                    dashboard_text = await dashboard_ctx.execute_and_format()
                     dashboard_contexts.append(
                         format_prompt_string(ROOT_DASHBOARD_CONTEXT_PROMPT, content=dashboard_text)
                     )
@@ -292,7 +292,7 @@ class AssistantContextManager(AssistantContextMixin):
             Formatted insight string or None if failed
         """
         try:
-            insight_prompt = await context.execute()
+            insight_prompt = await context.execute_and_format()
             return format_prompt_string(
                 ROOT_INSIGHT_CONTEXT_PROMPT,
                 heading="##",

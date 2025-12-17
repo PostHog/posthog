@@ -67,7 +67,7 @@ class DashboardContext:
         # Create InsightContext objects from DashboardInsightContext models
         self.insights = [self._create_insight_context(data) for data in insights_data]
 
-    async def execute(self, prompt_template: str = DASHBOARD_RESULT_TEMPLATE) -> str:
+    async def execute_and_format(self, prompt_template: str = DASHBOARD_RESULT_TEMPLATE) -> str:
         """Execute all insight queries in parallel and format combined results."""
         if not self.insights:
             return format_prompt_string(
@@ -119,7 +119,7 @@ class DashboardContext:
     async def _execute_insight_with_semaphore(self, insight: InsightContext) -> str:
         """Execute a single insight with semaphore control."""
         async with self._semaphore:
-            return await insight.execute(return_exceptions=True)
+            return await insight.execute_and_format(return_exceptions=True)
 
     def _create_insight_context(self, data: DashboardInsightContext) -> InsightContext:
         """Create an InsightContext from DashboardInsightContext model."""

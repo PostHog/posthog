@@ -1,9 +1,8 @@
-import asyncio
 from typing import Literal, Self, Union
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field, PrivateAttr, create_model
+from pydantic import BaseModel, Field, create_model
 
 from posthog.schema import ArtifactContentType, AssistantToolCallMessage
 
@@ -104,8 +103,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     context_prompt_template: str = (
         "Reads user data created in PostHog (data warehouse schema, saved insights, dashboards, billing information)"
     )
-    _query_semaphore: asyncio.Semaphore = PrivateAttr(default_factory=lambda: asyncio.Semaphore(3))
-    """Concurrency limit for executing dashboard insight queries."""
 
     @classmethod
     async def create_tool_class(
@@ -228,7 +225,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         )
 
         # Execute the query and return the results
-        text_result = await context.execute()
+        text_result = await context.execute_and_format()
         tool_call_message = AssistantToolCallMessage(
             content=text_result,
             id=str(uuid4()),
@@ -376,12 +373,11 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             name=dashboard_name,
             description=dashboard.description,
             dashboard_id=dashboard_id,
-            max_concurrent_queries=self._query_semaphore._value,
         )
 
         if execute:
-            text_result = await dashboard_ctx.execute(prompt_template=DASHBOARD_RESULT_TEMPLATE)
+            text_result = await dashboard_ctx.execute_and_format(prompt_template=DASHBOARD_RESULT_TEMPLATE)
         else:
-            text_result = dashboard_ctx.format_schema(prompt_template=DASHBOARD_RESULT_TEMPLATE)
+            text_result = await dashboard_ctx.format_schema(prompt_template=DASHBOARD_RESULT_TEMPLATE)
 
         return text_result, None
