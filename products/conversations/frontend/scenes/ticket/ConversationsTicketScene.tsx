@@ -216,24 +216,30 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
                     {/* Ticket info */}
                     <h3 className="text-sm font-semibold mb-2">Ticket info</h3>
                     <div className="space-y-2 text-xs">
-                        <div className="flex justify-between">
-                            <span className="text-muted-alt">Created</span>
-                            <span>
-                                <TZLabel time={ticket?.created_at} />
-                            </span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-alt">Updated</span>
-                            <span>
-                                <TZLabel time={ticket?.updated_at} />
-                            </span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-muted-alt">Channel</span>
-                            <span className="capitalize">
-                                <ChannelsTag channel={ticket?.channel_source} />
-                            </span>
-                        </div>
+                        {ticket?.created_at && (
+                            <div className="flex justify-between">
+                                <span className="text-muted-alt">Created</span>
+                                <span>
+                                    <TZLabel time={ticket.created_at} />
+                                </span>
+                            </div>
+                        )}
+                        {ticket?.updated_at && (
+                            <div className="flex justify-between">
+                                <span className="text-muted-alt">Updated</span>
+                                <span>
+                                    <TZLabel time={ticket.updated_at} />
+                                </span>
+                            </div>
+                        )}
+                        {ticket?.channel_source && (
+                            <div className="flex justify-between">
+                                <span className="text-muted-alt">Channel</span>
+                                <span className="capitalize">
+                                    <ChannelsTag channel={ticket.channel_source} />
+                                </span>
+                            </div>
+                        )}
                         <div className="flex justify-between items-center">
                             <span className="text-muted-alt">Status</span>
                             <LemonSelect
