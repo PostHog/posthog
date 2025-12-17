@@ -197,6 +197,49 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert metrics.total_cost_zero_count == 2
         assert metrics.total_cost == pytest.approx(0.11, rel=1e-6)  # 3*0.05 + 2*0 + 4*(-0.01)
 
+    def test_get_all_ai_metrics_error_count(self) -> None:
+        """Test that ai_is_error_count is correctly calculated."""
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+
+        # Create events with $ai_is_error = true
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            4,
+            properties={"$ai_is_error": "true"},
+        )
+
+        # Create events with $ai_is_error = false
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            3,
+            properties={"$ai_is_error": "false"},
+        )
+
+        # Create events without $ai_is_error
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            5,
+            properties={},
+        )
+
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+
+        assert self.team.id in all_metrics
+        metrics = all_metrics[self.team.id]
+
+        assert metrics.ai_generation_count == 12  # 4 + 3 + 5
+        assert metrics.ai_is_error_count == 4  # only events with $ai_is_error = 'true'
+
     def test_get_all_ai_dimension_breakdowns(self) -> None:
         """Test that we correctly get dimension breakdowns using the combined Map-based query."""
         distinct_id = str(uuid4())

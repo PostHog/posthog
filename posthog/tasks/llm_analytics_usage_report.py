@@ -62,6 +62,7 @@ class TeamMetrics:
     ai_metric_count: int = 0
     ai_feedback_count: int = 0
     ai_evaluation_count: int = 0
+    ai_is_error_count: int = 0
 
     # Cost metrics
     total_cost: float = 0.0
@@ -286,6 +287,9 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             metrics.total_cost_negative_count += row[20] or 0
             metrics.total_cost_zero_count += row[21] or 0
 
+            # Error count (index 22)
+            metrics.ai_is_error_count += row[22] or 0
+
     return team_metrics
 
 
@@ -333,7 +337,9 @@ def get_all_ai_metrics(
             -- Cost anomaly counts
             countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) IS NOT NULL) as total_cost_count,
             countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) < 0) as total_cost_negative_count,
-            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) = 0) as total_cost_zero_count
+            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) = 0) as total_cost_zero_count,
+            -- Error count
+            countIf(properties_group_ai['$ai_is_error'] = 'true') as ai_is_error_count
         FROM events
         WHERE team_id IN %(team_ids)s
           AND event IN %(ai_events)s
@@ -542,6 +548,7 @@ def _get_all_llm_analytics_reports(
                 "ai_metric_count": 0,
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
+                "ai_is_error_count": 0,
                 "total_ai_cost_usd": 0.0,
                 "total_ai_cost_usd_count": 0,
                 "total_ai_cost_usd_negative_count": 0,
@@ -578,6 +585,7 @@ def _get_all_llm_analytics_reports(
             report["ai_metric_count"] += metrics.ai_metric_count
             report["ai_feedback_count"] += metrics.ai_feedback_count
             report["ai_evaluation_count"] += metrics.ai_evaluation_count
+            report["ai_is_error_count"] += metrics.ai_is_error_count
 
             report["total_ai_cost_usd"] += metrics.total_cost
             report["total_ai_cost_usd_count"] += metrics.total_cost_count
