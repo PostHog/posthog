@@ -1,0 +1,19 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+# Common utilities - hogvm, hogql_parser, etc.
+py_library(
+    name = "common",
+    srcs = glob(
+        ["**/*.py"],
+        exclude = [
+            "**/test_*.py",
+            "**/*_test.py",
+            "**/tests/**",
+            "**/__tests__/**",
+            "bazel/**",  # Exclude bazel subdirectory
+            "hogli/**",  # CLI tool, not needed for tests
+        ],
+    ),
+    visibility = ["//visibility:public"],
+    deps = ["//common/bazel:third_party"],
+)
