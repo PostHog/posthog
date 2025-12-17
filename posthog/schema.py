@@ -1159,6 +1159,17 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
+class ErrorBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str | None = Field(
+        default=None, description="Optional artifact ID if the error is related to a specific artifact"
+    )
+    message: str = Field(..., description="Error message to display")
+    type: Literal["error"] = "error"
+
+
 class Population(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1987,6 +1998,14 @@ class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
+class LoadingBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., description="The artifact ID that is being loaded")
+    type: Literal["loading"] = "loading"
+
+
 class LogPropertyFilterType(StrEnum):
     LOG = "log"
     LOG_ATTRIBUTE = "log_attribute"
@@ -2476,13 +2495,6 @@ class NodeKind(StrEnum):
 class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
     SOURCE = "Source"
     CAMPAIGN = "Campaign"
-
-
-class NotebookArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
 
 
 class PageURL(BaseModel):
@@ -3537,14 +3549,6 @@ class VectorSearchResponseItem(BaseModel):
     )
     distance: float
     id: str
-
-
-class VisualizationBlock(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    artifact_id: str
-    type: Literal["visualization"] = "visualization"
 
 
 class ActionsPie(BaseModel):
@@ -9253,13 +9257,6 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     source: DatabaseSchemaSource | None = None
     type: Literal["data_warehouse"] = "data_warehouse"
     url_pattern: str
-
-
-class DocumentArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock]
 
 
 class DocumentSimilarityQueryResponse(BaseModel):
@@ -15292,6 +15289,28 @@ class StickinessActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class VisualizationBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantHogQLQuery
+    ) = Field(..., description="The query to render (same as VisualizationArtifactContent.query)")
+    title: str | None = Field(default=None, description="Optional title for the visualization")
+    type: Literal["visualization"] = "visualization"
+
+
 class VisualizationItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15595,6 +15614,17 @@ class MultiVisualizationMessage(BaseModel):
     visualizations: list[VisualizationItem]
 
 
+class NotebookArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock] = Field(
+        ..., description="Structured blocks for the notebook content"
+    )
+    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
+    title: str | None = Field(default=None, description="Title for the notebook")
+
+
 class PathsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15839,6 +15869,13 @@ class DatabaseSchemaQueryResponse(BaseModel):
         | DatabaseSchemaMaterializedViewTable
         | DatabaseSchemaEndpointTable,
     ]
+
+
+class DocumentArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock]
 
 
 class ExperimentFunnelsQuery(BaseModel):
