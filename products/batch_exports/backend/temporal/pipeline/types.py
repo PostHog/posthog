@@ -49,6 +49,7 @@ def reduce_batch_export_results(results: collections.abc.Iterable[BatchExportRes
             bytes_exported += result.bytes_exported
 
         if result.error is not None:
+            # TODO: Consolidate errors of the same type into one
             if not isinstance(result.error, list):
                 errors = [result.error]
             else:
