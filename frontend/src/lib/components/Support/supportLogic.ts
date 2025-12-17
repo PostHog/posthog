@@ -418,6 +418,7 @@ export type SupportFormFields = {
     message: string
     exception_event?: SupportTicketExceptionEvent
     isEmailFormOpen?: boolean | 'true' | 'false'
+    tags?: string[]
 }
 
 export const supportLogic = kea<supportLogicType>([
@@ -580,6 +581,7 @@ export const supportLogic = kea<supportLogicType>([
             severity_level,
             message,
             exception_event,
+            tags,
         }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
@@ -654,7 +656,7 @@ export const supportLogic = kea<supportLogicType>([
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag, accountOwnerTag],
+                    tags: [planLevelTag, accountOwnerTag, ...(tags || [])],
                     custom_fields: [
                         {
                             id: 22084126888475,

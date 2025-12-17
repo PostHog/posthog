@@ -96,7 +96,10 @@ export function convertFileSystemEntryToTreeDataItem({
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
-        const itemName = unescapePath(pathSplit.pop() ?? 'Unnamed')
+        const lastPart = pathSplit.pop()
+        const itemName = unescapePath(
+            lastPart ? (item.href?.includes('new') ? `New ${lastPart.toLowerCase()}` : lastPart) : 'Unnamed'
+        )
         const nodeId = getItemId(item, root)
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined

@@ -1613,6 +1613,7 @@
                     "$ref": "#/definitions/AssistantForm"
                 },
                 "thinking": {
+                    "description": "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks.",
                     "items": {
                         "additionalProperties": {},
                         "type": "object"
@@ -1941,6 +1942,7 @@
                 "list_tasks",
                 "list_task_runs",
                 "list_repositories",
+                "web_search",
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",
@@ -3560,6 +3562,9 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "sample_ratio_mismatch": {
+                    "$ref": "#/definitions/SampleRatioMismatch"
                 },
                 "timeseries": {
                     "items": {
@@ -13160,6 +13165,9 @@
                     "const": "ExperimentExposureQuery",
                     "type": "string"
                 },
+                "sample_ratio_mismatch": {
+                    "$ref": "#/definitions/SampleRatioMismatch"
+                },
                 "timeseries": {
                     "items": {
                         "$ref": "#/definitions/ExperimentExposureTimeSeries"
@@ -16398,6 +16406,9 @@
                     "type": "boolean"
                 },
                 "useMaterializedViews": {
+                    "type": "boolean"
+                },
+                "usePreaggregatedIntermediateResults": {
                     "type": "boolean"
                 },
                 "usePreaggregatedTableTransforms": {
@@ -21005,6 +21016,7 @@
                 "survey_bulk_duplicated",
                 "survey_edited",
                 "survey_analyzed",
+                "quick_survey_started",
                 "revenue_analytics_viewed",
                 "revenue_analytics_onboarding_completed",
                 "revenue_analytics_event_created",
@@ -22496,6 +22508,9 @@
                         "kind": {
                             "const": "ExperimentExposureQuery",
                             "type": "string"
+                        },
+                        "sample_ratio_mismatch": {
+                            "$ref": "#/definitions/SampleRatioMismatch"
                         },
                         "timeseries": {
                             "items": {
@@ -27349,6 +27364,22 @@
                 }
             ]
         },
+        "SampleRatioMismatch": {
+            "additionalProperties": false,
+            "properties": {
+                "expected": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "p_value": {
+                    "type": "number"
+                }
+            },
+            "required": ["expected", "p_value"],
+            "type": "object"
+        },
         "SamplingRate": {
             "additionalProperties": false,
             "properties": {
@@ -28318,7 +28349,7 @@
             "type": "string"
         },
         "SlashCommandName": {
-            "enum": ["/init", "/remember", "/usage", "/feedback"],
+            "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
         },
         "SourceConfig": {

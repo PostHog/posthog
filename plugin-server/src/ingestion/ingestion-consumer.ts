@@ -204,6 +204,7 @@ export class IngestionConsumer {
                 hub: this.hub,
                 kafkaProducer: this.kafkaProducer!,
                 personsStore: this.personsStore,
+                hogTransformer: this.hogTransformer,
                 eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
                 overflowEnabled: this.overflowEnabled(),
                 overflowTopic: this.overflowTopic || '',
@@ -313,12 +314,6 @@ export class IngestionConsumer {
 
         const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
         const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents)
-
-        // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
-        const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
-        if (shouldRunHogWatcher) {
-            await this.fetchAndCacheHogFunctionStates(eventsPerDistinctId)
-        }
 
         const groupStoreForBatch = this.groupStore.forBatch()
         await this.runInstrumented('processBatch', async () => {
@@ -462,43 +457,6 @@ export class IngestionConsumer {
         }
 
         return eventsForDistinctId
-    }
-
-    /**
-     * Fetches and caches hog function states for all teams in the batch
-     */
-    private async fetchAndCacheHogFunctionStates(parsedMessages: IncomingEventsByDistinctId): Promise<void> {
-        await this.runInstrumented('fetchAndCacheHogFunctionStates', async () => {
-            // Clear cached hog function states before fetching new ones
-            this.hogTransformer.clearHogFunctionStates()
-
-            const tokensToFetch = new Set<string>()
-            Object.values(parsedMessages).forEach((eventsForDistinctId) => tokensToFetch.add(eventsForDistinctId.token))
-
-            if (tokensToFetch.size === 0) {
-                return // No teams to process
-            }
-
-            const teams = await this.hub.teamManager.getTeamsByTokens(Array.from(tokensToFetch))
-
-            const teamIdsArray = Object.values(teams)
-                .map((x) => x?.id)
-                .filter(Boolean) as number[]
-
-            // Get hog function IDs for transformations
-            const teamHogFunctionIds = await this.hogTransformer['hogFunctionManager'].getHogFunctionIdsForTeams(
-                teamIdsArray,
-                ['transformation']
-            )
-
-            // Flatten all hog function IDs into a single array
-            const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
-
-            if (allHogFunctionIds.length > 0) {
-                // Cache the hog function states
-                await this.hogTransformer.fetchAndCacheHogFunctionStates(allHogFunctionIds)
-            }
-        })
     }
 
     private async processEventsForDistinctId(

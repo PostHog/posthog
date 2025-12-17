@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
+import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
@@ -9,6 +10,7 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { createApplyCookielessProcessingStep } from '../event-preprocessing'
+import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { createPostTeamPreprocessingSubpipeline } from './post-team-preprocessing-subpipeline'
@@ -18,6 +20,7 @@ export interface PreprocessingPipelineConfig {
     hub: Hub
     kafkaProducer: KafkaProducerWrapper
     personsStore: PersonsStore
+    hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
     overflowTopic: string
@@ -41,6 +44,7 @@ export function createPreprocessingPipeline<
         hub,
         kafkaProducer,
         personsStore,
+        hogTransformer,
         eventIngestionRestrictionManager,
         overflowEnabled,
         overflowTopic,
@@ -84,7 +88,7 @@ export function createPreprocessingPipeline<
                 result: element.result,
                 context: {
                     ...element.context,
-                    team: element.result.value.eventWithTeam.team,
+                    team: element.result.value.team,
                 },
             }))
             .messageAware((b) =>
@@ -109,6 +113,8 @@ export function createPreprocessingPipeline<
                             .pipeBatch(
                                 processPersonlessDistinctIdsBatchStep(personsStore, hub.PERSONS_PREFETCH_ENABLED)
                             )
+                            // Prefetch hog functions for all teams in the batch
+                            .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, hub.CDP_HOG_WATCHER_SAMPLE_RATE))
                     )
                     .handleIngestionWarnings(kafkaProducer)
             )

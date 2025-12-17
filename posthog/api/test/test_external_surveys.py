@@ -49,6 +49,32 @@ class TestExternalSurveys(APIBaseTest):
 
     # SECURITY TESTS
 
+    def test_xss_prevention_in_survey_data(self):
+        xss_payload = "</script><script>alert(1)</script>"
+        survey = self.create_external_survey(
+            name=xss_payload,
+            questions=[
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": "open",
+                    "question": xss_payload,
+                    "description": xss_payload,
+                }
+            ],
+            appearance={
+                "backgroundColor": xss_payload,
+                "submitButtonText": xss_payload,
+            },
+        )
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+
+        assert xss_payload not in content
+        assert "\\u003C/script\\u003E" in content or "\\u003c/script\\u003e" in content
+
     def test_valid_survey_id_required(self):
         """Test that invalid survey IDs are rejected"""
         # Invalid UUID format
@@ -167,10 +193,10 @@ class TestExternalSurveys(APIBaseTest):
         assert "projectConfig" in content
         assert survey.team.api_token in content
 
-        # Extract and validate project config JSON
+        # Extract and validate project config JSON from json_script tag
         import re
 
-        config_match = re.search(r"projectConfig = ({.*?});", content)
+        config_match = re.search(r'<script[^>]*id="project-config"[^>]*>(.*?)</script>', content, re.DOTALL)
         assert config_match is not None
 
         project_config = json.loads(config_match.group(1))

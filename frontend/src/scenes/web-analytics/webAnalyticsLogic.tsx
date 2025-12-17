@@ -161,6 +161,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
         setActiveHoursTab: (tab: string) => ({ tab }),
+        openSurveyModal: (path: string) => ({ path }),
+        closeSurveyModal: true,
         setDomainFilter: (domain: string | null) => ({ domain }),
         setDeviceTypeFilter: (deviceType: DeviceType | null) => ({ deviceType }),
         clearTablesOrderBy: () => true,
@@ -233,6 +235,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         },
     })),
     reducers({
+        surveyModalPath: [
+            null as string | null,
+            {
+                openSurveyModal: (_, { path }) => path,
+                closeSurveyModal: () => null,
+            },
+        ],
         rawWebAnalyticsFilters: [
             INITIAL_WEB_ANALYTICS_FILTER,
             persistConfig,
