@@ -6870,7 +6870,7 @@
                 "completion_token": 0.0000022
             },
             "mancer-fp8": {
-                "prompt_token": 4.75e-7,
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.000002
             },
             "novita-bf16": {
@@ -6883,7 +6883,7 @@
                 "completion_token": 0.0000021
             },
             "siliconflow-fp8": {
-                "prompt_token": 5e-7,
+                "prompt_token": 3.9e-7,
                 "completion_token": 0.0000019
             },
             "together": {

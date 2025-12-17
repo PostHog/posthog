@@ -33,6 +33,8 @@ def verify_and_fix_hypercaches_task() -> None:
 
     Metrics: posthog_hypercache_verify_fixes_total{cache_type="...", issue_type="..."}
     """
+    logger.info("Starting HyperCache verification for all caches")
+
     if not settings.FLAGS_REDIS_URL:
         logger.info("Flags Redis URL not set, skipping HyperCache verification")
         return
@@ -43,7 +45,6 @@ def verify_and_fix_hypercaches_task() -> None:
     from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG, verify_team_metadata
 
     start_time = time.time()
-    logger.info("Starting HyperCache verification for all caches")
 
     errors: list[Exception] = []
 

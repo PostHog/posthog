@@ -3,7 +3,7 @@ import './EditorScene.scss'
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -38,33 +38,36 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     const sidebarRef = useRef(null)
     const databaseTreeRef = useRef(null)
 
-    const editorSizingLogicProps = {
-        editorSceneRef: ref,
-        navigatorRef,
-        sidebarRef,
-        databaseTreeRef,
-        sourceNavigatorResizerProps: {
-            containerRef: navigatorRef,
-            logicKey: 'source-navigator',
-            placement: 'right' as const,
-        },
-        sidebarResizerProps: {
-            containerRef: sidebarRef,
-            logicKey: 'sidebar-resizer',
-            placement: 'right' as const,
-        },
-        queryPaneResizerProps: {
-            containerRef: queryPaneRef,
-            logicKey: 'query-pane',
-            placement: 'bottom' as const,
-        },
-        databaseTreeResizerProps: {
-            containerRef: databaseTreeRef,
-            logicKey: 'database-tree',
-            placement: 'right' as const,
-            persistent: true,
-        },
-    }
+    const editorSizingLogicProps = useMemo(
+        () => ({
+            editorSceneRef: ref,
+            navigatorRef,
+            sidebarRef,
+            databaseTreeRef,
+            sourceNavigatorResizerProps: {
+                containerRef: navigatorRef,
+                logicKey: 'source-navigator',
+                placement: 'right' as const,
+            },
+            sidebarResizerProps: {
+                containerRef: sidebarRef,
+                logicKey: 'sidebar-resizer',
+                placement: 'right' as const,
+            },
+            queryPaneResizerProps: {
+                containerRef: queryPaneRef,
+                logicKey: 'query-pane',
+                placement: 'bottom' as const,
+            },
+            databaseTreeResizerProps: {
+                containerRef: databaseTreeRef,
+                logicKey: 'database-tree',
+                placement: 'right' as const,
+                persistent: true,
+            },
+        }),
+        []
+    )
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null

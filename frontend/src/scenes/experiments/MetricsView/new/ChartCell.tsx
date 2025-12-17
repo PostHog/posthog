@@ -12,6 +12,7 @@ import {
     getValidationFailureType,
     getVariantInterval,
     isBayesianResult,
+    isSignificant,
 } from '../shared/utils'
 import { ChartGradients } from './ChartGradients'
 import { GridLines } from './GridLines'
@@ -107,6 +108,8 @@ export function ChartCell({
                                 lower={lower}
                                 upper={upper}
                                 metric={metric}
+                                isSignificant={isSignificant(variantResult)}
+                                isBayesian={isBayesianResult(variantResult)}
                                 gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                     variantResult.key
                                 }`}

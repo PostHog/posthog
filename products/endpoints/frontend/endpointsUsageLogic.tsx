@@ -94,7 +94,7 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                         ORDER BY name ASC
                     `
 
-                    const response = await api.queryHogQL(query, {
+                    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                         refresh: 'force_blocking',
                     })
 

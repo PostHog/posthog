@@ -19,6 +19,7 @@ from django.utils.module_loading import import_string
 
 import requests
 import css_inline
+import posthoganalytics
 from celery import shared_task
 from lxml import html as lxml_html
 
@@ -156,6 +157,19 @@ def _send_via_http(
 
                 if response.status_code != 200:
                     raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
+
+                provider_response = response.json()
+
+                posthoganalytics.capture(
+                    distinct_id=dest.get("distinct_id") or dest["raw_email"],
+                    event="transactional email triggered",
+                    properties={
+                        "template_name": template_name,
+                        "campaign_key": campaign_key,
+                        "recipient_email": dest["raw_email"],
+                        **provider_response,
+                    },
+                )
 
                 record.sent_at = timezone.now()
                 record.save()

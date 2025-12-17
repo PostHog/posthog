@@ -3548,13 +3548,10 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     experiment_set: number[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
-    rollback_conditions: FeatureFlagRollbackConditions[]
-    performed_rollback: boolean
     can_edit: boolean
     tags: string[]
     evaluation_tags: string[]
     usage_dashboard?: number
-    analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
@@ -3587,13 +3584,6 @@ export type OrganizationFeatureFlags = {
     team_id: TeamType['id']
     active: FeatureFlagType['active']
 }[]
-
-export interface FeatureFlagRollbackConditions {
-    threshold: number
-    threshold_type: string
-    threshold_metric?: FilterType
-    operator?: string
-}
 
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
@@ -3666,6 +3656,13 @@ export enum ScheduledChangeOperationType {
     UpdateVariants = 'update_variants',
 }
 
+// Keep in sync with posthog/models/scheduled_change.py RecurrenceInterval
+export enum RecurrenceInterval {
+    Daily = 'daily',
+    Weekly = 'weekly',
+    Monthly = 'monthly',
+}
+
 export type ScheduledChangePayload =
     | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
     | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
@@ -3685,6 +3682,10 @@ export interface ScheduledChangeType {
     failure_reason: string | null
     created_at: string | null
     created_by: UserBasicType
+    is_recurring: boolean
+    recurrence_interval: RecurrenceInterval | null
+    last_executed_at: string | null
+    end_date: string | null
 }
 
 export interface PrevalidatedInvite {
@@ -4627,11 +4628,6 @@ export interface MediaUploadResponse {
     name: string
 }
 
-export enum RolloutConditionType {
-    Insight = 'insight',
-    Sentry = 'sentry',
-}
-
 export enum Resource {
     FEATURE_FLAGS = 'feature flags',
 }
@@ -4885,7 +4881,8 @@ export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
     name: string
-    query: HogQLQuery
+    /** Only included when fetching a single saved query, not in list responses */
+    query?: HogQLQuery
     columns: DatabaseSchemaField[]
     last_run_at?: string
     sync_frequency?: string

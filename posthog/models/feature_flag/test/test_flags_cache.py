@@ -14,7 +14,8 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.test import override_settings
 
-from posthog.models import FeatureFlag, Team
+from posthog.models import FeatureFlag, Tag, Team
+from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import (
     _get_feature_flags_for_service,
     clear_flags_cache,
@@ -277,6 +278,49 @@ class TestServiceFlagsSignals(BaseTest):
         # Cache should be cleared (this will load from DB and return empty)
         # We can't test directly with the deleted team object, but the signal should have fired
         # In production, this prevents stale cache entries
+
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_evaluation_tag_create(self, mock_task):
+        """Test that signal fires when an evaluation tag is added to a flag."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Reset mock to ignore the flag create signal
+        mock_task.reset_mock()
+
+        # Create a tag and add it as an evaluation tag
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        # Signal should trigger the Celery task
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_evaluation_tag_delete(self, mock_task):
+        """Test that signal fires when an evaluation tag is removed from a flag."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+        eval_tag = FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        # Reset mock to ignore the create signals
+        mock_task.reset_mock()
+
+        # Delete the evaluation tag
+        eval_tag.delete()
+
+        # Signal should trigger the Celery task
+        mock_task.delay.assert_called_once_with(self.team.id)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
