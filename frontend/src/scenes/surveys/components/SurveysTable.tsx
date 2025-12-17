@@ -16,7 +16,7 @@ import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { getSurveyVersionWarnings } from 'scenes/surveys/surveyVersionRequirements'
+import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
@@ -192,10 +192,7 @@ export function SurveysTable(): JSX.Element {
                                                     <LemonButton
                                                         fullWidth
                                                         onClick={() => {
-                                                            const versionWarnings = getSurveyVersionWarnings(
-                                                                survey,
-                                                                teamSdkVersions
-                                                            )
+                                                            const warnings = getSurveyWarnings(survey, teamSdkVersions)
                                                             LemonDialog.open({
                                                                 title: 'Launch this survey?',
                                                                 content: (
@@ -204,9 +201,7 @@ export function SurveysTable(): JSX.Element {
                                                                             The survey will immediately start displaying
                                                                             to users matching the display conditions.
                                                                         </div>
-                                                                        <SdkVersionWarnings
-                                                                            warnings={versionWarnings}
-                                                                        />
+                                                                        <SdkVersionWarnings warnings={warnings} />
                                                                     </div>
                                                                 ),
                                                                 primaryButton: {

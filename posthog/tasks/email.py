@@ -678,6 +678,8 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             },
         )
 
+        logger.info(f"Sending discussions mentioned email for comment ({comment.id})")
+
         for membership in memberships_to_email:
             message.add_user_recipient(membership.user)
         message.send()
