@@ -1,6 +1,6 @@
 import './SurveyView.scss'
 
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGraph, IconTrash } from '@posthog/icons'

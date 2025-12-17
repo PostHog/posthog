@@ -11,11 +11,15 @@ import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { doesSurveyHaveDisplayConditions } from 'scenes/surveys/utils'
 
 import { AccessControlLevel, AccessControlResourceType, SurveyType } from '~/types'
+import dayjs from 'dayjs'
+import { ProductIntentContext } from '~/queries/schema/schema-general'
+import SurveyLaunchSchedule from 'scenes/surveys/components/SurveyLaunchSchedule';
 
 export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
+    console.log('survey', survey)
     const { showSurveysDisabledBanner } = useValues(surveysLogic)
-    const { launchSurvey } = useActions(surveyLogic)
+    const { updateSurvey } = useActions(surveyLogic)
 
     return (
         <AccessControlAction
@@ -54,12 +58,13 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                                     </LemonBanner>
                                 )}
                                 <SdkVersionWarnings warnings={surveyWarnings} />
+                                <SurveyLaunchSchedule />
                             </div>
                         ),
                         primaryButton: {
                             children: 'Launch',
                             type: 'primary',
-                            onClick: () => launchSurvey(),
+                            onClick: () => updateSurvey({ id: survey.id, start_date: dayjs().toISOString(), intentContext: ProductIntentContext.SURVEY_LAUNCHED }),
                             size: 'small',
                         },
                         secondaryButton: {

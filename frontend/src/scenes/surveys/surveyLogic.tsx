@@ -685,18 +685,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 refreshTreeItem('survey', props.id)
                 return response
             },
-            launchSurvey: async () => {
-                const startDate = dayjs()
-                const response = await api.surveys.update(props.id, { start_date: startDate.toISOString() })
-                actions.addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_LAUNCHED,
-                    metadata: {
-                        survey_id: response.id,
-                    },
-                })
-                return response
-            },
+            // launchSurvey: async () => {
+            //     const startDate = dayjs()
+            //     const response = await api.surveys.update(props.id, { start_date: startDate.toISOString() })
+            //     actions.addProductIntent({
+            //         product_type: ProductKey.SURVEYS,
+            //         intent_context: ProductIntentContext.SURVEY_LAUNCHED,
+            //         metadata: {
+            //             survey_id: response.id,
+            //         },
+            //     })
+            //     return response
+            // },
             stopSurvey: async () => {
                 const response = await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
                 actions.addProductIntent({
