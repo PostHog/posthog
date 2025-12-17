@@ -76,6 +76,10 @@ export enum ArtifactContentType {
     Visualization = 'visualization',
     /** Notebook */
     Notebook = 'notebook',
+    /** Error Tracking filters artifact (UI/API query object) */
+    ErrorTrackingFilters = 'error_tracking_filters',
+    /** Error Tracking impact analysis artifact */
+    ErrorTrackingImpact = 'error_tracking_impact',
 }
 
 export interface BaseAssistantMessage {
@@ -287,7 +291,57 @@ export interface NotebookArtifactContent {
     title?: string | null
 }
 
-export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
+/** Error Tracking filters artifact (UI/API query object) */
+export interface ErrorTrackingFiltersArtifactContent {
+    content_type: ArtifactContentType.ErrorTrackingFilters
+    /** Error Tracking query/filters object (same shape as the UI/API). */
+    filters: Record<string, unknown>
+}
+
+/** Segment data for error tracking impact breakdowns */
+export interface ErrorTrackingImpactSegment {
+    /** Segment value (e.g., 'Chrome', 'Windows') */
+    value: string
+    /** Number of occurrences for this segment */
+    count: number
+    /** Percentage of total occurrences */
+    percentage: number
+}
+
+/** Error Tracking impact analysis artifact */
+export interface ErrorTrackingImpactArtifactContent {
+    content_type: ArtifactContentType.ErrorTrackingImpact
+    /** The error tracking issue ID */
+    issue_id: string
+    /** The error tracking issue name */
+    issue_name: string
+    /** Total number of occurrences */
+    occurrences: number
+    /** Number of unique users affected */
+    users_affected: number
+    /** Number of unique sessions affected */
+    sessions_affected: number
+    /** When the issue was first seen (ISO timestamp) */
+    first_seen?: string | null
+    /** When the issue was last seen (ISO timestamp) */
+    last_seen?: string | null
+    /** Trend direction: 'increasing', 'decreasing', or 'stable' */
+    trend: string
+    /** Percentage change in trend */
+    trend_percentage?: number | null
+    /** Top browsers affected */
+    top_browsers?: ErrorTrackingImpactSegment[] | null
+    /** Top operating systems affected */
+    top_os?: ErrorTrackingImpactSegment[] | null
+    /** Top URLs where the error occurs */
+    top_urls?: ErrorTrackingImpactSegment[] | null
+}
+
+export type ArtifactContent =
+    | VisualizationArtifactContent
+    | NotebookArtifactContent
+    | ErrorTrackingFiltersArtifactContent
+    | ErrorTrackingImpactArtifactContent
 
 /** Frontend artifact message containing enriched content field. Do not use in the backend. */
 export interface ArtifactMessage extends BaseAssistantMessage {
@@ -364,8 +418,9 @@ export type AssistantTool =
     | 'create_hog_function_inputs'
     | 'create_message_template'
     | 'filter_error_tracking_issues'
-    | 'find_error_tracking_impactful_issue_event_list'
+    | 'create_error_tracking_filters'
     | 'error_tracking_explain_issue'
+    | 'error_tracking_issue_impact'
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
@@ -400,6 +455,7 @@ export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
+    ErrorTracking = 'error_tracking',
 }
 
 export enum SlashCommandName {

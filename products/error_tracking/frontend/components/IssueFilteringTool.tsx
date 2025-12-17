@@ -82,11 +82,13 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
         if (update.orderDirection) {
             setOrderDirection(update.orderDirection)
         }
-        if (update.status) {
+        // Use !== undefined to allow clearing status with 'all' or other falsy-ish values
+        if (update.status !== undefined) {
             setStatus(update.status)
         }
-        if (update.searchQuery) {
-            setSearchQuery(update.searchQuery)
+        // Use !== undefined to allow clearing searchQuery with empty string or null
+        if (update.searchQuery !== undefined) {
+            setSearchQuery(update.searchQuery || '')
         }
         if (update.dateRange) {
             setDateRange(update.dateRange)

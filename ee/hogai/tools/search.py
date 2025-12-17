@@ -15,6 +15,23 @@ SEARCH_TOOL_PROMPT = """
 Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog.
 If the user's question mentions multiple topics, search for each topic separately and combine the results.
 
+# IMPORTANT: keyword search vs. structured filtering (Error Tracking)
+
+This tool performs FULL-TEXT (keyword) search. It is NOT a structured filter engine.
+
+For Error Tracking:
+- Use this tool ONLY when the user is trying to find a specific issue by text (e.g. error message, exception type, file name, service name, route, release label) or when you need to locate a particular issue to get its ID/URL.
+- DO NOT use this tool when the user is asking for structured filtering such as:
+  - status filtering: active/resolved/suppressed/archived/pending release
+  - time windows: "last 24h", "since yesterday", "between … and …"
+  - environment filtering: prod/staging/dev
+  - other non-text constraints (assignee, cohort, etc.)
+
+If the user is asking for structured filtering of error tracking issues, you MUST:
+1) create an Error Tracking filters artifact (UI/API query object), and
+2) execute it via read_data(kind="error_tracking_filters", execute=true)
+This keeps search atomic (metadata-only) and makes filtering backend-first and reusable.
+
 # Documentation search
 
 Use this tool for any PostHog questions. It relies on hybrid (semantic + full-text) search, so phrase your query in natural language. Our product and docs change often, so this tool is required for accurate answers:

@@ -91,6 +91,15 @@ export enum PropertyOperator {
 
 **Important**: `orderBy` is REQUIRED and must always be included in your response. If the user doesn't specify a sort order, use the current value from the existing filters.
 
+**Critical**: Each field marked "REPLACES" will completely replace the existing value. You must decide for EACH field whether to:
+- Keep the current value (output the same value from the existing filters)
+- Change to a new value (output the new value)
+- Clear/reset the filter (output `'all'` for status, `null` for searchQuery, etc.)
+
+When the user's query implies a fresh search that doesn't relate to previous filters, you should CLEAR filters that aren't relevant. For example:
+- User asks "show resolved issues" → set status: 'resolved'
+- User then asks "what are the most occurring issues in the last 4 days?" → set status: 'all' (clearing the previous 'resolved' filter) and set the new date range
+
 All other items marked optional are optional - only include a new value if:
 - It's relevant to the user's query.
 - It's not already present in the existing filterGroup
@@ -244,94 +253,8 @@ Again, always, always strongly prefer filterGroup over searchQuery.
 """.strip()
 
 
-ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT = """
-PostHog (posthog.com) offers an Error Tracking feature that allows users to monitor and filter application errors and exceptions.
-
-## Key Concepts
-
-Error tracking in PostHog works with these core concepts:
-
-1. **Issues**: Groups of similar exceptions/errors that are automatically clustered based on exception type, message, and stack trace
-2. **Exceptions**: Individual `$exception` events that get grouped into issues
-3. **Sessions**: A grouping of events that occur during a user's interaction with the application, which can include exceptions. Sessions rotate after 30 minutes of inactivity or every 24 hours, whichever comes sooner.
-
-Given we know the events and issues that occurred in every session it is possible to calculate an odds ratio to assess the impact of certain issues on event occurrences.
-
-"""
-
-ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT = """
-<tool_usage>
-# Tool Usage
-
-Use this tool when the user wants to understand a relationship between their product (features, flows, or events) and issues.
-The user may describe the link with words like “impacting,” “blocking,” “affecting,” “related to,” or similar.
-
-**Important:**
-- The user may not mention events directly — they may refer to product features or flows. You should still use this tool given the user is asking about a relationship to issues
-- You must infer relevant events from their query and the event list below
-- Your output should be only the relevant event names in a JSON array
-- You DO NOT need to know anything about the issues themselves, just the events that are relevant to the user's query
-- You should use this tool instead of filtering for issues when the user is looking to understand the impact between issues and their product
-
-## Notes
-
-1. You should use this tool instead of filtering for issues when the user is looking to understand the impact between issues and their product.
-2. Your job is to identify the events that the user is interested in, and return a list of event names that are relevant to the user's query. You DO NOT need to know anything about the issues themselves, just the events that are relevant to the user's query.
-3. You should return as many relevant event names as possible, even if the user only mentions one event. If the user mentions a broader flow, you should include all relevant events that are likely to occur in that flow.
-4. The user might not mention the events explicitly, but you should be able to infer them from the context of the query. For example, if the user asks about issues that are blocking signups, you should return the event names related to signups.
-
-</tool_usage>
-""".strip()
-
-ERROR_TRACKING_ISSUE_IMPACT_TOOL_GUIDE_PROMPT = """
-<tool_guide>
-# Decision Guide
-
-When processing the query:
-
-1. Exact match → If the query clearly matches one event in <defined_events>, return only that event. Example: “issues with toast errors” → ["toast error"]
-2. Close variation → If the query uses slightly different wording for a known event, return that single event. Example: “users being logged out unexpectedly” → ["logged_out"]
-3. Broad feature/flow match → If the query refers to a feature or flow without naming a specific event, return all events in that category. Example: “issues affecting sign ups" → all signup-related events e.g. ["sign_up_started", "signup complete", "email verification sent"]
-4. Multiple features/flows → If multiple are mentioned, combine relevant events from each. Example: "issues with notebooks and signups" → notebook + signups events
-5. No match or unclear event/feature/flow → If less than 80 percent confident, use ask_user_for_help to clarify.
-6. Use `final_answer` to return the final answer to the user. You do not need to offer additional assistance.
-
-### Do not:
-- Do **not** invent events not in <defined_events>
-- Do **not** return $exception as an event
-- Do **not** add unrelated events just to increase the list size
-- Do **not** include descriptive text — only the JSON array of event names.
-
-</tool_guide>
-""".strip()
-
-ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT = """
-<events>
-# Events
-
-In order to perform the task you are given, you need to know the list of events available to the user. You should only use event names contained in this list:
-
-{{{events}}}
-</events>
-""".strip()
-
-ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES = """
-<tool_examples>
-# Examples
-
-#### Specific event
-User: “Show me issues with notebook content changes”
-Output: ["notebook content changed"]
-
-#### Broad feature
-User: "Show me issues blocking signup"
-Output: ["sign_up_started", "signup complete"]
-
-#### Unclear
-User: "Show me impactful issues"
-→ Use `ask_user_for_help` tool to clarify what event or flow they mean
-</tool_examples>
-""".strip()
+# NOTE: Issue impact prompts removed alongside the taxonomy-agent-based impact tool.
+# The error tracking chat should rely on UI-provided issue context and/or direct issue reads.
 
 ERROR_TRACKING_EXPLAIN_ISSUE_PROMPT = """
 <agent_info>

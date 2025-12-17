@@ -1,5 +1,6 @@
 from .create_and_query_insight import CreateAndQueryInsightTool
 from .create_dashboard import CreateDashboardTool
+from .create_error_tracking_filters import CreateErrorTrackingFiltersTool
 from .create_form import CreateFormTool
 from .create_insight import CreateInsightTool
 from .execute_sql.tool import ExecuteSQLTool
@@ -14,6 +15,7 @@ from .todo_write import TodoWriteTool
 __all__ = [
     "CreateAndQueryInsightTool",
     "CreateDashboardTool",
+    "CreateErrorTrackingFiltersTool",
     "CreateFormTool",
     "ReadDataTool",
     "ReadTaxonomyTool",

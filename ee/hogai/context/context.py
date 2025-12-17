@@ -42,6 +42,9 @@ from .prompts import (
     CONTEXTUAL_TOOLS_REMINDER_PROMPT,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
     ROOT_DASHBOARDS_CONTEXT_PROMPT,
+    ROOT_ERROR_TRACKING_CURRENT_ISSUE_CONTEXT_PROMPT,
+    ROOT_ERROR_TRACKING_ISSUE_CONTEXT_PROMPT,
+    ROOT_ERROR_TRACKING_ISSUES_CONTEXT_PROMPT,
     ROOT_INSIGHT_CONTEXT_PROMPT,
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_UI_CONTEXT_PROMPT,
@@ -239,9 +242,70 @@ class AssistantContextManager(AssistantContextMixin):
         events_context = self._format_entity_context(ui_context.events, "events", "Event")
         actions_context = self._format_entity_context(ui_context.actions, "actions", "Action")
 
-        if dashboard_context or insights_context or events_context or actions_context:
+        # Format error tracking issues context (list view)
+        error_tracking_issues_context = ""
+        if ui_context.error_tracking_issues:
+            issue_contexts = []
+            for issue in ui_context.error_tracking_issues:
+                issue_text = (
+                    PromptTemplate.from_template(ROOT_ERROR_TRACKING_ISSUE_CONTEXT_PROMPT, template_format="mustache")
+                    .format_prompt(
+                        name=issue.name or f"Issue {issue.id}",
+                        id=issue.id,
+                        description=issue.description,
+                        status=issue.status,
+                        first_seen=issue.first_seen,
+                        occurrences=issue.occurrences,
+                        users=issue.users,
+                        sessions=issue.sessions,
+                        assignee=issue.assignee,
+                    )
+                    .to_string()
+                )
+                issue_contexts.append(issue_text)
+
+            if issue_contexts:
+                joined_issues = "\n\n".join(issue_contexts)
+                error_tracking_issues_context = (
+                    PromptTemplate.from_template(ROOT_ERROR_TRACKING_ISSUES_CONTEXT_PROMPT, template_format="mustache")
+                    .format_prompt(issues=joined_issues)
+                    .to_string()
+                )
+
+        # Format current error tracking issue context (issue detail view)
+        error_tracking_current_issue_context = ""
+        current_issue = getattr(ui_context, "error_tracking_issue", None)
+        if current_issue is not None:
+            try:
+                current_issue_json = current_issue.model_dump(mode="json", exclude_none=True)
+            except Exception:
+                # Best-effort fallback for non-pydantic/dict-like payloads
+                try:
+                    current_issue_json = dict(current_issue)
+                except Exception:
+                    current_issue_json = {"id": getattr(current_issue, "id", None)}
+
+            error_tracking_current_issue_context = (
+                PromptTemplate.from_template(
+                    ROOT_ERROR_TRACKING_CURRENT_ISSUE_CONTEXT_PROMPT, template_format="mustache"
+                )
+                .format_prompt(current_issue=current_issue_json)
+                .to_string()
+            )
+
+        combined_error_tracking_context = "\n\n".join(
+            [c for c in [error_tracking_current_issue_context, error_tracking_issues_context] if c]
+        )
+
+        if (
+            dashboard_context
+            or insights_context
+            or events_context
+            or actions_context
+            or combined_error_tracking_context
+        ):
             return self._render_user_context_template(
-                dashboard_context, insights_context, events_context, actions_context
+                dashboard_context, insights_context, events_context, actions_context, combined_error_tracking_context
             )
         return None
 
@@ -335,16 +399,30 @@ class AssistantContextManager(AssistantContextMixin):
         return ""
 
     def _render_user_context_template(
-        self, dashboard_context: str, insights_context: str, events_context: str, actions_context: str
+        self,
+        dashboard_context: str,
+        insights_context: str,
+        events_context: str,
+        actions_context: str,
+        error_tracking_issues_context: str = "",
     ) -> str:
         """Render the user context template with the provided context strings."""
+        # Filter out empty contexts and join with newlines
+        contexts = [
+            ctx
+            for ctx in [
+                dashboard_context,
+                insights_context,
+                events_context,
+                actions_context,
+                error_tracking_issues_context,
+            ]
+            if ctx
+        ]
+        joined_context = "\n".join(contexts)
+
         template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
-        return template.format_prompt(
-            ui_context_dashboard=dashboard_context,
-            ui_context_insights=insights_context,
-            ui_context_events=events_context,
-            ui_context_actions=actions_context,
-        ).to_string()
+        return template.format_prompt(context=joined_context).to_string()
 
     async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:
         are_modes_enabled = has_agent_modes_feature_flag(self._team, self._user)
