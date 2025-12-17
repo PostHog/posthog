@@ -264,3 +264,38 @@ class TestLocalEvaluationSignals(BaseTest):
 
         # Signal should NOT trigger the Celery task since no flags use this tag
         mock_task.delay.assert_not_called()
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_once_when_tag_used_by_multiple_flags(self, mock_task):
+        """Tag used by multiple flags should trigger cache update once per team."""
+        tag = Tag.objects.create(team=self.team, name="shared-tag")
+
+        for i in range(3):
+            flag = FeatureFlag.objects.create(
+                team=self.team,
+                key=f"flag-{i}",
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            )
+            FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        mock_task.reset_mock()
+
+        tag.name = "renamed-shared-tag"
+        tag.save()
+
+        # Should fire once (team-level), not 3 times (flag-level)
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_not_fired_on_tag_creation(self, mock_task):
+        """Signal should not fire when a new tag is created."""
+        mock_task.reset_mock()
+
+        # Create a new tag
+        Tag.objects.create(team=self.team, name="brand-new-tag")
+
+        # Signal should NOT trigger because new tags can't be used by any flags yet
+        mock_task.delay.assert_not_called()

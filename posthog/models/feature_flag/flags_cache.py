@@ -531,7 +531,7 @@ def evaluation_tag_changed_flags_cache(sender, instance: "FeatureFlagEvaluationT
 
 
 @receiver(post_save, sender=Tag)
-def tag_changed_flags_cache(sender, instance: "Tag", **kwargs):
+def tag_changed_flags_cache(sender, instance: "Tag", created: bool, **kwargs):
     """
     Invalidate flags cache when a tag is renamed.
 
@@ -539,16 +539,14 @@ def tag_changed_flags_cache(sender, instance: "Tag", **kwargs):
     is renamed, we need to refresh those teams' caches.
     Only operates when FLAGS_REDIS_URL is configured.
     """
+    if created:
+        return  # New tags can't be used by any flags yet
+
     if not settings.FLAGS_REDIS_URL:
         return
 
     from posthog.tasks.feature_flags import update_team_service_flags_cache
 
-    # Find all teams that have flags using this tag as an evaluation tag
-    team_ids = (
-        FeatureFlagEvaluationTag.objects.filter(tag=instance).values_list("feature_flag__team_id", flat=True).distinct()
-    )
-
-    for team_id in team_ids:
+    for team_id in FeatureFlagEvaluationTag.get_team_ids_using_tag(instance):
         # Capture team_id in closure to avoid late binding issues
-        transaction.on_commit(lambda tid=team_id: update_team_service_flags_cache.delay(tid))
+        transaction.on_commit(lambda tid=team_id: update_team_service_flags_cache.delay(tid))  # type: ignore[misc]

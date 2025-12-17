@@ -507,20 +507,18 @@ def evaluation_tag_changed(sender, instance: "FeatureFlagEvaluationTag", **kwarg
 
 
 @receiver(post_save, sender=Tag)
-def tag_changed(sender, instance: "Tag", **kwargs):
+def tag_changed(sender, instance: "Tag", created: bool, **kwargs):
     """
     Invalidate flags cache when a tag is renamed.
 
     Tag names are cached in evaluation_tags, so if a tag used by any flag
     is renamed, we need to refresh those teams' caches.
     """
+    if created:
+        return  # New tags can't be used by any flags yet
+
     from posthog.tasks.feature_flags import update_team_flags_cache
 
-    # Find all teams that have flags using this tag as an evaluation tag
-    team_ids = (
-        FeatureFlagEvaluationTag.objects.filter(tag=instance).values_list("feature_flag__team_id", flat=True).distinct()
-    )
-
-    for team_id in team_ids:
+    for team_id in FeatureFlagEvaluationTag.get_team_ids_using_tag(instance):
         # Capture team_id in closure to avoid late binding issues
-        transaction.on_commit(lambda tid=team_id: update_team_flags_cache.delay(tid))
+        transaction.on_commit(lambda tid=team_id: update_team_flags_cache.delay(tid))  # type: ignore[misc]
