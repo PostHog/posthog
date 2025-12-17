@@ -132,6 +132,7 @@ function FieldTree({
     onRemoveFilter,
     onSetExpandedFields,
     onSelect,
+    onSetAggregation,
 }: {
     nodes: FieldTreeNode[]
     searchTerm: string
@@ -145,6 +146,7 @@ function FieldTree({
     onRemoveFilter: (index: number) => void
     onSetExpandedFields: (paths: string[]) => void
     onSelect: (path: string, field?: DatabaseSchemaField) => void
+    onSetAggregation: (column: BIQueryColumn, aggregation?: BIAggregation | null, field?: DatabaseSchemaField) => void
 }): JSX.Element {
     const [openJsonPopover, setOpenJsonPopover] = useState<string | null>(null)
     const [jsonPathDraft, setJsonPathDraft] = useState('')
@@ -292,6 +294,9 @@ function FieldTree({
 
                 const column: BIQueryColumn = { table: tableName, field: record.path }
                 const columnFilters = filtersByField.get(column.field) || []
+                const matchingColumn = selectedColumns.find(
+                    (selectedColumn) => selectedColumn.table === tableName && selectedColumn.field === record.path
+                )
 
                 const content = (
                     <div className="flex items-center justify-between gap-2 w-full">
@@ -299,11 +304,14 @@ function FieldTree({
                         {!record.hasChildren && (
                             <ColumnFiltersPopover
                                 column={column}
+                                field={record.field}
+                                selectedAggregation={matchingColumn?.aggregation || null}
                                 filters={columnFilters}
                                 isOpen={openFilterPopover === columnKey(column)}
                                 onOpenChange={(visible) => onSetOpenFilterPopover(visible ? columnKey(column) : null)}
                                 onAddFilter={(expression) => onAddFilter(column, expression)}
                                 onRemoveFilter={onRemoveFilter}
+                                onSetAggregation={(aggregation) => onSetAggregation(column, aggregation, record.field)}
                             />
                         )}
                     </div>
@@ -436,6 +444,25 @@ export function BIScene(): JSX.Element {
     )
     const [chartHeight, setChartHeight] = useState(DEFAULT_CHART_HEIGHT)
     const [queryPreviewHeight, setQueryPreviewHeight] = useState(180)
+    const setAggregationForField = useCallback(
+        (column: BIQueryColumn, aggregation?: BIAggregation | null, field?: DatabaseSchemaField) => {
+            const existingColumn = selectedColumns.find(
+                (selectedColumn) => selectedColumn.table === column.table && selectedColumn.field === column.field
+            )
+
+            if (existingColumn) {
+                setColumnAggregation(existingColumn, aggregation)
+                return
+            }
+
+            addColumn({
+                ...column,
+                ...(field && isTemporalField(field) ? { timeInterval: 'day' } : {}),
+                ...(aggregation ? { aggregation } : {}),
+            })
+        },
+        [addColumn, selectedColumns, setColumnAggregation]
+    )
     const openSchemaForTable = useCallback(
         (tableName: string) => {
             const databaseName = getDatabaseNameFromTableName(tableName)
@@ -1120,6 +1147,7 @@ export function BIScene(): JSX.Element {
 
                                                 addColumn(column)
                                             }}
+                                            onSetAggregation={setAggregationForField}
                                         />
                                     ) : (
                                         <div className="text-muted">No columns match your search.</div>
@@ -1657,20 +1685,29 @@ function BIColumnValue({ value }: { value: unknown }): JSX.Element | string {
 
 function ColumnFiltersPopover({
     column,
+    field,
+    selectedAggregation,
     filters,
     isOpen,
     onOpenChange,
     onAddFilter,
     onRemoveFilter,
+    onSetAggregation,
 }: {
     column: BIQueryColumn
+    field?: DatabaseSchemaField
+    selectedAggregation?: BIAggregation | null
     filters: { filter: BIQueryFilter; index: number }[]
     isOpen: boolean
     onOpenChange: (visible: boolean) => void
     onAddFilter: (expression: string) => void
     onRemoveFilter: (index: number) => void
+    onSetAggregation: (aggregation?: BIAggregation | null) => void
 }): JSX.Element {
     const [draft, setDraft] = useState('')
+    const availableAggregations: BIAggregation[] = isNumericField(field)
+        ? ['count', 'min', 'max', 'sum']
+        : ['count', 'min', 'max']
 
     useEffect(() => {
         if (!isOpen) {
@@ -1729,6 +1766,38 @@ function ColumnFiltersPopover({
                     <LemonButton type="secondary" size="small" icon={<IconFilter />} onClick={handleAddFilter}>
                         Add filter
                     </LemonButton>
+                    <div className="space-y-1">
+                        <div className="text-muted text-xs">Aggregation</div>
+                        <div className="grid grid-cols-4 gap-1">
+                            <LemonButton
+                                type={!selectedAggregation ? 'primary' : 'secondary'}
+                                size="small"
+                                active={!selectedAggregation}
+                                status={!selectedAggregation ? 'primary' : 'default'}
+                                onClick={() => {
+                                    onSetAggregation(null)
+                                    onOpenChange(false)
+                                }}
+                            >
+                                None
+                            </LemonButton>
+                            {availableAggregations.map((aggregation) => (
+                                <LemonButton
+                                    key={aggregation}
+                                    type={selectedAggregation === aggregation ? 'primary' : 'secondary'}
+                                    size="small"
+                                    status={selectedAggregation === aggregation ? 'primary' : 'default'}
+                                    active={selectedAggregation === aggregation}
+                                    onClick={() => {
+                                        onSetAggregation(aggregation)
+                                        onOpenChange(false)
+                                    }}
+                                >
+                                    {aggregation.toUpperCase()}
+                                </LemonButton>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             }
         >
