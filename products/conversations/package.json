@@ -1,6 +1,10 @@
 {
     "name": "@posthog/products-conversations",
-    "dependencies": {},
+    "dependencies": {
+        "kea": "^3.1.7",
+        "kea-loaders": "^3.1.1",
+        "kea-router": "^3.4.1"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
@@ -8,9 +12,6 @@
         "@types/react-dom": "*",
         "clsx": "*",
         "react": "*",
-        "react-dom": "*",
-        "kea": "*",
-        "kea-loaders": "*",
-        "kea-router": "*"
+        "react-dom": "*"
     }
 }
