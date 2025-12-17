@@ -542,6 +542,12 @@ def tag_changed_flags_cache(sender, instance: "Tag", created: bool, **kwargs):
     if created:
         return  # New tags can't be used by any flags yet
 
+    # In practice, update_fields is rarely specified when saving Tags,
+    # but this check follows the pattern used elsewhere in the codebase.
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "name" not in update_fields:
+        return
+
     if not settings.FLAGS_REDIS_URL:
         return
 

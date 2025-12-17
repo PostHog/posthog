@@ -517,6 +517,12 @@ def tag_changed(sender, instance: "Tag", created: bool, **kwargs):
     if created:
         return  # New tags can't be used by any flags yet
 
+    # In practice, update_fields is rarely specified when saving Tags,
+    # but this check follows the pattern used elsewhere in the codebase.
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "name" not in update_fields:
+        return
+
     from posthog.tasks.feature_flags import update_team_flags_cache
 
     for team_id in FeatureFlagEvaluationTag.get_team_ids_using_tag(instance):
