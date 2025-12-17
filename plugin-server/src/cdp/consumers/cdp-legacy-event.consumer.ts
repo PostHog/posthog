@@ -81,12 +81,14 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                         posthog_pluginconfig.updated_at,
                         posthog_pluginconfig.created_at,
                         posthog_plugin.id as plugin__id,
-                        posthog_plugin.url as plugin__url
+                        posthog_plugin.url as plugin__url,
+                        posthog_plugin.capabilities as plugin__capabilities
                     FROM posthog_pluginconfig
                     LEFT JOIN posthog_plugin ON posthog_plugin.id = posthog_pluginconfig.plugin_id
                     WHERE posthog_pluginconfig.team_id = ANY($1)
                         AND posthog_pluginconfig.enabled = 't'
-                        AND (posthog_pluginconfig.deleted IS NULL OR posthog_pluginconfig.deleted != 't')`,
+                        AND (posthog_pluginconfig.deleted IS NULL OR posthog_pluginconfig.deleted != 't')
+                        AND posthog_plugin.capabilities->'methods' @> '["onEvent"]'::jsonb`,
                     [teamIds.map((id) => parseInt(id))],
                     'loadLightweightPluginConfigs'
                 )
@@ -313,15 +315,13 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         const templateId = `plugin-${pluginId}`
 
         // Build inputs from plugin config
-        const inputs: Record<string, any> = {}
-
-        for (const [key, value] of Object.entries(pluginConfig.config)) {
-            inputs[key] = { value }
+        const inputs: Record<string, any> = {
+            ...pluginConfig.config,
         }
 
         // Add legacy_plugin_config_id for plugins that use legacy storage
         if (pluginId === 'first-time-event-tracker' || pluginId === 'customerio-plugin') {
-            inputs.legacy_plugin_config_id = { value: pluginConfig.id.toString() }
+            inputs.legacy_plugin_config_id = pluginConfig.id
         }
 
         // Create a minimal HogFunctionType for the invocation

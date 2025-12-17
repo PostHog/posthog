@@ -132,10 +132,10 @@ describe('CdpLegacyEventsConsumer', () => {
             expect(result?.hogFunction.type).toBe('destination')
             expect(result?.hogFunction.team_id).toBe(team.id)
             expect(result?.state.globals.inputs).toMatchObject({
-                customerioSiteId: { value: '1234567890' },
-                customerioToken: { value: 'cio-token' },
-                email: { value: 'test@posthog.com' },
-                legacy_plugin_config_id: { value: pluginConfig.id.toString() },
+                customerioSiteId: '1234567890',
+                customerioToken: 'cio-token',
+                email: 'test@posthog.com',
+                legacy_plugin_config_id: pluginConfig.id,
             })
         })
 
@@ -213,12 +213,20 @@ describe('CdpLegacyEventsConsumer', () => {
             expect(lightweightConfigs?.length).toBeGreaterThan(0)
 
             const lightweightConfig = lightweightConfigs![0]
-            const hogFunctionInvocation = consumer['convertPluginConfigToHogFunctionInvocation'](
-                lightweightConfig,
-                invocation
-            )
+
+            // Manually construct a config with the correct URL for testing
+            const testConfig = {
+                ...lightweightConfig,
+                plugin: {
+                    id: lightweightConfig.plugin_id,
+                    url: 'https://github.com/PostHog/customerio-plugin',
+                },
+            }
+
+            const hogFunctionInvocation = consumer['convertPluginConfigToHogFunctionInvocation'](testConfig, invocation)
 
             expect(hogFunctionInvocation).toBeTruthy()
+            expect(hogFunctionInvocation?.hogFunction.template_id).toBe('plugin-customerio-plugin')
 
             // Execute the invocation with the legacy plugin executor
             invocation.event.event = '$identify'
