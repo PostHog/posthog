@@ -874,6 +874,7 @@ class CustomChannelField(StrEnum):
     UTM_SOURCE = "utm_source"
     UTM_MEDIUM = "utm_medium"
     UTM_CAMPAIGN = "utm_campaign"
+    UTM_NETWORK = "utm_network"
     REFERRING_DOMAIN = "referring_domain"
     URL = "url"
     PATHNAME = "pathname"

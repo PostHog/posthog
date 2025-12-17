@@ -30,6 +30,7 @@ class ChannelTypeExprs:
     source: ast.Expr
     medium: ast.Expr
     campaign: ast.Expr
+    network: ast.Expr
     referring_domain: ast.Expr
     url: ast.Expr
     hostname: ast.Expr
@@ -93,6 +94,7 @@ def create_initial_channel_type(
                 campaign=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_campaign"])]),
                 medium=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_medium"])]),
                 source=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_source"])]),
+                network=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_network"])]),
                 referring_domain=ast.Call(
                     name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])]
                 ),
@@ -198,6 +200,8 @@ def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTyp
             expr = source_exprs.medium
         elif condition.key == CustomChannelField.UTM_CAMPAIGN:
             expr = source_exprs.campaign
+        elif condition.key == CustomChannelField.UTM_NETWORK:
+            expr = source_exprs.network
         elif condition.key == CustomChannelField.URL:
             expr = source_exprs.url
         elif condition.key == CustomChannelField.HOSTNAME:
