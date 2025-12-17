@@ -21,6 +21,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -250,8 +251,9 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                         order by count() desc
                     limit 25`
 
+                const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Settings'
                 const response = await api.queryHogQL(query, {
-                    scene: 'Settings',
+                    scene: currentScene,
                     productKey: 'platform_and_support',
                 })
                 const result = response.results as [string, number][]
