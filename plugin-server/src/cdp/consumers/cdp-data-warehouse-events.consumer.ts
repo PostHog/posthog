@@ -141,12 +141,12 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
                     logger.error('🔴', 'Error checking rate limit for hog function', { err: e })
                 }
 
-                const shouldBlock = await shouldBlockInvocationDueToQuota(item, {
+                const isQuotaLimited = await shouldBlockInvocationDueToQuota(item, {
                     hub: this.hub,
                     hogFunctionMonitoringService: this.hogFunctionMonitoringService,
                 })
 
-                if (shouldBlock) {
+                if (isQuotaLimited) {
                     return
                 }
 
