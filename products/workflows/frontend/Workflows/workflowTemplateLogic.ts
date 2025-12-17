@@ -4,10 +4,6 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { HogFunctionTemplateType } from '~/types'
-
-import { isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
-import { type HogFlow, type HogFlowTemplate } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 import type { workflowTemplateLogicType } from './workflowTemplateLogicType'
 
@@ -16,50 +12,12 @@ export interface WorkflowTemplateLogicProps {
     templateId?: string
 }
 
-function workflowToTemplate(
-    workflow: HogFlow,
-    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
-): Omit<HogFlowTemplate, 'created_by'> {
-    const newTemplate = {
-        ...workflow,
-        name: `${workflow.name}`,
-        actions: workflow.actions.map((action) => ({
-            ...action,
-            config: { ...action.config } as typeof action.config,
-        })) as typeof workflow.actions,
-    }
-    delete (newTemplate as any).id
-    delete (newTemplate as any).created_at
-    delete (newTemplate as any).updated_at
-    delete (newTemplate as any).status
-
-    newTemplate.actions.forEach((action) => {
-        if (isFunctionAction(action) || isTriggerFunction(action)) {
-            const template = hogFunctionTemplatesById[action.config.template_id]
-            if (template) {
-                // Reset inputs to defaults from the template
-                const defaultInputs: Record<string, { value: any }> = {}
-                template.inputs_schema?.forEach((schema) => {
-                    if (schema.default !== undefined) {
-                        defaultInputs[schema.key] = { value: schema.default }
-                    }
-                })
-                action.config = {
-                    ...action.config,
-                    inputs: defaultInputs,
-                }
-            }
-        }
-    })
-    return newTemplate
-}
-
 export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowTemplateLogic']),
     props({ id: 'new' } as WorkflowTemplateLogicProps),
     key((props) => props.id || 'new'),
     connect(() => ({
-        values: [workflowLogic, ['workflow', 'hogFunctionTemplatesById']],
+        values: [workflowLogic, ['workflow']],
     })),
     actions({
         showSaveAsTemplateModal: true,
@@ -87,13 +45,13 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                     return
                 }
 
-                const template = workflowToTemplate(workflow, values.hogFunctionTemplatesById)
-                template.name = formValues.name || workflow.name || ''
-                template.description = formValues.description || workflow.description || ''
-                template.image_url = formValues.image_url || undefined
-                template.scope = formValues.scope || 'team'
-
-                await api.hogFlowTemplates.createHogFlowTemplate(template)
+                await api.hogFlowTemplates.createHogFlowTemplate({
+                    ...workflow,
+                    name: formValues.name || workflow.name || '',
+                    description: formValues.description || workflow.description || '',
+                    image_url: formValues.image_url || undefined,
+                    scope: formValues.scope || 'team',
+                })
                 lemonToast.success('Workflow template created')
                 actions.hideSaveAsTemplateModal()
             },

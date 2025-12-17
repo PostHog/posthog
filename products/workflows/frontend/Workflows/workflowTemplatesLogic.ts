@@ -64,7 +64,7 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
                 return searchResults.map((result: { item: HogFlowTemplate }) => result.item)
             },
         ],
-    } as any),
+    }),
     afterMount(({ actions }) => {
         actions.loadWorkflowTemplates()
     }),
