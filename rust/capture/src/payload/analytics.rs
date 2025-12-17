@@ -74,20 +74,30 @@ pub async fn handle_event_payload(
             return Err(e);
         }
     };
-    metrics::histogram!("capture_debug_analytics_decompress_seconds")
+    metrics::histogram!("capture_debug_analytics_extract_seconds")
         .record(extract_start_time.elapsed().as_secs_f64());
 
     Span::current().record("compression", format!("{compression}"));
     Span::current().record("lib_version", &lib_version);
 
     debug!("payload processed: passing to RawRequest::from_bytes");
-    let request = RawRequest::from_bytes(
+
+    let from_bytes_start_time = std::time::Instant::now();
+    let result = RawRequest::from_bytes(
         data,
         compression,
         metadata.request_id,
         state.event_size_limit,
         path.as_str().to_string(),
-    )?;
+    );
+    let request = match result {
+        Ok(request) => request,
+        Err(e) => {
+            return Err(e);
+        }
+    };
+    metrics::histogram!("capture_debug_analytics_decompress_seconds")
+        .record(from_bytes_start_time.elapsed().as_secs_f64());
 
     let sent_at = request.sent_at().or(query_params.sent_at());
     let historical_migration = request.historical_migration();
