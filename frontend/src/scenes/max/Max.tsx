@@ -174,7 +174,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                             />
                         </AnimatedBackButton>
 
-                        <Tooltip title={chatTitle} placement="bottom">
+                        <Tooltip title={chatTitle || undefined} placement="bottom">
                             <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-1">
                                 {chatTitle || 'PostHog AI'}
                             </h3>
