@@ -1,8 +1,18 @@
 use async_trait::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
 use rand::Rng;
+use sha2::{Digest, Sha256};
 
 use crate::s3_client::{S3Client, S3Error};
+
+/// Hash a token for use in S3 keys.
+/// This prevents path traversal attacks from malicious tokens containing "../" or "/".
+/// Returns first 16 hex characters (64 bits) which is sufficient for this use case.
+fn hash_token(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    format!("{:x}", hasher.finalize())[..16].to_string()
+}
 
 /// A blob to upload with its metadata.
 pub struct BlobData {
@@ -216,7 +226,9 @@ impl BlobStorage for AiBlobStorage {
         let doc = build_multipart_document(event_uuid, blobs);
 
         // Upload with multipart/mixed content type
-        let key = format!("{}{}/{}", self.prefix, token, event_uuid);
+        // Hash the token to prevent path traversal attacks from malicious input
+        let token_hash = hash_token(token);
+        let key = format!("{}{}/{}", self.prefix, token_hash, event_uuid);
         let content_type = format!("multipart/mixed; boundary={}", doc.boundary);
         self.s3_client
             .put_object(&key, doc.data, &content_type)
@@ -264,7 +276,8 @@ impl BlobStorage for MockBlobStorage {
         // Build document to get correct byte ranges (data is discarded for mock)
         let doc = build_multipart_document(event_uuid, blobs);
 
-        let key = format!("{}{}/{}", self.prefix, token, event_uuid);
+        let token_hash = hash_token(token);
+        let key = format!("{}{}/{}", self.prefix, token_hash, event_uuid);
         let base_url = format!("s3://{}/{}", self.bucket, key);
 
         Ok(UploadedBlobs {
@@ -346,13 +359,35 @@ mod tests {
         let token = "phc_test_token";
         let event_uuid = "550e8400-e29b-41d4-a716-446655440000";
 
-        let key = format!("{prefix}{token}/{event_uuid}");
+        let token_hash = hash_token(token);
+        let key = format!("{prefix}{token_hash}/{event_uuid}");
         let url = format!("s3://{bucket}/{key}");
 
+        // Token is hashed (first 16 chars) to prevent path traversal attacks
+        assert_eq!(token_hash, "0f25663a3e84ea94");
         assert_eq!(
             url,
-            "s3://capture/llma/phc_test_token/550e8400-e29b-41d4-a716-446655440000"
+            "s3://capture/llma/0f25663a3e84ea94/550e8400-e29b-41d4-a716-446655440000"
         );
+    }
+
+    #[test]
+    fn test_hash_token_prevents_path_traversal() {
+        // Malicious tokens with path traversal attempts should be safely hashed
+        let malicious_tokens = [
+            "../../../etc/passwd",
+            "phc_test/../other_customer",
+            "token/with/slashes",
+            "token\0with\0nulls",
+        ];
+
+        for token in malicious_tokens {
+            let hashed = hash_token(token);
+            // Hash should be 16 hex characters (first 64 bits of SHA-256)
+            assert_eq!(hashed.len(), 16);
+            // Hash should only contain hex characters (safe for S3 keys)
+            assert!(hashed.chars().all(|c| c.is_ascii_hexdigit()));
+        }
     }
 
     #[test]

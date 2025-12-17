@@ -939,6 +939,135 @@ async fn test_missing_distinct_id_returns_400() {
 }
 
 #[tokio::test]
+async fn test_missing_uuid_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    // Event without UUID field
+    let event_data = json!({
+        "event": "$ai_generation",
+        "distinct_id": "test_user",
+        "properties": {
+            "$ai_model": "test-missing-uuid"
+        }
+    });
+
+    let form = Form::new().part(
+        "event",
+        Part::bytes(serde_json::to_vec(&event_data).unwrap())
+            .mime_str("application/json")
+            .unwrap(),
+    );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body = response.text().await;
+    assert!(
+        body.contains("UUID"),
+        "Error should mention UUID, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn test_invalid_uuid_format_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let invalid_uuids = [
+        "not-a-uuid",
+        "12345",
+        "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "",
+        "550e8400-e29b-41d4-a716", // Truncated
+    ];
+
+    for invalid_uuid in invalid_uuids {
+        let event_data = json!({
+            "uuid": invalid_uuid,
+            "event": "$ai_generation",
+            "distinct_id": "test_user",
+            "properties": {
+                "$ai_model": "test-invalid-uuid"
+            }
+        });
+
+        let form = Form::new().part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+        let response = send_multipart_request(
+            &test_client,
+            form,
+            Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "UUID '{}' should be rejected",
+            invalid_uuid
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_malicious_uuid_with_path_traversal_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    // These malicious values could be used for S3 path traversal if not validated
+    let malicious_uuids = [
+        "../../../etc/passwd",
+        "550e8400/../../../secret",
+        "uuid/with/slashes",
+        "..%2F..%2F..%2Fetc%2Fpasswd", // URL-encoded traversal
+        "550e8400-e29b-41d4-a716-446655440000/../other",
+        "\0null-byte-injection",
+        "uuid\nwith\nnewlines",
+    ];
+
+    for malicious_uuid in malicious_uuids {
+        let event_data = json!({
+            "uuid": malicious_uuid,
+            "event": "$ai_generation",
+            "distinct_id": "test_user",
+            "properties": {
+                "$ai_model": "test-malicious-uuid"
+            }
+        });
+
+        let form = Form::new().part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+        let response = send_multipart_request(
+            &test_client,
+            form,
+            Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "Malicious UUID '{}' should be rejected",
+            malicious_uuid
+        );
+    }
+}
+
+#[tokio::test]
 async fn test_ai_endpoint_returns_200_for_valid_request() {
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);

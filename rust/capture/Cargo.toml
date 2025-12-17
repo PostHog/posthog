@@ -48,6 +48,7 @@ chrono = { workspace = true }
 lz-str = { workspace = true }
 multer = "3.0"
 futures = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
