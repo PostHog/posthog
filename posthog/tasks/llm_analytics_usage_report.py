@@ -545,14 +545,13 @@ def _get_all_llm_analytics_reports(
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
                 "total_ai_cost_usd": 0.0,
+                "total_ai_cost_usd_count": 0,
+                "total_ai_cost_usd_negative_count": 0,
+                "total_ai_cost_usd_zero_count": 0,
                 "input_cost_usd": 0.0,
                 "output_cost_usd": 0.0,
                 "request_cost_usd": 0.0,
                 "web_search_cost_usd": 0.0,
-                "total_cost_sum": 0.0,
-                "total_cost_count": 0,
-                "total_cost_negative_count": 0,
-                "total_cost_zero_count": 0,
                 "total_prompt_tokens": 0,
                 "total_completion_tokens": 0,
                 "total_tokens": 0,
@@ -583,14 +582,13 @@ def _get_all_llm_analytics_reports(
             report["ai_evaluation_count"] += metrics.ai_evaluation_count
 
             report["total_ai_cost_usd"] += metrics.total_cost
+            report["total_ai_cost_usd_count"] += metrics.total_cost_count
+            report["total_ai_cost_usd_negative_count"] += metrics.total_cost_negative_count
+            report["total_ai_cost_usd_zero_count"] += metrics.total_cost_zero_count
             report["input_cost_usd"] += metrics.input_cost
             report["output_cost_usd"] += metrics.output_cost
             report["request_cost_usd"] += metrics.request_cost
             report["web_search_cost_usd"] += metrics.web_search_cost
-            report["total_cost_sum"] += metrics.total_cost
-            report["total_cost_count"] += metrics.total_cost_count
-            report["total_cost_negative_count"] += metrics.total_cost_negative_count
-            report["total_cost_zero_count"] += metrics.total_cost_zero_count
 
             report["total_prompt_tokens"] += metrics.prompt_tokens
             report["total_completion_tokens"] += metrics.completion_tokens
