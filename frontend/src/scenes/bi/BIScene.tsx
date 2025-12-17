@@ -1607,69 +1607,68 @@ function SchemaEditorView({
 
                 <div className="flex-1 min-w-0 flex flex-col gap-2">
                     <div className="flex items-center justify-between gap-2">
-                        <LemonButton type="primary" onClick={handleSave} disabled={!activeTableName}>
-                            Save
-                        </LemonButton>
-                        <Popover
-                            visible={historyOpen}
-                            onVisibilityChange={setHistoryOpen}
-                            overlay={
-                                <div className="p-2 space-y-2" onClick={(event) => event.stopPropagation()}>
-                                    {orderedVersions.length === 0 && (
-                                        <div className="text-muted text-sm">No saved versions yet.</div>
-                                    )}
-                                    {[...orderedVersions].reverse().map((version, index) => (
-                                        <div
-                                            key={`${version.savedAt}-${index}`}
-                                            className="border border-border rounded p-2 space-y-1"
-                                        >
-                                            <div className="flex items-center justify-between text-xs text-muted">
-                                                <span>Version {orderedVersions.length - index}</span>
-                                                <span>{new Date(version.savedAt).toLocaleString()}</span>
+                        <div className="text-lg font-semibold ml-2">
+                            {schemaFilePath || 'Select a table to edit its schema'}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Popover
+                                visible={historyOpen}
+                                onVisibilityChange={setHistoryOpen}
+                                overlay={
+                                    <div className="p-2 space-y-2" onClick={(event) => event.stopPropagation()}>
+                                        {orderedVersions.length === 0 && (
+                                            <div className="text-muted text-sm">No saved versions yet.</div>
+                                        )}
+                                        {[...orderedVersions].reverse().map((version, index) => (
+                                            <div
+                                                key={`${version.savedAt}-${index}`}
+                                                className="border border-border rounded p-2 space-y-1"
+                                            >
+                                                <div className="flex items-center justify-between text-xs text-muted">
+                                                    <span>Version {orderedVersions.length - index}</span>
+                                                    <span>{new Date(version.savedAt).toLocaleString()}</span>
+                                                </div>
+                                                <div className="text-xs text-muted whitespace-pre-wrap line-clamp-2">
+                                                    {version.sql}
+                                                </div>
+                                                {activeTableName && (
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        type="secondary"
+                                                        onClick={() => {
+                                                            onChangeDraft(activeTableName, version.sql)
+                                                            setHistoryOpen(false)
+                                                        }}
+                                                    >
+                                                        Load version
+                                                    </LemonButton>
+                                                )}
                                             </div>
-                                            <div className="text-xs text-muted whitespace-pre-wrap line-clamp-2">
-                                                {version.sql}
-                                            </div>
-                                            {activeTableName && (
-                                                <LemonButton
-                                                    size="xsmall"
-                                                    type="secondary"
-                                                    onClick={() => {
-                                                        onChangeDraft(activeTableName, version.sql)
-                                                        setHistoryOpen(false)
-                                                    }}
-                                                >
-                                                    Load version
-                                                </LemonButton>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            }
-                        >
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconClock />}
-                                onClick={(event) => {
-                                    event.stopPropagation()
-                                    setHistoryOpen((current) => !current)
-                                }}
-                                disabled={!activeTableName}
+                                        ))}
+                                    </div>
+                                }
                             >
-                                Version history
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconClock />}
+                                    onClick={(event) => {
+                                        event.stopPropagation()
+                                        setHistoryOpen((current) => !current)
+                                    }}
+                                    disabled={!activeTableName}
+                                >
+                                    Version history
+                                </LemonButton>
+                            </Popover>{' '}
+                            <LemonButton type="primary" onClick={handleSave} disabled={!activeTableName}>
+                                Save
                             </LemonButton>
-                        </Popover>
+                        </div>
                     </div>
 
                     <LemonCard className="flex-1 min-h-0 flex flex-col p-4" hoverEffect={false}>
                         <div className="flex items-center justify-between mb-2">
-                            <div>
-                                <div className="text-muted text-xs">Editing schema</div>
-                                <div className="text-lg font-semibold">
-                                    {schemaFilePath || 'Select a table to edit its schema'}
-                                </div>
-                            </div>
-                            <div className="text-xs text-muted">SQL definition</div>
+                            <div />
                         </div>
                         <div className="flex-1 min-h-0 border border-border rounded bg-bg-3000">
                             {activeTableName ? (
