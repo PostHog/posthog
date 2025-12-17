@@ -4145,6 +4145,7 @@ class TestDecideRemoteConfig(TestDecide):
                 },
                 "sessionRecording": False,
                 "heatmaps": False,
+                "conversations": False,
                 "surveys": False,
                 "productTours": False,
                 "defaultIdentifiedOnly": True,

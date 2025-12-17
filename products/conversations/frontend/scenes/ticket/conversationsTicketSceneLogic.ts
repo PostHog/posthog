@@ -6,7 +6,6 @@ import api from '~/lib/api'
 import type { CommentType } from '~/types'
 
 import type { Ticket, TicketPriority, TicketStatus } from '../../types'
-// NOTE: Run `pnpm typegen` to generate this type after making changes to the logic
 import type { conversationsTicketSceneLogicType } from './conversationsTicketSceneLogicType'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
