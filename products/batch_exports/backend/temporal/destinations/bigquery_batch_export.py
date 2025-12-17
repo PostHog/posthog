@@ -721,9 +721,17 @@ class BigQueryClient:
                 result = load_job.result()
             except Forbidden as err:
                 if err.reason == "quotaExceeded":
+                    self.external_logger.exception(
+                        "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
+                    )
                     raise BigQueryQuotaExceededError(err.message) from err
+
                 raise
             except TooManyRequests:
+                self.logger.exception(
+                    "LoadJob rate limit exceeded",
+                    attempt=attempt,
+                )
                 if attempt >= max_attempts:
                     raise
 
