@@ -349,7 +349,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources'],
+            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources', 'isWaitingForPlayableFullSnapshot'],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',
@@ -374,7 +374,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         actions: [
             snapshotDataLogic(props),
-            ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure', 'loadNextSnapshotSource'],
+            [
+                'loadSnapshots',
+                'loadSnapshotsForSourceFailure',
+                'loadSnapshotSourcesFailure',
+                'loadNextSnapshotSource',
+                'setTargetTimestamp',
+                'setLoadingPhase',
+            ],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess'],
             playerSettingsLogic,
@@ -1339,7 +1346,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentTimestamp === undefined) {
                 return
             }
-            const isBuffering = values.segmentForTimestamp(values.currentTimestamp)?.kind === 'buffer'
+            const isBufferingSegment = values.segmentForTimestamp(values.currentTimestamp)?.kind === 'buffer'
+            // Also consider buffering if we're doing timestamp-based loading and don't have a playable FullSnapshot yet
+            const isBuffering = isBufferingSegment || values.isWaitingForPlayableFullSnapshot
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
                 actions.endBuffer()
@@ -1377,11 +1386,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         syncSnapshotsWithPlayer: async (_, breakpoint) => {
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
-            const eventsToAdd = []
+            const eventsToAdd: eventWithTime[] = []
+
+            // For timestamp-based loading: don't add events until we have a playable FullSnapshot
+            // This prevents partial data from being added while we're loading blobs out of order
+            // Once we have coverage (FullSnapshot to target), we add all events at once
+            if (values.isWaitingForPlayableFullSnapshot) {
+                actions.checkBufferingCompleted()
+                breakpoint()
+                return
+            }
 
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
-                const newSnapshots = allSnapshots.slice(currentEvents.length)
+
+                // Use timestamp-based comparison instead of index-based slicing
+                // This handles out-of-order blob loading correctly after initial load
+                const lastAddedTimestamp =
+                    currentEvents.length > 0 ? currentEvents[currentEvents.length - 1].timestamp : 0
+                const newSnapshots = allSnapshots.filter((e) => e.timestamp > lastAddedTimestamp)
 
                 eventsToAdd.push(...newSnapshots)
             }
@@ -1507,6 +1530,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
 
+            // For timestamp-based loading: set target timestamp first so selectors update
+            const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
+            if (isTimestampBased) {
+                actions.setTargetTimestamp(timestamp)
+            }
+
             // Check if we're seeking to a new segment
             const segment = values.segmentForTimestamp(timestamp)
 
@@ -1515,7 +1544,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             // If next time is greater than last buffered time, set to buffering
-            else if (segment?.kind === 'buffer') {
+            // Also buffer if we're doing timestamp-based loading and don't have a playable FullSnapshot
+            const needsBuffering = segment?.kind === 'buffer' || values.isWaitingForPlayableFullSnapshot
+            if (needsBuffering) {
                 const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
                 if (isPastEnd) {
                     actions.setEndReached(true)
@@ -1523,6 +1554,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.player?.replayer?.pause()
                     actions.startBuffer()
                     actions.clearPlayerError()
+
                     // if we're buffering, then be careful to ensure we're loading data
                     actions.loadNextSnapshotSource()
                 }

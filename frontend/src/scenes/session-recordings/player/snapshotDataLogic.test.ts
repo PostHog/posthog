@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
@@ -236,6 +237,356 @@ describe('snapshotDataLogic', () => {
             }
             const chunks = chunkMutationSnapshot(snapshot)
             expect(chunks).toEqual([snapshot])
+        })
+    })
+
+    describe('timestamp-based loading', () => {
+        const createBlobSources = (count: number): SessionRecordingSnapshotSource[] => {
+            return Array.from({ length: count }, (_, i) => ({
+                source: 'blob_v2' as const,
+                start_timestamp: new Date(Date.UTC(2023, 7, 11, 12, i, 0)).toISOString(),
+                end_timestamp: new Date(Date.UTC(2023, 7, 11, 12, i, 59)).toISOString(),
+                blob_key: String(i),
+            }))
+        }
+
+        describe('blobIndexForTimestamp selector', () => {
+            it.each([
+                { description: 'timestamp in first blob', targetMinute: 0, expectedIndex: 0 },
+                { description: 'timestamp in middle blob', targetMinute: 5, expectedIndex: 5 },
+                { description: 'timestamp in last blob', targetMinute: 9, expectedIndex: 9 },
+            ])('returns correct index for $description', async ({ targetMinute, expectedIndex }) => {
+                const sources = createBlobSources(10)
+                setupSessionRecordingTest({ snapshotSources: sources })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshots()
+                }).toDispatchActions(['loadSnapshotSourcesSuccess'])
+
+                const timestamp = new Date(Date.UTC(2023, 7, 11, 12, targetMinute, 30)).getTime()
+                const index = testLogic.values.blobIndexForTimestamp(timestamp)
+                expect(index).toBe(expectedIndex)
+            })
+
+            it('returns first blob for timestamp before recording', async () => {
+                const sources = createBlobSources(10)
+                setupSessionRecordingTest({ snapshotSources: sources })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshots()
+                }).toDispatchActions(['loadSnapshotSourcesSuccess'])
+
+                const timestamp = new Date(Date.UTC(2023, 7, 11, 11, 0, 0)).getTime()
+                const index = testLogic.values.blobIndexForTimestamp(timestamp)
+                expect(index).toBe(0)
+            })
+
+            it('returns last blob for timestamp after recording', async () => {
+                const sources = createBlobSources(10)
+                setupSessionRecordingTest({ snapshotSources: sources })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshots()
+                }).toDispatchActions(['loadSnapshotSourcesSuccess'])
+
+                const timestamp = new Date(Date.UTC(2023, 7, 11, 13, 0, 0)).getTime()
+                const index = testLogic.values.blobIndexForTimestamp(timestamp)
+                expect(index).toBe(9)
+            })
+
+            it('returns null when no sources loaded', async () => {
+                setupSessionRecordingTest({ snapshotSources: [] })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                const timestamp = new Date(Date.UTC(2023, 7, 11, 12, 5, 0)).getTime()
+                const index = testLogic.values.blobIndexForTimestamp(timestamp)
+                expect(index).toBe(null)
+            })
+        })
+
+        describe('loading phase state machine', () => {
+            it('starts in sequential phase by default', async () => {
+                setupSessionRecordingTest({ snapshotSources: createBlobSources(10) })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                expect(testLogic.values.loadingPhase).toBe('sequential')
+            })
+
+            it('can set target timestamp', async () => {
+                setupSessionRecordingTest({ snapshotSources: createBlobSources(10) })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                const targetTime = new Date(Date.UTC(2023, 7, 11, 12, 5, 0)).getTime()
+                testLogic.actions.setTargetTimestamp(targetTime)
+
+                expect(testLogic.values.targetTimestamp).toBe(targetTime)
+            })
+
+            it('can set loading phase', async () => {
+                setupSessionRecordingTest({ snapshotSources: createBlobSources(10) })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                testLogic.actions.setLoadingPhase('find_target')
+                expect(testLogic.values.loadingPhase).toBe('find_target')
+
+                testLogic.actions.setLoadingPhase('find_fullsnapshot')
+                expect(testLogic.values.loadingPhase).toBe('find_fullsnapshot')
+            })
+
+            it('resetTimestampLoading resets state', async () => {
+                setupSessionRecordingTest({ snapshotSources: createBlobSources(10) })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                testLogic.actions.setTargetTimestamp(12345)
+                testLogic.actions.setLoadingPhase('find_fullsnapshot')
+
+                testLogic.actions.resetTimestampLoading()
+
+                expect(testLogic.values.targetTimestamp).toBe(null)
+                expect(testLogic.values.loadingPhase).toBe('sequential')
+            })
+        })
+
+        describe('hasPlayableFullSnapshot selector', () => {
+            it('returns true when no target timestamp', async () => {
+                setupSessionRecordingTest({ snapshotSources: createBlobSources(2) })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                expect(testLogic.values.hasPlayableFullSnapshot).toBe(true)
+            })
+
+            it('returns false when there is a gap between FullSnapshot blob and target blob', async () => {
+                // Scenario: User seeks to blob 5 (loads 2-12 with FullSnapshot in blob 4)
+                // Then seeks to blob 27 (loads 25-35)
+                // FullSnapshot in blob 4 should NOT be playable for target in blob 27
+                // because blobs 13-24 are not loaded
+                const sources = createBlobSources(40)
+                setupSessionRecordingTest({ snapshotSources: sources })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                // Load sources metadata
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshots()
+                }).toDispatchActions(['loadSnapshotSourcesSuccess'])
+
+                // Simulate: first seek loads blobs 2-12
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshotsForSource(sources.slice(2, 13))
+                }).toDispatchActions(['loadSnapshotsForSourceSuccess'])
+
+                // Simulate: second seek to blob 27, loads blobs 25-35
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshotsForSource(sources.slice(25, 36))
+                }).toDispatchActions(['loadSnapshotsForSourceSuccess'])
+
+                // Set target timestamp to blob 27
+                const targetTime = new Date(Date.UTC(2023, 7, 11, 12, 27, 30)).getTime()
+                testLogic.actions.setTargetTimestamp(targetTime)
+
+                // FullSnapshot exists in loaded data (from blobs 2-12) but there's a gap
+                // between blob 12 and blob 25, so it should NOT be playable
+                expect(testLogic.values.hasPlayableFullSnapshot).toBe(false)
+            })
+
+            it('returns true when FullSnapshot blob has continuous coverage to target', async () => {
+                const sources = createBlobSources(10)
+                setupSessionRecordingTest({ snapshotSources: sources })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                // Load all blobs 0-9 (continuous coverage)
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshots()
+                }).toFinishAllListeners()
+
+                // Set target timestamp to blob 7
+                const targetTime = new Date(Date.UTC(2023, 7, 11, 12, 7, 30)).getTime()
+                testLogic.actions.setTargetTimestamp(targetTime)
+
+                // Should be playable because we have continuous coverage
+                expect(testLogic.values.hasPlayableFullSnapshot).toBe(true)
+            })
+        })
+
+        describe('with feature flag enabled', () => {
+            const enableTimestampBasedLoading = (): void => {
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING]: 'test',
+                })
+            }
+
+            it('dispatches resetTimestampLoading after finding playable FullSnapshot', async () => {
+                const sources = createBlobSources(10)
+                setupSessionRecordingTest({ snapshotSources: sources })
+                enableTimestampBasedLoading()
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                const targetTime = new Date(Date.UTC(2023, 7, 11, 12, 5, 30)).getTime()
+                testLogic.actions.setTargetTimestamp(targetTime)
+                testLogic.actions.setLoadingPhase('find_target')
+
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshots()
+                }).toDispatchActions([
+                    'loadSnapshotSourcesSuccess',
+                    'loadSnapshotsForSource',
+                    'loadSnapshotsForSourceSuccess',
+                    // After initial batch loaded, transitions to find_fullsnapshot
+                    (action) =>
+                        action.type === testLogic.actionTypes.setLoadingPhase &&
+                        action.payload.phase === 'find_fullsnapshot',
+                    // Then finds FullSnapshot and resets timestamp loading (clears target, sets phase to sequential)
+                    'resetTimestampLoading',
+                ])
+            })
+
+            it.each([
+                { targetMinute: 5, expectedStartKey: '3', expectedBatchSize: 7, description: 'middle of recording' },
+                { targetMinute: 0, expectedStartKey: '0', expectedBatchSize: 8, description: 'start of recording' },
+                { targetMinute: 9, expectedStartKey: '7', expectedBatchSize: 3, description: 'end of recording' },
+            ])(
+                'loads correct blob range for $description (target-2 to target+7)',
+                async ({ targetMinute, expectedStartKey, expectedBatchSize }) => {
+                    const sources = createBlobSources(10)
+                    setupSessionRecordingTest({ snapshotSources: sources })
+                    enableTimestampBasedLoading()
+
+                    const testLogic = snapshotDataLogic({
+                        sessionRecordingId: '2',
+                        blobV2PollingDisabled: true,
+                    })
+                    testLogic.mount()
+
+                    const targetTime = new Date(Date.UTC(2023, 7, 11, 12, targetMinute, 30)).getTime()
+                    testLogic.actions.setTargetTimestamp(targetTime)
+                    testLogic.actions.setLoadingPhase('find_target')
+
+                    await expectLogic(testLogic, () => {
+                        testLogic.actions.loadSnapshots()
+                    }).toDispatchActions([
+                        'loadSnapshotSourcesSuccess',
+                        (action) =>
+                            action.type === testLogic.actionTypes.loadSnapshotsForSource &&
+                            action.payload.sources?.[0]?.blob_key === expectedStartKey &&
+                            action.payload.sources?.length === expectedBatchSize,
+                    ])
+                }
+            )
+
+            it('uses sequential loading when feature flag is control', async () => {
+                const sources = createBlobSources(10)
+                setupSessionRecordingTest({ snapshotSources: sources })
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING]: 'control',
+                })
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                const targetTime = new Date(Date.UTC(2023, 7, 11, 12, 5, 30)).getTime()
+                testLogic.actions.setTargetTimestamp(targetTime)
+                testLogic.actions.setLoadingPhase('find_target')
+
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshots()
+                }).toDispatchActions([
+                    'loadSnapshotSourcesSuccess',
+                    (action) =>
+                        action.type === testLogic.actionTypes.loadSnapshotsForSource &&
+                        action.payload.sources?.[0]?.blob_key === '0',
+                ])
+            })
+
+            it('ends in sequential phase after full loading cycle', async () => {
+                const sources = createBlobSources(10)
+                setupSessionRecordingTest({ snapshotSources: sources })
+                enableTimestampBasedLoading()
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                const targetTime = new Date(Date.UTC(2023, 7, 11, 12, 5, 30)).getTime()
+                testLogic.actions.setTargetTimestamp(targetTime)
+                testLogic.actions.setLoadingPhase('find_target')
+
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshots()
+                }).toFinishAllListeners()
+
+                // Mock data includes FullSnapshot, so it should find it and transition to sequential
+                expect(testLogic.values.loadingPhase).toBe('sequential')
+                expect(testLogic.values.hasPlayableFullSnapshot).toBe(true)
+            })
         })
     })
 })
