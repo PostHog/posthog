@@ -1,6 +1,5 @@
-import json
 import asyncio
-from typing import Literal, Self, Union, cast
+from typing import Literal, Self, Union
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
@@ -11,13 +10,14 @@ from posthog.schema import ArtifactContentType, AssistantToolCallMessage
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 
-from posthog.models import Dashboard, DashboardTile, Team, User
+from posthog.models import Dashboard, Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ModelArtifactResult
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.context.dashboard.context import DashboardContext, InsightData
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
@@ -336,63 +336,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             async for tile in dashboard.tiles.exclude(insight__deleted=True, deleted=True).select_related("insight")
         ]
 
-        if not execute:
-            tiles_schema_parts = []
-            for tile in tiles:
-                insight = tile.insight
-                if not insight or not insight.query:
-                    continue
-                query = insight.query
-                if isinstance(query, dict) and query.get("source"):
-                    query = query.get("source")
-                if not query:
-                    continue
-                query_schema = json.dumps(query, default=str)
-                tile_schema = format_prompt_string(
-                    "",  # TODO: replace with a prompt
-                    insight_name=insight.name or insight.derived_name or f"Insight {insight.short_id}",
-                    insight_id=insight.short_id,
-                    description=insight.description,
-                    query_schema=query_schema,
-                )
-                tiles_schema_parts.append(tile_schema)
-
-            text_result = format_prompt_string(
-                DASHBOARD_RESULT_TEMPLATE,
-                dashboard_name=dashboard_name,
-                dashboard_id=dashboard_id,
-                description=dashboard.description,
-                insights="\n\n".join(tiles_schema_parts),
-            )
-            return text_result, None
-
-        tile_results = await asyncio.gather(
-            *[self._process_dashboard_tile(tile) for tile in tiles],
-            return_exceptions=True,
-        )
-
-        # Filter, sort by tile number, and extract content
-        valid_results = [
-            cast(str, content) for content in tile_results if content is not None and not isinstance(content, Exception)
-        ]
-
-        text_result = format_prompt_string(
-            DASHBOARD_RESULT_TEMPLATE,
-            dashboard_name=dashboard_name,
-            dashboard_id=dashboard_id,
-            description=dashboard.description,
-            insights="\n\n".join(valid_results),
-        )
-
-        return text_result, None
-
-    async def _process_dashboard_tile(self, tile: DashboardTile) -> str | None:
-        async with self._query_semaphore:
+        # Build InsightData models for all tiles
+        insights_data = []
+        for tile in tiles:
             insight = tile.insight
             if not insight or not insight.query:
-                return None
-
-            insight_name = insight.name or insight.derived_name or f"Insight {insight.short_id}"
+                continue
 
             # Parse and validate the query
             query = insight.query
@@ -401,21 +350,38 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 if query.get("source"):
                     query = query.get("source")
                 if not query:
-                    return None
+                    continue
                 # Convert dict to proper query model
                 from ee.hogai.utils.query import validate_assistant_query
 
                 try:
                     query = validate_assistant_query(query)
                 except Exception:
-                    return None
+                    continue
 
-            context = InsightContext(
-                team=self._team,
-                query=query,
-                name=insight_name,
-                description=insight.description,
-                insight_id=insight.short_id,
+            insight_name = insight.name or insight.derived_name or f"Insight {insight.short_id}"
+            insights_data.append(
+                InsightData(
+                    query=query,
+                    name=insight_name,
+                    description=insight.description,
+                    insight_id=insight.short_id,
+                )
             )
 
-            return await context.execute(insight_model_id=insight.id)
+        # Create DashboardContext and execute or format schema
+        dashboard_ctx = DashboardContext(
+            team=self._team,
+            insights_data=insights_data,
+            name=dashboard_name,
+            description=dashboard.description,
+            dashboard_id=dashboard_id,
+            max_concurrent_queries=self._query_semaphore._value,
+        )
+
+        if execute:
+            text_result = await dashboard_ctx.execute(prompt_template=DASHBOARD_RESULT_TEMPLATE)
+        else:
+            text_result = dashboard_ctx.format_schema(prompt_template=DASHBOARD_RESULT_TEMPLATE)
+
+        return text_result, None

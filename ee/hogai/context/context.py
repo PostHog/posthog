@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Sequence
 from functools import cached_property
-from typing import Any, Optional, cast
+from typing import Any, Optional
 from uuid import uuid4
 
 from langchain_core.prompts import PromptTemplate
@@ -27,8 +27,8 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.context.dashboard.context import DashboardContext, InsightData
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
@@ -147,92 +147,50 @@ class AssistantContextManager(AssistantContextMixin):
         if not ui_context:
             return None
 
-        query_runner = AssistantQueryExecutor(self._team, self._utc_now_datetime)
-
-        # Collect all unique insights with their contexts
-        insight_map: dict[str, tuple[MaxInsightContext, Optional[dict], str]] = {}
-
-        # Collect insights from dashboards
-        dashboard_insights_mapping: dict[str, list[str]] = {}  # dashboard_id -> list of insight_ids
-        if ui_context.dashboards:
-            for dashboard in ui_context.dashboards:
-                if dashboard.insights:
-                    dashboard_id = str(dashboard.id) if dashboard.id else dashboard.name or ""
-                    dashboard_insights_mapping[dashboard_id] = []
-                    dashboard_filters = (
-                        dashboard.filters.model_dump() if hasattr(dashboard, "filters") and dashboard.filters else None
-                    )
-                    for insight in dashboard.insights:
-                        # Create unique key for deduplication
-                        # Use hash of dashboard_filters for the key to avoid issues with dict-to-string conversion
-                        filters_hash = str(hash(str(dashboard_filters))) if dashboard_filters else "None"
-                        insight_key = f"{insight.id or ''}-{filters_hash}-####"
-                        if insight_key not in insight_map:
-                            insight_map[insight_key] = (insight, dashboard_filters, "####")
-                        dashboard_insights_mapping[dashboard_id].append(insight_key)
-
-        # Collect standalone insights
-        standalone_insight_keys = []
-        if ui_context.insights:
-            for insight in ui_context.insights:
-                insight_key = f"{insight.id or ''}-None-##"
-                if insight_key not in insight_map:
-                    insight_map[insight_key] = (insight, None, "##")
-                standalone_insight_keys.append(insight_key)
-
-        # Run all unique insights in parallel
-        insight_results_map: dict[str, str | None] = {}
-        if insight_map:
-            insight_tasks = [
-                self._arun_and_format_insight(insight, query_runner, filters, heading)
-                for insight, filters, heading in insight_map.values()
-            ]
-            insight_keys = list(insight_map.keys())
-
-            insight_results = await asyncio.gather(*insight_tasks, return_exceptions=True)
-
-            # Map results back to keys
-            for key, result in zip(insight_keys, insight_results):
-                if result is not None and not isinstance(result, Exception):
-                    insight_results_map[key] = cast(str, result)
-                else:
-                    if isinstance(result, Exception):
-                        # Log the exception for debugging while still allowing other insights to process
-                        capture_exception(
-                            result,
-                            distinct_id=self._get_user_distinct_id(self._config),
-                            properties={**self._get_debug_props(self._config), "insight_key": key},
-                        )
-                    insight_results_map[key] = None
-
-        # Build dashboard context using the results
+        # Build dashboard contexts
         dashboard_context = ""
-        if ui_context.dashboards and dashboard_insights_mapping:
+        if ui_context.dashboards:
             dashboard_contexts = []
             for dashboard in ui_context.dashboards:
-                dashboard_id = str(dashboard.id) if dashboard.id else dashboard.name or ""
-                if dashboard_id in dashboard_insights_mapping:
-                    insight_keys = dashboard_insights_mapping[dashboard_id]
-                    insight_texts: list[str] = [
-                        cast(str, insight_results_map[key])
-                        for key in insight_keys
-                        if insight_results_map.get(key) is not None
-                    ]
-                    dashboard_insights = "\n\n".join(insight_texts) if insight_texts else ""
-                else:
-                    dashboard_insights = ""
-
-                # Use the dashboard template
-                dashboard_text = (
-                    PromptTemplate.from_template(ROOT_DASHBOARD_CONTEXT_PROMPT, template_format="mustache")
-                    .format_prompt(
-                        name=dashboard.name or f"Dashboard {dashboard.id}",
-                        description=dashboard.description if dashboard.description else None,
-                        insights=dashboard_insights,
-                    )
-                    .to_string()
+                dashboard_filters = (
+                    dashboard.filters.model_dump() if hasattr(dashboard, "filters") and dashboard.filters else None
                 )
-                dashboard_contexts.append(dashboard_text)
+
+                # Build InsightData models for this dashboard
+                insights_data = []
+                if dashboard.insights:
+                    for insight in dashboard.insights:
+                        insights_data.append(
+                            InsightData(
+                                query=insight.query,
+                                name=insight.name,
+                                description=insight.description,
+                                insight_id=insight.id,
+                            )
+                        )
+
+                # Create DashboardContext and execute
+                dashboard_ctx = DashboardContext(
+                    team=self._team,
+                    insights_data=insights_data,
+                    name=dashboard.name or f"Dashboard {dashboard.id}",
+                    description=dashboard.description,
+                    dashboard_id=str(dashboard.id) if dashboard.id else None,
+                    dashboard_filters=dashboard_filters,
+                )
+
+                try:
+                    dashboard_text = await dashboard_ctx.execute(
+                        prompt_template=ROOT_DASHBOARD_CONTEXT_PROMPT,
+                    )
+                    dashboard_contexts.append(dashboard_text)
+                except Exception as e:
+                    capture_exception(
+                        e,
+                        distinct_id=self._get_user_distinct_id(self._config),
+                        properties=self._get_debug_props(self._config),
+                    )
+                    continue
 
             if dashboard_contexts:
                 joined_dashboards = "\n\n".join(dashboard_contexts)
@@ -242,13 +200,22 @@ class AssistantContextManager(AssistantContextMixin):
                     .to_string()
                 )
 
-        # Build standalone insights context using the results
+        # Build standalone insights context
         insights_context = ""
-        if standalone_insight_keys:
+        if ui_context.insights:
+            insight_contexts = [
+                self._build_insight_context(insight=insight, dashboard_filters=None) for insight in ui_context.insights
+            ]
+
+            # Execute all standalone insights in parallel
+            insight_tasks = [self._execute_and_format_insight(ctx) for ctx in insight_contexts]
+            insight_results = await asyncio.gather(*insight_tasks, return_exceptions=True)
+
+            # Filter out failed results
             insights_results: list[str] = [
-                cast(str, insight_results_map[key])
-                for key in standalone_insight_keys
-                if insight_results_map.get(key) is not None
+                result
+                for result in insight_results
+                if result is not None and not isinstance(result, Exception) and result
             ]
 
             if insights_results:
@@ -269,54 +236,60 @@ class AssistantContextManager(AssistantContextMixin):
             )
         return None
 
-    async def _arun_and_format_insight(
+    def _build_insight_context(
         self,
         insight: MaxInsightContext,
-        query_runner: AssistantQueryExecutor,
         dashboard_filters: Optional[dict] = None,
-        heading: Optional[str] = None,
-    ) -> str | None:
+    ) -> InsightContext:
         """
-        Run and format a single insight for AI consumption.
+        Build an InsightContext from MaxInsightContext data.
 
         Args:
             insight: Insight object with query and metadata
-            query_runner: AssistantQueryExecutor instance for execution
             dashboard_filters: Optional dashboard filters to apply to the query
 
         Returns:
-            Formatted insight string or empty string if failed
+            InsightContext instance
+        """
+        # Convert filters_override to dict if needed
+        filters_override = None
+        if insight.filtersOverride:
+            filters_override = insight.filtersOverride.model_dump(mode="json")
+
+        # Convert variables_override to dict if needed
+        variables_override = None
+        if insight.variablesOverride:
+            variables_override = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
+
+        return InsightContext(
+            team=self._team,
+            query=insight.query,
+            name=insight.name,
+            description=insight.description,
+            insight_id=insight.id,
+            dashboard_filters=dashboard_filters,
+            filters_override=filters_override,
+            variables_override=variables_override,
+        )
+
+    async def _execute_and_format_insight(self, context: InsightContext) -> str | None:
+        """
+        Execute and format a single insight for AI consumption.
+
+        Args:
+            context: InsightContext to execute
+
+        Returns:
+            Formatted insight string or None if failed
         """
         try:
-            # Convert filters_override to dict if needed
-            filters_override = None
-            if insight.filtersOverride:
-                filters_override = insight.filtersOverride.model_dump(mode="json")
-
-            # Convert variables_override to dict if needed
-            variables_override = None
-            if insight.variablesOverride:
-                variables_override = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
-
-            context = InsightContext(
-                team=self._team,
-                query=insight.query,
-                name=insight.name,
-                description=insight.description,
-                insight_id=insight.id,
-                dashboard_filters=dashboard_filters,
-                filters_override=filters_override,
-                variables_override=variables_override,
-            )
             insight_prompt = await context.execute()
             return format_prompt_string(
                 ROOT_INSIGHT_CONTEXT_PROMPT,
-                heading=heading,
+                heading="##",
                 insight_prompt=insight_prompt,
             )
-
         except Exception as err:
-            # Skip insights that fail to run
             capture_exception(
                 err,
                 distinct_id=self._get_user_distinct_id(self._config),
