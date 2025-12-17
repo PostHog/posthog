@@ -14,7 +14,8 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.test import override_settings
 
-from posthog.models import FeatureFlag, Team
+from posthog.models import FeatureFlag, Tag, Team
+from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import (
     _get_feature_flags_for_service,
     clear_flags_cache,
@@ -277,6 +278,49 @@ class TestServiceFlagsSignals(BaseTest):
         # Cache should be cleared (this will load from DB and return empty)
         # We can't test directly with the deleted team object, but the signal should have fired
         # In production, this prevents stale cache entries
+
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_evaluation_tag_create(self, mock_task):
+        """Test that signal fires when an evaluation tag is added to a flag."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Reset mock to ignore the flag create signal
+        mock_task.reset_mock()
+
+        # Create a tag and add it as an evaluation tag
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        # Signal should trigger the Celery task
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_evaluation_tag_delete(self, mock_task):
+        """Test that signal fires when an evaluation tag is removed from a flag."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+        eval_tag = FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        # Reset mock to ignore the create signals
+        mock_task.reset_mock()
+
+        # Delete the evaluation tag
+        eval_tag.delete()
+
+        # Signal should trigger the Celery task
+        mock_task.delay.assert_called_once_with(self.team.id)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -543,37 +587,10 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         mock_get_client.return_value = mock_redis
         mock_redis.zrangebyscore.return_value = []
 
-        # Create config with explicit FLAGS_REDIS_URL (simulating production setup)
-        test_redis_url = "redis://localhost:6379/1"
-        test_config = FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config(test_redis_url)
+        get_teams_with_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours=24)
 
-        get_teams_with_expiring_caches(test_config, ttl_threshold_hours=24)
-
-        # Verify get_client was called with FLAGS_REDIS_URL, not default REDIS_URL
-        mock_get_client.assert_called_once_with(test_redis_url)
-
-    @override_settings(FLAGS_REDIS_URL="redis://localhost:6379/1")
-    @patch("posthog.storage.cache_expiry_manager.get_client")
-    def test_track_cache_expiry_uses_correct_redis_url(self, mock_get_client):
-        """Test that _track_cache_expiry uses FLAGS_REDIS_URL.
-
-        This is a regression test for a bug where _track_cache_expiry was using
-        the default Redis database (0) instead of the dedicated flags cache database (1).
-        """
-        from posthog.models.feature_flag.flags_cache import _track_cache_expiry
-
-        # Mock Redis client
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-
-        # Call _track_cache_expiry
-        _track_cache_expiry(self.team, ttl_seconds=3600)
-
-        # Verify get_client was called with FLAGS_REDIS_URL
-        mock_get_client.assert_called_once_with("redis://localhost:6379/1")
-
-        # Verify zadd was called to track the expiry
-        self.assertEqual(mock_redis.zadd.call_count, 1)
+        # Verify get_client was called with the hypercache's redis_url
+        mock_get_client.assert_called_once_with(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.hypercache.redis_url)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
@@ -583,7 +600,10 @@ class TestBatchOperations(BaseTest):
     @patch("posthog.models.feature_flag.flags_cache.refresh_expiring_caches")
     def test_refresh_expiring_caches(self, mock_refresh):
         """Test refreshing expiring caches calls generic function."""
-        from posthog.models.feature_flag.flags_cache import FLAGS_CACHE_EXPIRY_CONFIG, refresh_expiring_flags_caches
+        from posthog.models.feature_flag.flags_cache import (
+            FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+            refresh_expiring_flags_caches,
+        )
 
         mock_refresh.return_value = (2, 0)  # successful, failed
 
@@ -594,7 +614,7 @@ class TestBatchOperations(BaseTest):
         self.assertEqual(failed, 0)
 
         # Should call generic refresh_expiring_caches with correct config
-        mock_refresh.assert_called_once_with(FLAGS_CACHE_EXPIRY_CONFIG, 24, settings.FLAGS_CACHE_REFRESH_LIMIT)
+        mock_refresh.assert_called_once_with(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, 24, settings.FLAGS_CACHE_REFRESH_LIMIT)
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_cleanup_stale_expiry_tracking(self, mock_get_client):
@@ -628,8 +648,8 @@ class TestBatchOperations(BaseTest):
         # Should call zrem with the stale team ID
         mock_redis.zrem.assert_called_once_with(FLAGS_CACHE_EXPIRY_SORTED_SET, str(team2_id))
 
-    @patch("posthog.storage.cache_expiry_manager.get_client")
-    @patch("posthog.storage.cache_expiry_manager.time")
+    @patch("posthog.storage.hypercache.get_client")
+    @patch("posthog.storage.hypercache.time")
     def test_warm_without_stagger_tracks_expiry_with_default_ttl(self, mock_time, mock_get_client):
         """Test that expiry tracking happens even when stagger_ttl=False (uses batch path)."""
         from posthog.models.feature_flag.flags_cache import (

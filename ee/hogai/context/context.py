@@ -8,7 +8,17 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 
-from posthog.schema import AgentMode, ContextMessage, HumanMessage, MaxBillingContext, MaxInsightContext, MaxUIContext
+from posthog.schema import (
+    AgentMode,
+    AssistantMessage,
+    AssistantTool,
+    ContextMessage,
+    HumanMessage,
+    MaxBillingContext,
+    MaxInsightContext,
+    MaxUIContext,
+    ModeContext,
+)
 
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
@@ -21,17 +31,18 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ArtifactManager
-from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.supported_queries import SUPPORTED_QUERY_MODEL_BY_KIND
+from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AssistantMessageUnion, BaseStateWithMessages
 
 from .prompts import (
     CONTEXT_INITIAL_MODE_PROMPT,
     CONTEXT_MODE_PROMPT,
+    CONTEXT_MODE_SWITCH_PROMPT,
     CONTEXTUAL_TOOLS_REMINDER_PROMPT,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
     ROOT_DASHBOARDS_CONTEXT_PROMPT,
@@ -65,7 +76,7 @@ class AssistantContextManager(AssistantContextMixin):
         """
         Returns the state messages with context messages injected. If no context prompts should be added, returns None.
         """
-        if context_prompts := await self._get_context_prompts(state):
+        if context_prompts := await self._get_context_messages(state):
             # Insert context messages BEFORE the start human message, so they're properly cached and the context is retained.
             updated_messages = self._inject_context_messages(state, context_prompts)
             return updated_messages
@@ -281,13 +292,7 @@ class AssistantContextManager(AssistantContextMixin):
             Formatted insight string or empty string if failed
         """
         try:
-            query_kind = cast(str | None, getattr(insight.query, "kind", None))
-            serialized_query = insight.query.model_dump_json(exclude_none=True)
-
-            if not query_kind or query_kind not in SUPPORTED_QUERY_MODEL_BY_KIND.keys():
-                return None  # Skip unsupported query types
-
-            query_obj = cast(SupportedQueryTypes, insight.query)
+            query_model = insight.query
 
             if dashboard_filters or insight.filtersOverride or insight.variablesOverride:
                 query_dict = insight.query.model_dump(mode="json")
@@ -301,12 +306,9 @@ class AssistantContextManager(AssistantContextMixin):
                     variables_overrides = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
                     query_dict = apply_dashboard_variables_to_dict(query_dict, variables_overrides, self._team)
 
-                if query_kind not in SUPPORTED_QUERY_MODEL_BY_KIND:
-                    return None  # Skip if query kind is not supported after filters applied
-                QueryModel = SUPPORTED_QUERY_MODEL_BY_KIND[query_kind]
-                query_obj = QueryModel.model_validate(query_dict)
+                query_model = validate_assistant_query(query_dict)
 
-            raw_results, _ = await query_runner.arun_and_format_query(query_obj)
+            raw_results, _ = await query_runner.arun_and_format_query(query_model)
 
             result = (
                 PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
@@ -314,7 +316,7 @@ class AssistantContextManager(AssistantContextMixin):
                     heading=heading or "",
                     name=insight.name or f"ID {insight.id}",
                     description=insight.description,
-                    query_schema=serialized_query,
+                    query_schema=insight.query.model_dump_json(exclude_none=True),
                     query=raw_results,
                 )
                 .to_string()
@@ -370,20 +372,17 @@ class AssistantContextManager(AssistantContextMixin):
             ui_context_actions=actions_context,
         ).to_string()
 
-    async def _get_context_prompts(self, state: BaseStateWithMessages) -> list[str]:
+    async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:
         are_modes_enabled = has_agent_modes_feature_flag(self._team, self._user)
 
-        prompts: list[str] = []
-        if (
-            are_modes_enabled
-            and find_start_message_idx(state.messages, state.start_id) == 0
-            and (mode_prompt := self._get_mode_prompt(state.agent_mode))
-        ):
-            prompts.append(mode_prompt)
+        prompts: list[ContextMessage] = []
+        if are_modes_enabled:
+            if mode_prompt := self._get_mode_context_messages(state):
+                prompts.append(mode_prompt)
         if contextual_tools := await self._get_contextual_tools_prompt():
-            prompts.append(contextual_tools)
+            prompts.append(ContextMessage(content=contextual_tools, id=str(uuid4())))
         if ui_context := await self._format_ui_context(self.get_ui_context(state)):
-            prompts.append(ui_context)
+            prompts.append(ContextMessage(content=ui_context, id=str(uuid4())))
         return self._deduplicate_context_messages(state, prompts)
 
     async def _get_contextual_tools_prompt(self) -> str | None:
@@ -403,21 +402,64 @@ class AssistantContextManager(AssistantContextMixin):
             return CONTEXTUAL_TOOLS_REMINDER_PROMPT.format(tools=tools)
         return None
 
-    def _deduplicate_context_messages(self, state: BaseStateWithMessages, context_prompts: list[str]) -> list[str]:
+    def _deduplicate_context_messages(
+        self, state: BaseStateWithMessages, context_messages: list[ContextMessage]
+    ) -> list[ContextMessage]:
         """Naive deduplication of context messages by content."""
-        human_messages = {message.content for message in state.messages if isinstance(message, ContextMessage)}
-        return [prompt for prompt in context_prompts if prompt not in human_messages]
+        existing_contents = {message.content for message in state.messages if isinstance(message, ContextMessage)}
+        return [msg for msg in context_messages if msg.content not in existing_contents]
 
     def _inject_context_messages(
-        self, state: BaseStateWithMessages, context_prompts: list[str]
+        self, state: BaseStateWithMessages, context_messages: list[ContextMessage]
     ) -> list[AssistantMessageUnion]:
-        context_messages = [ContextMessage(content=prompt, id=str(uuid4())) for prompt in context_prompts]
         # Insert context messages right before the start message
         return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)
 
-    def _get_mode_prompt(self, mode: AgentMode | None) -> str:
-        return format_prompt_string(
+    def _get_mode_context_messages(self, state: BaseStateWithMessages) -> ContextMessage | None:
+        """
+        Returns a mode ContextMessage if one should be injected.
+        - On first turn: inject initial mode prompt
+        - On subsequent turns: inject switch prompt if mode changed
+        """
+        current_mode = state.agent_mode_or_default
+        is_first_message = find_start_message_idx(state.messages, state.start_id) == 0
+
+        if is_first_message:
+            return self._create_mode_context_message(current_mode, is_initial=True)
+
+        previous_mode = self._get_previous_mode_from_messages(state.messages)
+        if previous_mode and previous_mode != current_mode:
+            return self._create_mode_context_message(current_mode, is_initial=False)
+
+        return None
+
+    def _get_previous_mode_from_messages(self, messages: Sequence[AssistantMessageUnion]) -> AgentMode | None:
+        """
+        Extracts the most recent mode from existing messages.
+        Checks ContextMessages metadata and AssistantMessages for switch_mode tool calls.
+        """
+        for message in reversed(messages):
+            # Check for switch_mode tool calls
+            if isinstance(message, AssistantMessage) and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    if tool_call.name == AssistantTool.SWITCH_MODE:
+                        new_mode = tool_call.args.get("new_mode") if tool_call.args else None
+                        if new_mode and new_mode in AgentMode.__members__.values():
+                            return AgentMode(new_mode)
+            # Check for mode context messages via metadata
+            if isinstance(message, ContextMessage) and isinstance(message.meta, ModeContext):
+                return message.meta.mode
+        return None
+
+    def _create_mode_context_message(self, mode: AgentMode, *, is_initial: bool) -> ContextMessage:
+        mode_prompt = CONTEXT_INITIAL_MODE_PROMPT if is_initial else CONTEXT_MODE_SWITCH_PROMPT
+        content = format_prompt_string(
             CONTEXT_MODE_PROMPT,
-            initial_mode_prompt=CONTEXT_INITIAL_MODE_PROMPT,
-            mode=mode.value if mode else AgentMode.PRODUCT_ANALYTICS.value,
+            mode_prompt=mode_prompt,
+            mode=mode.value,
+        )
+        return ContextMessage(
+            content=content,
+            id=str(uuid4()),
+            meta=ModeContext(mode=mode),
         )

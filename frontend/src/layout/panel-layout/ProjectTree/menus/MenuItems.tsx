@@ -23,11 +23,13 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { pluralize } from 'lib/utils'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { editCustomProductsModalLogic } from '../../PinnedFolder/editCustomProductsModalLogic'
 import { NewMenu } from '../../menus/NewMenu'
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { projectTreeDataLogic } from '../projectTreeDataLogic'
@@ -62,10 +64,13 @@ export function MenuItems({
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
+    const { selectedPaths: customProductsSelectedPaths } = useValues(editCustomProductsModalLogic)
+
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
-    const { checkedItems, checkedItemsCount, checkedItemCountNumeric, checkedItemsArray } = useValues(
+    const { checkedItems, checkedItemCountNumeric, checkedItemsArray } = useValues(
         projectTreeLogic(projectTreeLogicProps)
     )
+
     const {
         createFolder,
         deleteItem,
@@ -78,6 +83,7 @@ export function MenuItems({
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
     const { openLinkToModal } = useActions(linkToLogic)
+    const { toggleProduct } = useActions(editCustomProductsModalLogic)
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
 
@@ -141,6 +147,7 @@ export function MenuItems({
     const isItemAFolder = item.record?.type === 'folder'
     const itemShortcutPath = joinPath([splitPath(item.record?.path).pop() ?? 'Unnamed'])
     const isItemAlreadyInShortcut = !isItemAFolder && shortcutNonFolderPaths.has(itemShortcutPath)
+
     return (
         <>
             {productMenu}
@@ -182,7 +189,7 @@ export function MenuItems({
                         data-attr="tree-item-menu-move-checked-items-button"
                     >
                         <ButtonPrimitive menuItem>
-                            Move {checkedItemsCount} selected item{checkedItemsCount === '1' ? '' : 's'} here
+                            Move {pluralize(checkedItemCountNumeric, 'selected item')} here
                         </ButtonPrimitive>
                     </MenuItem>
                     <MenuItem
@@ -194,7 +201,7 @@ export function MenuItems({
                         data-attr="tree-item-menu-create-shortcut-button"
                     >
                         <ButtonPrimitive menuItem>
-                            Create {checkedItemsCount} shortcut{checkedItemsCount === '1' ? '' : 's'} here
+                            Create {pluralize(checkedItemCountNumeric, 'shortcut')} here
                         </ButtonPrimitive>
                     </MenuItem>
                     <MenuSeparator />
@@ -244,7 +251,7 @@ export function MenuItems({
                             Already in shortcuts panel
                         </ButtonPrimitive>
                     </MenuItem>
-                ) : (
+                ) : root !== 'custom-products://' ? (
                     <MenuItem
                         asChild
                         onClick={(e) => {
@@ -257,7 +264,31 @@ export function MenuItems({
                     >
                         <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
                     </MenuItem>
-                )
+                ) : null
+            ) : null}
+
+            {root === 'custom-products://' && !item.id.startsWith('shortcuts://') ? (
+                <MenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        toggleProduct(item.record?.path as string)
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Remove from sidebar panel</ButtonPrimitive>
+                </MenuItem>
+            ) : root === 'products://' &&
+              item.record?.path &&
+              !customProductsSelectedPaths.has(item.record?.path as string) ? (
+                <MenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        toggleProduct(item.record?.path as string)
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Add to sidebar panel</ButtonPrimitive>
+                </MenuItem>
             ) : null}
 
             {item.id.startsWith('project/') || item.id.startsWith('project://') ? (

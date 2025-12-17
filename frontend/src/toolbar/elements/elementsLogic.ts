@@ -13,6 +13,7 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
+import { FragileSelectorResult, checkSelectorFragilityCached } from '../utils/selectorQuality'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
 
@@ -20,6 +21,31 @@ export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
 const VIEWPORT_BUFFER_PX = 200
+
+function getElementMetaWithSelectorQuality(
+    element: HTMLElement | null,
+    elementMap: ElementMap,
+    actionsForElementMap: ActionElementMap,
+    dataAttributes: string[]
+): (ElementWithMetadata & { selectorQuality: FragileSelectorResult | null }) | null {
+    if (!element) {
+        return null
+    }
+    const meta = elementMap.get(element)
+    if (!meta) {
+        return null
+    }
+    const actions = actionsForElementMap.get(element)
+    const actionStep = elementToActionStep(meta.element, dataAttributes)
+    const selectorQuality = actionStep?.selector ? checkSelectorFragilityCached(actionStep.selector) : null
+
+    return {
+        ...meta,
+        actionStep,
+        actions: actions || [],
+        selectorQuality,
+    }
+}
 
 const getMaxZIndex = (element: Element): number => {
     let maxZIndex = 0
@@ -383,38 +409,14 @@ export const elementsLogic = kea<elementsLogicType>([
                 s.actionsForElementMap,
                 toolbarConfigLogic.selectors.dataAttributes,
             ],
-            (selectedElement, elementMap, actionsForElementMap, dataAttributes) => {
-                if (selectedElement) {
-                    const meta = elementMap.get(selectedElement)
-                    if (meta) {
-                        const actions = actionsForElementMap.get(selectedElement)
-                        return {
-                            ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes),
-                            actions: actions || [],
-                        }
-                    }
-                }
-                return null
-            },
+            (selectedElement, elementMap, actionsForElementMap, dataAttributes) =>
+                getElementMetaWithSelectorQuality(selectedElement, elementMap, actionsForElementMap, dataAttributes),
         ],
 
         hoverElementMeta: [
             (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap, toolbarConfigLogic.selectors.dataAttributes],
-            (hoverElement, elementMap, actionsForElementMap, dataAttributes) => {
-                if (hoverElement) {
-                    const meta = elementMap.get(hoverElement)
-                    if (meta) {
-                        const actions = actionsForElementMap.get(hoverElement)
-                        return {
-                            ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes),
-                            actions: actions || [],
-                        }
-                    }
-                }
-                return null
-            },
+            (hoverElement, elementMap, actionsForElementMap, dataAttributes) =>
+                getElementMetaWithSelectorQuality(hoverElement, elementMap, actionsForElementMap, dataAttributes),
         ],
 
         highlightElementMeta: [
@@ -424,20 +426,8 @@ export const elementsLogic = kea<elementsLogicType>([
                 s.actionsForElementMap,
                 toolbarConfigLogic.selectors.dataAttributes,
             ],
-            (highlightElement, elementMap, actionsForElementMap, dataAttributes) => {
-                if (highlightElement) {
-                    const meta = elementMap.get(highlightElement)
-                    if (meta) {
-                        const actions = actionsForElementMap.get(highlightElement)
-                        return {
-                            ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes),
-                            actions: actions || [],
-                        }
-                    }
-                }
-                return null
-            },
+            (highlightElement, elementMap, actionsForElementMap, dataAttributes) =>
+                getElementMetaWithSelectorQuality(highlightElement, elementMap, actionsForElementMap, dataAttributes),
         ],
         activeMeta: [
             (s) => [s.selectedElementMeta, s.hoverElementMeta],
@@ -446,7 +436,7 @@ export const elementsLogic = kea<elementsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         enableInspect: () => {
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'inspect', enabled: true })
             actionsLogic.actions.getActions()
@@ -493,6 +483,14 @@ export const elementsLogic = kea<elementsLogicType>([
                 }
             }
 
+            const meta = getElementMetaWithSelectorQuality(
+                element,
+                values.elementMap,
+                values.actionsForElementMap,
+                toolbarConfigLogic.values.dataAttributes
+            )
+            const selector = meta?.actionStep?.selector
+
             toolbarPosthogJS.capture('toolbar selected HTML element', {
                 element_tag: element?.tagName.toLowerCase() ?? null,
                 element_type: (element as HTMLInputElement)?.type ?? null,
@@ -503,6 +501,11 @@ export const elementsLogic = kea<elementsLogicType>([
                 has_data_attr: data_attributes.includes('data-attr'),
                 data_attributes: data_attributes,
                 attribute_length: element?.attributes.length ?? null,
+                selector_quality: meta?.selectorQuality?.isFragile ? 'fragile' : 'good',
+                selector_has_position_selectors: selector?.includes(':nth-') ?? false,
+                selector_depth: selector
+                    ? selector.split(/\s+/).filter((part) => part !== '>' && part !== '+' && part !== '~').length
+                    : null,
             })
         },
         createAction: ({ element }) => {

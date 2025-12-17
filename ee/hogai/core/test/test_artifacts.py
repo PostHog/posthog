@@ -9,6 +9,7 @@ from posthog.schema import (
     DocumentArtifactContent,
     MarkdownBlock,
     SessionReplayBlock,
+    TrendsQuery,
     VisualizationArtifactContent,
     VisualizationBlock,
 )
@@ -28,9 +29,10 @@ class TestDocumentBlocks(BaseTest):
         self.assertEqual(block.content, expected)
 
     def test_visualization_block_valid(self):
-        block = VisualizationBlock(artifact_id="abc123")
+        query = AssistantTrendsQuery(series=[])
+        block = VisualizationBlock(query=query)
         self.assertEqual(block.type, "visualization")
-        self.assertEqual(block.artifact_id, "abc123")
+        self.assertEqual(block.query, query)
 
     @parameterized.expand(
         [
@@ -59,9 +61,10 @@ class TestDocumentArtifactContent(BaseTest):
         self.assertEqual(content.blocks, [])
 
     def test_mixed_blocks(self):
+        query = AssistantTrendsQuery(series=[])
         blocks = [
             {"type": "markdown", "content": "# Introduction"},
-            {"type": "visualization", "artifact_id": "vis123"},
+            {"type": "visualization", "query": query.model_dump()},
             {"type": "session_replay", "session_id": "sess456", "timestamp_ms": 1000, "title": "Example"},
             {"type": "markdown", "content": "## Summary"},
         ]
@@ -78,10 +81,11 @@ class TestDocumentArtifactContent(BaseTest):
             DocumentArtifactContent(blocks=[{"type": "invalid", "content": "test"}])
 
     def test_serialization_round_trip(self):
+        query = AssistantTrendsQuery(series=[])
         original = DocumentArtifactContent(
             blocks=[
                 MarkdownBlock(content="# Title"),
-                VisualizationBlock(artifact_id="abc123"),
+                VisualizationBlock(query=query),
                 SessionReplayBlock(session_id="sess", timestamp_ms=5000, title="Test"),
             ]
         )
@@ -96,7 +100,11 @@ class TestDocumentArtifactContent(BaseTest):
         assert isinstance(block1, VisualizationBlock)
         assert isinstance(block2, SessionReplayBlock)
         self.assertEqual(block0.content, "# Title")
-        self.assertEqual(block1.artifact_id, "abc123")
+        # Note: AssistantTrendsQuery may deserialize as TrendsQuery since both share kind="TrendsQuery"
+        # and TrendsQuery appears first in the union. We verify the essential data is preserved.
+        assert isinstance(block1.query, TrendsQuery | AssistantTrendsQuery)
+        self.assertEqual(block1.query.kind, query.kind)
+        self.assertEqual(block1.query.series, query.series)
         self.assertEqual(block2.session_id, "sess")
 
 

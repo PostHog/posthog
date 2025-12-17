@@ -1,4 +1,4 @@
-import LRUCache from 'lru-cache'
+import { LRUCache } from 'lru-cache'
 
 import { sanitizeString } from '~/utils/db/utils'
 import { logger } from '~/utils/logger'
@@ -21,14 +21,14 @@ type Group = {
     teamId?: number
 }
 
-const GROUP_TYPES_CACHE_AGE_MS = 60 * 10 * 1000 // 10 minutes
+const GROUP_TYPES_CACHE_TTL_MS = 60 * 10 * 1000 // 10 minutes
 
 export class GroupsManagerService {
     groupTypesMappingCache: LRUCache<number, { group_type: string; group_type_index: number }[]>
 
     constructor(private hub: Hub) {
         // There is only 5 per team so we can have a very high cache and a very long cooldown
-        this.groupTypesMappingCache = new LRUCache({ max: 1_000_000, maxAge: GROUP_TYPES_CACHE_AGE_MS })
+        this.groupTypesMappingCache = new LRUCache({ max: 100_000, ttl: GROUP_TYPES_CACHE_TTL_MS })
     }
 
     private async filterTeamsWithGroups(teams: Team['id'][]): Promise<Team['id'][]> {

@@ -24,6 +24,7 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { SupportTracesFilters } from '~/queries/nodes/DataNode/SupportTracesFilters'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
@@ -62,6 +63,7 @@ import {
     HogQLQuery,
     MarketingAnalyticsTableQuery,
     NodeKind,
+    NonIntegratedConversionsColumnsSchemaNames,
     PersonsNode,
     SessionAttributionExplorerQuery,
     SessionsQuery,
@@ -82,6 +84,8 @@ import {
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
+import { NonIntegratedConversionsCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
+import { NonIntegratedConversionsRowActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsRowActions'
 import { EventType, InsightLogicProps } from '~/types'
 
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
@@ -295,6 +299,21 @@ export function DataTable({
                     }
                 },
                 sorter: undefined, // using custom sorting code
+                cellActions:
+                    sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions) &&
+                    Object.values(NonIntegratedConversionsColumnsSchemaNames).includes(
+                        key as NonIntegratedConversionsColumnsSchemaNames
+                    )
+                        ? (_: unknown, record: DataTableRow) => {
+                              if (!record.result) {
+                                  return null
+                              }
+                              const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
+                                  ? record.result[index]
+                                  : record.result[key]
+                              return <NonIntegratedConversionsCellActions columnName={key} value={value} />
+                          }
+                        : undefined,
                 more:
                     !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
                         <>
@@ -364,7 +383,8 @@ export function DataTable({
                                         data-attr="datatable-sort-asc"
                                         onClick={() => {
                                             const orderBy =
-                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
+                                                query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'ASC')
                                                     : [key]
                                             setQuery?.({
@@ -383,7 +403,8 @@ export function DataTable({
                                         data-attr="datatable-sort-desc"
                                         onClick={() => {
                                             const orderBy =
-                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
+                                                query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'DESC')
                                                     : [`${key}\n DESC`]
                                             setQuery?.({
@@ -590,6 +611,7 @@ export function DataTable({
                                       sessionId={event?.properties?.$session_id}
                                       recordingStatus={event?.properties?.$recording_status}
                                       timestamp={event?.timestamp}
+                                      hasRecording={event?.properties?.has_recording as boolean | undefined}
                                       inModal
                                       size="xsmall"
                                       type="secondary"
@@ -724,6 +746,9 @@ export function DataTable({
         showTestAccountFilters && sourceFeatures.has(QueryFeature.testAccountFilters) ? (
             <TestAccountFilters key="test-account-filters" query={query.source} setQuery={setQuerySource} />
         ) : null,
+        sourceFeatures.has(QueryFeature.supportTracesFilters) ? (
+            <SupportTracesFilters key="support-traces-filters" query={query.source} setQuery={setQuerySource} />
+        ) : null,
         showSavedQueries && sourceFeatures.has(QueryFeature.savedEventsQueries) ? (
             <SavedQueries key="saved-queries" query={query} setQuery={setQuery} />
         ) : null,
@@ -794,8 +819,8 @@ export function DataTable({
                         <DataTableSavedFilters uniqueKey={String(uniqueKey)} query={query} setQuery={setQuery} />
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
-                    {showSecondRow && (
-                        <div className="flex gap-2 justify-between flex-wrap DataTable__second-row">
+                    {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
+                        <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
                             <div className="flex gap-2 items-center">{secondRowLeft}</div>
                             <div className="flex gap-2 items-center">{secondRowRight}</div>
                         </div>
@@ -844,6 +869,7 @@ export function DataTable({
                                         <InsightEmptyState
                                             heading={context?.emptyStateHeading}
                                             detail={context?.emptyStateDetail}
+                                            icon={context?.emptyStateIcon}
                                         />
                                     )
                                 }
@@ -904,7 +930,19 @@ export function DataTable({
                                               }
                                               return null
                                           }
-                                        : undefined
+                                        : sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions)
+                                          ? (row: DataTableRow) => {
+                                                if (row.label || !row.result || !columnsInResponse) {
+                                                    return null
+                                                }
+                                                return (
+                                                    <NonIntegratedConversionsRowActions
+                                                        result={row.result}
+                                                        columnsInResponse={columnsInResponse}
+                                                    />
+                                                )
+                                            }
+                                          : undefined
                                 }
                             />
                         </div>

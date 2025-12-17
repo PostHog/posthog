@@ -10,6 +10,7 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
+from posthog.admin.inlines.personal_api_key_inline import PersonalAPIKeyInline
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import EmailVerifier
@@ -26,7 +27,7 @@ class UserChangeForm(DjangoUserChangeForm):
         # an admin can provide that reset link manually – much better than sending a new password in plain text.
         password_reset_token = password_reset_token_generator.make_token(self.instance)
         self.fields["password"].help_text = (
-            "Raw passwords are not stored, so there is no way to see this user’s password, but you can send them "
+            "Raw passwords are not stored, so there is no way to see this user's password, but you can send them "
             f'<a target="_blank" href="/reset/{self.instance.uuid}/{password_reset_token}">this password reset link</a> '
             "(it only works when logged out)."
         )
@@ -47,7 +48,7 @@ class UserAdmin(DjangoUserAdmin):
     change_password_form = None  # This view is not exposed in our subclass of UserChangeForm
     change_form_template = "admin/posthog/user/change_form.html"
 
-    inlines = [OrganizationMemberInline, TOTPDeviceInline]
+    inlines = [OrganizationMemberInline, PersonalAPIKeyInline, TOTPDeviceInline]
     fieldsets = (
         (
             None,
@@ -62,6 +63,7 @@ class UserAdmin(DjangoUserAdmin):
                     "pending_email",
                     "strapi_id",
                     "revoke_sessions_link",
+                    "allow_impersonation",
                 )
             },
         ),
@@ -90,6 +92,7 @@ class UserAdmin(DjangoUserAdmin):
         "current_organization",
         "email_verification_status",
         "revoke_sessions_link",
+        "allow_impersonation",
     ]
     ordering = ("email",)
 

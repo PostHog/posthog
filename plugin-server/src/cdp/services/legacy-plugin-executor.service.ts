@@ -2,8 +2,11 @@ import { Histogram } from 'prom-client'
 
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 
+import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
+
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { GeoIp } from '../../utils/geoip'
 import { parseJSON } from '../../utils/json-parse'
 import { FetchOptions, FetchResponse } from '../../utils/request'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
@@ -42,6 +45,7 @@ const pluginConfigCheckCache: Record<string, boolean> = {}
 export class LegacyPluginExecutorService {
     constructor(private hub: Hub) {}
     private pluginState: Record<string, PluginState> = {}
+    private cachedGeoIp?: GeoIp
 
     private legacyStorage(teamId: number, pluginConfigId?: number | string): Pick<StorageExtension, 'get' | 'set'> {
         if (!pluginConfigId) {
@@ -156,7 +160,10 @@ export class LegacyPluginExecutorService {
             const legacyPluginConfigId = invocation.state.globals.inputs?.legacy_plugin_config_id
 
             if (!state) {
-                const geoip = await this.hub.geoipService.get()
+                if (!this.cachedGeoIp) {
+                    this.cachedGeoIp = await this.hub.geoipService.get()
+                }
+                const geoip = this.cachedGeoIp
 
                 const meta: LegacyTransformationPluginMeta = {
                     config: invocation.state.globals.inputs,
@@ -307,6 +314,13 @@ export class LegacyPluginExecutorService {
             }
 
             pluginExecutionDuration.observe(performance.now() - start)
+            if (result.finished) {
+                const capturedAt = invocation.state.globals.event?.captured_at
+                if (capturedAt) {
+                    const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
+                    destinationE2eLagMsSummary.observe(e2eLagMs)
+                }
+            }
         } catch (e) {
             if (e instanceof RetryError) {
                 // NOTE: Schedule as a retry to cyclotron?

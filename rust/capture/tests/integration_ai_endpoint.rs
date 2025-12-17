@@ -162,6 +162,7 @@ fn setup_ai_test_router() -> Router {
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -1484,6 +1485,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -2358,6 +2360,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         token_dropper,
         false,
         CaptureMode::Events,
+        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -2543,7 +2546,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
     cfg.capture_mode = CaptureMode::Events;
 
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
-        .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
+        .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     let router = router(
         timesource,
@@ -2554,6 +2557,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,

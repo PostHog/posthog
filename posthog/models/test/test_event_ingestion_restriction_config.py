@@ -664,3 +664,108 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             sorted(data, key=lambda x: x["event_name"]), sorted(expected_entries, key=lambda x: x["event_name"])
         )
         self.assertNotIn("$pageview", [entry.get("event_name") for entry in data])
+
+    def test_redirect_to_dlq_restriction_type(self):
+        """Test that REDIRECT_TO_DLQ restriction type can be created and syncs to Redis"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.REDIRECT_TO_DLQ,
+            pipelines=["analytics"],
+        )
+
+        self.assertEqual(config.restriction_type, RestrictionType.REDIRECT_TO_DLQ)
+        self.assertEqual(config.get_redis_key(), f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{RestrictionType.REDIRECT_TO_DLQ}")
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        self.assertIsNotNone(redis_data)
+
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(data, [{"token": "test_token", "pipelines": ["analytics"]}])
+
+    def test_redirect_to_dlq_with_distinct_ids(self):
+        """Test REDIRECT_TO_DLQ restriction type with distinct_ids"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.REDIRECT_TO_DLQ,
+            distinct_ids=["user1", "user2"],
+            pipelines=["analytics", "session_recordings"],
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        self.assertIsNotNone(redis_data)
+
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(len(data), 2)
+
+        expected_entries = [
+            {"token": "test_token", "distinct_id": "user1", "pipelines": ["analytics", "session_recordings"]},
+            {"token": "test_token", "distinct_id": "user2", "pipelines": ["analytics", "session_recordings"]},
+        ]
+        self.assertEqual(
+            sorted(data, key=lambda x: x["distinct_id"]), sorted(expected_entries, key=lambda x: x["distinct_id"])
+        )
+
+    def test_redirect_to_dlq_with_session_ids(self):
+        """Test REDIRECT_TO_DLQ restriction type with session_ids"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.REDIRECT_TO_DLQ,
+            session_ids=["session1", "session2"],
+            pipelines=["analytics"],
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        self.assertIsNotNone(redis_data)
+
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(len(data), 2)
+
+        expected_entries = [
+            {"token": "test_token", "session_id": "session1", "pipelines": ["analytics"]},
+            {"token": "test_token", "session_id": "session2", "pipelines": ["analytics"]},
+        ]
+        self.assertEqual(
+            sorted(data, key=lambda x: x["session_id"]), sorted(expected_entries, key=lambda x: x["session_id"])
+        )
+
+    def test_redirect_to_dlq_with_event_names(self):
+        """Test REDIRECT_TO_DLQ restriction type with event_names"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.REDIRECT_TO_DLQ,
+            event_names=["$pageview", "$autocapture"],
+            pipelines=["analytics"],
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        self.assertIsNotNone(redis_data)
+
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(len(data), 2)
+
+        expected_entries = [
+            {"token": "test_token", "event_name": "$pageview", "pipelines": ["analytics"]},
+            {"token": "test_token", "event_name": "$autocapture", "pipelines": ["analytics"]},
+        ]
+        self.assertEqual(
+            sorted(data, key=lambda x: x["event_name"]), sorted(expected_entries, key=lambda x: x["event_name"])
+        )
+
+    def test_redirect_to_dlq_delete_removes_from_redis(self):
+        """Test that deleting a REDIRECT_TO_DLQ config removes it from Redis"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.REDIRECT_TO_DLQ,
+            pipelines=["analytics"],
+        )
+
+        redis_key = config.get_redis_key()
+        self.assertIsNotNone(self.redis_client.get(redis_key))
+
+        config.delete()
+
+        self.assertIsNone(self.redis_client.get(redis_key))

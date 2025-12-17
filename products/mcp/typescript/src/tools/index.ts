@@ -39,6 +39,10 @@ import queryInsight from './insights/query'
 import updateInsight from './insights/update'
 // LLM Observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
+import logsListAttributeValues from './logs/listAttributeValues'
+import logsListAttributes from './logs/listAttributes'
+// Logs
+import logsQuery from './logs/query'
 // Organizations
 import getOrganizationDetails from './organizations/getDetails'
 import getOrganizations from './organizations/getOrganizations'
@@ -89,6 +93,11 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Error Tracking
     'list-errors': listErrors,
     'error-details': errorDetails,
+
+    // Logs
+    'logs-query': logsQuery,
+    'logs-list-attributes': logsListAttributes,
+    'logs-list-attribute-values': logsListAttributeValues,
 
     // Experiments
     'experiment-get-all': getAllExperiments,

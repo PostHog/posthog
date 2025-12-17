@@ -1,5 +1,3 @@
-from posthog.schema import PropertyGroupsMode
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -11,8 +9,6 @@ from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQuery
 
 class SparklineQueryRunner(LogsQueryRunner):
     def _calculate(self) -> LogsQueryResponse:
-        self.modifiers.convertToProjectTimezone = False
-        self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = execute_hogql_query(
             query_type="LogsQuery",
             query=self.to_query(),

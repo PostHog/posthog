@@ -1,49 +1,69 @@
+import { useValues } from 'kea'
+
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { SurveyVersionWarning } from 'scenes/surveys/surveyVersionRequirements'
+import { SurveyFeatureWarning } from 'scenes/surveys/surveyVersionRequirements'
+import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
 
-export function SdkVersionWarnings({ warnings }: { warnings: SurveyVersionWarning[] }): JSX.Element | null {
+export function SdkVersionWarnings({ warnings }: { warnings: SurveyFeatureWarning[] }): JSX.Element | null {
+    const { teamSdkVersions } = useValues(surveysSdkLogic)
+
     if (warnings.length === 0) {
         return null
     }
 
-    const warningsByFeature = warnings.reduce(
-        (acc, warning) => {
-            if (!acc[warning.feature]) {
-                acc[warning.feature] = []
-            }
-            acc[warning.feature].push(warning)
-            return acc
-        },
-        {} as Record<string, SurveyVersionWarning[]>
-    )
+    const hasVersionIssues = warnings.some((w) => w.versionIssues.length > 0)
+
+    const relevantSdks = new Set<string>()
+    for (const warning of warnings) {
+        for (const issue of warning.versionIssues) {
+            relevantSdks.add(issue.sdkType)
+        }
+        for (const sdk of warning.unsupportedSdks) {
+            relevantSdks.add(sdk)
+        }
+    }
+
+    const sdkVersionsDisplay = Array.from(relevantSdks)
+        .filter((sdk) => teamSdkVersions[sdk as keyof typeof teamSdkVersions])
+        .map((sdk) => `${sdk} v${teamSdkVersions[sdk as keyof typeof teamSdkVersions]}`)
+        .join(', ')
 
     return (
-        <LemonBanner type="warning" className="mt-2" hideIcon>
+        <LemonBanner type="warning" hideIcon className="mt-2">
             <div className="flex items-start gap-2">
                 <div>
-                    <p className="font-semibold mb-1">SDK version warning</p>
+                    <p className="font-semibold mb-1">SDK warnings</p>
+                    {sdkVersionsDisplay && (
+                        <p className="text-sm text-secondary mb-2">Your SDKs: {sdkVersionsDisplay}</p>
+                    )}
                     <ul className="text-sm list-disc pl-4 mb-2 space-y-2">
-                        {Object.entries(warningsByFeature).map(([feature, featureWarnings]) => (
-                            <li key={feature}>
-                                <strong>{feature}</strong>
-                                <ul className="list-none pl-2 mt-0.5">
-                                    {featureWarnings.map((warning, idx) => (
-                                        <li key={idx} className="text-secondary">
-                                            {warning.sdkType} requires v{warning.minVersion}+ (you have v
-                                            {warning.currentVersion})
+                        {warnings.map((warning) => (
+                            <li key={warning.feature}>
+                                <strong>{warning.feature}</strong>
+                                <ul className="list-none pl-2 mt-0.5 space-y-0.5">
+                                    {warning.versionIssues.map((issue, idx) => (
+                                        <li key={`version-${idx}`} className="text-secondary">
+                                            Requires {issue.sdkType} v{issue.minVersion}+
                                         </li>
                                     ))}
+                                    {warning.unsupportedSdks.length > 0 && (
+                                        <li className="text-secondary">
+                                            Not supported on {warning.unsupportedSdks.join(', ')}
+                                        </li>
+                                    )}
                                 </ul>
                             </li>
                         ))}
                     </ul>
-                    <p className="text-sm text-secondary">
-                        <Link to="https://posthog.com/docs/libraries" target="_blank">
-                            Update your SDK
-                        </Link>{' '}
-                        to ensure these features work correctly.
-                    </p>
+                    {hasVersionIssues && (
+                        <p className="text-sm text-secondary">
+                            <Link to="https://posthog.com/docs/libraries" target="_blank">
+                                Update your SDK
+                            </Link>{' '}
+                            to ensure these features work correctly.
+                        </p>
+                    )}
                 </div>
             </div>
         </LemonBanner>

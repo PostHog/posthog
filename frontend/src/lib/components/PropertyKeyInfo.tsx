@@ -6,6 +6,7 @@ import React, { useState } from 'react'
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
+import { pluralize } from 'lib/utils'
 
 import { PropertyKey, getCoreFilterDefinition } from '~/taxonomy/helpers'
 
@@ -82,7 +83,10 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
                                 {coreDefinition.description ? <p>{coreDefinition.description}</p> : null}
                                 {coreDefinition.examples ? (
                                     <p>
-                                        <i>Example value{coreDefinition.examples.length === 1 ? '' : 's'}: </i>
+                                        <i>
+                                            Example{' '}
+                                            {pluralize(coreDefinition.examples.length, 'value', 'values', false)}:{' '}
+                                        </i>
                                         {coreDefinition.examples.join(', ')}
                                     </p>
                                 ) : null}

@@ -15,35 +15,23 @@ import {
 } from '~/ingestion/pipelines/results'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
-import {
-    ClickHouseTimestamp,
-    ISOTimestamp,
-    Person,
-    PipelineEvent,
-    PreIngestionEvent,
-    ProjectId,
-    RawKafkaEvent,
-    Team,
-} from '../../../../src/types'
+import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent, ProjectId, Team } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { parseJSON } from '../../../../src/utils/json-parse'
-import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonlessStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonlessStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
-import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { EventPipelineRunner, EventPipelineRunnerOptions } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { PersonMergeLimitExceededError } from '../../../../src/worker/ingestion/persons/person-merge-types'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonlessStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
     steps: Array<string> = []
@@ -51,7 +39,7 @@ class TestEventPipelineRunner extends EventPipelineRunner {
 
     protected async runStep<T, Step extends (...args: any[]) => Promise<T>>(
         step: Step,
-        [runner, ...args]: Parameters<Step>,
+        args: Parameters<Step>,
         teamId: number,
         sendtoDLQ: boolean = true,
         kafkaAcks: Promise<void>[] = [],
@@ -63,21 +51,16 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // and pass the same object around by reference. We want to see a "snapshot" of the args
         // sent to each step, rather than the final mutated object (which many steps actually share
         // in practice, for better or worse).
-        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
+        // Skip the first argument (kafkaProducer/eventsProcessor/etc) as it's not serializable
+        const [, ...serializableArgs] = args
+        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(serializableArgs))])
 
-        return super.runStep<T, Step>(
-            step,
-            [runner, ...args] as Parameters<Step>,
-            teamId,
-            sendtoDLQ,
-            kafkaAcks,
-            warnings
-        )
+        return super.runStep<T, Step>(step, args, teamId, sendtoDLQ, kafkaAcks, warnings)
     }
 
     protected async runPipelineStep<T, Step extends (...args: any[]) => Promise<PipelineResult<T>>>(
         step: Step,
-        [runner, ...args]: Parameters<Step>,
+        args: Parameters<Step>,
         teamId: number,
         sendtoDLQ: boolean = true,
         kafkaAcks: Promise<void>[] = [],
@@ -89,16 +72,11 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // and pass the same object around by reference. We want to see a "snapshot" of the args
         // sent to each step, rather than the final mutated object (which many steps actually share
         // in practice, for better or worse).
-        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
+        // Skip the first argument (kafkaProducer) as it's not serializable
+        const [, ...serializableArgs] = args
+        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(serializableArgs))])
 
-        return super.runPipelineStep<T, Step>(
-            step,
-            [runner, ...args] as Parameters<Step>,
-            teamId,
-            sendtoDLQ,
-            kafkaAcks,
-            warnings
-        )
+        return super.runPipelineStep<T, Step>(step, args, teamId, sendtoDLQ, kafkaAcks, warnings)
     }
 }
 
@@ -162,22 +140,6 @@ const preIngestionEvent: PreIngestionEvent = {
     ip: '127.0.0.1',
 }
 
-const createdEvent: RawKafkaEvent = {
-    created_at: '2024-11-18 14:54:33.606' as ClickHouseTimestamp,
-    distinct_id: 'my_id',
-    elements_chain: '',
-    event: '$pageview',
-    person_created_at: '2024-11-18 14:54:33' as ClickHouseTimestamp,
-    person_mode: 'full',
-    person_properties: '{}',
-    project_id: 1 as ProjectId,
-    properties: '{}',
-    team_id: 2,
-    timestamp: '2020-02-23 02:15:00.000' as ClickHouseTimestamp,
-    uuid: 'uuid1',
-    historical_migration: false,
-}
-
 const person: Person = {
     // @ts-expect-error TODO: Check if we need to pass id in here
     id: 123,
@@ -195,7 +157,7 @@ const person: Person = {
 describe('EventPipelineRunner', () => {
     let runner: TestEventPipelineRunner
     let hub: any
-    let personsStoreForBatch: BatchWritingPersonsStoreForBatch
+    let personsStoreForBatch: BatchWritingPersonsStore
     let groupStoreForBatch: BatchWritingGroupStoreForBatch
 
     const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
@@ -213,15 +175,24 @@ describe('EventPipelineRunner', () => {
             teamManager: {
                 fetchTeam: jest.fn(() => Promise.resolve(team)),
             },
+            groupTypeManager: {},
             db: {
                 kafkaProducer: mockProducer,
                 fetchPerson: jest.fn(),
             },
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
             TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: 0.0,
+            PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30000,
+            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 100,
+            PERSON_MERGE_ASYNC_ENABLED: false,
+            PERSON_MERGE_ASYNC_TOPIC: '',
+            PERSON_MERGE_SYNC_BATCH_SIZE: 1,
+            PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
+            PERSON_PROPERTIES_UPDATE_ALL: false,
         }
 
-        personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+        personsStoreForBatch = new BatchWritingPersonsStore(
             new PostgresPersonRepository(hub.db.postgres),
             hub.kafkaProducer
         )
@@ -230,8 +201,22 @@ describe('EventPipelineRunner', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
+        const options: EventPipelineRunnerOptions = {
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+            TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
+            PIPELINE_STEP_STALLED_LOG_TIMEOUT: hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
+            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+            PERSON_MERGE_ASYNC_ENABLED: hub.PERSON_MERGE_ASYNC_ENABLED,
+            PERSON_MERGE_ASYNC_TOPIC: hub.PERSON_MERGE_ASYNC_TOPIC,
+            PERSON_MERGE_SYNC_BATCH_SIZE: hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+            PERSON_JSONB_SIZE_ESTIMATE_ENABLE: hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+            PERSON_PROPERTIES_UPDATE_ALL: hub.PERSON_PROPERTIES_UPDATE_ALL,
+        }
         runner = new TestEventPipelineRunner(
-            hub,
+            options,
+            hub.kafkaProducer,
+            hub.teamManager,
+            hub.groupTypeManager,
             pluginEvent,
             undefined,
             personsStoreForBatch,
@@ -247,8 +232,6 @@ describe('EventPipelineRunner', () => {
             ])
         )
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
-
-        jest.mocked(createEventStep).mockResolvedValue(createdEvent)
     })
 
     describe('runEventPipeline()', () => {
@@ -261,8 +244,6 @@ describe('EventPipelineRunner', () => {
                 'normalizeEventStep',
                 'processPersonsStep',
                 'prepareEventStep',
-                'extractHeatmapDataStep',
-                'createEventStep',
             ])
             expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
         })
@@ -275,8 +256,7 @@ describe('EventPipelineRunner', () => {
             if (isOkResult(result)) {
                 expect(result.value.error).toBeUndefined()
             }
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(7)
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(5)
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -348,21 +328,35 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new BatchWritingPersonsStoreForBatch(
+                const personsStore = new BatchWritingPersonsStore(
                     new PostgresPersonRepository(hub.db.postgres),
                     hub.kafkaProducer
                 )
-                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+                const heatmapGroupStoreForBatch = new BatchWritingGroupStoreForBatch(
                     hub.db,
                     hub.groupRepository,
                     hub.clickhouseGroupRepository
                 )
+                const heatmapOptions: EventPipelineRunnerOptions = {
+                    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+                    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
+                    PIPELINE_STEP_STALLED_LOG_TIMEOUT: hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
+                    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+                    PERSON_MERGE_ASYNC_ENABLED: hub.PERSON_MERGE_ASYNC_ENABLED,
+                    PERSON_MERGE_ASYNC_TOPIC: hub.PERSON_MERGE_ASYNC_TOPIC,
+                    PERSON_MERGE_SYNC_BATCH_SIZE: hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+                    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                    PERSON_PROPERTIES_UPDATE_ALL: hub.PERSON_PROPERTIES_UPDATE_ALL,
+                }
                 runner = new TestEventPipelineRunner(
-                    hub,
+                    heatmapOptions,
+                    hub.kafkaProducer,
+                    hub.teamManager,
+                    hub.groupTypeManager,
                     heatmapEvent,
                     undefined,
                     personsStore,
-                    groupStoreForBatch,
+                    heatmapGroupStoreForBatch,
                     undefined // headers
                 )
 
@@ -377,9 +371,10 @@ describe('EventPipelineRunner', () => {
             })
 
             it('runs the expected steps for heatmap_data', async () => {
-                await runner.runEventPipeline(heatmapEvent, team)
+                const timestamp = DateTime.now()
+                await runner.runHeatmapPipeline(heatmapEvent, timestamp, team)
 
-                expect(runner.steps).toEqual(['normalizeEventStep', 'prepareEventStep', 'extractHeatmapDataStep'])
+                expect(runner.steps).toEqual(['prepareEventStep'])
             })
         })
     })
@@ -395,7 +390,6 @@ describe('EventPipelineRunner', () => {
                 ])
             )
             jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
-            jest.mocked(createEventStep).mockResolvedValue(createdEvent)
         })
 
         it('calls processPersonlessStep when processPerson=false and forceDisablePersonProcessing=true', async () => {
@@ -417,12 +411,15 @@ describe('EventPipelineRunner', () => {
 
             expect(processPersonlessStep).not.toHaveBeenCalled()
             expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // runner
+                expect.any(Object), // kafkaProducer
+                expect.any(Object), // mergeMode
+                expect.any(Number), // measurePersonJsonbSize
+                expect.any(Boolean), // personPropertiesUpdateAll
                 expect.any(Object), // event
                 expect.any(Object), // team
                 expect.any(Object), // timestamp
                 true, // processPerson
-                expect.any(Object) // personStoreBatch
+                expect.any(Object) // personsStore
             )
         })
 
@@ -442,12 +439,15 @@ describe('EventPipelineRunner', () => {
             expect(processPersonlessStep).toHaveBeenCalledTimes(1)
             expect(processPersonsStep).toHaveBeenCalledTimes(1)
             expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // runner
+                expect.any(Object), // kafkaProducer
+                expect.any(Object), // mergeMode
+                expect.any(Number), // measurePersonJsonbSize
+                expect.any(Boolean), // personPropertiesUpdateAll
                 expect.any(Object), // event
                 expect.any(Object), // team
                 expect.any(Object), // timestamp
                 true, // processPerson forced to true for force_upgrade
-                expect.any(Object) // personStoreBatch
+                expect.any(Object) // personsStore
             )
         })
 
@@ -456,12 +456,15 @@ describe('EventPipelineRunner', () => {
 
             expect(processPersonlessStep).not.toHaveBeenCalled()
             expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // runner
+                expect.any(Object), // kafkaProducer
+                expect.any(Object), // mergeMode
+                expect.any(Number), // measurePersonJsonbSize
+                expect.any(Boolean), // personPropertiesUpdateAll
                 expect.any(Object), // event
                 expect.any(Object), // team
                 expect.any(Object), // timestamp
                 true, // processPerson (default)
-                expect.any(Object) // personStoreBatch
+                expect.any(Object) // personsStore
             )
         })
     })

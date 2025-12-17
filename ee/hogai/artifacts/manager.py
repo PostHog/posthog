@@ -18,7 +18,7 @@ from posthog.models import Insight, User
 from posthog.models.team import Team
 
 from ee.hogai.core.mixins import AssistantContextMixin
-from ee.hogai.utils.supported_queries import SUPPORTED_QUERY_MODEL_BY_KIND
+from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 from ee.models.assistant import AgentArtifact
 
@@ -87,6 +87,31 @@ class ArtifactManager(AssistantContextMixin):
         if content is None:
             raise AgentArtifact.DoesNotExist(f"Artifact with short_id={short_id} not found")
         return content
+
+    async def aget_insight_with_source(
+        self, state_messages: Sequence[AssistantMessageUnion], artifact_id: str
+    ) -> tuple[VisualizationArtifactContent, ArtifactSource] | None:
+        """
+        Retrieve artifact content by ID along with its source.
+        Checks state first, then artifacts, then insights.
+        Returns tuple of (content, source) or None if not found.
+        """
+        # Try state first if messages provided
+        if state_messages is not None:
+            content = self._content_from_state(artifact_id, state_messages)
+            if content is not None:
+                return content, ArtifactSource.STATE
+
+        # Fall back to database (artifact, then insight)
+        artifact_contents = await self._afetch_artifact_contents([artifact_id])
+        if content := artifact_contents.get(artifact_id):
+            return content, ArtifactSource.ARTIFACT
+
+        insight_contents = await self._afetch_insight_contents([artifact_id])
+        if content := insight_contents.get(artifact_id):
+            return content, ArtifactSource.INSIGHT
+
+        return None
 
     async def aget_enriched_message(
         self,
@@ -175,6 +200,20 @@ class ArtifactManager(AssistantContextMixin):
 
         return result
 
+    async def aget_conversation_artifact_messages(self) -> list[ArtifactMessage]:
+        """Get all artifacts created in a conversation, by the agent and subagents."""
+        conversation_id = cast(UUID, self._get_thread_id(self._config))
+        artifacts = list(AgentArtifact.objects.filter(team=self._team, conversation_id=conversation_id).all())
+        return [
+            ArtifactMessage(
+                id=artifact.short_id,
+                artifact_id=artifact.short_id,
+                source=ArtifactSource.ARTIFACT,
+                content=VisualizationArtifactContent.model_validate(artifact.data),
+            )
+            for artifact in artifacts
+        ]
+
     # -------------------------------------------------------------------------
     # Private helpers
     # -------------------------------------------------------------------------
@@ -206,7 +245,7 @@ class ArtifactManager(AssistantContextMixin):
     def _to_visualization_artifact_message(
         self, message: ArtifactRefMessage, content: VisualizationArtifactContent
     ) -> ArtifactMessage:
-        """Convert an ArtifactMessage to a VisualizationArtifactMessage."""
+        """Convert an ArtifactRefMessage to an ArtifactMessage."""
         return ArtifactMessage(
             id=message.id,
             artifact_id=message.artifact_id,
@@ -229,7 +268,7 @@ class ArtifactManager(AssistantContextMixin):
         """Batch fetch insight contents from the database."""
         if not insight_ids:
             return {}
-        insights = Insight.objects.filter(short_id__in=insight_ids, team=self._team)
+        insights = Insight.objects.filter(short_id__in=insight_ids, team=self._team, deleted=False, saved=True)
         result: dict[str, VisualizationArtifactContent] = {}
         async for insight in insights:
             query = insight.query
@@ -241,12 +280,8 @@ class ArtifactManager(AssistantContextMixin):
             if not query:
                 continue
             # Validate and convert dict to model
-            query_kind = query.get("kind") if isinstance(query, dict) else None
-            if not query_kind or query_kind not in SUPPORTED_QUERY_MODEL_BY_KIND:
-                continue
             try:
-                QueryModel = SUPPORTED_QUERY_MODEL_BY_KIND[query_kind]
-                query_obj = QueryModel.model_validate(query)
+                query_obj = validate_assistant_query(query)
                 result[insight.short_id] = VisualizationArtifactContent(
                     query=query_obj,
                     name=insight.name or insight.derived_name,
