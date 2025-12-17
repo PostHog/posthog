@@ -44,7 +44,14 @@ function LinkedFlagSelector(): JSX.Element | null {
                 <p>
                     Only record when this flag is enabled. <strong>Shared across web and mobile.</strong>
                 </p>
-                <IngestionTriggers.FlagVariantSelector />
+                <IngestionTriggers.FlagVariantSelector
+                    tooltip={
+                        <>
+                            <p>Record for "any" variant, or only for a specific variant.</p>
+                            <p>Variant targeting requires posthog-js v1.110.0+</p>
+                        </>
+                    }
+                />
             </div>
         </IngestionTriggers.FlagTrigger>
     )

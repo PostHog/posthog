@@ -35,52 +35,46 @@ export function variantOptions(
     ]
 }
 
-export const FlagTriggerVariantSelector = (): JSX.Element => {
-    const { resourceType, loading } = useValues(ingestionTriggersLogic)
-    const { flag, linkedFlag, flagHasVariants } = useValues(flagTriggerLogic)
+export const FlagTriggerVariantSelector = ({ tooltip }: { tooltip: JSX.Element }): JSX.Element | null => {
+    const { resourceType } = useValues(ingestionTriggersLogic)
+    const { flag, loading, linkedFlag, flagHasVariants } = useValues(flagTriggerLogic)
     const { onChange } = useActions(flagTriggerLogic)
 
-    return (
-        flagHasVariants && (
-            <>
-                <LemonLabel className="text-base">
-                    Link to a specific flag variant{' '}
-                    <Tooltip
-                        delayMs={200}
-                        title={
-                            <>
-                                <p>Record for "any" variant, or only for a specific variant.</p>
-                                <p>Variant targeting requires posthog-js v1.110.0+</p>
-                            </>
-                        }
-                    >
-                        <IconInfo className="text-muted-alt cursor-help" />
-                    </Tooltip>
-                </LemonLabel>
-                <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
-                    {({ disabledReason }) => (
-                        <LemonSegmentedButton
-                            className="min-w-1/3"
-                            value={flag?.variant ?? ANY_VARIANT}
-                            options={variantOptions(
-                                linkedFlag?.filters.multivariate,
-                                (disabledReason ?? loading) ? 'Loading...' : undefined
-                            )}
-                            onChange={(variant) => {
-                                if (!linkedFlag) {
-                                    return
-                                }
+    if (!flagHasVariants) {
+        return null
+    }
 
-                                onChange({
-                                    id: linkedFlag?.id,
-                                    key: linkedFlag?.key,
-                                    variant: variant === ANY_VARIANT ? null : variant,
-                                })
-                            }}
-                        />
-                    )}
-                </AccessControlAction>
-            </>
-        )
+    return (
+        <>
+            <LemonLabel className="text-base">
+                Link to a specific flag variant{' '}
+                <Tooltip delayMs={200} title={tooltip}>
+                    <IconInfo className="text-muted-alt cursor-help" />
+                </Tooltip>
+            </LemonLabel>
+            <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
+                {({ disabledReason }) => (
+                    <LemonSegmentedButton
+                        className="min-w-1/3"
+                        value={flag?.variant ?? ANY_VARIANT}
+                        options={variantOptions(
+                            linkedFlag?.filters.multivariate,
+                            (disabledReason ?? loading) ? 'Loading...' : undefined
+                        )}
+                        onChange={(variant) => {
+                            if (!linkedFlag) {
+                                return
+                            }
+
+                            onChange({
+                                id: linkedFlag?.id,
+                                key: linkedFlag?.key,
+                                variant: variant === ANY_VARIANT ? null : variant,
+                            })
+                        }}
+                    />
+                )}
+            </AccessControlAction>
+        </>
     )
 }

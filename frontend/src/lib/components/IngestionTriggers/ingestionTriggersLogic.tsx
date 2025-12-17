@@ -16,16 +16,13 @@ export const ingestionTriggersLogic = kea<ingestionTriggersLogicType>([
     props({} as IngestionTriggersLogicProps),
     key((props) => props.logicKey),
     path((key) => ['lib', 'components', 'IngestionTriggers', 'ingestionTriggersLogic', key]),
-
     actions({
         onChangeMatchType: (matchType: 'any' | 'all') => ({ matchType }),
     }),
-
     selectors({
         resourceType: [(_, p) => [p.resourceType], (resourceType) => resourceType],
         matchType: [(_, p) => [p.matchType], (matchType) => matchType],
     }),
-
     listeners(({ props }) => ({
         onChangeMatchType: ({ matchType }) => {
             props.onChangeMatchType(matchType)

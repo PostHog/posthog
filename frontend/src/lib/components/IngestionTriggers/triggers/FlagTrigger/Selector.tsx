@@ -12,8 +12,8 @@ import { ingestionTriggersLogic } from '../../ingestionTriggersLogic'
 import { flagTriggerLogic } from './flagTriggerLogic'
 
 export const FlagTriggerSelector = (): JSX.Element => {
-    const { resourceType, loading } = useValues(ingestionTriggersLogic)
-    const { flag } = useValues(flagTriggerLogic)
+    const { resourceType } = useValues(ingestionTriggersLogic)
+    const { flag, loading } = useValues(flagTriggerLogic)
     const { onChange } = useActions(flagTriggerLogic)
 
     return (
