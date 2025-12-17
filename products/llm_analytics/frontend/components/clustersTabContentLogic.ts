@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import { Cluster, NOISE_CLUSTER_ID } from '../clusters/types'
@@ -47,6 +48,7 @@ export const clustersTabContentLogic = kea<clustersTabContentLogicType>([
                             ORDER BY timestamp DESC
                             LIMIT 20
                         `,
+                        { productKey: ProductKey.LLM_ANALYTICS },
                         { refresh: 'force_blocking' }
                     )
 
