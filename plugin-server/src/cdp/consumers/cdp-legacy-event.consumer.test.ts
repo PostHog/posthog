@@ -283,7 +283,7 @@ describe('CdpLegacyEventsConsumer', () => {
                 dump: () => Promise.resolve(),
             })
 
-            // Get invocations from the consumer
+            // Get invocations from the consumer - these are just logged, not executed
             const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](invocation)
             expect(invocations).toBeTruthy()
             expect(invocations.length).toBeGreaterThan(0)
@@ -291,6 +291,7 @@ describe('CdpLegacyEventsConsumer', () => {
             const hogFunctionInvocation = invocations[0]
             expect(hogFunctionInvocation.hogFunction.template_id).toBe('plugin-customerio-plugin')
 
+            // Verify the invocation structure is correct by executing it manually
             const result = await legacyPluginExecutor.execute(hogFunctionInvocation)
 
             expect(result.finished).toBe(true)
