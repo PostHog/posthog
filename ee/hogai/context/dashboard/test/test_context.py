@@ -7,9 +7,6 @@ from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsigh
 
 
 class TestDashboardContext(BaseTest):
-    def setUp(self):
-        super().setUp()
-
     async def test_execute_with_no_insights(self):
         """Test that execute returns formatted dashboard with no insights"""
         dashboard_ctx = DashboardContext(

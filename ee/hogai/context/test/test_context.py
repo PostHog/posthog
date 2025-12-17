@@ -1,7 +1,7 @@
 import datetime
 from typing import cast
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from langchain_core.runnables import RunnableConfig
@@ -41,7 +41,7 @@ from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
-class TestAssistantContextManager(ClickhouseTestMixin, BaseTest):
+class TestAssistantContextManager(BaseTest):
     def setUp(self):
         super().setUp()
         self.config = RunnableConfig(configurable={})
