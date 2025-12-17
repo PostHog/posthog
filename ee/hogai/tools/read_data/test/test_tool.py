@@ -331,7 +331,7 @@ class TestReadDataTool(BaseTest):
 
         assert artifact is None
         assert "Test Insight" in result
-        assert "Query definition" in result
+        assert "Query schema" in result
 
     async def test_read_insight_uses_fallback_name_when_none(self):
         """Test that insight name falls back to 'Insight {id}' when name is None."""
@@ -364,13 +364,44 @@ class TestReadDataTool(BaseTest):
 
         assert "Insight abc123" in result
 
+    async def test_read_dashboard_schema_only(self):
+        """Test reading a dashboard without executing it returns the schema."""
+        from posthog.models import Dashboard
+
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Test Dashboard",
+            description="A test dashboard description",
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl(
+            {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}
+        )
+
+        assert "Test Dashboard" in result
+        assert str(dashboard.id) in result
+        assert "A test dashboard description" in result
+        assert artifact is None
+
     async def test_list_tables_returns_core_tables_with_schema(self):
         """Test that data_warehouse_schema returns core PostHog tables with their field schemas."""
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -414,7 +445,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -445,7 +476,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -464,7 +495,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -506,7 +537,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -548,7 +579,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -567,7 +598,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -586,7 +617,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,

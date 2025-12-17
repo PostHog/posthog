@@ -54,7 +54,7 @@ class ReadInsight(BaseModel):
     """Retrieves an existing saved insight by its short ID."""
 
     kind: Literal["insight"] = "insight"
-    insight_id: str = Field(description="The short ID of the insight (found in URLs like /insights/abc123).")
+    insight_id: str = Field(description="The string ID of the insight.")
     execute: bool = Field(
         default=False,
         description="If true, executes the insight query and returns results. If false, returns only the insight definition.",
@@ -65,7 +65,7 @@ class ReadDashboard(BaseModel):
     """Retrieves an existing dashboard by its ID."""
 
     kind: Literal["dashboard"] = "dashboard"
-    dashboard_id: str = Field(description="The numeric ID of the dashboard (found in URLs like /dashboard/123).")
+    dashboard_id: str = Field(description="The numeric ID of the dashboard.")
     execute: bool = Field(
         default=False,
         description="If true, executes all insight queries in the dashboard and returns results. If false, returns only the dashboard and insight definitions.",
@@ -138,7 +138,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
 
-        ReadDataKind = Union[ReadDataWarehouseSchema, ReadDataWarehouseTableSchema, ReadInsight, *kinds]  # type: ignore
+        ReadDataKind = Union[ReadDataWarehouseSchema, ReadDataWarehouseTableSchema, ReadInsight, ReadDashboard, *kinds]  # type: ignore
 
         ReadDataToolArgs = create_model(
             "ReadDataToolArgs",
