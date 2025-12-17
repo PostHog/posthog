@@ -103,7 +103,7 @@ export const biLogic = kea<biLogicType>([
         refreshQuery: true,
         resetSelection: true,
         setExpandedFields: (paths: string[]) => ({ paths }),
-        openSchemaEditor: (databaseName: string) => ({ databaseName }),
+        openSchemaEditor: (databaseName: string, tableName?: string | null) => ({ databaseName, tableName }),
         closeSchemaEditor: true,
         selectSchemaTableForEditing: (tableName: string) => ({ tableName }),
         setSchemaDraft: (tableName: string, draft: string) => ({ tableName, draft }),
@@ -199,7 +199,10 @@ export const biLogic = kea<biLogicType>([
         schemaEditor: [
             { databaseName: null, tableName: null } as BISchemaEditorState,
             {
-                openSchemaEditor: (_, { databaseName }) => ({ databaseName, tableName: null }),
+                openSchemaEditor: (_, { databaseName, tableName }) => ({
+                    databaseName,
+                    tableName: tableName || null,
+                }),
                 closeSchemaEditor: () => ({ databaseName: null, tableName: null }),
                 selectSchemaTableForEditing: (state, { tableName }) => ({ ...state, tableName }),
                 selectTable: () => ({ databaseName: null, tableName: null }),
@@ -458,12 +461,33 @@ export const biLogic = kea<biLogicType>([
         resetSelection: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         setColumns: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
         setFilters: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        openSchemaEditor: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        closeSchemaEditor: () => [urls.bi(), buildBiSearchParams(values), router.values.hashParams, { replace: true }],
+        selectSchemaTableForEditing: () => [
+            urls.bi(),
+            buildBiSearchParams(values),
+            router.values.hashParams,
+            { replace: true },
+        ],
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.bi()]: (_params, searchParams) => {
+            const schemaDatabase = typeof searchParams.schemaDatabase === 'string' ? searchParams.schemaDatabase : null
+            const schemaTable = typeof searchParams.schemaTable === 'string' ? searchParams.schemaTable : null
             const table = typeof searchParams.table === 'string' ? searchParams.table : null
             const limit = Number.isFinite(Number(searchParams.limit)) ? Number(searchParams.limit) : 50
             const searchTerm = typeof searchParams.q === 'string' ? searchParams.q : ''
+
+            if (schemaDatabase) {
+                if (
+                    schemaDatabase !== values.schemaEditor.databaseName ||
+                    schemaTable !== values.schemaEditor.tableName
+                ) {
+                    actions.openSchemaEditor(schemaDatabase, schemaTable || undefined)
+                }
+            } else if (values.schemaEditor.databaseName) {
+                actions.closeSchemaEditor()
+            }
 
             if (!table) {
                 if (values.selectedTable) {
@@ -544,13 +568,15 @@ export const biLogic = kea<biLogicType>([
         loadSourcesSuccess: () => {
             actions.loadDatabase()
         },
-        openSchemaEditor: ({ databaseName }) => {
+        openSchemaEditor: ({ databaseName, tableName }) => {
             const tablesInDatabase = values.allTables
                 .filter((table) => getDatabaseNameFromTableName(table.name) === databaseName)
                 .sort((a, b) => a.name.localeCompare(b.name))
 
             if (tablesInDatabase.length > 0) {
-                actions.selectSchemaTableForEditing(tablesInDatabase[0].name)
+                const preferredTable = tableName && tablesInDatabase.find((table) => table.name === tableName)
+                const fallbackTable = preferredTable || tablesInDatabase[0]
+                actions.selectSchemaTableForEditing(fallbackTable.name)
             }
         },
         selectSchemaTableForEditing: ({ tableName }) => {
@@ -684,6 +710,12 @@ function buildBiSearchParams(values: any): Record<string, any> {
     }
     if (values.tableSearchTerm) {
         params.q = values.tableSearchTerm
+    }
+    if (values.schemaEditor?.databaseName) {
+        params.schemaDatabase = values.schemaEditor.databaseName
+        if (values.schemaEditor.tableName) {
+            params.schemaTable = values.schemaEditor.tableName
+        }
     }
     return params
 }
@@ -1267,15 +1299,67 @@ export function getDatabaseNameFromTableName(tableName: string): string {
     return 'posthog'
 }
 
+export function stripTableName(tableName: string, databaseName?: string | null): string {
+    const effectiveDatabaseName = databaseName || getDatabaseNameFromTableName(tableName)
+
+    if (tableName.startsWith(`${effectiveDatabaseName}.`)) {
+        return tableName.slice(effectiveDatabaseName.length + 1)
+    }
+
+    return tableName.includes('.') ? tableName.split('.').slice(1).join('.') : tableName
+}
+
+export function formatSchemaFilePath(tableName: string, databaseName: string): string {
+    return `schema/${databaseName}/${stripTableName(tableName, databaseName)}.sql`
+}
+
 export function buildCreateTableStatement(table: DatabaseSchemaTable, databaseName: string | null): string {
     const fields = Object.values(table.fields || {})
+    const effectiveDatabaseName = databaseName || getDatabaseNameFromTableName(table.name)
+    const tableLabel = stripTableName(table.name, effectiveDatabaseName)
 
     const fieldLines = fields.map((field) => {
         const typeLabel = typeof field.type === 'string' ? field.type : 'string'
-        return `    "${field.name}" ${typeLabel}`
+        const expression = buildFieldExpression(field, table)
+        const expressionSuffix = expression ? ` -- ${expression}` : ''
+        return `    "${field.name}" ${typeLabel}${expressionSuffix}`
     })
 
     const fieldsBlock = fieldLines.length > 0 ? fieldLines.join(',\n') : '    -- add columns'
+    const sourceId = getTableSourceId(table)
+    const connectionLine = table.type === 'posthog' ? 'posthog' : `USE CONNECTION ${sourceId || effectiveDatabaseName}`
 
-    return `CREATE TABLE "${databaseName}"."${table.name}" {\n${fieldsBlock}\n}`
+    return `${connectionLine}\nCREATE TABLE "${effectiveDatabaseName}"."${tableLabel}" {\n${fieldsBlock}\n}`
+}
+
+function buildFieldExpression(field: DatabaseSchemaField, table: DatabaseSchemaTable): string | null {
+    const foreignKey = (table as any)?.schema_metadata?.foreign_keys?.find(
+        (candidate: DatabaseSchemaForeignKey) => candidate.column === field.name
+    ) as DatabaseSchemaForeignKey | undefined
+
+    const relationName = foreignKey
+        ? foreignKeyFieldName(foreignKey.column)
+        : field.table
+          ? stripTableName(field.table)
+          : null
+
+    const chainExpression = field.chain?.length
+        ? [field.hogql_value || field.name, ...field.chain.map(String)].join('.')
+        : null
+    const hogqlExpression = field.hogql_value && field.hogql_value !== field.name ? field.hogql_value : null
+    const foreignKeyExpression = foreignKey
+        ? `${relationName || foreignKey.column}.${foreignKey.target_column || 'id'}`
+        : null
+
+    const expression = chainExpression || hogqlExpression || foreignKeyExpression
+
+    if (!expression) {
+        return null
+    }
+
+    if (relationName) {
+        return `(${relationName}) -> { ${expression} }`
+    }
+
+    return `-> { ${expression} }`
 }

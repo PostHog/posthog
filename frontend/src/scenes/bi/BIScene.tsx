@@ -23,6 +23,7 @@ import {
     LemonButton,
     LemonCard,
     LemonInput,
+    LemonMenu,
     LemonSegmentedButton,
     LemonTable,
     LemonTag,
@@ -60,6 +61,7 @@ import {
     columnAlias,
     columnKey,
     defaultColumnForTable,
+    formatSchemaFilePath,
     getDatabaseNameFromTableName,
     getTableDialect,
     getTableSourceId,
@@ -386,34 +388,60 @@ export function BIScene(): JSX.Element {
     )
     const [chartHeight, setChartHeight] = useState(DEFAULT_CHART_HEIGHT)
     const [queryPreviewHeight, setQueryPreviewHeight] = useState(180)
-    const databaseSideAction = useCallback(
-        (item: TreeDataItem) => {
-            if (item.record?.type !== 'folder') {
-                return null
-            }
-
-            const databaseName = item.record?.databaseName || item.name
-
-            return (
-                <div className="flex flex-col gap-1 p-1">
-                    <LemonButton type="tetriary" size="small" fullWidth disabled>
-                        Edit connection
-                    </LemonButton>
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        fullWidth
-                        onClick={(event) => {
-                            event.stopPropagation()
-                            openSchemaEditor(databaseName)
-                        }}
-                    >
-                        Modify schema
-                    </LemonButton>
-                </div>
-            )
+    const openSchemaForTable = useCallback(
+        (tableName: string) => {
+            const databaseName = getDatabaseNameFromTableName(tableName)
+            openSchemaEditor(databaseName, tableName)
         },
         [openSchemaEditor]
+    )
+    const databaseSideAction = useCallback(
+        (item: TreeDataItem) => {
+            if (item.record?.type === 'table') {
+                const tableName = item.record.tableName
+
+                return (
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Edit schema',
+                                onClick: () => openSchemaForTable(tableName),
+                            },
+                        ]}
+                    >
+                        <LemonButton type="tertiary" size="small" onClick={(event) => event.stopPropagation()}>
+                            ...
+                        </LemonButton>
+                    </LemonMenu>
+                )
+            }
+
+            if (item.record?.type === 'folder') {
+                const databaseName = item.record?.databaseName || item.name
+
+                return (
+                    <div className="flex flex-col gap-1 p-1">
+                        <LemonButton type="tetriary" size="small" fullWidth disabled>
+                            Edit connection
+                        </LemonButton>
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            fullWidth
+                            onClick={(event) => {
+                                event.stopPropagation()
+                                openSchemaEditor(databaseName)
+                            }}
+                        >
+                            Modify schema
+                        </LemonButton>
+                    </div>
+                )
+            }
+
+            return null
+        },
+        [openSchemaEditor, openSchemaForTable]
     )
 
     const tableTreeData = useMemo<TreeDataItem[]>(() => {
@@ -966,16 +994,34 @@ export function BIScene(): JSX.Element {
                                                 <div className="text-xs text-muted">via posthog data warehouse</div>
                                             )}
                                         </div>
-                                        {selectedFieldTrees.length > 0 && (
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="secondary"
-                                                icon={<IconAsterisk />}
-                                                onClick={addAllColumnsToQuery}
-                                                tooltip={<>Select all columns</>}
-                                                active={allColumnsSelected}
-                                            />
-                                        )}
+                                        <div className="flex items-center gap-1">
+                                            {selectedFieldTrees.length > 0 && (
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    icon={<IconAsterisk />}
+                                                    onClick={addAllColumnsToQuery}
+                                                    tooltip={<>Select all columns</>}
+                                                    active={allColumnsSelected}
+                                                />
+                                            )}
+                                            <LemonMenu
+                                                items={[
+                                                    {
+                                                        label: 'Edit schema',
+                                                        onClick: () => openSchemaForTable(selectedTableObject.name),
+                                                    },
+                                                ]}
+                                            >
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    onClick={(event) => event.stopPropagation()}
+                                                >
+                                                    ...
+                                                </LemonButton>
+                                            </LemonMenu>
+                                        </div>
                                     </div>
                                     {selectedFieldTrees.length > 0 ? (
                                         <FieldTree
@@ -1289,6 +1335,7 @@ function SchemaEditorView({
     const lastSaved = orderedVersions[orderedVersions.length - 1] || null
     const generatedTemplate = selectedTable ? buildCreateTableStatement(selectedTable, databaseName) : ''
     const editorValue = draft || generatedTemplate
+    const schemaFilePath = selectedTable ? formatSchemaFilePath(selectedTable.name, databaseName) : null
 
     const schemaTreeData = useMemo<TreeDataItem[]>(() => {
         const groupedTables: Record<string, TreeDataItem> = {}
@@ -1478,7 +1525,7 @@ function SchemaEditorView({
                             <div>
                                 <div className="text-muted text-xs">Editing schema</div>
                                 <div className="text-lg font-semibold">
-                                    {selectedTable?.name || 'Select a table to edit its schema'}
+                                    {schemaFilePath || 'Select a table to edit its schema'}
                                 </div>
                             </div>
                             <div className="text-xs text-muted">SQL definition</div>
