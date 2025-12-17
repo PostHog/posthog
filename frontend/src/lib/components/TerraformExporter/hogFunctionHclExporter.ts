@@ -1,8 +1,11 @@
 import { formatJsonForHcl } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
-import { CyclotronJobFiltersType, HogFunctionType } from '~/types'
+import { CyclotronJobFiltersType, CyclotronJobInputType, HogFunctionMappingType, HogFunctionType } from '~/types'
 
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'
+
+type StrippedInput = Omit<CyclotronJobInputType, 'bytecode' | 'order'>
+type StrippedFilters = Omit<CyclotronJobFiltersType, 'bytecode'>
 
 export interface HogFunctionHclExportOptions extends HclExportOptions {
     /** Map of alert IDs to their TF references */
@@ -53,16 +56,18 @@ const HOG_FUNCTION_FIELD_MAPPINGS: FieldMapping<Partial<HogFunctionType>, HogFun
         source: 'inputs',
         target: 'inputs_json',
         shouldInclude: (v) => !!v && typeof v === 'object' && Object.keys(v as object).length > 0,
-        transform: (v) => `jsonencode(${formatJsonForHcl(v)})`,
+        transform: (_, resource) => {
+            const stripped = stripInputsServerFields(resource.inputs)
+            return `jsonencode(${formatJsonForHcl(stripped)})`
+        },
     },
     {
         source: 'filters',
         target: 'filters_json',
         shouldInclude: (v) => !!v && typeof v === 'object' && Object.keys(v as object).length > 0,
-        transform: (v, _, options) => {
-            // bytecode is computed on the server, no need to confuse our users by including that.
-            const { bytecode, ...rest } = v as CyclotronJobFiltersType
-            let result = `jsonencode(${formatJsonForHcl(rest)})`
+        transform: (_, resource, options) => {
+            const stripped = stripFiltersServerFields(resource.filters)
+            let result = `jsonencode(${formatJsonForHcl(stripped)})`
             if (options.alertIdReplacements?.size) {
                 for (const [alertId, tfRef] of options.alertIdReplacements) {
                     result = result.replace(new RegExp(`"${alertId}"`, 'g'), tfRef)
@@ -75,7 +80,10 @@ const HOG_FUNCTION_FIELD_MAPPINGS: FieldMapping<Partial<HogFunctionType>, HogFun
         source: 'mappings',
         target: 'mappings_json',
         shouldInclude: (v) => Array.isArray(v) && v.length > 0,
-        transform: (v) => `jsonencode(${formatJsonForHcl(v)})`,
+        transform: (_, resource) => {
+            const stripped = stripMappingsServerFields(resource.mappings)
+            return `jsonencode(${formatJsonForHcl(stripped)})`
+        },
     },
     {
         source: 'masking',
@@ -133,4 +141,41 @@ export function generateHogFunctionHCL(
     options: HogFunctionHclExportOptions = {}
 ): HclExportResult {
     return generateHCL(hogFunction, HOG_FUNCTION_EXPORTER, options)
+}
+
+function stripInputServerFields(input: CyclotronJobInputType): StrippedInput {
+    const { bytecode, order, ...rest } = input
+    return rest
+}
+
+export function stripInputsServerFields(
+    inputs: Record<string, CyclotronJobInputType> | null | undefined
+): Record<string, StrippedInput> | null | undefined {
+    if (!inputs) {
+        return inputs
+    }
+    return Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, stripInputServerFields(input)]))
+}
+
+export function stripFiltersServerFields(
+    filters: CyclotronJobFiltersType | null | undefined
+): StrippedFilters | null | undefined {
+    if (!filters) {
+        return filters
+    }
+    const { bytecode, ...rest } = filters
+    return rest
+}
+
+export function stripMappingsServerFields(
+    mappings: HogFunctionMappingType[] | null | undefined
+): HogFunctionMappingType[] | null | undefined {
+    if (!mappings) {
+        return mappings
+    }
+    return mappings.map((mapping) => ({
+        ...mapping,
+        inputs: stripInputsServerFields(mapping.inputs) as Record<string, CyclotronJobInputType> | null | undefined,
+        filters: stripFiltersServerFields(mapping.filters) as CyclotronJobFiltersType | null | undefined,
+    }))
 }

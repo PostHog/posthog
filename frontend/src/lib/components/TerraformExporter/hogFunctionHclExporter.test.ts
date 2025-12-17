@@ -1,6 +1,11 @@
-import { generateHogFunctionHCL } from 'lib/components/TerraformExporter/hogFunctionHclExporter'
+import {
+    generateHogFunctionHCL,
+    stripFiltersServerFields,
+    stripInputsServerFields,
+    stripMappingsServerFields,
+} from 'lib/components/TerraformExporter/hogFunctionHclExporter'
 
-import { HogFunctionType } from '~/types'
+import { CyclotronJobFiltersType, CyclotronJobInputType, HogFunctionMappingType, HogFunctionType } from '~/types'
 
 const createTestHogFunction = (props: Record<string, unknown>): Partial<HogFunctionType> =>
     props as Partial<HogFunctionType>
@@ -330,6 +335,144 @@ describe('hogFunctionHclExporter test', () => {
             expect(result.warnings).toContain(
                 'Secret inputs (api_key, webhook_secret) in the export, please be careful when handling this file!'
             )
+        })
+    })
+
+    describe('strips server-computed fields', () => {
+        describe('stripInputsServerFields', () => {
+            it('removes bytecode and order from inputs', () => {
+                const inputs: Record<string, CyclotronJobInputType> = {
+                    channel: { value: '#general', bytecode: ['_H', 1, 32], order: 0 },
+                    message: { value: 'Hello', bytecode: ['_H', 1, 33], order: 1 },
+                }
+
+                const result = stripInputsServerFields(inputs)
+
+                expect(result).toEqual({
+                    channel: { value: '#general' },
+                    message: { value: 'Hello' },
+                })
+            })
+
+            it('preserves other fields like secret and templating', () => {
+                const inputs: Record<string, CyclotronJobInputType> = {
+                    api_key: { value: 'secret', secret: true, bytecode: ['_H'], order: 0 },
+                    template: { value: '{event.name}', templating: 'hog', bytecode: ['_H', 2], order: 1 },
+                }
+
+                const result = stripInputsServerFields(inputs)
+
+                expect(result).toEqual({
+                    api_key: { value: 'secret', secret: true },
+                    template: { value: '{event.name}', templating: 'hog' },
+                })
+            })
+
+            it('returns null/undefined unchanged', () => {
+                expect(stripInputsServerFields(null)).toBeNull()
+                expect(stripInputsServerFields(undefined)).toBeUndefined()
+            })
+        })
+
+        describe('stripFiltersServerFields', () => {
+            it('removes bytecode from filters', () => {
+                const filters = {
+                    events: [{ id: '$pageview', type: 'events' }],
+                    properties: [{ key: 'url', value: '/home', type: 'event', operator: 'exact' }],
+                    bytecode: ['_H', 1, 2, 3],
+                } as CyclotronJobFiltersType
+
+                const result = stripFiltersServerFields(filters)
+
+                expect(result).toEqual({
+                    events: [{ id: '$pageview', type: 'events' }],
+                    properties: [{ key: 'url', value: '/home', type: 'event', operator: 'exact' }],
+                })
+                expect(result).not.toHaveProperty('bytecode')
+            })
+
+            it('returns null/undefined unchanged', () => {
+                expect(stripFiltersServerFields(null)).toBeNull()
+                expect(stripFiltersServerFields(undefined)).toBeUndefined()
+            })
+        })
+
+        describe('stripMappingsServerFields', () => {
+            it('strips inputs and filters within each mapping', () => {
+                const mappings = [
+                    {
+                        name: 'Track Event',
+                        inputs: {
+                            event: { value: '$pageview', bytecode: ['_H', 1], order: 0 },
+                        },
+                        filters: {
+                            events: [{ id: 'custom_event', type: 'events' }],
+                            bytecode: ['_H', 2, 3],
+                        },
+                    },
+                    {
+                        name: 'Identify',
+                        inputs: {
+                            userId: { value: '{person.id}', bytecode: ['_H', 4], order: 0 },
+                        },
+                        filters: null,
+                    },
+                ] as HogFunctionMappingType[]
+
+                const result = stripMappingsServerFields(mappings)
+
+                expect(result).toEqual([
+                    {
+                        name: 'Track Event',
+                        inputs: {
+                            event: { value: '$pageview' },
+                        },
+                        filters: {
+                            events: [{ id: 'custom_event', type: 'events' }],
+                        },
+                    },
+                    {
+                        name: 'Identify',
+                        inputs: {
+                            userId: { value: '{person.id}' },
+                        },
+                        filters: null,
+                    },
+                ])
+            })
+
+            it('returns null/undefined unchanged', () => {
+                expect(stripMappingsServerFields(null)).toBeNull()
+                expect(stripMappingsServerFields(undefined)).toBeUndefined()
+            })
+        })
+
+        it('excludes bytecode and order from generated HCL', () => {
+            const hogFunction = createTestHogFunction({
+                name: 'Function With Server Fields',
+                type: 'destination',
+                inputs: {
+                    channel: { value: '#general', bytecode: ['_H', 1, 32], order: 0 },
+                },
+                filters: {
+                    events: [{ id: '$pageview' }],
+                    bytecode: ['_H', 1, 2, 3],
+                },
+                mappings: [
+                    {
+                        name: 'Mapping',
+                        inputs: { event: { value: 'test', bytecode: ['_H'], order: 0 } },
+                        filters: { events: [], bytecode: ['_H', 5] },
+                    },
+                ],
+            })
+
+            const hcl = generateHogFunctionHCL(hogFunction).hcl
+
+            expect(hcl).not.toContain('bytecode')
+            expect(hcl).not.toContain('"order"')
+            expect(hcl).toContain('"value": "#general"')
+            expect(hcl).toContain('"value": "test"')
         })
     })
 })
