@@ -39,6 +39,8 @@ import { useChart } from 'lib/hooks/useChart'
 import { ClampedText } from 'lib/lemon-ui/ClampedText'
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { humanFriendlyNumber } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
@@ -378,6 +380,7 @@ export const scene: SceneExport = {
 
 export function BIScene(): JSX.Element {
     const {
+        allTables,
         filteredTables,
         selectedFieldTrees,
         selectedTableObject,
@@ -438,7 +441,7 @@ export function BIScene(): JSX.Element {
     const [viewportHeight, setViewportHeight] = useState(typeof window !== 'undefined' ? window.innerHeight : 900)
     const [sidebarWidth, setSidebarWidth] = useState(() =>
         Math.min(
-            320,
+            370,
             Math.max(MIN_SIDEBAR_WIDTH, (typeof window !== 'undefined' ? window.innerWidth : 1440) - MIN_MAIN_WIDTH)
         )
     )
@@ -470,24 +473,65 @@ export function BIScene(): JSX.Element {
         },
         [openSchemaEditor]
     )
+    const sidebarMode: 'explore' | 'schema' = schemaEditor.databaseName ? 'schema' : 'explore'
+
+    const getDefaultSchemaDatabase = useCallback((): string | null => {
+        if (schemaEditor.databaseName) {
+            return schemaEditor.databaseName
+        }
+
+        if (selectedTableObject) {
+            return getDatabaseNameFromTableName(selectedTableObject.name)
+        }
+
+        if (allTables.length > 0) {
+            return getDatabaseNameFromTableName(allTables[0].name)
+        }
+
+        return null
+    }, [allTables, schemaEditor.databaseName, selectedTableObject])
+
+    const handleSidebarModeChange = (mode: 'explore' | 'schema'): void => {
+        if (mode === 'schema') {
+            const targetDatabase = getDefaultSchemaDatabase()
+            const targetTable = schemaEditor.tableName || selectedTableObject?.name || null
+
+            if (targetDatabase) {
+                openSchemaEditor(targetDatabase, targetTable ?? undefined)
+            }
+
+            return
+        }
+
+        closeSchemaEditor()
+    }
+
+    const sidebarModeToggle = (
+        <LemonSegmentedButton
+            value={sidebarMode}
+            onChange={(value) => handleSidebarModeChange(value as 'explore' | 'schema')}
+            size="small"
+            options={[
+                { value: 'explore', label: 'Explore' },
+                { value: 'schema', label: 'Schema' },
+            ]}
+        />
+    )
     const databaseSideAction = useCallback(
         (item: TreeDataItem) => {
             if (item.record?.type === 'table') {
                 const tableName = item.record.tableName
 
                 return (
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Edit schema',
-                                onClick: () => openSchemaForTable(tableName),
-                            },
-                        ]}
+                    <DropdownMenuItem
+                        asChild
+                        onClick={(event) => {
+                            event.stopPropagation()
+                            openSchemaForTable(tableName)
+                        }}
                     >
-                        <LemonButton type="tertiary" size="small" onClick={(event) => event.stopPropagation()}>
-                            ...
-                        </LemonButton>
-                    </LemonMenu>
+                        <ButtonPrimitive menuItem>Edit schema</ButtonPrimitive>
+                    </DropdownMenuItem>
                 )
             }
 
@@ -495,22 +539,22 @@ export function BIScene(): JSX.Element {
                 const databaseName = item.record?.databaseName || item.name
 
                 return (
-                    <div className="flex flex-col gap-1 p-1">
-                        <LemonButton type="tetriary" size="small" fullWidth disabled>
-                            Edit connection
-                        </LemonButton>
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            fullWidth
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive menuItem disabled>
+                                Edit connection
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            asChild
                             onClick={(event) => {
                                 event.stopPropagation()
                                 openSchemaEditor(databaseName)
                             }}
                         >
-                            Modify schema
-                        </LemonButton>
-                    </div>
+                            <ButtonPrimitive menuItem>Modify schema</ButtonPrimitive>
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
                 )
             }
 
@@ -1019,7 +1063,8 @@ export function BIScene(): JSX.Element {
     if (schemaEditor.databaseName) {
         return (
             <SchemaEditorView
-                databaseName={schemaEditor.databaseName}
+                sidebarModeToggle={sidebarModeToggle}
+                databaseName={schemaEditor.databaseName || getDatabaseNameFromTableName(schemaEditorTable?.name || '')}
                 tables={schemaEditorTables}
                 selectedTable={schemaEditorTable}
                 draft={schemaEditorDraft}
@@ -1043,8 +1088,9 @@ export function BIScene(): JSX.Element {
                     className="shrink-0 h-full min-h-0"
                     style={{ width: Math.min(sidebarWidth, maxSidebarWidth) }}
                 >
-                    <div className="h-full min-h-0 flex flex-col pr-2">
-                        <div className="flex items-center gap-1 mb-2">
+                    <div className="h-full min-h-0 flex flex-col pr-2 gap-2">
+                        <div>{sidebarModeToggle}</div>
+                        <div className="flex items-center gap-1">
                             {selectedTableObject && (
                                 <LemonButton
                                     type="tertiary"
@@ -1401,6 +1447,7 @@ export function BIScene(): JSX.Element {
 }
 
 interface SchemaEditorViewProps {
+    sidebarModeToggle: JSX.Element
     databaseName: string
     tables: DatabaseSchemaTable[]
     selectedTable: DatabaseSchemaTable | null
@@ -1413,12 +1460,12 @@ interface SchemaEditorViewProps {
 }
 
 function SchemaEditorView({
+    sidebarModeToggle,
     databaseName,
     tables,
     selectedTable,
     draft,
     versions,
-    onClose,
     onSelectTable,
     onChangeDraft,
     onSave,
@@ -1431,6 +1478,9 @@ function SchemaEditorView({
     const generatedTemplate = selectedTable ? buildCreateTableStatement(selectedTable, databaseName) : ''
     const editorValue = draft || generatedTemplate
     const schemaFilePath = selectedTable ? formatSchemaFilePath(selectedTable.name, databaseName) : null
+    const activeDatabaseName = selectedTable
+        ? getDatabaseNameFromTableName(selectedTable.name)
+        : databaseName || 'All databases'
 
     const schemaTreeData = useMemo<TreeDataItem[]>(() => {
         const groupedTables: Record<string, TreeDataItem> = {}
@@ -1475,7 +1525,7 @@ function SchemaEditorView({
                 name: 'schema',
                 displayName: 'schema',
                 type: 'node',
-                record: { type: 'folder', databaseName },
+                record: { type: 'folder', databaseName: activeDatabaseName },
                 children: schemaChildren,
                 icon: <IconStack />,
             },
@@ -1489,7 +1539,7 @@ function SchemaEditorView({
                 icon: <IconBrackets />,
             },
         ]
-    }, [databaseName, tables])
+    }, [activeDatabaseName, databaseName, tables])
 
     useEffect(() => {
         const folderIds = schemaTreeData.flatMap((item) => {
@@ -1521,26 +1571,18 @@ function SchemaEditorView({
         <div className="flex flex-col gap-3 h-full">
             <div className="flex gap-1 h-full min-h-0">
                 <ResizableElement
-                    defaultWidth={260}
+                    defaultWidth={310}
                     minWidth={MIN_SIDEBAR_WIDTH}
                     maxWidth={400}
                     className="shrink-0 h-full min-h-0"
                 >
                     <div className="h-full min-h-0 flex flex-col pr-2 gap-2">
-                        <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                                <LemonButton type="tertiary" icon={<IconArrowLeft />} onClick={onClose} />
-                                <div>
-                                    <div className="text-muted text-xs">Modify database schema</div>
-                                    <div className="font-semibold">{databaseName}</div>
-                                </div>
+                        <div>{sidebarModeToggle}</div>
+                        {lastSaved && (
+                            <div className="text-muted text-xs">
+                                Last saved {new Date(lastSaved.savedAt).toLocaleString()}
                             </div>
-                            {lastSaved && (
-                                <div className="text-muted text-xs">
-                                    Last saved {new Date(lastSaved.savedAt).toLocaleString()}
-                                </div>
-                            )}
-                        </div>
+                        )}
                         <div className="flex-1 overflow-y-auto">
                             <LemonTree
                                 data={schemaTreeData}

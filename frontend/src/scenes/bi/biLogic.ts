@@ -204,7 +204,11 @@ export const biLogic = kea<biLogicType>([
                     tableName: tableName || null,
                 }),
                 closeSchemaEditor: () => ({ databaseName: null, tableName: null }),
-                selectSchemaTableForEditing: (state, { tableName }) => ({ ...state, tableName }),
+                selectSchemaTableForEditing: (state, { tableName }) => ({
+                    ...state,
+                    tableName,
+                    databaseName: tableName ? getDatabaseNameFromTableName(tableName) : state.databaseName,
+                }),
                 selectTable: () => ({ databaseName: null, tableName: null }),
                 resetSelection: () => ({ databaseName: null, tableName: null }),
             },
@@ -287,16 +291,8 @@ export const biLogic = kea<biLogicType>([
                 selectedTableObject ? columnSearchTerm : tableSearchTerm,
         ],
         schemaEditorTables: [
-            (s) => [s.allTables, s.schemaEditor],
-            (tables, schemaEditor): DatabaseSchemaTable[] => {
-                if (!schemaEditor.databaseName) {
-                    return []
-                }
-
-                return tables
-                    .filter((table) => getDatabaseNameFromTableName(table.name) === schemaEditor.databaseName)
-                    .sort((a, b) => a.name.localeCompare(b.name))
-            },
+            (s) => [s.allTables],
+            (tables): DatabaseSchemaTable[] => [...tables].sort((a, b) => a.name.localeCompare(b.name)),
         ],
         schemaEditorTable: [
             (s) => [s.schemaEditorTables, s.schemaEditor],
@@ -315,7 +311,9 @@ export const biLogic = kea<biLogicType>([
                     return ''
                 }
 
-                return drafts[table.name] || buildCreateTableStatement(table, schemaEditor.databaseName)
+                const effectiveDatabaseName = schemaEditor.databaseName || getDatabaseNameFromTableName(table.name)
+
+                return drafts[table.name] || buildCreateTableStatement(table, effectiveDatabaseName)
             },
         ],
         schemaEditorVersionHistory: [
@@ -1318,11 +1316,25 @@ export function buildCreateTableStatement(table: DatabaseSchemaTable, databaseNa
     const effectiveDatabaseName = databaseName || getDatabaseNameFromTableName(table.name)
     const tableLabel = stripTableName(table.name, effectiveDatabaseName)
 
-    const fieldLines = fields.map((field) => {
+    const baseFieldLines = fields.map((field) => {
         const typeLabel = typeof field.type === 'string' ? field.type : 'string'
         const expression = buildFieldExpression(field, table)
+
+        return {
+            base: `    "${field.name}" ${typeLabel}`,
+            expression,
+        }
+    })
+
+    const maxBaseLength = baseFieldLines.reduce((max, { base, expression }) => {
+        return expression ? Math.max(max, base.length) : max
+    }, 0)
+
+    const fieldLines = baseFieldLines.map(({ base, expression }) => {
+        const padding = expression ? ' '.repeat(Math.max(maxBaseLength - base.length, 0)) : ''
         const expressionSuffix = expression ? ` -- ${expression}` : ''
-        return `    "${field.name}" ${typeLabel}${expressionSuffix}`
+
+        return `${base}${padding}${expressionSuffix}`
     })
 
     const fieldsBlock = fieldLines.length > 0 ? fieldLines.join(',\n') : '    -- add columns'
