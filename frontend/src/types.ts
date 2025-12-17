@@ -279,6 +279,7 @@ export enum AccessControlResourceType {
     Insight = 'insight',
     Notebook = 'notebook',
     Organization = 'organization',
+    ProductTour = 'product_tour',
     Project = 'project',
     RevenueAnalytics = 'revenue_analytics',
     SessionRecording = 'session_recording',
