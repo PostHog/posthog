@@ -234,7 +234,13 @@ class RiskAnalyzer:
 
     def _check_ddl_isolation(self, categorizer: OperationCategorizer, operation_risks: list) -> list[str]:
         """Check if DDL operations should be isolated."""
-        if not categorizer.has_ddl or len(operation_risks) <= 1:
+        if not categorizer.has_ddl:
+            return []
+
+        # Count only top-level operations (nested ops inside SeparateDatabaseAndState
+        # are part of their parent, not separate "mixed" operations)
+        top_level_count = sum(1 for op in operation_risks if op.parent_index is None)
+        if top_level_count <= 1:
             return []
 
         ddl_refs = categorizer.format_operation_refs(categorizer.ddl_ops)

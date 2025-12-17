@@ -17,6 +17,26 @@ class Migration(migrations.Migration):
                         blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.batchexport"
                     ),
                 ),
+                # No-op in database (just Django state for choices validation)
+                migrations.AlterField(
+                    model_name="batchexportdestination",
+                    name="type",
+                    field=models.CharField(
+                        choices=[
+                            ("S3", "S3"),
+                            ("Snowflake", "Snowflake"),
+                            ("Postgres", "Postgres"),
+                            ("Redshift", "Redshift"),
+                            ("BigQuery", "Bigquery"),
+                            ("Databricks", "Databricks"),
+                            ("Workflows", "Workflows"),
+                            ("HTTP", "Http"),
+                            ("NoOp", "Noop"),
+                        ],
+                        help_text="A choice of supported BatchExportDestination types.",
+                        max_length=64,
+                    ),
+                ),
             ],
             database_operations=[
                 # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
