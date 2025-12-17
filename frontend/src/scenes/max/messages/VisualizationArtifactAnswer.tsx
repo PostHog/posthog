@@ -23,13 +23,13 @@ import {
     ArtifactSource,
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
-import { MessageStatus } from './maxLogic'
-import { MessageTemplate } from './messages/MessageTemplate'
-import { castAssistantQuery } from './utils'
+import { MessageStatus } from '../maxLogic'
+import { visualizationTypeToQuery } from '../utils'
+import { MessageTemplate } from './MessageTemplate'
 
 interface VisualizationArtifactAnswerProps {
     message: ArtifactMessage & { status?: MessageStatus }
@@ -85,23 +85,8 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
 
     // Build query from either artifact content or inline visualization message
     const query = useMemo(() => {
-        try {
-            const source = castAssistantQuery(content.query)
-            if (isHogQLQuery(source)) {
-                return { kind: NodeKind.DataVisualizationNode, source } satisfies DataVisualizationNode
-            }
-            return { kind: NodeKind.InsightVizNode, source, showHeader: false } satisfies InsightVizNode
-        } catch {
-            return null
-        }
+        return visualizationTypeToQuery(content)
     }, [content])
-
-    const queryWithShowHeader = useMemo(() => {
-        if (query && isInsightVizNode(query)) {
-            return { ...query, showHeader: true }
-        }
-        return query
-    }, [query])
 
     // Get the raw query for height calculation
     const rawQuery = content.query
@@ -157,7 +142,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                                 isSavedInsight
                                     ? urls.insightView(message.artifact_id as InsightShortId)
                                     : urls.insightNew({
-                                          query: queryWithShowHeader as InsightVizNode | DataVisualizationNode,
+                                          query: query as InsightVizNode | DataVisualizationNode,
                                       })
                             }
                             icon={<IconOpenInNew />}
@@ -174,7 +159,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                     />
                 </div>
             </div>
-            {isSummaryShown && (
+            {isInsightVizNode(query) && isSummaryShown && (
                 <>
                     <SeriesSummary query={query.source} heading={null} />
                     {!isHogQLQuery(query.source) && (
