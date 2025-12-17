@@ -109,6 +109,10 @@ type SceneMainTitleProps = {
      */
     saveOnBlur?: boolean
     /**
+     * If true, removes the border from the title section
+     * */
+    noBorder?: boolean
+    /**
      * If true, the actions from PageHeader will be shown
      * @default false
      */
@@ -132,12 +136,14 @@ export function SceneTitleSection({
     forceEdit = false,
     renameDebounceMs = 0,
     saveOnBlur = true,
+    noBorder = false,
     actions,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
+    const [nameIsEditing, setNameIsEditing] = useState(false)
 
     const effectiveDescription = description
 
@@ -180,11 +186,19 @@ export function SceneTitleSection({
             <div
                 className={cn(
                     'scene-title-section-wrapper bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 border-b border-transparent transition-border duration-300',
+                    noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent'
                 )}
             >
                 <div
-                    className="scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-2 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2"
+                    className={cn(
+                        // Name z-indexed behind description initially
+                        'scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-2 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2 z-20',
+                        {
+                            // If scrolled or name is editing, bring to front
+                            'z-50': isScrolled || nameIsEditing,
+                        }
+                    )}
                     data-editable={canEdit}
                 >
                     <div
@@ -215,6 +229,9 @@ export function SceneTitleSection({
                                     forceEdit={forceEdit}
                                     renameDebounceMs={renameDebounceMs}
                                     saveOnBlur={saveOnBlur}
+                                    handleIsEditingChange={(isEditing) => {
+                                        setNameIsEditing(isEditing)
+                                    }}
                                 />
                             </>
                         )}
@@ -226,10 +243,16 @@ export function SceneTitleSection({
                         </div>
                     )}
                 </div>
-                {effectiveDescription == null && <SceneDivider />}
+                {effectiveDescription == null && !noBorder && <SceneDivider />}
             </div>
             {effectiveDescription != null && (effectiveDescription || canEdit) && (
-                <div className="[&_svg]:size-6">
+                // Description z-indexed ahead of name initially
+                <div
+                    className={cn('[&_svg]:size-6 z-30 -mt-4', {
+                        // If scrolled or name is editing, bring to back
+                        'z-auto': isScrolled || nameIsEditing,
+                    })}
+                >
                     <SceneDescription
                         description={effectiveDescription}
                         markdown={markdown}
@@ -240,7 +263,7 @@ export function SceneTitleSection({
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
                     />
-                    <SceneDivider />
+                    {!noBorder && <SceneDivider />}
                 </div>
             )}
         </>
@@ -255,6 +278,7 @@ type SceneNameProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    handleIsEditingChange?: (isEditing: boolean) => void
 }
 
 function SceneName({
@@ -265,6 +289,7 @@ function SceneName({
     forceEdit = false,
     renameDebounceMs = 0,
     saveOnBlur = true,
+    handleIsEditingChange,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -277,7 +302,9 @@ function SceneName({
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4]'
 
-    const handleHeightChange = useCallback((height: number) => {
+    // Handle the height change of the textarea to determine if the name is multiline
+    // We do this so we add a shadow to the name when it is multiline instead of it floating above the description with just a border
+    const handleHeightChange = useCallback((height: number): void => {
         // Avoid processing the same height multiple times
         if (lastHeightRef.current === height) {
             return
@@ -297,7 +324,7 @@ function SceneName({
         }, 0)
     }, [])
 
-    // Cleanup timeout on unmount
+    // Cleanup timeout on unmount to avoid memory leaks
     useEffect(() => {
         return () => {
             if (updateTimeoutRef.current) {
@@ -306,12 +333,14 @@ function SceneName({
         }
     }, [])
 
+    // If the name is loading, set the name to the initial name
     useEffect(() => {
         if (!isLoading) {
             setName(initialName)
         }
     }, [initialName, isLoading])
 
+    // If the name is forced to be edited, set the editing state to true
     useEffect(() => {
         if (!isLoading && forceEdit) {
             setIsEditing(true)
@@ -319,6 +348,11 @@ function SceneName({
             setIsEditing(false)
         }
     }, [isLoading, forceEdit])
+
+    // Notify parent component that the name is editing
+    useEffect(() => {
+        handleIsEditingChange?.(isEditing)
+    }, [isEditing])
 
     const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
         if (onChange) {
@@ -586,7 +620,7 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description -mt-4 relative focus-within:z-50">
+        <div className="scene-description relative focus-within:z-50">
             <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0">{Element}</div>
         </div>
     )
