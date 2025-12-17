@@ -237,9 +237,8 @@ class VercelIntegration:
                     {"label": "Email support", "value": "✓"},
                 ],
                 "highlightedDetails": [
-                    {"label": "Product analytics", "value": "1 million events free"},
-                    {"label": "Session replay", "value": "5,000 recordings free"},
-                    {"label": "Feature flags", "value": "1 million requests free"},
+                    {"label": "Feature flags", "value": "1 million requests for free, then from $0.0001/request"},
+                    {"label": "Experiments", "value": "Billed with feature flags"},
                 ],
             },
         ]
