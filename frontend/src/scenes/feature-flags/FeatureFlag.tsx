@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { PostHogFeature } from 'posthog-js/react'
 import { useEffect, useState } from 'react'
 
 import {
@@ -97,8 +96,6 @@ import {
     ReplayTabs,
 } from '~/types'
 
-import { AnalysisTab } from './FeatureFlagAnalysisTab'
-import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
@@ -246,10 +243,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <SceneSection title="Insights that use this feature flag">
                                     <RecentFeatureFlagInsights />
                                 </SceneSection>
-
-                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                    <FeatureFlagAutoRollback readOnly />
-                                )}
                             </>
                         )}
 
@@ -278,26 +271,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             label: 'Schedule',
             key: FeatureFlagsTab.SCHEDULE,
             content: <FeatureFlagSchedule />,
-        })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
-        tabs.push({
-            label: (
-                <div className="flex flex-row">
-                    <div>Analysis</div>
-                    <LemonTag className="ml-2 float-right uppercase" type="warning">
-                        {' '}
-                        Beta
-                    </LemonTag>
-                </div>
-            ),
-            key: FeatureFlagsTab.Analysis,
-            content: (
-                <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
-                    <AnalysisTab featureFlag={featureFlag} />
-                </PostHogFeature>
-            ),
         })
     }
 
@@ -674,9 +647,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </div>
                                     {advancedSettingsExpanded && (
                                         <>
-                                            {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                                <FeatureFlagAutoRollback />
-                                            )}
                                             <div className="border rounded bg-surface-primary">
                                                 <h3 className="p-2 mb-0">Permissions</h3>
                                                 <LemonDivider className="my-0" />

@@ -201,7 +201,7 @@ import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+import { HogFlow, HogFlowAction } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
@@ -4602,6 +4602,14 @@ const api = {
             }
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
+        },
+        async getBatchTriggerBlastRadius(
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+        ): Promise<{
+            users_affected: number
+            total_users: number
+        }> {
+            return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
         },
     },
 

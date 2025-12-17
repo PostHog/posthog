@@ -85,7 +85,7 @@ import {
     defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
-import { SurveyVersionWarning, getSurveyVersionWarnings } from './surveyVersionRequirements'
+import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
 import { surveysLogic } from './surveysLogic'
 import {
     DATE_FORMAT,
@@ -1040,6 +1040,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
                 if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
                     actions.setSelectedSection(SurveyEditSection.DisplayConditions)
+                } else if (
+                    values.surveyErrors.questions != null &&
+                    !values.surveyErrors.questions.every((q) => q.question === false)
+                ) {
+                    actions.setSelectedSection(SurveyEditSection.Steps)
+                    const page = values.surveyErrors.questions.findIndex((q) => q.question !== false)
+                    if (page >= 0) {
+                        actions.setSelectedPageIndex(page)
+                    }
                 } else if (hasFormErrors(values.survey.appearance)) {
                     actions.setSelectedSection(SurveyEditSection.Customization)
                 } else {
@@ -2039,10 +2048,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return responsesByQuestion
             },
         ],
-        surveyVersionWarnings: [
+        surveyWarnings: [
             (s) => [s.survey, s.teamSdkVersions],
-            (survey, teamSdkVersions): SurveyVersionWarning[] => {
-                return getSurveyVersionWarnings(survey as Survey, teamSdkVersions)
+            (survey, teamSdkVersions): SurveyFeatureWarning[] => {
+                return getSurveyWarnings(survey as Survey, teamSdkVersions)
             },
         ],
     }),

@@ -1,15 +1,27 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useEffect, useMemo } from 'react'
 
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonInputSelect,
+    LemonSelect,
+    LemonSwitch,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { PropertyDefinitionType, SurveyMatchType } from '~/types'
 
 import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { productTourLogic } from './productTourLogic'
@@ -18,6 +30,31 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     const { productTour, productTourLoading, productTourForm, targetingFlagFilters, isProductTourFormSubmitting } =
         useValues(productTourLogic({ id }))
     const { editingProductTour, setProductTourFormValue, submitProductTourForm } = useActions(productTourLogic({ id }))
+
+    // Load recent URLs from property definitions
+    const { options } = useValues(propertyDefinitionsModel)
+    const { loadPropertyValues } = useActions(propertyDefinitionsModel)
+    const urlOptions = options['$current_url']
+
+    useEffect(() => {
+        if (urlOptions?.status !== 'loading' && urlOptions?.status !== 'loaded') {
+            loadPropertyValues({
+                endpoint: undefined,
+                type: PropertyDefinitionType.Event,
+                propertyKey: '$current_url',
+                newInput: '',
+                eventNames: [],
+                properties: [],
+            })
+        }
+    }, [urlOptions?.status, loadPropertyValues])
+
+    const urlMatchTypeOptions = useMemo(() => {
+        return Object.entries(SurveyMatchTypeLabels).map(([key, label]) => ({
+            label,
+            value: key as SurveyMatchType,
+        }))
+    }, [])
 
     if (!productTour) {
         return <LemonSkeleton />
@@ -77,7 +114,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                         </p>
                         <div className="flex gap-2">
                             <LemonSelect
-                                value={conditions.urlMatchType || 'contains'}
+                                value={conditions.urlMatchType || SurveyMatchType.Contains}
                                 onChange={(value) => {
                                     setProductTourFormValue('content', {
                                         ...productTourForm.content,
@@ -87,25 +124,40 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                         },
                                     })
                                 }}
-                                options={[
-                                    { label: 'Contains', value: 'contains' },
-                                    { label: 'Exact match', value: 'exact' },
-                                    { label: 'Regex', value: 'regex' },
-                                ]}
+                                options={urlMatchTypeOptions}
                             />
-                            <LemonInput
+                            <LemonInputSelect
                                 className="flex-1"
-                                value={conditions.url || ''}
-                                onChange={(value) => {
+                                mode="single"
+                                value={conditions.url ? [conditions.url] : []}
+                                onChange={(val) => {
                                     setProductTourFormValue('content', {
                                         ...productTourForm.content,
                                         conditions: {
                                             ...conditions,
-                                            url: value,
+                                            url: val[0] || undefined,
                                         },
                                     })
                                 }}
+                                onInputChange={(newInput) => {
+                                    loadPropertyValues({
+                                        type: PropertyDefinitionType.Event,
+                                        endpoint: undefined,
+                                        propertyKey: '$current_url',
+                                        newInput: newInput.trim(),
+                                        eventNames: [],
+                                        properties: [],
+                                    })
+                                }}
                                 placeholder="e.g. /dashboard or https://example.com/app"
+                                allowCustomValues
+                                loading={urlOptions?.status === 'loading'}
+                                options={(urlOptions?.values || []).map(({ name }) => ({
+                                    key: String(name),
+                                    label: String(name),
+                                    value: String(name),
+                                }))}
+                                data-attr="product-tour-url-input"
                             />
                         </div>
                     </div>

@@ -1,7 +1,8 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.feature_flag.local_evaluation import (
     clear_flag_caches,
     flags_hypercache,
@@ -9,6 +10,7 @@ from posthog.models.feature_flag.local_evaluation import (
     update_flag_caches,
 )
 from posthog.models.project import Project
+from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -190,3 +192,40 @@ class TestLocalEvaluationCache(BaseTest):
         response, source = flags_hypercache.get_from_cache_with_source(self.team)
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
+
+
+class TestLocalEvaluationSignals(BaseTest):
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_evaluation_tag_create(self, mock_task):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        mock_task.reset_mock()
+
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_evaluation_tag_delete(self, mock_task):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+        eval_tag = FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        mock_task.reset_mock()
+
+        eval_tag.delete()
+
+        mock_task.delay.assert_called_once_with(self.team.id)
