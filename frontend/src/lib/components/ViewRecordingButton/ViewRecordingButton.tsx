@@ -36,6 +36,7 @@ export default function ViewRecordingButton({
     inModal = false,
     checkIfViewed = false,
     matchingEvents,
+    hasRecording,
     ...props
 }: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
     ViewRecordingProps & {
@@ -50,6 +51,7 @@ export default function ViewRecordingButton({
         timestamp,
         matchingEvents,
         inModal,
+        hasRecording,
     })
 
     const { recordingViewed, recordingViewedLoading } = useValues(
