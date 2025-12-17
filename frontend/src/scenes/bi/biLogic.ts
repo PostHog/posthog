@@ -882,20 +882,25 @@ function resolveFieldAndExpression(
         const foreignKey = getForeignKeyForField(currentTable, part)
         const nextPart = parts[index + 1]
 
-        if (foreignKey && currentTable?.fields?.[foreignKey.column]) {
-            const foreignKeyField = currentTable.fields[foreignKey.column]
+        if (foreignKey) {
+            const foreignKeyField = currentTable?.fields?.[foreignKey.column]
             const relationFieldName = foreignKeyFieldName(foreignKey.column)
-            const foreignKeyExpression = expression
-                ? `${expression}.${foreignKeyField.hogql_value}`
-                : foreignKeyField.hogql_value
             const qualifiedTargetTableName = qualifyTableName(currentTable.name, foreignKey.target_table)
             const targetTable = getTableFromDatabase(database, qualifiedTargetTableName)
             const relationExpression = expression ? `${expression}.${relationFieldName}` : relationFieldName
+            const baseExpression = foreignKeyField?.hogql_value || relationFieldName
 
             if (!nextPart || !targetTable) {
                 return {
-                    field: foreignKeyField,
-                    expression: targetTable ? relationExpression : foreignKeyExpression,
+                    field:
+                        foreignKeyField ||
+                        ({
+                            name: relationFieldName,
+                            hogql_value: relationFieldName,
+                            type: 'virtual_table',
+                            schema_valid: true,
+                        } as DatabaseSchemaField),
+                    expression: targetTable ? relationExpression : baseExpression,
                     table: targetTable || currentTable,
                 }
             }
@@ -1038,13 +1043,18 @@ function buildFieldTreeNodes(
             relationFieldName: foreignKeyFieldName(foreignKey.column),
             baseField: table.fields?.[foreignKey.column],
         }))
-        .filter(({ relationFieldName, baseField }) => relationFieldName && baseField)
+        .filter(({ relationFieldName }) => !!relationFieldName)
         .filter(({ relationFieldName }) => !existingFieldNames.has(relationFieldName))
         .map(({ foreignKey, relationFieldName, baseField }) => ({
-            ...baseField!,
+            ...(baseField || {
+                name: relationFieldName,
+                hogql_value: relationFieldName,
+                type: 'virtual_table' as DatabaseSerializedFieldType,
+                schema_valid: true,
+            }),
             name: relationFieldName,
             table: qualifyTableName(table.name, foreignKey.target_table),
-            hogql_value: baseField?.hogql_value || foreignKey.column,
+            hogql_value: baseField?.hogql_value || relationFieldName,
         }))
 
     const fields = [...getOrderedFields(table), ...foreignKeyFields]
